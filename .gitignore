@@ -1,0 +1,7 @@
+**/.env
+**/acme.json
+authentik/data/
+authentik/certs/
+*.sql
+*.dump
+backups/
