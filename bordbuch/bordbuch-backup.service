@@ -1,0 +1,20 @@
+[Unit]
+Description=Bordbuch - automatische Sicherung der Datenbank
+# Nach dem Hauptdienst, damit die Datenbank sicher existiert.
+After=bordbuch.service
+
+[Service]
+Type=oneshot
+User=pi
+Group=pi
+WorkingDirectory=/opt/bordbuch
+# Zieht eine konsistente Kopie von bordbuch.db nach /opt/bordbuch/backups/
+# und behaelt die letzten 14 Sicherungen. Anzahl mit --backup-keep aendern.
+ExecStart=/usr/bin/python3 /opt/bordbuch/server.py --backup
+
+# Gleiche Absicherung wie der Hauptdienst: nur das eigene Verzeichnis beschreibbar.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/bordbuch

@@ -1,0 +1,23 @@
+[Unit]
+Description=Bordbuch - Fahrzeugkosten und Wartung
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/opt/bordbuch
+ExecStart=/usr/bin/python3 /opt/bordbuch/server.py --port 8080
+Restart=on-failure
+RestartSec=5
+
+# Etwas Absicherung: der Dienst darf nur sein eigenes Verzeichnis beschreiben
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/bordbuch
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,31 @@
+services:
+  bordbuch:
+    build: .
+    image: bordbuch:lokal
+    container_name: bordbuch
+    restart: unless-stopped
+    environment:
+      BORDBUCH_ADMIN_GRUPPE: bordbuch-admin
+      TZ: Europe/Berlin
+    volumes:
+      - bordbuch_daten:/app/daten
+      - bordbuch_belege:/app/receipts
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.services.bordbuch.loadbalancer.server.port=8080"
+      - "traefik.http.routers.bordbuch.rule=Host(`bordbuch.prolo.me`)"
+      - "traefik.http.routers.bordbuch.entrypoints=websecure"
+      - "traefik.http.routers.bordbuch.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.bordbuch.middlewares=authentik@file"
+      - "traefik.http.routers.bordbuch.service=bordbuch"
+
+volumes:
+  bordbuch_daten:
+  bordbuch_belege:
+
+networks:
+  proxy:
+    external: true

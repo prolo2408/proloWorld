@@ -1,0 +1,7 @@
+*.db
+*.db-journal
+*.db-wal
+receipts/
+.sicherung-*
+.env
+__pycache__/
