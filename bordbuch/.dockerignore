@@ -1,0 +1,16 @@
+# Nur server.py und index.html gehoeren ins Abbild.
+*.db
+*.db-journal
+receipts/
+backups/
+.sicherung-*
+__pycache__/
+bordbuch-demo.html
+*.md
+*.service
+*.timer
+install.sh
+update.sh
+docker-compose.yml
+sicherung.conf
+.env

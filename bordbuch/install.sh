@@ -160,43 +160,6 @@ if [ -z "${ANTWORT:-}" ]; then
   fehler "Der Dienst antwortet nicht. Log ansehen mit: journalctl -u bordbuch -n 40"
 fi
 
-# --- Automatische Sicherung (systemd-Timer) --------------------------------
-# Wie die Dienstdatei erzeugt statt kopiert, damit Pfad und Benutzer stimmen.
-cat > /etc/systemd/system/bordbuch-backup.service <<SICHERUNG
-[Unit]
-Description=Bordbuch - automatische Sicherung der Datenbank
-After=bordbuch.service
-
-[Service]
-Type=oneshot
-User=$BENUTZER
-Group=$BENUTZER
-WorkingDirectory=$DIR
-ExecStart=/usr/bin/python3 $DIR/server.py --backup
-NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectSystem=full
-ProtectHome=read-only
-ReadWritePaths=$DIR
-SICHERUNG
-cat > /etc/systemd/system/bordbuch-backup.timer <<TIMER
-[Unit]
-Description=Bordbuch - taeglich eine Sicherung anstossen
-
-[Timer]
-OnCalendar=*-*-* 03:30:00
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-TIMER
-systemctl daemon-reload || true
-if systemctl enable --now bordbuch-backup.timer >/dev/null 2>&1; then
-  sagen "Automatische Sicherung eingerichtet (täglich 03:30 Uhr)"
-else
-  sagen "Hinweis: Sicherungs-Timer nicht aktiviert - siehe ANLEITUNG"
-fi
-
 FASSUNG=$(printf '%s' "$ANTWORT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["version"])')
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 

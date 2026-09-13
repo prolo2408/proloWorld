@@ -1,7 +1,17 @@
+# Schuetzenswerte Daten - siehe Betriebsregeln, Abschnitt 8 und 10.
+.env
+.env.*
+*.key
+*.pem
 *.db
 *.db-journal
 *.db-wal
+*.sqlite
+*.sql
+*.dump
 receipts/
-.sicherung-*
-.env
+belege/
+daten/
+backups/
 __pycache__/
+*.tar.gz

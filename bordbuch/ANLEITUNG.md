@@ -35,7 +35,38 @@ Sicherung in der Oberfläche · Verwaltung · Bekannte Grenzen · Befehle
 
 # Teil 1 — Einrichten
 
-## Schnellstart
+## Im Stack hinter Traefik und Authentik (Docker)
+
+Ordner nach `/opt/stack/bordbuch/` legen — der Name muss der Subdomain
+entsprechen — und starten:
+
+```bash
+cd /opt/stack/bordbuch
+docker compose up -d --build
+cd /opt/stack && git status   # Liste prüfen, dann add/commit/push
+```
+
+Mitgeliefert sind `Dockerfile`, `docker-compose.yml` und `sicherung.conf`.
+Vier Eigenschaften, die so bleiben sollten:
+
+* **Keine `ports:`-Zeile.** Bordbuch vertraut den Anmeldeköpfen von Authentik —
+  die wären fälschbar, sobald der Container direkt erreichbar ist. Darum
+  bestätigt das Compose-File mit `BORDBUCH_HEADER_VERTRAUEN: "1"` ausdrücklich,
+  dass Traefik davorsteht; ohne diese Zusage startet Bordbuch gar nicht.
+* **Ein Volume für alles.** Datenbank und Belege liegen gemeinsam unter `/daten`
+  (von außen `bordbuch_daten`) — der einzige Ort mit deinen Daten und der
+  einzige Eintrag in `sicherung.conf`. Bordbuch sichert **nicht** selbst; das
+  macht das zentrale Backup des Stacks über das Volume.
+* **Keine Geheimnisse, keine `.env`.** Bordbuch hat weder Schlüssel noch
+  Zugangsdaten — die Anmeldung liegt vollständig bei Authentik.
+
+Danach in Authentik eine Anwendung für `bordbuch.prolo.me` anlegen und dem
+Outpost zuweisen. Wer die Gesamtsicherung über alle Profile ziehen darf, kommt
+in die Gruppe `bordbuch-admin` (Name über `BORDBUCH_ADMIN_GRUPPE` änderbar).
+
+---
+
+## Schnellstart auf einem einzelnen Raspberry Pi
 
 Wenn du dich auf dem Pi auskennst, genügt das:
 
@@ -259,41 +290,6 @@ sudo systemctl stop bordbuch
 cd /opt/bordbuch && tar xzf ~/bordbuch-sicherung-2026-08-26.tar.gz
 sudo systemctl start bordbuch
 ```
-
-### Automatische Sicherung (systemd-Timer)
-
-Damit die Sicherung nicht von deiner Erinnerung abhaengt, kann Bordbuch sie
-taeglich selbst anlegen. Der Server kennt dafuer einen eigenen Aufruf, der eine
-saubere Kopie der Datenbank zieht -- auch waehrend er laeuft -- und die letzten
-14 Sicherungen unter `/opt/bordbuch/backups/` behaelt:
-
-```bash
-# Einmal von Hand testen:
-cd /opt/bordbuch && python3 server.py --backup
-```
-
-Fuer den taeglichen Lauf liegen im Paket zwei Dateien bereit. Einrichten:
-
-```bash
-sudo cp bordbuch-backup.service bordbuch-backup.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now bordbuch-backup.timer
-```
-
-Der Timer stoesst die Sicherung jede Nacht um 3:30 Uhr an; war der Pi dann aus,
-wird sie beim naechsten Start nachgeholt. Wie viele Sicherungen behalten werden,
-steuerst du mit `--backup-keep` (z. B. `--backup-keep 30`) in der Zeile
-`ExecStart=` der Datei `bordbuch-backup.service`. Wann zuletzt gesichert wurde,
-zeigt die Oberflaeche unter *Einstellungen -> Daten -> Automatische Sicherung*.
-
-Ob der Timer laeuft und wann er das naechste Mal faellig ist:
-
-```bash
-systemctl status bordbuch-backup.timer
-systemctl list-timers bordbuch-backup.timer
-```
-
----
 
 ## Wichtig zur Sicherheit
 

@@ -25,7 +25,17 @@ from urllib.parse import unquote, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB_LOCK = threading.Lock()
+# Belege und automatische Sicherungen liegen neben der Datenbank, nicht im
+# Programmverzeichnis: im Container ist das Programmverzeichnis Teil des Abbilds
+# und waere nach jedem Neubau leer. Ein Volume auf das Datenverzeichnis deckt
+# damit Datenbank, Belege und Sicherungen zugleich ab. Auf dem Pi bleibt alles
+# wie bisher, weil die Datenbank dort ohnehin neben server.py liegt.
 RECEIPT_DIR = os.path.join(HERE, "receipts")
+
+
+def daten_dir():
+    """Verzeichnis der Datenbank - dort leben auch Belege und Sicherungen."""
+    return os.path.dirname(os.path.abspath(CFG.db)) or HERE
 # Was der Server ueberhaupt herausgeben darf - der Rest des Verzeichnisses
 # (Datenbank, Quelltext, Sicherungen) bleibt unerreichbar.
 PUBLIC_FILES = {"index.html", "favicon.ico"}
@@ -98,7 +108,7 @@ CREATE TABLE IF NOT EXISTS users(
 );
 CREATE TABLE IF NOT EXISTS cars(
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  nutzer_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name        TEXT NOT NULL,
   kwh_per_100 REAL NOT NULL DEFAULT 18,
   active      INTEGER NOT NULL DEFAULT 1,
@@ -107,7 +117,7 @@ CREATE TABLE IF NOT EXISTS cars(
 );
 CREATE TABLE IF NOT EXISTS sessions(
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  nutzer_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   car_id        INTEGER REFERENCES cars(id) ON DELETE SET NULL,
   tx            TEXT NOT NULL,
   start         TEXT NOT NULL,
@@ -128,9 +138,9 @@ CREATE TABLE IF NOT EXISTS sessions(
   invoice_date  TEXT NOT NULL DEFAULT '',
   invoice_gross REAL NOT NULL DEFAULT 0,
   src           TEXT NOT NULL DEFAULT '',
-  UNIQUE(user_id, tx)
+  UNIQUE(nutzer_id, tx)
 );
-CREATE INDEX IF NOT EXISTS idx_sess_user ON sessions(user_id, start);
+CREATE INDEX IF NOT EXISTS idx_sess_user ON sessions(nutzer_id, start);
 """
 
 # Nachtraegliche Aenderungen. Beides ist idempotent: fehlende Spalten werden
@@ -173,7 +183,7 @@ CREATE INDEX IF NOT EXISTS idx_frei_empf ON freigaben(empfaenger_id);
 """, """
 CREATE TABLE IF NOT EXISTS wartung(
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  nutzer_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   car_id        INTEGER REFERENCES cars(id) ON DELETE CASCADE,
   art           TEXT NOT NULL DEFAULT '',    -- "Oelwechsel", "HU/TUEV", "Reifen"
   intervall_km  REAL NOT NULL DEFAULT 0,     -- 0 = spielt keine Rolle
@@ -185,11 +195,11 @@ CREATE TABLE IF NOT EXISTS wartung(
   notiz         TEXT NOT NULL DEFAULT '',
   aktiv         INTEGER NOT NULL DEFAULT 1
 );
-CREATE INDEX IF NOT EXISTS idx_wartung_user ON wartung(user_id, car_id);
+CREATE INDEX IF NOT EXISTS idx_wartung_user ON wartung(nutzer_id, car_id);
 """, """
 CREATE TABLE IF NOT EXISTS werkstatt(
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  nutzer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   car_id  INTEGER REFERENCES cars(id) ON DELETE SET NULL,
   ts      TEXT NOT NULL,
   art     TEXT NOT NULL DEFAULT '',
@@ -199,11 +209,11 @@ CREATE TABLE IF NOT EXISTS werkstatt(
   note    TEXT NOT NULL DEFAULT '',
   receipt TEXT NOT NULL DEFAULT ''
 );
-CREATE INDEX IF NOT EXISTS idx_werkstatt_user ON werkstatt(user_id, car_id);
+CREATE INDEX IF NOT EXISTS idx_werkstatt_user ON werkstatt(nutzer_id, car_id);
 """, """
 CREATE TABLE IF NOT EXISTS fuelings(
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  nutzer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   car_id  INTEGER REFERENCES cars(id) ON DELETE SET NULL,
   ts      TEXT NOT NULL,
   liters  REAL NOT NULL DEFAULT 0,
@@ -215,7 +225,7 @@ CREATE TABLE IF NOT EXISTS fuelings(
   receipt TEXT NOT NULL DEFAULT '',
   created TEXT NOT NULL DEFAULT (datetime('now'))
 );""",
-    "CREATE INDEX IF NOT EXISTS idx_fuel_user ON fuelings(user_id, ts);",
+    "CREATE INDEX IF NOT EXISTS idx_fuel_user ON fuelings(nutzer_id, ts);",
     "CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);"]
 
 # Indizes, die eine erst durch ADD_COLUMNS entstandene Spalte brauchen - sie
@@ -229,7 +239,7 @@ ADD_INDEXES = [
 SCHEMA_VERSION = "5"
 # Fassungsnummer der Anwendung, getrennt vom Datenstand oben. Wird von
 # --version, /api/version, install.sh und update.sh gelesen.
-VERSION = "2.1.0"
+VERSION = "2.4.1"
 
 SESSION_FIELDS = ["tx", "start", "finish", "sec", "kwh", "cost", "net", "vat", "station", "city", "zip",
                   "street", "rate", "partner", "entity", "invoice_no", "invoice_date", "invoice_gross",
@@ -284,6 +294,18 @@ def init_db():
     os.makedirs(RECEIPT_DIR, exist_ok=True)
     fresh = not os.path.exists(CFG.db) or os.path.getsize(CFG.db) == 0
     with db() as con:
+        # Umbenennung aus Stand 5: der Besitzer heisst jetzt ueberall nutzer_id.
+        # Muss VOR dem Schema laufen, sonst legt BASE_SCHEMA die Tabellen zwar
+        # nicht neu an (IF NOT EXISTS), die Abfragen darunter faenden aber die
+        # alte Spalte. Idempotent: was schon nutzer_id heisst, bleibt.
+        for tab in ("cars", "sessions", "fuelings", "wartung", "werkstatt"):
+            try:
+                spalten = {r["name"] for r in con.execute("PRAGMA table_info(%s)" % tab)}
+            except sqlite3.OperationalError:
+                continue
+            if "user_id" in spalten and "nutzer_id" not in spalten:
+                con.execute("ALTER TABLE %s RENAME COLUMN user_id TO nutzer_id" % tab)
+                print("Datenbank ergaenzt: %s.user_id heisst jetzt nutzer_id" % tab)
         con.executescript(BASE_SCHEMA)
         for sql in ADD_TABLES:
             con.executescript(sql)
@@ -340,7 +362,7 @@ class Server(ThreadingHTTPServer):
         ThreadingHTTPServer.handle_error(self, request, client_address)
 
 
-def belege_loeschen(con, user_id, behalten=()):
+def belege_loeschen(con, nutzer_id, behalten=()):
     """Bilddateien der Tankungen eines Profils vom Datentraeger entfernen.
 
     Die Datenbankzeilen verschwinden per ON DELETE CASCADE von selbst - die
@@ -355,8 +377,8 @@ def belege_loeschen(con, user_id, behalten=()):
     schutz = set(behalten or ())
     weg = 0
     for tabelle in ("fuelings", "werkstatt"):
-        for r in con.execute("SELECT receipt FROM %s WHERE user_id=? AND receipt<>''" % tabelle,
-                             (user_id,)):
+        for r in con.execute("SELECT receipt FROM %s WHERE nutzer_id=? AND receipt<>''" % tabelle,
+                             (nutzer_id,)):
             if r["receipt"] in schutz:
                 continue
             beleg_datei_weg(r["receipt"])
@@ -533,11 +555,11 @@ class App(BaseHTTPRequestHandler):
                 return self.send_json({"error": "Nicht angemeldet."}, 401)
             # Gesichert wird immer das eigene Profil, nie ein freigegebenes.
             user = ich
-            cars = [dict(r) for r in con.execute("SELECT * FROM cars WHERE user_id=?", (user["id"],))]
-            sess = [dict(r) for r in con.execute("SELECT * FROM sessions WHERE user_id=?", (user["id"],))]
-            fuel = [dict(r) for r in con.execute("SELECT * FROM fuelings WHERE user_id=?", (user["id"],))]
-            wart = [dict(r) for r in con.execute("SELECT * FROM wartung WHERE user_id=?", (user["id"],))]
-            werk = [dict(r) for r in con.execute("SELECT * FROM werkstatt WHERE user_id=?", (user["id"],))]
+            cars = [dict(r) for r in con.execute("SELECT * FROM cars WHERE nutzer_id=?", (user["id"],))]
+            sess = [dict(r) for r in con.execute("SELECT * FROM sessions WHERE nutzer_id=?", (user["id"],))]
+            fuel = [dict(r) for r in con.execute("SELECT * FROM fuelings WHERE nutzer_id=?", (user["id"],))]
+            wart = [dict(r) for r in con.execute("SELECT * FROM wartung WHERE nutzer_id=?", (user["id"],))]
+            werk = [dict(r) for r in con.execute("SELECT * FROM werkstatt WHERE nutzer_id=?", (user["id"],))]
             try:
                 settings = json.loads(user["settings"] or "{}")
             except ValueError:
@@ -564,19 +586,19 @@ class App(BaseHTTPRequestHandler):
         if mode == "replace":
             # Belege, die in der Sicherung wieder auftauchen, bleiben liegen.
             belege_loeschen(con, user["id"], belege_der_sicherung(payload))
-            con.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],))
-            con.execute("DELETE FROM fuelings WHERE user_id=?", (user["id"],))
+            con.execute("DELETE FROM sessions WHERE nutzer_id=?", (user["id"],))
+            con.execute("DELETE FROM fuelings WHERE nutzer_id=?", (user["id"],))
             # Wartungsplan und Werkstattrechnungen gehoeren dazu - sonst blieben
             # sie stehen, waehrend alles andere ersetzt wird, und die neuen
             # Eintraege liefen in die Dublettenpruefung.
-            con.execute("DELETE FROM wartung WHERE user_id=?", (user["id"],))
-            con.execute("DELETE FROM werkstatt WHERE user_id=?", (user["id"],))
-            con.execute("DELETE FROM cars WHERE user_id=?", (user["id"],))
+            con.execute("DELETE FROM wartung WHERE nutzer_id=?", (user["id"],))
+            con.execute("DELETE FROM werkstatt WHERE nutzer_id=?", (user["id"],))
+            con.execute("DELETE FROM cars WHERE nutzer_id=?", (user["id"],))
 
         # Autos werden ueber den Namen zusammengefuehrt. Sonst entstehen beim
         # zweiten Einspielen Doppel wie "Golf" und "Golf".
         have = {r["name"]: r["id"] for r in
-                con.execute("SELECT id,name FROM cars WHERE user_id=?", (user["id"],))}
+                con.execute("SELECT id,name FROM cars WHERE nutzer_id=?", (user["id"],))}
         carmap, cars_new = {}, 0
         for c in payload.get("cars") or []:
             name = str(c.get("name") or "Auto")[:60]
@@ -584,7 +606,7 @@ class App(BaseHTTPRequestHandler):
                 carmap[c.get("id")] = have[name]
                 continue
             kind = c.get("kind") if c.get("kind") in ("bev", "phev", "petrol", "diesel") else "bev"
-            new = con.execute("""INSERT INTO cars(user_id,name,kind,kwh_per_100,l_per_100,active,note,plate,
+            new = con.execute("""INSERT INTO cars(nutzer_id,name,kind,kwh_per_100,l_per_100,active,note,plate,
                                  battery,tank) VALUES(?,?,?,?,?,?,?,?,?,?)""",
                               (user["id"], name, kind,
                                num(c.get("kwh_per_100", c.get("kwhPer100")), 18),
@@ -599,7 +621,7 @@ class App(BaseHTTPRequestHandler):
         # Ladungen: die Vorgangsnummer (tx) ist eindeutig, doppelte fallen
         # ueber den UNIQUE-Index von selbst heraus.
         sess_new = sess_dup = 0
-        cols = ",".join(["user_id", "car_id"] + SESSION_FIELDS)
+        cols = ",".join(["nutzer_id", "car_id"] + SESSION_FIELDS)
         ph = ",".join(["?"] * (len(SESSION_FIELDS) + 2))
         for s in payload.get("sessions") or []:
             if not s.get("tx") or not valid_ts(s.get("start")):
@@ -627,11 +649,11 @@ class App(BaseHTTPRequestHandler):
             if not valid_ts(f.get("ts")):
                 continue
             key = (user["id"], f.get("ts"), round(num(f.get("cost")), 2), round(num(f.get("liters")), 3))
-            if con.execute("""SELECT 1 FROM fuelings WHERE user_id=? AND ts=? AND
+            if con.execute("""SELECT 1 FROM fuelings WHERE nutzer_id=? AND ts=? AND
                               ROUND(cost,2)=? AND ROUND(liters,3)=?""", key).fetchone():
                 fuel_dup += 1
                 continue
-            con.execute("""INSERT INTO fuelings(user_id,car_id,ts,liters,cost,odo,full,station,note,receipt)
+            con.execute("""INSERT INTO fuelings(nutzer_id,car_id,ts,liters,cost,odo,full,station,note,receipt)
                            VALUES(?,?,?,?,?,?,?,?,?,?)""",
                         (user["id"], carmap.get(f.get("car_id")), f.get("ts"), num(f.get("liters")),
                          num(f.get("cost")), num(f.get("odo")), 1 if f.get("full", 1) else 0,
@@ -648,12 +670,12 @@ class App(BaseHTTPRequestHandler):
                 continue
             # Ein Wartungseintrag ist durch Auto und Bezeichnung eindeutig -
             # zweimal "Oelwechsel" am selben Auto ist nie gewollt.
-            if con.execute("""SELECT 1 FROM wartung WHERE user_id=? AND art=?
+            if con.execute("""SELECT 1 FROM wartung WHERE nutzer_id=? AND art=?
                               AND IFNULL(car_id,0)=IFNULL(?,0)""",
                            (user["id"], art[:80], carmap.get(w.get("car_id")))).fetchone():
                 wart_dup += 1
                 continue
-            con.execute("""INSERT INTO wartung(user_id,car_id,art,intervall_km,intervall_mon,
+            con.execute("""INSERT INTO wartung(nutzer_id,car_id,art,intervall_km,intervall_mon,
                            letzte_km,letztes_dat,faellig_km,faellig_dat,notiz,aktiv)
                            VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                         (user["id"], carmap.get(w.get("car_id")), art[:80],
@@ -667,13 +689,13 @@ class App(BaseHTTPRequestHandler):
             ts = valid_ts(w.get("ts"))
             if not ts:
                 continue
-            if con.execute("""SELECT 1 FROM werkstatt WHERE user_id=? AND ts=? AND ROUND(cost,2)=?
+            if con.execute("""SELECT 1 FROM werkstatt WHERE nutzer_id=? AND ts=? AND ROUND(cost,2)=?
                               AND art=?""",
                            (user["id"], ts, round(num(w.get("cost")), 2),
                             str(w.get("art") or "")[:80])).fetchone():
                 werk_dup += 1
                 continue
-            con.execute("""INSERT INTO werkstatt(user_id,car_id,ts,art,cost,odo,betrieb,note,receipt)
+            con.execute("""INSERT INTO werkstatt(nutzer_id,car_id,ts,art,cost,odo,betrieb,note,receipt)
                            VALUES(?,?,?,?,?,?,?,?,?)""",
                         (user["id"], carmap.get(w.get("car_id")), ts, str(w.get("art") or "")[:80],
                          num(w.get("cost")), num(w.get("odo")), str(w.get("betrieb") or "")[:120],
@@ -727,11 +749,11 @@ class App(BaseHTTPRequestHandler):
         if dbid:
             cur = con.execute("""UPDATE wartung SET car_id=?,art=?,intervall_km=?,intervall_mon=?,
                                  letzte_km=?,letztes_dat=?,faellig_km=?,faellig_dat=?,notiz=?,aktiv=?
-                                 WHERE id=? AND user_id=?""", werte + (dbid, user["id"]))
+                                 WHERE id=? AND nutzer_id=?""", werte + (dbid, user["id"]))
             if not cur.rowcount:
                 return self.send_json({"error": "Wartungseintrag nicht gefunden"}, 404)
             return self.send_json({"ok": True, "id": dbid})
-        neu = con.execute("""INSERT INTO wartung(user_id,car_id,art,intervall_km,intervall_mon,
+        neu = con.execute("""INSERT INTO wartung(nutzer_id,car_id,art,intervall_km,intervall_mon,
                              letzte_km,letztes_dat,faellig_km,faellig_dat,notiz,aktiv)
                              VALUES(?,?,?,?,?,?,?,?,?,?,?)""", (user["id"],) + werte).lastrowid
         return self.send_json({"ok": True, "id": neu})
@@ -749,7 +771,7 @@ class App(BaseHTTPRequestHandler):
         TUEV 2023 gekostet hat - und im Logbuch, bei welchem Kilometerstand.
         Der Kilometerstand ist freiwillig: bei der HU sagt er nichts aus.
         """
-        row = con.execute("SELECT * FROM wartung WHERE id=? AND user_id=?",
+        row = con.execute("SELECT * FROM wartung WHERE id=? AND nutzer_id=?",
                           (data.get("dbid"), user["id"])).fetchone()
         if not row:
             return self.send_json({"error": "Wartungseintrag nicht gefunden"}, 404)
@@ -766,7 +788,7 @@ class App(BaseHTTPRequestHandler):
         elif f_km and km > 0:
             f_km = 0.0
         con.execute("""UPDATE wartung SET letzte_km=?,letztes_dat=?,faellig_km=?,faellig_dat=?
-                       WHERE id=? AND user_id=?""",
+                       WHERE id=? AND nutzer_id=?""",
                     (km or row["letzte_km"], dat, f_km, f_dat, row["id"], user["id"]))
         # Logbucheintrag samt Kosten. Auch ohne Betrag wird er angelegt: dass
         # der TUEV im Maerz 2024 gemacht wurde, ist die Information wert.
@@ -775,7 +797,7 @@ class App(BaseHTTPRequestHandler):
             beleg = self.save_receipt(data) or ""
         except ValueError as e:
             return self.send_json({"error": str(e)}, 400)
-        log_id = con.execute("""INSERT INTO werkstatt(user_id,car_id,ts,art,cost,odo,betrieb,note,
+        log_id = con.execute("""INSERT INTO werkstatt(nutzer_id,car_id,ts,art,cost,odo,betrieb,note,
                                 receipt,wart_id) VALUES(?,?,?,?,?,?,?,?,?,?)""",
                              (user["id"], row["car_id"], dat + "T12:00:00", row["art"],
                               round(num(data.get("cost")), 2), km,
@@ -784,7 +806,7 @@ class App(BaseHTTPRequestHandler):
         return self.send_json({"ok": True, "log": log_id})
 
     def service_delete(self, con, user, data):
-        con.execute("DELETE FROM wartung WHERE id=? AND user_id=?", (data.get("dbid"), user["id"]))
+        con.execute("DELETE FROM wartung WHERE id=? AND nutzer_id=?", (data.get("dbid"), user["id"]))
         return self.send_json({"ok": True})
 
     # ------------------------------------------------------------------
@@ -811,29 +833,29 @@ class App(BaseHTTPRequestHandler):
                  str(data.get("betrieb") or "")[:120], str(data.get("note") or "")[:200],
                  int(num(data.get("wartId"))))
         if dbid:
-            alt = con.execute("SELECT receipt FROM werkstatt WHERE id=? AND user_id=?",
+            alt = con.execute("SELECT receipt FROM werkstatt WHERE id=? AND nutzer_id=?",
                               (dbid, user["id"])).fetchone()
             if not alt:
                 return self.send_json({"error": "Rechnung nicht gefunden"}, 404)
             if beleg and alt["receipt"]:
                 beleg_datei_weg(alt["receipt"])
             con.execute("""UPDATE werkstatt SET car_id=?,ts=?,art=?,cost=?,odo=?,betrieb=?,note=?,
-                           wart_id=?,receipt=? WHERE id=? AND user_id=?""",
+                           wart_id=?,receipt=? WHERE id=? AND nutzer_id=?""",
                         werte + (beleg or alt["receipt"] or "", dbid, user["id"]))
             return self.send_json({"ok": True, "id": dbid})
         # save_receipt() gibt None zurueck, wenn keine Datei mitkam - die Spalte
         # ist aber NOT NULL, darum der leere Text.
-        neu = con.execute("""INSERT INTO werkstatt(user_id,car_id,ts,art,cost,odo,betrieb,note,
+        neu = con.execute("""INSERT INTO werkstatt(nutzer_id,car_id,ts,art,cost,odo,betrieb,note,
                              wart_id,receipt) VALUES(?,?,?,?,?,?,?,?,?,?)""",
                           (user["id"],) + werte + (beleg or "",)).lastrowid
         return self.send_json({"ok": True, "id": neu})
 
     def shop_delete(self, con, user, data):
-        row = con.execute("SELECT receipt FROM werkstatt WHERE id=? AND user_id=?",
+        row = con.execute("SELECT receipt FROM werkstatt WHERE id=? AND nutzer_id=?",
                           (data.get("dbid"), user["id"])).fetchone()
         if row and row["receipt"]:
             beleg_datei_weg(row["receipt"])
-        con.execute("DELETE FROM werkstatt WHERE id=? AND user_id=?", (data.get("dbid"), user["id"]))
+        con.execute("DELETE FROM werkstatt WHERE id=? AND nutzer_id=?", (data.get("dbid"), user["id"]))
         return self.send_json({"ok": True})
 
     def restore(self, con, user, data):
@@ -865,15 +887,15 @@ class App(BaseHTTPRequestHandler):
                 profile.append({
                     "name": u["name"],
                     "cars": [dict(r) for r in
-                             con.execute("SELECT * FROM cars WHERE user_id=?", (u["id"],))],
+                             con.execute("SELECT * FROM cars WHERE nutzer_id=?", (u["id"],))],
                     "sessions": [dict(r) for r in
-                                 con.execute("SELECT * FROM sessions WHERE user_id=?", (u["id"],))],
+                                 con.execute("SELECT * FROM sessions WHERE nutzer_id=?", (u["id"],))],
                     "fuelings": [dict(r) for r in
-                                 con.execute("SELECT * FROM fuelings WHERE user_id=?", (u["id"],))],
+                                 con.execute("SELECT * FROM fuelings WHERE nutzer_id=?", (u["id"],))],
                     "wartung": [dict(r) for r in
-                                con.execute("SELECT * FROM wartung WHERE user_id=?", (u["id"],))],
+                                con.execute("SELECT * FROM wartung WHERE nutzer_id=?", (u["id"],))],
                     "werkstatt": [dict(r) for r in
-                                  con.execute("SELECT * FROM werkstatt WHERE user_id=?", (u["id"],))],
+                                  con.execute("SELECT * FROM werkstatt WHERE nutzer_id=?", (u["id"],))],
                     "settings": einst,
                 })
             return self.send_json({"ladelog": SCHEMA_VERSION, "typ": "gesamt",
@@ -929,19 +951,6 @@ class App(BaseHTTPRequestHandler):
                 bericht.append(z)
         return self.send_json({"ok": True, "profile": bericht})
 
-    def backup_status(self, con):
-        """Letzte automatische Sicherung aus meta lesen - oder None, wenn nie gelaufen."""
-        zeit = con.execute("SELECT v FROM meta WHERE k='backup_zeit'").fetchone()
-        if not zeit:
-            return None
-        def hol(k):
-            r = con.execute("SELECT v FROM meta WHERE k=?", (k,)).fetchone()
-            return r["v"] if r else None
-        g = hol("backup_groesse"); a = hol("backup_anzahl")
-        return {"zeit": zeit["v"], "datei": hol("backup_datei"),
-                "groesse": int(g) if (g and g.isdigit()) else None,
-                "anzahl": int(a) if (a and a.isdigit()) else None}
-
     def state(self):
         with db() as con:
             ich, user, darf_schreiben = self.profil(con)
@@ -972,18 +981,21 @@ class App(BaseHTTPRequestHandler):
                             (ich["id"],))]
             # Wem man ueberhaupt etwas freigeben kann: nur bereits angemeldete
             # Profile, Bordbuch legt niemanden an.
-            andere = [{"id": r["id"], "name": r["name"]}
-                      for r in con.execute("SELECT id,name FROM users WHERE id<>? ORDER BY name",
-                                           (ich["id"],))]
+            # E-Mail mitgeben: bei aehnlichen Anzeigenamen trifft man sonst die
+            # falsche Person, und angelegt hat die Namen nicht Bordbuch.
+            andere = [{"id": r["id"], "name": r["name"], "email": r["email"]}
+                      for r in con.execute(
+                          "SELECT id,name,email FROM users WHERE id<>? ORDER BY name",
+                          (ich["id"],))]
             cars = [{"id": r["id"], "name": r["name"], "kind": r["kind"], "kwhPer100": r["kwh_per_100"],
                      "lPer100": r["l_per_100"], "battery": r["battery"], "tank": r["tank"], "plate": r["plate"],
                      "active": bool(r["active"]), "note": r["note"]}
-                    for r in con.execute("SELECT * FROM cars WHERE user_id=? ORDER BY active DESC, id",
+                    for r in con.execute("SELECT * FROM cars WHERE nutzer_id=? ORDER BY active DESC, id",
                                          (user["id"],))]
             sess = [row_session(r) for r in con.execute(
-                "SELECT * FROM sessions WHERE user_id=? ORDER BY start", (user["id"],))]
+                "SELECT * FROM sessions WHERE nutzer_id=? ORDER BY start", (user["id"],))]
             fuel = [row_fuel(r) for r in con.execute(
-                "SELECT * FROM fuelings WHERE user_id=? ORDER BY ts", (user["id"],))]
+                "SELECT * FROM fuelings WHERE nutzer_id=? ORDER BY ts", (user["id"],))]
             try:
                 settings = json.loads(user["settings"] or "{}")
             except ValueError:
@@ -992,24 +1004,27 @@ class App(BaseHTTPRequestHandler):
                                            "anmeldung": ich["authentik_user"],
                                            "email": ich["email"],
                                            "abmelden": CFG.abmelde_pfad,
+                                           # Gruppen kommen aus dem Kopf, nicht aus der
+                                           # Datenbank - sie gehoeren der Anmeldung.
+                                           "gruppen": sorted(self.gruppen()),
+                                           "adminGruppe": CFG.admin_gruppe,
                                            "admin": self.ist_admin()},
                                    "user": {"id": user["id"], "name": user["name"]},
                                    "profile": profile, "schreiben": darf_schreiben,
                                    "freigabenMeine": meine, "freigabenFuerMich": fuerMich,
                                    "andere": andere,
-                                   "backup": self.backup_status(con),
                                    "cars": cars, "sessions": sess, "fuelings": fuel,
                                    "service": [dict(r) for r in con.execute(
                                        """SELECT id AS dbid,car_id AS carId,art,intervall_km AS intervallKm,
                                           intervall_mon AS intervallMon,letzte_km AS letzteKm,
                                           letztes_dat AS letztesDat,faellig_km AS faelligKm,
                                           faellig_dat AS faelligDat,notiz,aktiv
-                                          FROM wartung WHERE user_id=? ORDER BY id""",
+                                          FROM wartung WHERE nutzer_id=? ORDER BY id""",
                                        (user["id"],))],
                                    "shop": [dict(r) for r in con.execute(
                                        """SELECT id AS dbid,car_id AS carId,ts,art,cost,odo,betrieb,
                                           note,receipt,wart_id AS wartId
-                                          FROM werkstatt WHERE user_id=? ORDER BY ts""",
+                                          FROM werkstatt WHERE nutzer_id=? ORDER BY ts""",
                                        (user["id"],))],
                                    "settings": settings, "schema": SCHEMA_VERSION})
 
@@ -1087,7 +1102,7 @@ class App(BaseHTTPRequestHandler):
             return self.send_json({"error": "Nicht bestaetigt"}, 400)
         belege_loeschen(con, user["id"])
         for tabelle in ("werkstatt", "wartung", "fuelings", "sessions", "cars"):
-            con.execute("DELETE FROM %s WHERE user_id=?" % tabelle, (user["id"],))
+            con.execute("DELETE FROM %s WHERE nutzer_id=?" % tabelle, (user["id"],))
         con.execute("DELETE FROM freigaben WHERE eigentuemer_id=?", (user["id"],))
         con.execute("UPDATE users SET settings='{}' WHERE id=?", (user["id"],))
         return self.send_json({"ok": True})
@@ -1135,26 +1150,26 @@ class App(BaseHTTPRequestHandler):
         tank = max(0.0, min(200.0, num(data.get("tank"))))
         cid = data.get("id")
         if cid:
-            if not con.execute("SELECT 1 FROM cars WHERE id=? AND user_id=?", (cid, user["id"])).fetchone():
+            if not con.execute("SELECT 1 FROM cars WHERE id=? AND nutzer_id=?", (cid, user["id"])).fetchone():
                 return self.send_json({"error": "Auto nicht gefunden"}, 404)
             con.execute("""UPDATE cars SET name=?,kind=?,kwh_per_100=?,l_per_100=?,active=?,note=?,
-                           plate=?,battery=?,tank=? WHERE id=? AND user_id=?""",
+                           plate=?,battery=?,tank=? WHERE id=? AND nutzer_id=?""",
                         (name, kind, kwh, lit, active, note, plate, akku, tank, cid, user["id"]))
         else:
-            cid = con.execute("""INSERT INTO cars(user_id,name,kind,kwh_per_100,l_per_100,active,note,
+            cid = con.execute("""INSERT INTO cars(nutzer_id,name,kind,kwh_per_100,l_per_100,active,note,
                                  plate,battery,tank) VALUES(?,?,?,?,?,?,?,?,?,?)""",
                               (user["id"], name, kind, kwh, lit, active, note, plate, akku,
                                tank)).lastrowid
         return self.send_json({"ok": True, "id": cid})
 
     def car_delete(self, con, user, data):
-        con.execute("DELETE FROM cars WHERE id=? AND user_id=?", (data.get("id"), user["id"]))
+        con.execute("DELETE FROM cars WHERE id=? AND nutzer_id=?", (data.get("id"), user["id"]))
         return self.send_json({"ok": True})
 
     def own_car(self, con, user, car_id):
         if car_id in (None, ""):
             return None, True
-        ok = con.execute("SELECT 1 FROM cars WHERE id=? AND user_id=?", (car_id, user["id"])).fetchone()
+        ok = con.execute("SELECT 1 FROM cars WHERE id=? AND nutzer_id=?", (car_id, user["id"])).fetchone()
         return (int(car_id), True) if ok else (None, False)
 
     # ---------------- Ladevorgaenge ----------------
@@ -1163,7 +1178,7 @@ class App(BaseHTTPRequestHandler):
         if not ok:
             return self.send_json({"error": "Auto nicht gefunden"}, 400)
         rows = data.get("rows") or []
-        cols = ",".join(["user_id", "car_id"] + SESSION_FIELDS)
+        cols = ",".join(["nutzer_id", "car_id"] + SESSION_FIELDS)
         ph = ",".join(["?"] * (len(SESSION_FIELDS) + 2))
         added = dup = 0
         with bulk(con):
@@ -1214,24 +1229,24 @@ class App(BaseHTTPRequestHandler):
             # Auch importierte Ladungen duerfen korrigiert werden - eine falsch
             # abgerechnete Ladung soll man geradebiegen koennen.
             finish = start
-            row = con.execute("SELECT start FROM sessions WHERE id=? AND user_id=?",
+            row = con.execute("SELECT start FROM sessions WHERE id=? AND nutzer_id=?",
                               (dbid, user["id"])).fetchone()
             if not row:
                 return self.send_json({"error": "Ladung nicht gefunden"}, 404)
             cur = con.execute("""UPDATE sessions SET car_id=?,start=?,finish=?,sec=?,kwh=?,cost=?,net=?,
-                                 vat=?,station=?,note=?,odo=? WHERE id=? AND user_id=?""",
+                                 vat=?,station=?,note=?,odo=? WHERE id=? AND nutzer_id=?""",
                               (car_id, start, finish, sec, kwh, cost, net, cost - net, station, note,
                                odo, dbid, user["id"]))
             if not cur.rowcount:
                 return self.send_json({"error": "Ladung nicht gefunden"}, 404)
             return self.send_json({"ok": True, "id": dbid})
         # Kam die Ladung aus einer Datei, schickt die Oberflaeche deren
-        # Kennung mit. Dann erkennt die Dublettenpruefung (UNIQUE user_id,tx)
+        # Kennung mit. Dann erkennt die Dublettenpruefung (UNIQUE nutzer_id,tx)
         # sie auch wieder, wenn dieselbe Datei spaeter im Stapel eingelesen
         # wird - sonst stuende die Ladung zweimal in der Liste.
         tx = str(data.get("tx") or "").strip()[:200] or ("manual-" + uuid.uuid4().hex[:16])
         try:
-            con.execute("""INSERT INTO sessions(user_id,car_id,tx,start,finish,sec,kwh,cost,net,vat,
+            con.execute("""INSERT INTO sessions(nutzer_id,car_id,tx,start,finish,sec,kwh,cost,net,vat,
                            station,manual,note,odo,src) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,'manuell')""",
                         (user["id"], car_id, tx, start, start, sec, kwh, cost, net, cost - net, station,
                          note, odo))
@@ -1246,17 +1261,17 @@ class App(BaseHTTPRequestHandler):
         ids = [int(i) for i in (data.get("ids") or []) if str(i).isdigit()]
         if not ids:
             return self.send_json({"ok": True, "changed": 0})
-        q = "UPDATE sessions SET car_id=? WHERE user_id=? AND id IN (%s)" % ",".join("?" * len(ids))
+        q = "UPDATE sessions SET car_id=? WHERE nutzer_id=? AND id IN (%s)" % ",".join("?" * len(ids))
         return self.send_json({"ok": True, "changed": con.execute(q, [car_id, user["id"]] + ids).rowcount})
 
     def sessions_delete(self, con, user, data):
         if data.get("all"):
-            n = con.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],)).rowcount
+            n = con.execute("DELETE FROM sessions WHERE nutzer_id=?", (user["id"],)).rowcount
             return self.send_json({"ok": True, "deleted": n})
         ids = [int(i) for i in (data.get("ids") or []) if str(i).isdigit()]
         if not ids:
             return self.send_json({"ok": True, "deleted": 0})
-        q = "DELETE FROM sessions WHERE user_id=? AND id IN (%s)" % ",".join("?" * len(ids))
+        q = "DELETE FROM sessions WHERE nutzer_id=? AND id IN (%s)" % ",".join("?" * len(ids))
         return self.send_json({"ok": True, "deleted": con.execute(q, [user["id"]] + ids).rowcount})
 
     # ---------------- Tankungen ----------------
@@ -1296,25 +1311,25 @@ class App(BaseHTTPRequestHandler):
             return self.send_json({"error": str(e)}, 400)
         dbid = data.get("dbid")
         if dbid:
-            row = con.execute("SELECT receipt FROM fuelings WHERE id=? AND user_id=?",
+            row = con.execute("SELECT receipt FROM fuelings WHERE id=? AND nutzer_id=?",
                               (dbid, user["id"])).fetchone()
             if not row:
                 return self.send_json({"error": "Tankung nicht gefunden"}, 404)
             keep = receipt or ("" if data.get("dropReceipt") else row["receipt"])
             con.execute("""UPDATE fuelings SET car_id=?,ts=?,liters=?,cost=?,odo=?,full=?,station=?,
-                           note=?,receipt=? WHERE id=? AND user_id=?""",
+                           note=?,receipt=? WHERE id=? AND nutzer_id=?""",
                         (car_id, ts, liters, cost, odo, full, station, note, keep, dbid, user["id"]))
             return self.send_json({"ok": True, "id": dbid})
-        new = con.execute("""INSERT INTO fuelings(user_id,car_id,ts,liters,cost,odo,full,station,note,receipt)
+        new = con.execute("""INSERT INTO fuelings(nutzer_id,car_id,ts,liters,cost,odo,full,station,note,receipt)
                              VALUES(?,?,?,?,?,?,?,?,?,?)""",
                           (user["id"], car_id, ts, liters, cost, odo, full, station, note,
                            receipt or "")).lastrowid
         return self.send_json({"ok": True, "id": new})
 
     def fuel_delete(self, con, user, data):
-        row = con.execute("SELECT receipt FROM fuelings WHERE id=? AND user_id=?",
+        row = con.execute("SELECT receipt FROM fuelings WHERE id=? AND nutzer_id=?",
                           (data.get("id"), user["id"])).fetchone()
-        con.execute("DELETE FROM fuelings WHERE id=? AND user_id=?", (data.get("id"), user["id"]))
+        con.execute("DELETE FROM fuelings WHERE id=? AND nutzer_id=?", (data.get("id"), user["id"]))
         if row and row["receipt"]:
             try:
                 os.remove(os.path.join(RECEIPT_DIR, row["receipt"]))
@@ -1362,57 +1377,6 @@ class App(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
-def sicherung_anlegen(behalten=14):
-    """Konsistente Sicherung der Datenbank nach HERE/backups/ - fuer den Timer.
-
-    Nutzt die SQLite-.backup()-API, die auch bei laufendem Server einen
-    sauberen Snapshot zieht (kein blosses Dateikopieren mitten im Schreiben).
-    Aeltere Sicherungen werden bis auf die letzten 'behalten' geloescht. Das
-    Ergebnis wird in meta vermerkt, damit die Oberflaeche zeigen kann, wann
-    zuletzt gesichert wurde.
-    """
-    import datetime, glob
-    ziel_dir = os.path.join(HERE, "backups")
-    os.makedirs(ziel_dir, exist_ok=True)
-    stempel = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    ziel = os.path.join(ziel_dir, "bordbuch-%s.db" % stempel)
-
-    # Snapshot ziehen - die Quelle darf dabei in Benutzung sein.
-    quelle = sqlite3.connect(CFG.db, timeout=30)
-    try:
-        ziel_con = sqlite3.connect(ziel)
-        try:
-            quelle.backup(ziel_con)
-        finally:
-            ziel_con.close()
-    finally:
-        quelle.close()
-
-    # Rotation: nur die neuesten 'behalten' Dateien behalten.
-    entfernt = 0
-    if behalten > 0:
-        for weg in sorted(glob.glob(os.path.join(ziel_dir, "bordbuch-*.db")))[:-behalten]:
-            try:
-                os.remove(weg); entfernt += 1
-            except OSError:
-                pass
-    rest = glob.glob(os.path.join(ziel_dir, "bordbuch-*.db"))
-    groesse = os.path.getsize(ziel)
-
-    # Ergebnis in meta festhalten (Autocommit, damit der laufende Server es sofort sieht).
-    con = sqlite3.connect(CFG.db, timeout=30, isolation_level=None)
-    try:
-        con.execute("INSERT OR REPLACE INTO meta(k,v) VALUES('backup_zeit',?)",
-                    (datetime.datetime.now().isoformat(timespec="seconds"),))
-        con.execute("INSERT OR REPLACE INTO meta(k,v) VALUES('backup_datei',?)",
-                    (os.path.basename(ziel),))
-        con.execute("INSERT OR REPLACE INTO meta(k,v) VALUES('backup_groesse',?)", (str(groesse),))
-        con.execute("INSERT OR REPLACE INTO meta(k,v) VALUES('backup_anzahl',?)", (str(len(rest)),))
-    finally:
-        con.close()
-    return ziel, groesse, len(rest), entfernt
-
-
 def main():
     p = argparse.ArgumentParser(description="Bordbuch Server")
     p.add_argument("--port", type=int, default=int(os.environ.get("LADELOG_PORT", 8080)))
@@ -1420,9 +1384,14 @@ def main():
     # Gewissheit, dass ausschliesslich der Reverse-Proxy den Server erreicht -
     # darum standardmaessig nur auf dem eigenen Rechner lauschen.
     p.add_argument("--host", default=os.environ.get("LADELOG_HOST", "127.0.0.1"))
+    # Auch als Umgebungsvariable, damit das Compose-File es ausdruecklich setzen
+    # kann - besser als eine Container-Erkennung, an der der Start haengt.
     p.add_argument("--header-vertrauen", action="store_true",
+                   default=str(os.environ.get("BORDBUCH_HEADER_VERTRAUEN", "")).lower()
+                   not in ("", "0", "nein", "false", "aus"),
                    help="Auch auf anderen Netzwerkkarten lauschen. Nur sinnvoll, wenn sicher "
-                        "ist, dass niemand ausser dem Proxy den Server erreicht.")
+                        "ist, dass niemand ausser dem Proxy den Server erreicht "
+                        "(im Container: keine ports-Zeile im Compose-File).")
     p.add_argument("--abmelde-pfad", default=os.environ.get("BORDBUCH_ABMELDEN",
                                                             "/outpost.goauthentik.io/sign_out"),
                    help="Wohin der Abmelden-Knopf fuehrt. Leer laesst den Knopf verschwinden.")
@@ -1439,22 +1408,16 @@ def main():
     p.add_argument("--db", default=os.environ.get("BORDBUCH_DB",
                                                  os.environ.get("LADELOG_DB", standard)))
     p.add_argument("--verbose", action="store_true")
-    p.add_argument("--backup", action="store_true",
-                   help="Einmalige Sicherung anlegen und beenden (fuer den systemd-Timer)")
-    p.add_argument("--backup-keep", type=int, default=14,
-                   help="Wie viele Sicherungen behalten werden (Standard 14, 0 = alle)")
     p.add_argument("--version", action="store_true",
                    help="Fassungsnummer ausgeben und beenden")
-    global CFG
+    global CFG, RECEIPT_DIR
     CFG = p.parse_args()
+    # Belege dorthin, wo auch die Datenbank liegt (siehe oben). Ein eigener Ort
+    # geht ueber BORDBUCH_BELEGE, falls jemand sie getrennt halten will.
+    RECEIPT_DIR = os.environ.get("BORDBUCH_BELEGE") or os.path.join(
+        os.path.dirname(os.path.abspath(CFG.db)) or HERE, "receipts")
     if CFG.version:
         print(VERSION)
-        return
-    if CFG.backup:
-        init_db()   # stellt sicher, dass Datenbank und meta-Tabelle existieren
-        ziel, groesse, anzahl, entfernt = sicherung_anlegen(CFG.backup_keep)
-        print("Sicherung: %s (%d Bytes), %d vorhanden, %d alte entfernt"
-              % (os.path.basename(ziel), groesse, anzahl, entfernt))
         return
     init_db()
     if CFG.verknuepfe:
@@ -1498,6 +1461,7 @@ def main():
           " · Verwaltungsgruppe: %s\nAbmelden: %s\nDatenbank: %s"
           % (SCHEMA_VERSION, CFG.host, CFG.port, CFG.admin_gruppe,
              CFG.abmelde_pfad or "(kein Knopf)", CFG.db))
+    print("Belege: %s" % RECEIPT_DIR)
     try:
         Server((CFG.host, CFG.port), App).serve_forever()
     except KeyboardInterrupt:

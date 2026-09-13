@@ -7,6 +7,9 @@
   :root{
     --ink:#0b1520; --panel:#132030; --panel2:#18293c; --line:#263b50; --soft:#1e3145;
     --text:#e9f1f8; --muted:#8aa2b8; --volt:#f6c344; --teal:#48c3b4; --violet:#9c8ce0; --red:#e2765f;
+    --volt-hover:#ffd464;   /* Hover des Hauptknopfes */
+    --hint:#a3b6c9;         /* Hilfetexte - bewusst heller als --muted, siehe Design-System */
+    --dim:var(--hint);      /* Nebentext in Assistent und Einstellungszeilen */
     --r:14px;
     --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
     --sans:ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -32,7 +35,7 @@
   button:active{transform:translateY(1px)}
   button:focus-visible{outline:2px solid var(--volt);outline-offset:2px}
   .primary{background:var(--volt);border-color:var(--volt);color:#221a03;font-weight:650}
-  .primary:hover{background:#ffd464;border-color:#ffd464}
+  .primary:hover{background:var(--volt-hover);border-color:var(--volt-hover)}
   .ghost{background:transparent}
   .sm{padding:6px 11px;font-size:13px;border-radius:9px}
   .danger:hover{border-color:var(--red);color:var(--red)}
@@ -78,7 +81,7 @@
   h2 b{color:var(--text);font-weight:600;letter-spacing:0;font-family:var(--sans);text-transform:none;font-size:15px}
   h3{font-size:15px;margin:0 0 7px}
   /* U7: Hilfetexte waren mit 12,5 px in gedaempftem Grau schwer zu lesen. */
-  .hint{font-size:13.5px;color:#a3b6c9;margin:10px 0 0}
+  .hint{font-size:13.5px;color:var(--hint);margin:10px 0 0}
   .cols3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:11px}
@@ -97,7 +100,7 @@
   .seg button+button{border-left:1px solid var(--soft)}
   .seg button[aria-pressed=true]{background:var(--volt);color:#221a03;font-weight:650}
   .seg button:hover{background:rgba(255,255,255,.05);color:var(--text)}
-  .seg button[aria-pressed=true]:hover{background:#ffd464}
+  .seg button[aria-pressed=true]:hover{background:var(--volt-hover)}
 
   .rows{display:flex;flex-direction:column}
   .row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 12px;padding:11px 2px;
@@ -179,7 +182,7 @@
     padding:10px 2px}
   .form label.check small{margin-left:auto;text-align:right}
   .form input[type=checkbox]{width:21px;height:21px;accent-color:var(--volt);flex:0 0 21px}
-  .form small{color:#a3b6c9;font-size:12.5px}
+  .form small{color:var(--hint);font-size:12.5px}
   .formbar{display:flex;gap:9px;margin-top:16px;flex-wrap:wrap}
   .choose{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .choose button{flex-direction:column;align-items:flex-start;gap:5px;padding:16px;text-align:left;height:100%}
@@ -217,7 +220,7 @@
   details.glossar[open] summary::before{content:'▾ '}
   details.glossar dl{margin:10px 0 0;font-size:13.5px}
   details.glossar dt{color:var(--text);font-weight:600;margin-top:9px}
-  details.glossar dd{margin:2px 0 0;color:#a3b6c9}
+  details.glossar dd{margin:2px 0 0;color:var(--hint)}
   .empty{text-align:center;color:var(--muted);padding:24px 10px;font-size:14px}
   .hidden{display:none!important}
   .toast{position:fixed;left:50%;bottom:calc(78px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(18px);
@@ -394,7 +397,7 @@ const DEFAULTS={kwhPer100:18,fuelPer100:7,fuelPrice:1.75,homePrice:0.32,useHomeP
   vatRate:19};
 
 let ich=null,profile=[],freigabenMeine=[],freigabenFuerMich=[],andere=[],darfSchreiben=true,
-    me=null,cars=[],sessions=[],fuelings=[],service=[],shop=[],settings={...DEFAULTS},backupInfo=null;
+    me=null,cars=[],sessions=[],fuelings=[],service=[],shop=[],settings={...DEFAULTS};
 let cCache=null,fCache=null,iCache=null,sCache=null,dCache=null,filePickMode='csv';
 let state={tab:'overview',carId:null,range:'all',metric:'cost',gran:'week',weekOffset:0,
   q:'',entry:null,pending:null,queue:null,reportMonth:'',yearMode:'ytd',
@@ -941,7 +944,6 @@ async function loadState(){
   freigabenMeine=st.freigabenMeine||[];freigabenFuerMich=st.freigabenFuerMich||[];andere=st.andere||[];
   me=st.user||null;cars=st.cars||[];sessions=st.sessions||[];fuelings=st.fuelings||[];
   service=st.service||[];shop=st.shop||[];
-  backupInfo=st.backup||null;
   settings={...DEFAULTS,...(st.settings||{})};
   if(me&&cars.length&&(!state.carId||!cars.some(c=>c.id===state.carId))){
     const a=cars.filter(c=>c.active);state.carId=(a[0]||cars[0]).id;
@@ -1430,7 +1432,7 @@ function drawBars(){
     const sel=state.gran==='week'&&b.key===selKey;
     let cells='';
     for(let s=0;s<SEG;s++){const y=T+ph-(s+1)*sh-s*gap;
-      const c=s<on?(sel?'#ffd464':(m==='kwh'?'var(--teal)':m==='liters'?'var(--violet)':'var(--volt)')):'rgba(255,255,255,.05)';
+      const c=s<on?(sel?'var(--volt-hover)':(m==='kwh'?'var(--teal)':m==='liters'?'var(--violet)':'var(--volt)')):'rgba(255,255,255,.05)';
       cells+='<rect class="seg" x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+sh.toFixed(1)+'" rx="1.6" fill="'+c+'"/>';}
     const lab=state.gran==='week'?b.week:MON[b.start.getMonth()];
     const show=bs.length<=14||i%2===0;
@@ -2447,7 +2449,7 @@ function paneWerkstatt(){
   +'<section><div class="paper">'+
     '<h3>Werkstatt- und Wartungskosten — '+esc(titel)+'</h3>'+
     '<div class="meta">'+esc(c?c.name:'')+(c&&c.plate?' · '+esc(c.plate):'')+
-      ' · Profil '+esc(me?me.name:'')+' · '+liste.length+' Einträge · erstellt am '+
+      ' · Profil '+personZeile()+' · '+liste.length+' Einträge · erstellt am '+
       dt.format(new Date())+'</div>'+
     (liste.length
       ? '<table style="margin-bottom:14px"><tbody>'+
@@ -3595,7 +3597,7 @@ function vAbrechnung(monate,jahre){
   +'<section><div class="paper">'+
     '<h3>Nachweis geladener Strommengen — '+esc(titel)+'</h3>'+
     '<div class="meta">'+esc(c?c.name:'')+(c&&c.plate?' · '+esc(c.plate):'')+
-      (c?' · '+KINDS[kind()].t:'')+' · Profil '+esc(me?me.name:'')+' · '+esc(raumWort)+
+      (c?' · '+KINDS[kind()].t:'')+' · Profil '+personZeile()+' · '+esc(raumWort)+
       ' · erstellt am '+dt.format(new Date())+'</div>'+
     '<table style="margin-bottom:4px"><tbody>'+
       (t.kwh?'<tr><td><b>Geladene Energie</b></td><td class="n" style="font-size:17px"><b>'+
@@ -4001,16 +4003,8 @@ function paneData(){
     '<div class="formbar" style="margin:0"><button class="ghost" data-act="backup">Sicherung herunterladen</button>'+
     '<button class="ghost" data-act="exportCsv">Alle Vorgänge (CSV)</button></div>'+
     '<p class="hint">'+(DEMO?'Testversion — alles liegt nur in diesem Browser.'
-      :'Auf dem Pi liegt alles in <code>bordbuch.db</code>; diese Datei wegkopieren ist die einfachste Sicherung.')+'</p>')
-  +sect('Automatische Sicherung',
-    DEMO
-      ? '<p class="hint">In der Testversion gibt es keine automatische Sicherung — die läuft nur auf dem Pi.</p>'
-      : (backupInfo
-          ? '<p class="hint">Zuletzt gesichert am <b>'+esc(backupInfo.zeit.slice(8,10)+'.'+backupInfo.zeit.slice(5,7)+'.'+backupInfo.zeit.slice(0,4)+' um '+backupInfo.zeit.slice(11,16))+' Uhr</b>'
-            +(backupInfo.groesse?' ('+(backupInfo.groesse>=1048576?num(backupInfo.groesse/1048576,1)+' MB':Math.max(1,Math.round(backupInfo.groesse/1024))+' KB')+')':'')+'. '
-            +(backupInfo.anzahl?'Es liegen '+backupInfo.anzahl+' Sicherung'+(backupInfo.anzahl===1?'':'en')+' in <code>backups/</code>.':'')
-            +'</p>'
-          : '<p class="hint">Noch keine automatische Sicherung. Ein systemd-Timer legt sie regelmäßig an — wie du ihn einrichtest, steht in der <b>ANLEITUNG</b> unter „Automatische Sicherung".</p>'));
+      :'Im Container liegt alles im Volume <code>bordbuch_daten</code> — das sichert der Stack. '+
+      'Auf dem Pi sind es <code>bordbuch.db</code> und <code>receipts/</code>.')+'</p>');
 }
 
 /* =====================================================================
@@ -4241,6 +4235,13 @@ function adminBericht(p){
 }
 
 /* ---------- Unterpunkt: Profil ---------- */
+/* Wer das Blatt erstellt hat - fuer Nachweise beim Arbeitgeber oder Finanzamt
+   zaehlt der wirkliche Name aus der Anmeldung, nicht ein Spitzname. Die
+   E-Mail steht nur beim eigenen Profil dabei. */
+function personZeile(){
+  const eigen=ich&&me&&me.id===ich.id;
+  return esc(me?me.name:'')+((eigen&&ich.email)?' · '+esc(ich.email):'');
+}
 function paneProfile(){
   const eigen=!ich||!me||me.id===ich.id;
   let out=sect('Profil',
@@ -4249,6 +4250,13 @@ function paneProfile(){
       esc([ich&&ich.anmeldung,ich&&ich.email].filter(Boolean).join(' · ')))+
     kpi('','Erfasst',String(sessions.length+fuelings.length),'Ladungen und Tankungen aller Autos')+
     kpi('','Autos',String(cars.length),eigen?'in deinem Profil':'im freigegebenen Profil')+'</div>'+
+    ((eigen&&ich&&ich.gruppen&&ich.gruppen.length)
+      ? '<div style="margin:0 0 12px">'+ich.gruppen.map(g=>
+          '<span class="tag'+(g===ich.adminGruppe?' home':'')+'">'+esc(g)+'</span> ').join('')+
+        '<p class="hint" style="margin:6px 2px 0">Deine Gruppen aus der Anmeldung. '+
+        (ich.admin?'Mit <b>'+esc(ich.adminGruppe)+'</b> kannst du die Gesamtsicherung über alle Profile ziehen.'
+                  :'Für die Gesamtsicherung über alle Profile bräuchtest du die Gruppe <b>'+esc(ich.adminGruppe)+'</b>.')+
+        '</p></div>' : '')+
     (eigen
       ? '<div class="formbar" style="margin:0">'+
         (ich&&ich.abmelden?'<a class="ghost" href="'+esc(ich.abmelden)+'">Abmelden</a>':'')+
@@ -4278,7 +4286,8 @@ function paneProfile(){
       : '<div class="empty">Du hast niemandem Einblick gegeben. Deine Daten sieht nur du.</div>')+
     (wahl.length
       ? '<div class="formbar" style="margin-top:12px">'+
-        '<select id="freiWer">'+wahl.map(u=>'<option value="'+u.id+'">'+esc(u.name)+'</option>').join('')+'</select>'+
+        '<select id="freiWer">'+wahl.map(u=>'<option value="'+u.id+'">'+esc(u.name)+
+          (u.email?' — '+esc(u.email):'')+'</option>').join('')+'</select>'+
         '<select id="freiRecht"><option value="lesen">darf nur lesen</option>'+
         '<option value="schreiben">darf auch eintragen</option></select>'+
         '<button class="primary sm" data-act="freigabeNeu">Freigeben</button></div>'
@@ -4829,7 +4838,23 @@ function render(){
 document.addEventListener('click',ev=>{
   const el=ev.target.closest('[data-act]');if(!el)return;
   if(el.tagName==='SELECT'||el.tagName==='INPUT')return;
-  handleClick(el).catch(e=>{console.error(e);toast('Das hat nicht funktioniert: '+e.message);});
+  /* Doppeltipp darf nichts doppelt anlegen: der Knopf wird fuer die Dauer der
+     Aktion gesperrt. Laeuft sie laenger, sagt er das auch. Nach einem render()
+     ist der Knopf ohnehin ersetzt - darum das try. */
+  if(el.dataset.laeuft==='1'){ev.preventDefault();return;}
+  el.dataset.laeuft='1';
+  const warDeaktiviert=el.disabled;
+  try{el.disabled=true;el.setAttribute('aria-busy','true');}catch(e){}
+  const langsam=setTimeout(()=>{try{el.dataset.text=el.textContent;el.textContent='Moment …';}catch(e){}},300);
+  const frei=()=>{
+    clearTimeout(langsam);
+    try{
+      if(el.dataset.text){el.textContent=el.dataset.text;delete el.dataset.text;}
+      el.disabled=warDeaktiviert;el.removeAttribute('aria-busy');delete el.dataset.laeuft;
+    }catch(e){}
+  };
+  handleClick(el).then(frei,e=>{frei();console.error(e);
+    toast('Das hat nicht funktioniert: '+e.message);});
 });
 /* In ein anderes Profil wechseln - das eigene braucht keinen Kopf, ein
    freigegebenes wird bei jeder Anfrage mitgeschickt. */
@@ -5890,52 +5915,52 @@ function demoSeed(){
   let sid=0,fid=0;
   const ch=(carId,ago,kwh,ppk,min,station,city,partner,odo)=>{
     const cost=+(kwh*ppk).toFixed(2),st=now-ago*D;
-    return {dbid:++sid,userId:1,carId,id:'DEMO'+sid,start:iso(st),end:iso(st+min*60000),sec:min*60,kwh,cost,
+    return {dbid:++sid,nutzerId:1,carId,id:'DEMO'+sid,start:iso(st),end:iso(st+min*60000),sec:min*60,kwh,cost,
       odo:odo||0,
       net:+(cost/1.19).toFixed(2),vat:+(cost-cost/1.19).toFixed(2),station,city,zip:'',street:'',rate:'TARIF',
       partner,entity:'',invoiceNo:'MC/DE/2026/'+(2000+sid),invoiceDate:iso(st).slice(0,10),invoiceGross:cost,
       src:'Beispiel',manual:false,note:''};};
-  const fu=(userId,carId,ago,lit,ppl,odo,station)=>({dbid:++fid,userId,carId,ts:iso(now-ago*D),liters:lit,
+  const fu=(nutzerId,carId,ago,lit,ppl,odo,station)=>({dbid:++fid,nutzerId,carId,ts:iso(now-ago*D),liters:lit,
     cost:+(lit*ppl).toFixed(2),odo,full:true,station,note:'',receipt:''});
   const heute=new Date();
   const inMon=n=>{const t=new Date(heute);t.setMonth(t.getMonth()+n);return t.toISOString().slice(0,10);};
   return {seq:{car:5,sess:0,fuel:0,wart:4,shop:9},
     /* Wartungsbeispiele: eines faellig, eines bald, eines in ferner Zukunft */
     service:[
-      {dbid:1,userId:1,carId:2,art:'Ölwechsel',intervallKm:30000,intervallMon:24,
+      {dbid:1,nutzerId:1,carId:2,art:'Ölwechsel',intervallKm:30000,intervallMon:24,
         letzteKm:55000,letztesDat:inMon(-26),faelligKm:0,faelligDat:'',
         notiz:'Longlife-Öl laut Serviceheft',aktiv:true},
-      {dbid:2,userId:1,carId:2,art:'Hauptuntersuchung (HU/TÜV)',intervallKm:0,intervallMon:24,
+      {dbid:2,nutzerId:1,carId:2,art:'Hauptuntersuchung (HU/TÜV)',intervallKm:0,intervallMon:24,
         letzteKm:0,letztesDat:'',faelligKm:0,faelligDat:inMon(1),notiz:'',aktiv:true},
-      {dbid:3,userId:1,carId:1,art:'Bremsflüssigkeit',intervallKm:0,intervallMon:24,
+      {dbid:3,nutzerId:1,carId:1,art:'Bremsflüssigkeit',intervallKm:0,intervallMon:24,
         letzteKm:24000,letztesDat:inMon(-6),faelligKm:0,faelligDat:'',notiz:'',aktiv:true}],
     /* Mehrere Jahre, damit Logbuch und Jahresbericht etwas zeigen. Die
        Einträge mit wartId stammen aus „erledigt"-Vermerken. */
     shop:[
-      {dbid:1,userId:1,carId:2,ts:'2023-03-14T12:00:00.000Z',art:'Hauptuntersuchung (HU/TÜV)',
+      {dbid:1,nutzerId:1,carId:2,ts:'2023-03-14T12:00:00.000Z',art:'Hauptuntersuchung (HU/TÜV)',
         cost:134.5,odo:71200,betrieb:'TÜV Süd',note:'ohne Mängel',receipt:'',wartId:2},
-      {dbid:2,userId:1,carId:2,ts:'2023-08-02T12:00:00.000Z',art:'Ölwechsel',
+      {dbid:2,nutzerId:1,carId:2,ts:'2023-08-02T12:00:00.000Z',art:'Ölwechsel',
         cost:118.9,odo:74800,betrieb:'Autohaus Meier',note:'',receipt:'',wartId:1},
-      {dbid:3,userId:1,carId:2,ts:'2023-11-20T12:00:00.000Z',art:'Reifen Winter',
+      {dbid:3,nutzerId:1,carId:2,ts:'2023-11-20T12:00:00.000Z',art:'Reifen Winter',
         cost:512,odo:76900,betrieb:'Reifen Schmidt',note:'neue Winterreifen',receipt:''},
-      {dbid:4,userId:1,carId:2,ts:'2024-05-18T12:00:00.000Z',art:'Inspektion',
+      {dbid:4,nutzerId:1,carId:2,ts:'2024-05-18T12:00:00.000Z',art:'Inspektion',
         cost:389.9,odo:80100,betrieb:'Autohaus Meier',note:'',receipt:''},
-      {dbid:5,userId:1,carId:2,ts:'2025-03-09T12:00:00.000Z',art:'Hauptuntersuchung (HU/TÜV)',
+      {dbid:5,nutzerId:1,carId:2,ts:'2025-03-09T12:00:00.000Z',art:'Hauptuntersuchung (HU/TÜV)',
         cost:141.2,odo:83400,betrieb:'TÜV Süd',note:'Bremsleitung bemängelt',receipt:'',wartId:2},
-      {dbid:6,userId:1,carId:2,ts:'2025-06-11T12:00:00.000Z',art:'Bremsen vorne',
+      {dbid:6,nutzerId:1,carId:2,ts:'2025-06-11T12:00:00.000Z',art:'Bremsen vorne',
         cost:512.4,odo:84200,betrieb:'Autohaus Meier',note:'Scheiben und Beläge',receipt:''},
-      {dbid:7,userId:1,carId:2,ts:'2025-09-30T12:00:00.000Z',art:'Ölwechsel',
+      {dbid:7,nutzerId:1,carId:2,ts:'2025-09-30T12:00:00.000Z',art:'Ölwechsel',
         cost:126.4,odo:85000,betrieb:'Autohaus Meier',note:'',receipt:'',wartId:1},
-      {dbid:8,userId:1,carId:1,ts:'2025-04-22T12:00:00.000Z',art:'Reifen Sommer',
+      {dbid:8,nutzerId:1,carId:1,ts:'2025-04-22T12:00:00.000Z',art:'Reifen Sommer',
         cost:648,odo:29500,betrieb:'Reifen Schmidt',note:'',receipt:''},
-      {dbid:9,userId:1,carId:1,ts:'2026-02-16T12:00:00.000Z',art:'Bremsflüssigkeit',
+      {dbid:9,nutzerId:1,carId:1,ts:'2026-02-16T12:00:00.000Z',art:'Bremsflüssigkeit',
         cost:89,odo:30100,betrieb:'Autohaus Meier',note:'',receipt:'',wartId:3}],
     users:[{id:1,name:'Papa (Beispiel)'},{id:2,name:'Anna (Beispiel)'}],
     cars:[
-      {id:1,userId:1,name:'ID.3 Pro',kind:'bev',kwhPer100:16.4,lPer100:7,battery:58,active:true,note:''},
-      {id:2,userId:1,name:'Golf 1.5 TSI',kind:'petrol',kwhPer100:18,lPer100:7.2,tank:50,active:true,note:''},
-      {id:3,userId:1,name:'Passat GTE (verkauft)',kind:'phev',kwhPer100:20,lPer100:6.2,battery:10.4,tank:50,active:false,note:''},
-      {id:4,userId:2,name:'Polo',kind:'petrol',kwhPer100:18,lPer100:6.4,tank:40,active:true,note:''}],
+      {id:1,nutzerId:1,name:'ID.3 Pro',kind:'bev',kwhPer100:16.4,lPer100:7,battery:58,active:true,note:''},
+      {id:2,nutzerId:1,name:'Golf 1.5 TSI',kind:'petrol',kwhPer100:18,lPer100:7.2,tank:50,active:true,note:''},
+      {id:3,nutzerId:1,name:'Passat GTE (verkauft)',kind:'phev',kwhPer100:20,lPer100:6.2,battery:10.4,tank:50,active:false,note:''},
+      {id:4,nutzerId:2,name:'Polo',kind:'petrol',kwhPer100:18,lPer100:6.4,tank:40,active:true,note:''}],
     sessions:[
       ch(1,2,31.2,0.39,68,'EnBW Siegen','Siegen','EnBW',31480),
       ch(1,6,28.4,0.59,42,'IONITY Wilnsdorf','Wilnsdorf','IONITY',31290),
@@ -5974,8 +5999,8 @@ function demoSeed(){
 }
 async function demoApi(path,body){
   const d=demoStore(),uid=me?me.id:(d.users[0]?d.users[0].id:null);
-  const mine=a=>a.filter(x=>x.userId===uid);
-  const myCars=()=>d.cars.filter(c=>c.userId===uid);
+  const mine=a=>a.filter(x=>x.nutzerId===uid);
+  const myCars=()=>d.cars.filter(c=>c.nutzerId===uid);
   const ok=x=>{demoSave();return {ok:true,...(x||{})};};
   if(!d.seq.sess)d.seq.sess=Math.max(0,...d.sessions.map(s=>s.dbid||0));
   if(!d.seq.fuel)d.seq.fuel=Math.max(0,...d.fuelings.map(f=>f.dbid||0));
@@ -5988,12 +6013,13 @@ async function demoApi(path,body){
       name:(d.users.find(u=>u.id===f.an)||{}).name||'?',rechte:f.rechte}));
     const fuerMich=d.freigaben.filter(f=>f.an===uid).map(f=>({id:f.id,profil:f.von,
       name:(d.users.find(u=>u.id===f.von)||{}).name||'?',rechte:f.rechte}));
-    return {ich:{id:selbst.id,name:selbst.name,anmeldung:'testversion',email:'',abmelden:'',admin:true},
+    return {ich:{id:selbst.id,name:selbst.name,anmeldung:'testversion',email:'',abmelden:'',
+      gruppen:['testversion'],adminGruppe:'bordbuch-admin',admin:true},
       user:{id:selbst.id,name:selbst.name},
       profile:[{id:selbst.id,name:selbst.name,rechte:'eigen'}].concat(
         fuerMich.map(f=>({id:f.profil,name:f.name,rechte:f.rechte}))),
       schreiben:true,freigabenMeine:meine,freigabenFuerMich:fuerMich,
-      andere:d.users.filter(u=>u.id!==uid).map(u=>({id:u.id,name:u.name})),
+      andere:d.users.filter(u=>u.id!==uid).map(u=>({id:u.id,name:u.name,email:''})),
       cars:myCars(),sessions:mine(d.sessions),fuelings:mine(d.fuelings),
       service:mine(d.service||[]),shop:mine(d.shop||[]),settings:d.settings[uid]||{},schema:'demo'};
   }
@@ -6006,9 +6032,9 @@ async function demoApi(path,body){
     return {ladelog:'demo',typ:'gesamt',erstellt:new Date().toISOString().slice(0,19),
       profile:d.users.map(u=>({
         name:u.name,
-        cars:d.cars.filter(c=>c.userId===u.id).map(c=>({...c,car_id:c.id})),
-        sessions:d.sessions.filter(x=>x.userId===u.id).map(x=>({...x,car_id:x.carId,tx:x.id})),
-        fuelings:d.fuelings.filter(x=>x.userId===u.id).map(x=>({...x,car_id:x.carId})),
+        cars:d.cars.filter(c=>c.nutzerId===u.id).map(c=>({...c,car_id:c.id})),
+        sessions:d.sessions.filter(x=>x.nutzerId===u.id).map(x=>({...x,car_id:x.carId,tx:x.id})),
+        fuelings:d.fuelings.filter(x=>x.nutzerId===u.id).map(x=>({...x,car_id:x.carId})),
         settings:d.settings[u.id]||{}}))};
   }
   if(path==='/api/admin/import'){
@@ -6029,24 +6055,24 @@ async function demoApi(path,body){
       /* Autos über den Namen zusammenführen, damit nichts doppelt entsteht. */
       const map={};let cn=0,sn=0,fn=0;
       for(const c of p.cars||[]){
-        const da=d.cars.find(x=>x.userId===u.id&&x.name===c.name);
+        const da=d.cars.find(x=>x.nutzerId===u.id&&x.name===c.name);
         if(da){map[c.id]=da.id;continue;}
         const id=d.seq.car++;
-        d.cars.push({id,userId:u.id,name:c.name||'Auto',kind:c.kind||'bev',
+        d.cars.push({id,nutzerId:u.id,name:c.name||'Auto',kind:c.kind||'bev',
           kwhPer100:+(c.kwhPer100||c.kwh_per_100)||18,lPer100:+(c.lPer100||c.l_per_100)||7,
           battery:+c.battery||0,tank:+c.tank||0,active:c.active!==false,note:''});
         map[c.id]=id;cn++;
       }
       for(const x of p.sessions||[]){
         const id=x.id||x.tx;if(!id)continue;
-        if(d.sessions.some(y=>y.userId===u.id&&y.id===id))continue;
-        d.sessions.push({...x,id,dbid:++d.seq.sess,userId:u.id,
+        if(d.sessions.some(y=>y.nutzerId===u.id&&y.id===id))continue;
+        d.sessions.push({...x,id,dbid:++d.seq.sess,nutzerId:u.id,
           carId:map[x.carId!==undefined?x.carId:x.car_id]||null});sn++;
       }
       for(const x of p.fuelings||[]){
         if(!x.ts)continue;
-        if(d.fuelings.some(y=>y.userId===u.id&&y.ts===x.ts&&Math.abs((y.cost||0)-(x.cost||0))<.005))continue;
-        d.fuelings.push({...x,dbid:++d.seq.fuel,userId:u.id,
+        if(d.fuelings.some(y=>y.nutzerId===u.id&&y.ts===x.ts&&Math.abs((y.cost||0)-(x.cost||0))<.005))continue;
+        d.fuelings.push({...x,dbid:++d.seq.fuel,nutzerId:u.id,
           carId:map[x.carId!==undefined?x.carId:x.car_id]||null});fn++;
       }
       if(p.settings)d.settings[u.id]={...(d.settings[u.id]||{}),...p.settings};
@@ -6056,11 +6082,11 @@ async function demoApi(path,body){
     return {ok:true,profile:bericht};
   }
   if(path==='/api/users/reset'){
-    d.cars=d.cars.filter(c=>c.userId!==uid);
-    d.sessions=d.sessions.filter(x=>x.userId!==uid);
-    d.fuelings=d.fuelings.filter(x=>x.userId!==uid);
-    d.service=(d.service||[]).filter(x=>x.userId!==uid);
-    d.shop=(d.shop||[]).filter(x=>x.userId!==uid);
+    d.cars=d.cars.filter(c=>c.nutzerId!==uid);
+    d.sessions=d.sessions.filter(x=>x.nutzerId!==uid);
+    d.fuelings=d.fuelings.filter(x=>x.nutzerId!==uid);
+    d.service=(d.service||[]).filter(x=>x.nutzerId!==uid);
+    d.shop=(d.shop||[]).filter(x=>x.nutzerId!==uid);
     d.freigaben=(d.freigaben||[]).filter(f=>f.von!==uid);
     d.settings[uid]={};
     return ok();
@@ -6093,16 +6119,16 @@ async function demoApi(path,body){
       faelligDat:(body.faelligDat||'').length===7?body.faelligDat+'-01':(body.faelligDat||''),
       notiz:body.notiz||'',aktiv:body.aktiv!==false};
     if(body.dbid){
-      const w=d.service.find(x=>x.dbid===body.dbid&&x.userId===uid);
+      const w=d.service.find(x=>x.dbid===body.dbid&&x.nutzerId===uid);
       if(!w)throw new Error('Wartungseintrag nicht gefunden');
       Object.assign(w,werte);return ok({id:w.dbid});
     }
     const id=++d.seq.wart;
-    d.service.push({dbid:id,userId:uid,...werte});
+    d.service.push({dbid:id,nutzerId:uid,...werte});
     return ok({id});
   }
   if(path==='/api/service/done'){
-    const w=d.service.find(x=>x.dbid===body.dbid&&x.userId===uid);
+    const w=d.service.find(x=>x.dbid===body.dbid&&x.nutzerId===uid);
     if(!w)throw new Error('Wartungseintrag nicht gefunden');
     const dat=body.dat||new Date().toISOString().slice(0,10);
     if(w.faelligDat&&w.intervallMon>0){
@@ -6114,34 +6140,34 @@ async function demoApi(path,body){
     w.letzteKm=(+body.km)||w.letzteKm;w.letztesDat=dat;
     /* Logbucheintrag wie beim echten Server: Kosten, Kilometerstand, Beleg. */
     const rec=body.receiptData?('data:application/octet-stream;base64,'+body.receiptData):'';
-    d.shop.push({dbid:++d.seq.shop,userId:uid,carId:w.carId,ts:dat+'T12:00:00',art:w.art,
+    d.shop.push({dbid:++d.seq.shop,nutzerId:uid,carId:w.carId,ts:dat+'T12:00:00',art:w.art,
       cost:+body.cost||0,odo:+body.km||0,betrieb:body.betrieb||'',note:body.note||'',
       receipt:rec,wartId:w.dbid});
     return ok();
   }
   if(path==='/api/service/delete'){
-    d.service=d.service.filter(x=>!(x.dbid===body.dbid&&x.userId===uid));return ok();
+    d.service=d.service.filter(x=>!(x.dbid===body.dbid&&x.nutzerId===uid));return ok();
   }
   if(path==='/api/shop/save'){
     const rec=body.receiptData?('data:application/octet-stream;base64,'+body.receiptData):null;
     const werte={carId:body.carId,ts:body.ts,art:body.art||'',cost:+body.cost||0,
       odo:+body.odo||0,betrieb:body.betrieb||'',note:body.note||'',wartId:+body.wartId||0};
     if(body.dbid){
-      const w=d.shop.find(x=>x.dbid===body.dbid&&x.userId===uid);
+      const w=d.shop.find(x=>x.dbid===body.dbid&&x.nutzerId===uid);
       if(!w)throw new Error('Rechnung nicht gefunden');
       Object.assign(w,werte,{receipt:rec||w.receipt});return ok({id:w.dbid});
     }
     const id=++d.seq.shop;
-    d.shop.push({dbid:id,userId:uid,...werte,receipt:rec||''});
+    d.shop.push({dbid:id,nutzerId:uid,...werte,receipt:rec||''});
     return ok({id});
   }
   if(path==='/api/shop/delete'){
-    d.shop=d.shop.filter(x=>!(x.dbid===body.dbid&&x.userId===uid));return ok();
+    d.shop=d.shop.filter(x=>!(x.dbid===body.dbid&&x.nutzerId===uid));return ok();
   }
   if(path==='/api/cars/save'){
     const kd=['bev','phev','petrol','diesel'].includes(body.kind)?body.kind:'bev';
     if(body.id){
-      const c=d.cars.find(x=>x.id===body.id&&x.userId===uid);
+      const c=d.cars.find(x=>x.id===body.id&&x.nutzerId===uid);
       if(!c)throw new Error('Auto nicht gefunden');
       Object.assign(c,{name:body.name||c.name,kind:kd,kwhPer100:+body.kwhPer100||c.kwhPer100,
         lPer100:+body.lPer100||c.lPer100,battery:+body.battery||0,tank:+body.tank||0,
@@ -6149,13 +6175,13 @@ async function demoApi(path,body){
       return ok({id:c.id});
     }
     const id=d.seq.car++;
-    d.cars.push({id,userId:uid,name:body.name||'Auto',kind:kd,kwhPer100:+body.kwhPer100||18,
+    d.cars.push({id,nutzerId:uid,name:body.name||'Auto',kind:kd,kwhPer100:+body.kwhPer100||18,
       lPer100:+body.lPer100||7,battery:+body.battery||0,tank:+body.tank||0,
       active:body.active!==false,note:''});
     return ok({id});
   }
   if(path==='/api/cars/delete'){
-    d.cars=d.cars.filter(c=>!(c.id===body.id&&c.userId===uid));
+    d.cars=d.cars.filter(c=>!(c.id===body.id&&c.nutzerId===uid));
     d.sessions.forEach(x=>{if(x.carId===body.id)x.carId=null;});
     d.fuelings.forEach(x=>{if(x.carId===body.id)x.carId=null;});
     return ok();
@@ -6163,16 +6189,16 @@ async function demoApi(path,body){
   if(path==='/api/sessions/import'){
     let added=0,dup=0;
     for(const r of body.rows||[]){
-      if(d.sessions.some(x=>x.userId===uid&&x.id===r.id)){dup++;continue;}
-      d.sessions.push({...r,userId:uid,carId:body.carId,dbid:++d.seq.sess});added++;}
+      if(d.sessions.some(x=>x.nutzerId===uid&&x.id===r.id)){dup++;continue;}
+      d.sessions.push({...r,nutzerId:uid,carId:body.carId,dbid:++d.seq.sess});added++;}
     return ok({added,dup});
   }
   if(path==='/api/sessions/save'){
     const cost=+body.cost||0,net=+(cost/1.19).toFixed(2);
-    if(!body.dbid&&body.tx&&d.sessions.some(x=>x.userId===uid&&x.id===body.tx))
+    if(!body.dbid&&body.tx&&d.sessions.some(x=>x.nutzerId===uid&&x.id===body.tx))
       throw new Error('Diese Ladung ist schon erfasst');
     if(body.dbid){
-      const x=d.sessions.find(y=>y.dbid===body.dbid&&y.userId===uid);
+      const x=d.sessions.find(y=>y.dbid===body.dbid&&y.nutzerId===uid);
       if(!x)throw new Error('Ladung nicht gefunden');
       const sec=+body.sec||0;
       Object.assign(x,{carId:body.carId,start:body.start,
@@ -6181,7 +6207,7 @@ async function demoApi(path,body){
         station:body.station||x.station});
       return ok({id:x.dbid});
     }
-    d.sessions.push({dbid:++d.seq.sess,userId:uid,carId:body.carId,
+    d.sessions.push({dbid:++d.seq.sess,nutzerId:uid,carId:body.carId,
       id:body.tx||('manual-'+d.seq.sess),start:body.start,
       end:body.start,sec:+body.sec||0,kwh:+body.kwh||0,cost,net,vat:+(cost-net).toFixed(2),
       odo:+body.odo||0,station:body.station||'Zuhause',city:'',zip:'',street:'',rate:'',partner:'',
@@ -6189,54 +6215,54 @@ async function demoApi(path,body){
     return ok();
   }
   if(path==='/api/sessions/delete'){
-    if(body.all){d.sessions=d.sessions.filter(x=>x.userId!==uid);return ok();}
+    if(body.all){d.sessions=d.sessions.filter(x=>x.nutzerId!==uid);return ok();}
     const ids=new Set((body.ids||[]).map(Number));
-    d.sessions=d.sessions.filter(x=>!(x.userId===uid&&ids.has(x.dbid)));return ok();
+    d.sessions=d.sessions.filter(x=>!(x.nutzerId===uid&&ids.has(x.dbid)));return ok();
   }
   if(path==='/api/fuel/save'){
     const rec=body.receiptData?('data:image/*;base64,'+body.receiptData):null;
     if(body.dbid){
-      const f=d.fuelings.find(x=>x.dbid===body.dbid&&x.userId===uid);
+      const f=d.fuelings.find(x=>x.dbid===body.dbid&&x.nutzerId===uid);
       if(!f)throw new Error('Tankung nicht gefunden');
       Object.assign(f,{carId:body.carId,ts:body.ts,liters:+body.liters||0,cost:+body.cost||0,odo:+body.odo||0,
         full:body.full!==false,station:body.station||'',note:body.note||'',receipt:rec||f.receipt});
       return ok({id:f.dbid});
     }
     const id=++d.seq.fuel;
-    d.fuelings.push({dbid:id,userId:uid,carId:body.carId,ts:body.ts,liters:+body.liters||0,cost:+body.cost||0,
+    d.fuelings.push({dbid:id,nutzerId:uid,carId:body.carId,ts:body.ts,liters:+body.liters||0,cost:+body.cost||0,
       odo:+body.odo||0,full:body.full!==false,station:body.station||'',note:body.note||'',receipt:rec||''});
     return ok({id});
   }
   if(path==='/api/fuel/delete'){
-    d.fuelings=d.fuelings.filter(x=>!(x.dbid===body.id&&x.userId===uid));return ok();
+    d.fuelings=d.fuelings.filter(x=>!(x.dbid===body.id&&x.nutzerId===uid));return ok();
   }
   if(path==='/api/restore'){
     const p=body.data||{};
     if(body.mode==='replace'){
-      d.sessions=d.sessions.filter(x=>x.userId!==uid);d.fuelings=d.fuelings.filter(x=>x.userId!==uid);
-      d.cars=d.cars.filter(c=>c.userId!==uid);
+      d.sessions=d.sessions.filter(x=>x.nutzerId!==uid);d.fuelings=d.fuelings.filter(x=>x.nutzerId!==uid);
+      d.cars=d.cars.filter(c=>c.nutzerId!==uid);
     }
     const map={};let cn=0,sn=0,fn=0;
     for(const c of p.cars||[]){
       const ex=myCars().find(x=>x.name===c.name);
       if(ex){map[c.id]=ex.id;continue;}
       const id=d.seq.car++;
-      d.cars.push({id,userId:uid,name:c.name||'Auto',kind:c.kind||'bev',
+      d.cars.push({id,nutzerId:uid,name:c.name||'Auto',kind:c.kind||'bev',
         kwhPer100:+(c.kwhPer100||c.kwh_per_100)||18,lPer100:+(c.lPer100||c.l_per_100)||7,
         active:c.active!==false,note:''});
       map[c.id]=id;cn++;
     }
     for(const s of p.sessions||[]){
       const id=s.id||s.tx;if(!id)continue;
-      if(d.sessions.some(x=>x.userId===uid&&x.id===id))continue;
+      if(d.sessions.some(x=>x.nutzerId===uid&&x.id===id))continue;
       const cid=s.carId!==undefined?s.carId:s.car_id;
-      d.sessions.push({...s,id,dbid:++d.seq.sess,userId:uid,carId:map[cid]||null});sn++;
+      d.sessions.push({...s,id,dbid:++d.seq.sess,nutzerId:uid,carId:map[cid]||null});sn++;
     }
     for(const f of p.fuelings||[]){
       if(!f.ts)continue;
-      if(d.fuelings.some(x=>x.userId===uid&&x.ts===f.ts&&Math.abs((x.cost||0)-(f.cost||0))<.005))continue;
+      if(d.fuelings.some(x=>x.nutzerId===uid&&x.ts===f.ts&&Math.abs((x.cost||0)-(f.cost||0))<.005))continue;
       const cid=f.carId!==undefined?f.carId:f.car_id;
-      d.fuelings.push({...f,dbid:++d.seq.fuel,userId:uid,carId:map[cid]||null});fn++;
+      d.fuelings.push({...f,dbid:++d.seq.fuel,nutzerId:uid,carId:map[cid]||null});fn++;
     }
     if(p.settings)d.settings[uid]={...(d.settings[uid]||{}),...p.settings};
     return ok({cars:cn,sessions:sn,fuelings:fn});

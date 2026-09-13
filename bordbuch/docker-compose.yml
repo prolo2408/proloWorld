@@ -1,17 +1,39 @@
+# /opt/stack/bordbuch/docker-compose.yml
+#
+# Bewusst KEINE ports-Zeile: der Dienst ist ausschliesslich ueber Traefik
+# erreichbar. Das ist hier nicht nur Gewohnheit, sondern der eigentliche
+# Schutz - Bordbuch vertraut den Anmeldekoepfen von Authentik, und die waeren
+# faelschbar, sobald jemand den Container direkt erreicht.
+
 services:
   bordbuch:
     build: .
-    image: bordbuch:lokal
+    image: bordbuch:2.4.1          # feste Fassung, nie latest
     container_name: bordbuch
     restart: unless-stopped
+
     environment:
+      # Datenbank und Belege liegen in getrennten Volumes - Belege werden
+      # gross, und beim Wiederherstellen will man sie einzeln behandeln koennen.
+      BORDBUCH_DB: /daten/bordbuch.db
+      BORDBUCH_BELEGE: /belege
+      LADELOG_HOST: 0.0.0.0        # im Container richtig: es gibt keine ports-Zeile
+      # Ausdrueckliche Zusage: vor diesem Dienst steht Traefik, und es gibt
+      # KEINE ports-Zeile. Ohne das weigert sich Bordbuch zu starten.
+      BORDBUCH_HEADER_VERTRAUEN: "1"
+      LADELOG_PORT: 8080
+      # Wer die Gesamtsicherung ueber alle Profile ziehen darf.
       BORDBUCH_ADMIN_GRUPPE: bordbuch-admin
-      TZ: Europe/Berlin
+      # Ziel des Abmelden-Knopfes; leer laesst den Knopf verschwinden.
+      BORDBUCH_ABMELDEN: /outpost.goauthentik.io/sign_out
+
     volumes:
-      - bordbuch_daten:/app/daten
-      - bordbuch_belege:/app/receipts
+      - bordbuch_daten:/daten
+      - bordbuch_belege:/belege
+
     networks:
       - proxy
+
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=proxy"
@@ -23,8 +45,8 @@ services:
       - "traefik.http.routers.bordbuch.service=bordbuch"
 
 volumes:
-  bordbuch_daten:
-  bordbuch_belege:
+  bordbuch_daten:                   # von aussen: bordbuch_bordbuch_daten
+  bordbuch_belege:                  # von aussen: bordbuch_bordbuch_belege
 
 networks:
   proxy:

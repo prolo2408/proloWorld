@@ -10,6 +10,107 @@ erste = etwas Bestehendes bricht.
 
 ---
 
+## 2.4.1 — 2026-09-13
+
+### Behoben
+- **Der Container startete in einer Endlosschleife**
+  (`can't open file '/app/server.py': Permission denied`). `server.py` lag im
+  Paket mit den Rechten `600` — nur für root lesbar. `COPY` übernimmt die Rechte
+  der Quelldatei, und Bordbuch läuft im Container bewusst als unprivilegierter
+  Nutzer, der die eigene Programmdatei dann nicht öffnen konnte. Das Dockerfile
+  setzt die Rechte jetzt selbst (`chmod 0644`), unabhängig davon, womit die
+  Datei gepackt wurde; zusätzlich wird das Paket mit begradigten Rechten gebaut.
+
+---
+
+## 2.4.0 — 2026-09-12
+
+> **Beim Umstieg zu beachten:** Die Volumes heißen jetzt anders und die Belege
+> liegen getrennt. Wer schon eine Fassung laufen hatte, muss die Daten einmal
+> umhängen (Befehle unten), sonst startet Bordbuch mit leeren Volumes.
+
+### Neu
+- **`aktualisierung.conf`** liegt bei (Pflichtdatei der Betriebsregeln):
+  `TYP="build"`, Prüfadresse `http://bordbuch:8080/`, 20 Sekunden Wartezeit.
+  Die Prüfung funktioniert, weil Bordbuch `/` bewusst ohne Anmeldekopf
+  beantwortet — die Seite selbst ist leer, alle Daten kommen über `/api`.
+- **Zwei benannte Volumes** statt einem: `bordbuch_daten` für die Datenbank,
+  `bordbuch_belege` für die Belegbilder. Beide stehen in `sicherung.conf`.
+- **Knöpfe sperren sich während einer laufenden Aktion** und melden nach einer
+  kurzen Wartezeit „Moment …". Damit erzeugt ein Doppeltipp auf *Speichern*
+  keine doppelten Einträge mehr — ein Befund, der lange offen war.
+
+### Geändert
+- **Der Besitzer heißt überall `nutzer_id`** statt `user_id` — in allen
+  Tabellen, allen Abfragen und in der Testversion. Bestehende Datenbanken
+  werden beim Start einmalig umbenannt; die Umbenennung ist wiederholbar ohne
+  Wirkung und lässt alle Daten unberührt.
+- **`.gitignore`** deckt jetzt die vollständige Liste schützenswerter Daten ab
+  (`*.key`, `*.pem`, `*.sqlite`, `*.sql`, `*.dump`, `belege/` …).
+
+### Behoben
+- **Zwei Farben standen fest im Stil** statt als Token (`--volt-hover`,
+  `--hint`). Dabei fiel auf, dass `--dim` an acht Stellen benutzt, aber nie
+  definiert war — Nebentext im Assistenten und in den Einstellungszeilen
+  erschien dadurch in voller Helligkeit statt gedämpft.
+
+### Umstieg von 2.3.0 (nur wenn schon gelaufen)
+```bash
+cd /opt/stack/bordbuch && docker compose down
+docker run --rm -v bordbuch_daten:/alt -v bordbuch_bordbuch_daten:/neu \
+  alpine sh -c "cp -a /alt/. /neu/ && rm -rf /neu/receipts"
+docker run --rm -v bordbuch_daten:/alt -v bordbuch_bordbuch_belege:/neu \
+  alpine sh -c "cp -a /alt/receipts/. /neu/ 2>/dev/null || true"
+docker compose up -d --build
+```
+
+---
+
+## 2.3.0 — 2026-09-12
+
+### Entfernt
+- **Die automatische Sicherung ist raus** — samt systemd-Dienst und -Timer, dem
+  Startparameter `--backup`, der Hintergrundschleife im Container und der
+  Statusanzeige unter *Einstellungen → Daten*. Bordbuch schreibt damit von sich
+  aus keine Dateien mehr außer Belegen. Gesichert wird dort, wo es hingehört:
+  beim zentralen Backup des Stacks über das Volume `bordbuch_daten`.
+
+### Unverändert
+- **Sicherung herunterladen** und **Sicherung wiederherstellen** in der
+  Oberfläche bleiben genau wie bisher — das ist der Export deiner Daten, nicht
+  die automatische Dateisicherung.
+
+---
+
+## 2.2.0 — 2026-09-12
+
+### Neu
+- **Bordbuch ist stack-fertig:** `Dockerfile`, `docker-compose.yml` und
+  `sicherung.conf` liegen bei. Kein `ports:`, Netz `proxy`, feste Fassung beim
+  Abbild, Traefik-Labels mit `authentik@file`, unprivilegierter Nutzer im
+  Container. Ohne Fremdpakete — Bordbuch braucht weiter nur die Python-
+  Standardbibliothek, also kein `pip` im Abbild.
+- **Ein Volume hält alles.** Datenbank, Belege **und** Sicherungen liegen jetzt
+  gemeinsam neben der Datenbank (im Container `/daten`). Vorher lagen Belege und
+  Sicherungen im Programmverzeichnis — im Container wären sie bei jedem Neubau
+  verloren gewesen. Auf dem Pi ändert sich nichts.
+- **Tägliche Sicherung ohne systemd:** `BORDBUCH_SICHERUNG_STUNDEN` legt im
+  laufenden Dienst einen konsistenten Schnappschuss an (SQLite-Backup-API).
+- **Deine Gruppen stehen im Profil** — samt Hinweis, warum die Gesamtsicherung
+  sichtbar ist oder fehlt.
+
+### Geändert
+- **Bericht und Abrechnung tragen den wirklichen Namen aus der Anmeldung**,
+  beim eigenen Profil zusätzlich die E-Mail. Für einen Nachweis beim Arbeitgeber
+  oder Finanzamt zählt der echte Name, nicht ein Spitzname.
+- **Die Freigabe-Auswahl nennt die E-Mail** — bei ähnlichen Anzeigenamen trifft
+  man sonst die falsche Person.
+- Ob Bordbuch auf einer offenen Adresse lauschen darf, sagt jetzt
+  `BORDBUCH_HEADER_VERTRAUEN` ausdrücklich, statt einer Container-Erkennung zu
+  vertrauen, an der der Start hängt.
+
+---
+
 ## 2.1.0 — 2026-09-12
 
 ### Neu
