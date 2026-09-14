@@ -414,7 +414,9 @@ label>.hlp{margin-left:4px}
         <rect x="7" y="12" width="26" height="20" rx="6" fill="none" stroke="var(--line)" stroke-width="2"/>
         <path d="M14 12V7M26 12V7" stroke="var(--good)" stroke-width="2.4" stroke-linecap="round"/>
         <path d="M21 17l-5 7h4l-1 6 6-8h-4l1-5z" fill="var(--accent)"/></svg>
-      <div><h1>Bordbuch</h1><div class="who" id="who"></div></div>
+      <div><h1>Bordbuch<span id="testmarke" hidden style="font-size:11px;
+        color:var(--accent);vertical-align:super;font-family:var(--mono);
+        margin-left:4px">TEST</span></h1><div class="who" id="who"></div></div>
     </div>
     <div class="headtools">
       <div class="carpick"><span class="lab">Auto</span><select id="carPick" aria-label="Auto wählen"></select></div>
@@ -1038,8 +1040,17 @@ async function parseXlsx(file){
 }
 
 /* ---------- Server / Testmodus ---------- */
+/* Testbetrieb (B-31). Drei Wege fuehren hinein:
+     - ?demo=1 an der Adresse - der uebliche Weg am laufenden Server
+     - window.LADELOG_DEMO=true - fuer eigene Einbettungen
+     - die Datei direkt aus dem Dateisystem geoeffnet (file:)
+   Es gab dafuer bis B-31 eine zweite Datei, bordbuch-demo.html: eine Kopie
+   von 6394 Zeilen, die sich in drei Zeilen unterschied. Sie war nach wenigen
+   Aenderungen um 314 Zeilen hinter index.html zurueck und lief damit auf
+   altem Rechenstand - genau das, was zwei Kopien derselben Datei immer tun. */
 const DEMO=(typeof window!=='undefined')&&(window.LADELOG_DEMO===true||
-  (typeof location!=='undefined'&&location&&location.protocol==='file:'));
+  (typeof location!=='undefined'&&location&&(location.protocol==='file:'||
+    /(?:^|[?&])demo=1(?:&|$)/.test(location.search))));
 async function api(path,body){
   if(DEMO)return demoApi(path,body);
   const h={};if(body)h['Content-Type']='application/json';
@@ -6548,6 +6559,14 @@ function themaSetzen(wert){
 try{const gw=localStorage.getItem('bordbuch_thema');themaSetzen(gw==='light'?'light':'dark');}catch(e){themaSetzen('dark');}
 
 /* ---------- Start ---------- */
+/* Im Testbetrieb sichtbar machen, dass es der Testbetrieb ist - sonst haelt
+   man die Beispieldaten fuer die eigenen (B-31). Das leistete bisher der
+   TEST-Zusatz in der zweiten Datei. */
+if(DEMO){
+  const tm=document.getElementById('testmarke');
+  if(tm)tm.hidden=false;
+  document.title='Bordbuch — Testversion';
+}
 /* B5: zuletzt gewaehltes Profil vorbelegen, dann holt loadState dessen Daten.
    Kennt der Server die Kennung nicht mehr, kommt kein Profil zurueck und das
    Gate erscheint wie bisher. Nur im echten Betrieb, nicht in der Demo. */

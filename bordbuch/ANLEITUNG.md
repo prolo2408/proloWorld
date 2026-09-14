@@ -79,13 +79,28 @@ sudo systemctl daemon-reload && sudo systemctl enable --now bordbuch
 
 Dann `http://raspberrypi.local:8080` öffnen. Alles Weitere steht unten.
 
-## Testen ohne Installation
+## Testen ohne eigene Daten
 
-Die Datei **`bordbuch-demo.html`** öffnest du mit einem Doppelklick in jedem
-Browser. Sie bringt Beispieldaten mit (drei Fahrzeuge, mehrere Jahre Historie),
-speichert nur im Browser und braucht keinen Server. Ideal, um vorher zu sehen,
-worauf du dich einlässt. Unter *Einstellungen → Verwaltung* kannst du die
-Beispieldaten jederzeit zurücksetzen.
+Hänge **`?demo=1`** an die Adresse:
+
+```
+https://bordbuch.prolo.me/?demo=1
+```
+
+Dann läuft die Testversion: Beispieldaten (drei Fahrzeuge, mehrere Jahre
+Historie), alles nur im Browser gespeichert, kein Schreiben auf dem Server.
+Oben im Kopf steht **TEST**, damit man die Beispieldaten nicht für die eigenen
+hält. Unter *Einstellungen → Verwaltung* lassen sie sich jederzeit
+zurücksetzen.
+
+Alternativ `index.html` direkt aus dem Dateisystem öffnen — auch das schaltet
+die Testversion ein.
+
+> Bis Fassung 2.5.2 gab es dafür eine eigene Datei `bordbuch-demo.html`. Sie
+> war eine Kopie von `index.html` mit drei geänderten Zeilen und lief
+> unweigerlich auseinander: nach wenigen Änderungen war sie um 314 Zeilen
+> hinter dem Original und rechnete mit veraltetem Code. Darum gibt es sie
+> nicht mehr (Befund B-31).
 
 ---
 
