@@ -1281,8 +1281,13 @@ class App(BaseHTTPRequestHandler):
         return self.send_json({"ok": True, "log": log_id})
 
     def service_delete(self, con, user, data):
-        con.execute("DELETE FROM wartung WHERE id=? AND nutzer_id=?", (data.get("dbid"), user["id"]))
-        return self.send_json({"ok": True})
+        cur = con.execute("DELETE FROM wartung WHERE id=? AND nutzer_id=?",
+                          (data.get("dbid"), user["id"]))
+        if not cur.rowcount:
+            return self.send_json(
+                {"error": "Diesen Wartungseintrag gibt es nicht mehr. "
+                          "Lade die Seite neu."}, 404)
+        return self.send_json({"ok": True, "geloescht": cur.rowcount})
 
     # ------------------------------------------------------------------
     # Werkstattkosten - mit Rechnung als Bild oder PDF, wie bei Tankbelegen
@@ -1341,10 +1346,16 @@ class App(BaseHTTPRequestHandler):
     def shop_delete(self, con, user, data):
         row = con.execute("SELECT receipt FROM werkstatt WHERE id=? AND nutzer_id=?",
                           (data.get("dbid"), user["id"])).fetchone()
+        cur = con.execute("DELETE FROM werkstatt WHERE id=? AND nutzer_id=?",
+                          (data.get("dbid"), user["id"]))
+        if not cur.rowcount:
+            return self.send_json(
+                {"error": "Diese Rechnung gibt es nicht mehr. Lade die Seite neu."}, 404)
+        # Erst nach dem Loeschen der Zeile - sonst waere die Datei weg,
+        # obwohl der Eintrag noch stuende.
         if row and row["receipt"]:
             beleg_datei_weg(row["receipt"])
-        con.execute("DELETE FROM werkstatt WHERE id=? AND nutzer_id=?", (data.get("dbid"), user["id"]))
-        return self.send_json({"ok": True})
+        return self.send_json({"ok": True, "geloescht": cur.rowcount})
 
     def restore(self, con, user, data):
         """Sicherung eines einzelnen Profils einspielen."""
@@ -1629,9 +1640,12 @@ class App(BaseHTTPRequestHandler):
         fid = data.get("id")
         if not str(fid).isdigit():
             return self.send_json({"error": "Welche Freigabe?"}, 400)
-        con.execute("DELETE FROM freigaben WHERE id=? AND eigentuemer_id=?",
-                    (int(fid), user["id"]))
-        return self.send_json({"ok": True})
+        cur = con.execute("DELETE FROM freigaben WHERE id=? AND eigentuemer_id=?",
+                          (int(fid), user["id"]))
+        if not cur.rowcount:
+            return self.send_json(
+                {"error": "Diese Freigabe gibt es nicht mehr. Lade die Seite neu."}, 404)
+        return self.send_json({"ok": True, "geloescht": cur.rowcount})
 
     def settings_save(self, con, user, data):
         con.execute("UPDATE users SET settings=? WHERE id=?",
@@ -1679,8 +1693,16 @@ class App(BaseHTTPRequestHandler):
         return self.send_json({"ok": True, "id": cid})
 
     def car_delete(self, con, user, data):
-        con.execute("DELETE FROM cars WHERE id=? AND nutzer_id=?", (data.get("id"), user["id"]))
-        return self.send_json({"ok": True})
+        # rowcount ansehen (B-09): sonst meldet das Tool "Geloescht", obwohl
+        # nichts geloescht wurde - und nach dem Neuladen ist die Zeile wieder
+        # da. Beim Loeschen ist genau das der Fall, in dem man dem Tool nicht
+        # mehr traut.
+        cur = con.execute("DELETE FROM cars WHERE id=? AND nutzer_id=?",
+                          (data.get("id"), user["id"]))
+        if not cur.rowcount:
+            return self.send_json(
+                {"error": "Dieses Auto gibt es nicht mehr. Lade die Seite neu."}, 404)
+        return self.send_json({"ok": True, "geloescht": cur.rowcount})
 
     def own_car(self, con, user, car_id):
         if car_id in (None, ""):
@@ -1918,13 +1940,15 @@ class App(BaseHTTPRequestHandler):
     def fuel_delete(self, con, user, data):
         row = con.execute("SELECT receipt FROM fuelings WHERE id=? AND nutzer_id=?",
                           (data.get("id"), user["id"])).fetchone()
-        con.execute("DELETE FROM fuelings WHERE id=? AND nutzer_id=?", (data.get("id"), user["id"]))
+        cur = con.execute("DELETE FROM fuelings WHERE id=? AND nutzer_id=?",
+                          (data.get("id"), user["id"]))
+        if not cur.rowcount:
+            return self.send_json(
+                {"error": "Diese Tankung gibt es nicht mehr. Lade die Seite neu."}, 404)
+        # Die Belegdatei erst entfernen, wenn die Zeile wirklich weg ist.
         if row and row["receipt"]:
-            try:
-                os.remove(os.path.join(RECEIPT_DIR, row["receipt"]))
-            except OSError:
-                pass
-        return self.send_json({"ok": True})
+            beleg_datei_weg(row["receipt"])
+        return self.send_json({"ok": True, "geloescht": cur.rowcount})
 
     # ---------------- statische Dateien ----------------
     def static(self, path):

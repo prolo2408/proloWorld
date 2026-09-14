@@ -5427,8 +5427,14 @@ async function handleClick(el){
   }
   else if(a==='chargeDelete'){
     if(!confirm('Diese Ladung wirklich löschen?'))return;
-    await api('/api/sessions/delete',{ids:[+v]});
-    state.entry=null;state.pending=null;await loadState();render();toast('Ladung gelöscht.');
+    /* Die Anzahl auswerten (B-09): 0 heisst, die Ladung war schon weg -
+       etwa weil sie in einem anderen Fenster geloescht wurde. Dann darf hier
+       nicht "geloescht" stehen, sonst sieht es aus wie ein Tool, das Daten
+       willkuerlich zurueckbringt. */
+    const a1=await api('/api/sessions/delete',{ids:[+v]});
+    state.entry=null;state.pending=null;await loadState();render();
+    toast(a1&&a1.deleted?'Ladung gelöscht.'
+      :'Diese Ladung war schon gelöscht. Die Ansicht ist jetzt aktuell.');
   }
   /* Tankungen */
   else if(a==='fuelNew'){state.pending={type:'fuel',row:{}};state.entry='fuelForm';state.tab='fuel';go();}
@@ -6274,7 +6280,10 @@ async function demoApi(path,body){
     return ok();
   }
   if(path==='/api/freigabe/delete'){
+    const vorFr=(d.freigaben||[]).length;
     d.freigaben=(d.freigaben||[]).filter(f=>!(f.id===+body.id&&f.von===uid));
+    if((d.freigaben||[]).length===vorFr)
+      throw new Error('Diese Freigabe gibt es nicht mehr. Lade die Seite neu.');
     return ok();
   }
   if(!uid)throw new Error('kein Profil gewählt');
@@ -6321,7 +6330,13 @@ async function demoApi(path,body){
     return ok();
   }
   if(path==='/api/service/delete'){
-    d.service=d.service.filter(x=>!(x.dbid===body.dbid&&x.nutzerId===uid));return ok();
+    /* Wie der Server (B-09): war nichts zu loeschen, ist das ein Fehler und
+       keine Erfolgsmeldung. */
+    const vor=d.service.length;
+    d.service=d.service.filter(x=>!(x.dbid===body.dbid&&x.nutzerId===uid));
+    if(d.service.length===vor)
+      throw new Error('Diesen Wartungseintrag gibt es nicht mehr. Lade die Seite neu.');
+    return ok();
   }
   if(path==='/api/shop/save'){
     const rec=body.receiptData?('data:application/octet-stream;base64,'+body.receiptData):null;
@@ -6338,7 +6353,11 @@ async function demoApi(path,body){
     return ok({id});
   }
   if(path==='/api/shop/delete'){
-    d.shop=d.shop.filter(x=>!(x.dbid===body.dbid&&x.nutzerId===uid));return ok();
+    const vorS=d.shop.length;
+    d.shop=d.shop.filter(x=>!(x.dbid===body.dbid&&x.nutzerId===uid));
+    if(d.shop.length===vorS)
+      throw new Error('Diese Rechnung gibt es nicht mehr. Lade die Seite neu.');
+    return ok();
   }
   if(path==='/api/cars/save'){
     const kd=['bev','phev','petrol','diesel'].includes(body.kind)?body.kind:'bev';
@@ -6357,7 +6376,10 @@ async function demoApi(path,body){
     return ok({id});
   }
   if(path==='/api/cars/delete'){
+    const vorC=d.cars.length;
     d.cars=d.cars.filter(c=>!(c.id===body.id&&c.nutzerId===uid));
+    if(d.cars.length===vorC)
+      throw new Error('Dieses Auto gibt es nicht mehr. Lade die Seite neu.');
     d.sessions.forEach(x=>{if(x.carId===body.id)x.carId=null;});
     d.fuelings.forEach(x=>{if(x.carId===body.id)x.carId=null;});
     return ok();
@@ -6394,9 +6416,14 @@ async function demoApi(path,body){
     return ok();
   }
   if(path==='/api/sessions/delete'){
-    if(body.all){d.sessions=d.sessions.filter(x=>x.nutzerId!==uid);return ok();}
+    /* Anzahl zurueckgeben wie der Server (B-09) - die Oberflaeche wertet sie aus. */
+    if(body.all){const v=d.sessions.length;
+      d.sessions=d.sessions.filter(x=>x.nutzerId!==uid);
+      return ok({deleted:v-d.sessions.length});}
     const ids=new Set((body.ids||[]).map(Number));
-    d.sessions=d.sessions.filter(x=>!(x.nutzerId===uid&&ids.has(x.dbid)));return ok();
+    const vorL=d.sessions.length;
+    d.sessions=d.sessions.filter(x=>!(x.nutzerId===uid&&ids.has(x.dbid)));
+    return ok({deleted:vorL-d.sessions.length});
   }
   if(path==='/api/fuel/save'){
     const rec=body.receiptData?('data:image/*;base64,'+body.receiptData):null;
@@ -6415,7 +6442,11 @@ async function demoApi(path,body){
     return ok({id});
   }
   if(path==='/api/fuel/delete'){
-    d.fuelings=d.fuelings.filter(x=>!(x.dbid===body.id&&x.nutzerId===uid));return ok();
+    const vorF=d.fuelings.length;
+    d.fuelings=d.fuelings.filter(x=>!(x.dbid===body.id&&x.nutzerId===uid));
+    if(d.fuelings.length===vorF)
+      throw new Error('Diese Tankung gibt es nicht mehr. Lade die Seite neu.');
+    return ok();
   }
   if(path==='/api/restore'){
     const p=body.data||{};
