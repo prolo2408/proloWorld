@@ -179,6 +179,26 @@ RECEIPT_TYPES = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
                  "webp": "image/webp", "heic": "image/heic", "pdf": "application/pdf"}
 MAX_RECEIPT = 8 * 1024 * 1024
 
+# Erlaubte Einstellungsschluessel (B-22). Vollstaendig aus den DEFAULTS in
+# index.html uebernommen, plus homePrices - das ist der Preisverlauf, der
+# dort benutzt aber nicht vorbelegt wird. Wer eine Einstellung hinzufuegt,
+# ergaenzt sie HIER mit, sonst weist der Server sie ab. Das ist Absicht: so
+# faellt ein Tippfehler sofort auf, statt still in der Datenbank zu landen.
+ERLAUBTE_EINSTELLUNGEN = {
+    "thema",            # Darstellung: system / hell / dunkel (B-11)
+    "vatRate",          # Mehrwertsteuersatz in Prozent
+    "kwhPer100", "fuelPer100",      # Verbrauchsvorgaben
+    "fuelPrice", "homePrice", "homePrices", "useHomePrice",
+    "kwhSatz", "satzJahr", "satzQuelle",
+    "stationKind",      # Ladepunkt -> home/public
+    "invoiceExpect",    # je Anbieter: Abrechnung erwartet?
+    "ack",              # weggeklickte Auffaelligkeiten
+    "ppkMax", "pplMax", "minKw", "longHours",   # Plausibilitaetsschwellen
+    "onboarded",
+}
+# 64 KB reichen fuer sehr viele Ladepunkte und einen langen Preisverlauf.
+MAX_EINSTELLUNGEN_B = 64 * 1024
+
 BASE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(
   id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1728,8 +1748,39 @@ class App(BaseHTTPRequestHandler):
         return self.send_json({"ok": True, "geloescht": cur.rowcount})
 
     def settings_save(self, con, user, data):
-        con.execute("UPDATE users SET settings=? WHERE id=?",
-                    (json.dumps(data.get("settings") or {}), user["id"]))
+        """Einstellungen speichern - mit Erlaubnisliste und Groessengrenze (B-22).
+
+        Vorher wurde ungeprueft entgegengenommen, was kam: keine Pruefung auf
+        Groesse, Struktur oder Schluesselnamen. Ein Feld mit zwei Millionen
+        Zeichen ging anstandslos durch, und je Aufruf waren bis zu 14 MB
+        moeglich (MAX_BODY). Da /api/state die Einstellungen bei JEDEM
+        Seitenaufbau vollstaendig mitliefert, machte das die Anwendung
+        unbenutzbar - fuer den Nutzer selbst und ueber die Datenbankgroesse
+        auch fuer andere. Ein Nutzer konnte das Volume vollschreiben.
+
+        Die feste Liste erlaubter Schluessel ist hier besser als eine reine
+        Groessenpruefung: sie faengt auch Tippfehler in der Oberflaeche, die
+        sonst still in der Datenbank landen und nie wieder gelesen werden.
+        """
+        roh = data.get("settings")
+        if not isinstance(roh, dict):
+            return self.send_json(
+                {"error": "Die Einstellungen muessen ein Objekt sein."}, 400)
+        unbekannt = set(roh) - ERLAUBTE_EINSTELLUNGEN
+        if unbekannt:
+            return self.send_json(
+                {"error": "Unbekannte Einstellung: %s. Bekannt sind: %s."
+                          % (", ".join(sorted(unbekannt)[:5]),
+                             ", ".join(sorted(ERLAUBTE_EINSTELLUNGEN)))}, 400)
+        text = json.dumps(roh, ensure_ascii=False)
+        if len(text.encode("utf-8")) > MAX_EINSTELLUNGEN_B:
+            return self.send_json(
+                {"error": "Die Einstellungen sind zu umfangreich (%d KB, Grenze "
+                          "%d KB). Meist steckt dahinter eine sehr lange Liste "
+                          "von Ladepunkten oder Preisen."
+                          % (len(text.encode("utf-8")) // 1024,
+                             MAX_EINSTELLUNGEN_B // 1024)}, 400)
+        con.execute("UPDATE users SET settings=? WHERE id=?", (text, user["id"]))
         return self.send_json({"ok": True})
 
     # ---------------- Autos ----------------
