@@ -13,6 +13,22 @@ services:
     # Die Fassung passt zum CHANGELOG.md und wird dort mitgezogen.
     image: wiki:1.0.0
     container_name: wiki
+    # Grenzen nach Betriebsregeln 5 (B-29). Vorher hatte KEIN Container
+    # mem_limit, pids_limit, cap_drop oder security_opt. Folgen: ein
+    # Speicherleck in einem Tool brachte den GANZEN Server in den OOM-Killer,
+    # nicht nur sich selbst; die Container liefen mit dem vollen
+    # Standardsatz an Linux-Faehigkeiten, obwohl keiner davon welche
+    # braucht; und ohne no-new-privileges ermoeglicht eine Datei mit
+    # gesetztem setuid-Bit im Abbild eine Rechteausweitung.
+    mem_limit: 512m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # read_only ist hier NICHT moeglich: pdftotext schreibt
+    # Zwischendateien, und der Vorschauordner /seiten/.vorschau wird zur
+    # Laufzeit gefuellt.
     restart: unless-stopped
     env_file: .env
     environment:

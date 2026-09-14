@@ -93,6 +93,35 @@ Verbindlich in jeder `docker-compose.yml`:
 - Netzwerk `proxy` (extern), zusätzlich `internal` für Datenbanken.
 - Datenbanken und Hilfsdienste hängen **nur** im Netz `internal`.
 - `restart: unless-stopped`
+- **Speicher-, Prozess- und Rechtegrenzen sind Pflicht** (aus B-29). Kein
+  Container hatte sie, mit drei Folgen: ein Speicherleck in einem Tool brachte
+  den **ganzen** Server in den OOM-Killer statt nur sich selbst; die Container
+  liefen mit dem vollen Standardsatz an Linux-Fähigkeiten, obwohl keiner davon
+  welche braucht; und ohne `no-new-privileges` ermöglicht eine Datei mit
+  gesetztem setuid-Bit im Abbild eine Rechteausweitung.
+
+  ```yaml
+      mem_limit: 512m          # bordbuch, wiki: 512m · n8n: 2g · authentik: 1g
+      pids_limit: 256
+      security_opt:
+        - no-new-privileges:true
+      cap_drop:
+        - ALL
+  ```
+
+  Zwei Dienste brauchen einzelne Fähigkeiten zurück, und zwar nur diese:
+  **Traefik** `NET_BIND_SERVICE` (80 und 443 sind privilegierte Ports — ohne
+  die Fähigkeit startet es nicht), **PostgreSQL** `CHOWN`, `SETUID`, `SETGID`,
+  `FOWNER`, `DAC_OVERRIDE` (es legt beim Start seinen Datenordner an und
+  wechselt dabei auf den unprivilegierten Nutzer).
+
+  `read_only: true` zusätzlich, wo das Programmverzeichnis nicht beschrieben
+  wird — beim **Bordbuch** möglich (es schreibt nur in Volumes), beim **Wiki
+  nicht**: `pdftotext` legt Zwischendateien ab und der Vorschauordner
+  `/seiten/.vorschau` wird zur Laufzeit gefüllt. Dazu dann `tmpfs` für `/tmp`
+  und `PYTHONDONTWRITEBYTECODE=1` im Dockerfile, sonst versucht Python bei
+  jedem Start erfolglos, `__pycache__` neben `server.py` zu schreiben.
+
 - **Feste Versionsnummer beim Image, niemals `latest`.** Datenbank-
   migrationen bei Hauptversionen sind nicht umkehrbar.
 - Persistente Daten liegen in benannten Volumes, nicht im Container.
@@ -796,6 +825,10 @@ Design- und Qualitätspunkte stehen in `prolo-regelblatt.md`.
 - [ ] DNS-Eintrag gesetzt, kein verwaister AAAA-Record
 - [ ] `docker-compose.yml` ohne `ports:`, im Netz `proxy`
 - [ ] Feste Versionsnummer beim Image, kein `latest`
+- [ ] `mem_limit`, `pids_limit`, `no-new-privileges` und `cap_drop: ALL` gesetzt
+      (B-29) — und nur die Fähigkeiten zurückgegeben, die der Dienst wirklich
+      braucht
+- [ ] `read_only: true` geprüft: möglich oder mit Begründung nicht
 - [ ] Traefik-Labels inklusive `authentik@file`
 - [ ] Anwendung in Authentik angelegt **und dem Outpost zugewiesen**
 - [ ] Von außen aufgerufen, Anmelde-Weiterleitung geprüft

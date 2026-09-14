@@ -13,6 +13,22 @@ services:
     # verlangt pg_upgrade oder Sichern und Einspielen (Betriebsregeln 23).
     image: docker.io/library/postgres:16.10-alpine
     container_name: authentik-db
+    # Grenzen nach Betriebsregeln 5 (B-29).
+    mem_limit: 1g
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # cap_drop ALL waere zu eng: postgres legt beim Start seinen
+    # Datenordner an und braucht dafuer CHOWN, SETUID und SETGID, um vom
+    # Start-Skript auf den unprivilegierten Nutzer zu wechseln.
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - FOWNER
+      - DAC_OVERRIDE
     restart: unless-stopped
     env_file:
       - .env
@@ -34,6 +50,13 @@ services:
   server:
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2026.8.2}
     container_name: authentik-server
+    # Grenzen nach Betriebsregeln 5 (B-29).
+    mem_limit: 1g
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     command: server
     restart: unless-stopped
     shm_size: 512mb
@@ -89,6 +112,13 @@ services:
   worker:
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2026.8.2}
     container_name: authentik-worker
+    # Grenzen nach Betriebsregeln 5 (B-29).
+    mem_limit: 1g
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     command: worker
     restart: unless-stopped
     shm_size: 512mb

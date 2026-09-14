@@ -3,6 +3,18 @@ services:
     image: traefik:v3.6.13
     container_name: traefik
     restart: unless-stopped
+    # Grenzen nach Betriebsregeln 5 (B-29). Traefik steht als einziger
+    # Dienst direkt am offenen Netz und verdient sie am meisten.
+    mem_limit: 256m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      # 80 und 443 sind privilegierte Ports - ohne diese Faehigkeit kann
+      # Traefik sie im Container nicht belegen und startet nicht.
+      - NET_BIND_SERVICE
     ports:
       - "80:80"
       - "443:443"

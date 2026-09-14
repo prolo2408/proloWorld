@@ -14,6 +14,11 @@ COPY schriften/ ./schriften/
 
 # Datenbank unter /daten, Belege unter /belege - zwei benannte Volumes,
 # beide in sicherung.conf eingetragen.
+# PYTHONDONTWRITEBYTECODE (B-29): mit read_only: true ist das
+# Programmverzeichnis nicht beschreibbar, und Python wuerde bei jedem Start
+# erfolglos versuchen, __pycache__ neben server.py zu schreiben. Ein
+# Kommentar gehoert NICHT in eine Fortsetzungszeile mit Backslash - darum
+# steht er hier.
 ENV BORDBUCH_DB=/daten/bordbuch.db \
     BORDBUCH_BELEGE=/belege \
     LADELOG_HOST=0.0.0.0 \
@@ -21,7 +26,8 @@ ENV BORDBUCH_DB=/daten/bordbuch.db \
     BORDBUCH_ADMIN_GRUPPE=bordbuch-admin \
     BORDBUCH_ABMELDEN=/outpost.goauthentik.io/sign_out \
     BORDBUCH_HEADER_VERTRAUEN=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
 # Nicht als root laufen. Die Kennung ist fest, damit die Rechte im Volume
 # nach einem Neubau des Abbilds dieselben bleiben.
