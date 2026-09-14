@@ -3,7 +3,20 @@ http:
     authentik:
       forwardAuth:
         address: http://authentik-server:9000/outpost.goauthentik.io/auth/traefik
-        trustForwardHeader: true
+        # false, nicht true (B-25). true wies Traefik an, die vom CLIENT
+        # mitgeschickten X-Forwarded-*-Kopfzeilen zu uebernehmen und an
+        # Authentik weiterzureichen. Traefik steht hier am aeusseren Rand -
+        # es gibt keinen vorgelagerten Proxy, dessen Angaben man uebernehmen
+        # muesste.
+        #
+        # Authentik wertet X-Forwarded-Host, -Proto und -Uri aus, um nach der
+        # Anmeldung zurueckzuleiten. Ein manipulierter X-Forwarded-Host konnte
+        # damit das Ziel der Rueckleitung beeinflussen - der klassische Weg zu
+        # einer offenen Weiterleitung im Anmeldeablauf.
+        #
+        # Mit false setzt Traefik die Kopfzeilen selbst aus der
+        # tatsaechlichen Verbindung.
+        trustForwardHeader: false
         authResponseHeaders:
           - X-authentik-username
           - X-authentik-groups
