@@ -1017,6 +1017,23 @@ function berichtZeichnen(b){
       style="margin:6px 0 0 18px;padding:0">${b.warnungen.map(w =>
       `<li>${schuetzen(w)}</li>`).join('')}</ul></div>`);
   }
+  /* Sicherheitshinweise als eigener Abschnitt, direkt vor dem
+     Uebernehmen-Knopf (B-07). Bewusst getrennt von den Designwarnungen und
+     bewusst KEINE Fehler: die Seiten duerfen Verhalten mitbringen. Aber wer
+     eine Seite aus fremder Quelle einspielt, soll vorher sehen, was drin
+     steckt - nicht danach. */
+  if(b.sicherheit && b.sicherheit.length){
+    teile.push(`<div class="meldung warn" style="border-left-width:4px">
+      <strong>Was diese Seite mitbringt</strong>
+      <ul style="margin:6px 0 0 18px;padding:0">${b.sicherheit.map(h =>
+      `<li>${schuetzen(h)}</li>`).join('')}</ul>
+      <div style="font-size:12px;margin-top:8px">
+        Eingespielte Seiten bringen eigenen Code mit. Spiele nur Seiten ein,
+        deren Herkunft du kennst. Die Seite läuft in einem abgeschotteten
+        Rahmen und kommt weder an die Wiki-Daten noch an deine Anmeldung —
+        das ist eine Absicherung, kein Ersatz dafür, die Quelle zu kennen.
+      </div></div>`);
+  }
   if(!b.fehler.length){
     const pfade = (ZUSTAND.pfade || []).map(p =>
       `<option value="${schuetzen(p)}"></option>`).join('');
