@@ -451,6 +451,52 @@ bordbuch:  TYP="build"  PRUEF_URL="http://bordbuch:8080/"                       
 
 Authentik braucht spürbar länger, weil beim Start Migrationen laufen.
 
+### 19a. Datenbank-Migrationen: Hinweis, Kopie, Transaktion
+
+Gilt für jede Migration in jedem Tool, das eine eigene Datenbank mitbringt.
+Aus B-13: fünf `ALTER TABLE` liefen hintereinander, jedes sofort wirksam.
+Bricht der Vorgang nach der dritten Tabelle ab — Stromausfall, voller
+Datenträger, `SIGKILL` durch den Container-Neustart —, steht die Datenbank in
+einem Mischzustand, und der Container startet in einer Schleife neu.
+
+Darum sind diese drei Schritte Pflicht, in dieser Reihenfolge:
+
+1. **Hinweis auf die Sicherung — bevor etwas passiert.** Das Tool schreibt
+   beim Start, welche Änderungen anstehen, dass sie nicht umkehrbar sind und
+   wie man abbricht. Ein Hinweis nach der ersten Änderung ist wertlos.
+2. **Kopie der bisherigen Datei anlegen.** Nach dem Muster
+   `<datenbank>.vor-stand-<n>`. Die Kopie bleibt liegen; sie kostet einmalig
+   den Platz der Datenbank und ist das Einzige, was nach einer
+   schiefgegangenen Migration noch hilft.
+3. **Alle Änderungen in einer Transaktion.** Entweder ist die Datenbank
+   vollständig im alten oder vollständig im neuen Stand — nichts dazwischen.
+   SQLite kann `ALTER TABLE` innerhalb einer Transaktion.
+
+Zwei Dinge, über die man dabei stolpert:
+
+- **`executescript()` beendet eine offene Transaktion.** In Python schickt
+  `sqlite3` davor ein implizites `COMMIT`. Wer `CREATE TABLE IF NOT EXISTS`
+  per `executescript()` ausführt, kann das also nicht in dieselbe Transaktion
+  packen. Unkritisch, solange dort nur idempotente Anweisungen stehen: ein
+  abgebrochener Lauf wird beim nächsten Start vollendet. Alles, was Daten
+  anfasst oder umbenennt, gehört in die Transaktion.
+- **Reihenfolge.** Umbenennungen müssen vor dem Anlegen von Indizes laufen,
+  die auf den neuen Spaltennamen stehen — sonst scheitert das Anlegen an der
+  alten Spalte.
+
+**Ein Aufruf, der nur nach der Fassung fragt, migriert nicht.** `--version`
+wird von der Gesundheitsprüfung und von Skripten benutzt und bleibt ohne
+Nebenwirkung. Für eine gezielte Migration — etwa zum Ausprobieren auf einer
+Kopie — gibt es `--migrieren`:
+
+```bash
+cp bordbuch.db /tmp/probe.db
+python3 server.py --db /tmp/probe.db --migrieren
+ls -la /tmp/probe.db.vor-stand-*          # Kopie muss da sein
+sqlite3 /tmp/probe.db "PRAGMA integrity_check;"        # ok
+sqlite3 /tmp/probe.db "SELECT COUNT(*) FROM sessions;" # Anzahl unveraendert
+```
+
 ## 20. Zentrales Aktualisierungsskript
 
 `/opt/stack/aktualisieren.sh`, ausführbar:

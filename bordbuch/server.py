@@ -16,6 +16,7 @@ import json
 import mimetypes
 import os
 import re
+import shutil
 import sqlite3
 import sys
 import threading
@@ -287,40 +288,125 @@ def bulk(con):
         con.execute("COMMIT")
 
 
+# Tabellen, in denen der Besitzer ab Stand 5 nutzer_id heisst.
+BESITZER_TABELLEN = ("cars", "sessions", "fuelings", "wartung", "werkstatt")
+
+
+def spalten_von(con, tabelle):
+    """Spaltennamen einer Tabelle - leere Menge, wenn es sie nicht gibt."""
+    try:
+        return {r["name"] for r in con.execute("PRAGMA table_info(%s)" % tabelle)}
+    except sqlite3.OperationalError:
+        return set()
+
+
+def migration_hinweis(aenderungen):
+    """Vor jeder Aenderung, die Daten anfasst, auf die Sicherung hinweisen.
+
+    Regelblatt 15: "Vor Migrationen, die Daten veraendern, weist das Tool auf
+    die Sicherung hin." Der Hinweis steht bewusst VOR der ersten Aenderung -
+    danach waere er wertlos.
+    """
+    print("=" * 68)
+    print("Die Datenbank wird auf Stand %s gebracht." % SCHEMA_VERSION)
+    print("Aenderungen: %s" % ", ".join(aenderungen))
+    print("Das ist nicht umkehrbar. Ohne aktuelle Sicherung jetzt abbrechen")
+    print("(Strg+C) und zuerst /opt/stack/backup.sh laufen lassen.")
+    print("=" * 68)
+
+
+def migration_kopie():
+    """Eine Kopie des bisherigen Stands anlegen - der Rueckweg (Regelblatt 15).
+
+    Die Kopie bleibt liegen. Sie kostet einmalig den Platz der Datenbank und
+    ist das Einzige, was nach einer schiefgegangenen Migration noch hilft.
+    """
+    kopie = CFG.db + ".vor-stand-%s" % SCHEMA_VERSION
+    if os.path.exists(kopie):
+        print("Kopie des bisherigen Stands liegt bereits vor: %s" % kopie)
+        return kopie
+    shutil.copy2(CFG.db, kopie)
+    print("Kopie des bisherigen Stands: %s" % kopie)
+    return kopie
+
+
 def init_db():
+    """Datenbank anlegen oder auf den aktuellen Stand bringen.
+
+    Ablauf in drei Schritten, die seit B-13 fuer jede Migration gelten und in
+    prolo-betriebsregeln.md 19 festgeschrieben sind:
+
+      1. Hinweis auf die Sicherung - bevor etwas passiert.
+      2. Kopie der bisherigen Datei anlegen - der Rueckweg.
+      3. Alle Aenderungen in einer Transaktion - alles oder nichts.
+
+    Vorher liefen fuenf ALTER TABLE hintereinander, jedes sofort wirksam.
+    Brach der Vorgang nach der dritten Tabelle ab - Stromausfall, voller
+    Datentraeger, SIGKILL durch den Container-Neustart -, stand die Datenbank
+    in einem Mischzustand: die Haelfte der Tabellen mit nutzer_id, die andere
+    noch mit user_id. Der Container startete dann in einer Schleife neu.
+    """
     folder = os.path.dirname(os.path.abspath(CFG.db))
     if folder:
         os.makedirs(folder, exist_ok=True)
     os.makedirs(RECEIPT_DIR, exist_ok=True)
     fresh = not os.path.exists(CFG.db) or os.path.getsize(CFG.db) == 0
     with db() as con:
-        # Umbenennung aus Stand 5: der Besitzer heisst jetzt ueberall nutzer_id.
-        # Muss VOR dem Schema laufen, sonst legt BASE_SCHEMA die Tabellen zwar
-        # nicht neu an (IF NOT EXISTS), die Abfragen darunter faenden aber die
-        # alte Spalte. Idempotent: was schon nutzer_id heisst, bleibt.
-        for tab in ("cars", "sessions", "fuelings", "wartung", "werkstatt"):
-            try:
-                spalten = {r["name"] for r in con.execute("PRAGMA table_info(%s)" % tab)}
-            except sqlite3.OperationalError:
-                continue
-            if "user_id" in spalten and "nutzer_id" not in spalten:
-                con.execute("ALTER TABLE %s RENAME COLUMN user_id TO nutzer_id" % tab)
+        # ---- Schritt 0: Bestandsaufnahme, ausschliesslich lesend -----------
+        # Erst wissen, was zu tun ist - dann darf gewarnt und kopiert werden.
+        umbenennen = [t for t in BESITZER_TABELLEN
+                      if "user_id" in spalten_von(con, t)
+                      and "nutzer_id" not in spalten_von(con, t)]
+        fehlend = [(t, sp) for t, sp, _ in ADD_COLUMNS
+                   if spalten_von(con, t) and sp not in spalten_von(con, t)]
+        alt = con.execute(
+            "SELECT v FROM meta WHERE k='schema'").fetchone() if not fresh else None
+        aenderungen = []
+        if umbenennen:
+            aenderungen.append("user_id wird zu nutzer_id in %s" % ", ".join(umbenennen))
+        if fehlend:
+            aenderungen.append("neue Spalten: %s"
+                               % ", ".join("%s.%s" % ts for ts in fehlend))
+
+        # ---- Schritt 1 und 2: Hinweis und Kopie, vor der ersten Aenderung --
+        # Bei einer neuen Datenbank ist das kein Update, sondern der Normalfall.
+        if aenderungen and not fresh:
+            migration_hinweis(aenderungen)
+            migration_kopie()
+
+        # ---- Schritt 3: Aenderungen, jede Gruppe atomar --------------------
+        # Die Umbenennungen muessen VOR BASE_SCHEMA laufen: die Indizes dort
+        # stehen auf nutzer_id und wuerden sonst an der alten Spalte scheitern.
+        # Sie sind zugleich der Fall, den B-13 beschreibt - darum in einer
+        # Transaktion: entweder heissen danach alle fuenf Tabellen nutzer_id
+        # oder keine.
+        if umbenennen:
+            with bulk(con):
+                for tab in umbenennen:
+                    con.execute("ALTER TABLE %s RENAME COLUMN user_id TO nutzer_id" % tab)
+            for tab in umbenennen:
                 print("Datenbank ergaenzt: %s.user_id heisst jetzt nutzer_id" % tab)
+
+        # executescript beendet eine offene Transaktion, muss also ausserhalb
+        # von bulk() stehen. Unkritisch: CREATE TABLE/INDEX IF NOT EXISTS ist
+        # idempotent - ein abgebrochener Lauf wird beim naechsten Start
+        # vollendet und kann keinen Mischzustand hinterlassen.
         con.executescript(BASE_SCHEMA)
         for sql in ADD_TABLES:
             con.executescript(sql)
-        for table, column, decl in ADD_COLUMNS:
-            have = {r["name"] for r in con.execute("PRAGMA table_info(%s)" % table)}
-            if column not in have:
-                con.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, decl))
-                if not fresh:   # bei einer neuen Datenbank ist das kein Update, sondern der Normalfall
-                    print("Datenbank ergaenzt: %s.%s" % (table, column))
-        for sql in ADD_INDEXES:
-            con.execute(sql)
-        old = con.execute("SELECT v FROM meta WHERE k='schema'").fetchone()
-        con.execute("INSERT OR REPLACE INTO meta(k,v) VALUES('schema',?)", (SCHEMA_VERSION,))
-        if old and old["v"] != SCHEMA_VERSION:
-            print("Datenbank von Stand %s auf %s gebracht." % (old["v"], SCHEMA_VERSION))
+
+        with bulk(con):
+            for table, column, decl in ADD_COLUMNS:
+                if column not in spalten_von(con, table):
+                    con.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, decl))
+                    if not fresh:
+                        print("Datenbank ergaenzt: %s.%s" % (table, column))
+            for sql in ADD_INDEXES:
+                con.execute(sql)
+            con.execute("INSERT OR REPLACE INTO meta(k,v) VALUES('schema',?)",
+                        (SCHEMA_VERSION,))
+        if alt and alt["v"] != SCHEMA_VERSION:
+            print("Datenbank von Stand %s auf %s gebracht." % (alt["v"], SCHEMA_VERSION))
 
 
 def num(v, d=0.0):
@@ -1457,6 +1543,13 @@ def main():
     p.add_argument("--verbose", action="store_true")
     p.add_argument("--version", action="store_true",
                    help="Fassungsnummer ausgeben und beenden")
+    # --version bleibt bewusst ohne Nebenwirkung: es wird von der
+    # Gesundheitspruefung und von Skripten aufgerufen, und ein Aufruf, der
+    # nur nach der Fassung fragt, darf keine Datenbank migrieren. Wer eine
+    # Migration gezielt anstossen oder auf einer Kopie ausprobieren will,
+    # nimmt --migrieren.
+    p.add_argument("--migrieren", action="store_true",
+                   help="Datenbank auf den aktuellen Stand bringen und beenden")
     global CFG, RECEIPT_DIR
     CFG = p.parse_args()
     # Belege dorthin, wo auch die Datenbank liegt (siehe oben). Ein eigener Ort
@@ -1467,6 +1560,9 @@ def main():
         print(VERSION)
         return
     init_db()
+    if CFG.migrieren:
+        print("Datenbank ist auf Stand %s." % SCHEMA_VERSION)
+        return
     if CFG.verknuepfe:
         if "=" not in CFG.verknuepfe:
             print("Bitte in der Form --verknuepfe anmeldename=Profilname angeben.")
