@@ -5,6 +5,65 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Prolo Wiki</title>
 <style>
+  /* ---------------------------------------------------------------
+     Schriften (B-19)
+
+     Das Wiki hatte die Regeln bereits, sie zeigten aber auf Dateinamen
+     (sora-600.woff2, instrument-400.woff2, …), die nie geliefert wurden -
+     der Ordner schriften/ enthielt nur einen HINWEIS.md. Damit lief auch das
+     Wiki fuer alle Nutzer in der Systemschrift, denn auf praktisch keinem
+     Geraet sind Sora, Instrument Sans oder JetBrains Mono installiert. Die
+     Unterscheidung zwischen Anzeige-, Fliess- und Monospace-Schrift ist der
+     Kern von Regelblatt 3, und letter-spacing:-0.02em auf Ueberschriften ist
+     auf Sora abgestimmt.
+
+     Die Absicht, keine fremden Quellen einzubinden, war richtig und deckt
+     sich mit der CSP - der richtige Weg ist aber, die Schriften SELBST
+     auszuliefern. Sie liegen jetzt tatsaechlich unter wiki/schriften/ und
+     werden von server.py mit Zwischenspeicherung herausgegeben.
+
+     Alle drei stehen unter der SIL Open Font License; die Lizenztexte
+     liegen als OFL-*.txt daneben, wie die OFL es verlangt.
+
+     Zwei Dateien je Familie, aufgeteilt nach unicode-range: "latin" deckt
+     den Alltag ab, "latin-ext" laedt der Browser nur nachtraeglich, wenn
+     ein Zeichen daraus vorkommt. Instrument Sans und JetBrains Mono sind
+     variable Schriften - eine Datei deckt den ganzen Gewichtsbereich ab,
+     darum steht dort eine Spanne statt einer Zahl.
+     --------------------------------------------------------------- */
+  /* Sora 600: Ueberschriften und Kennzahlen */
+  @font-face{
+    font-family:'Sora';font-style:normal;font-weight:600;font-display:swap;
+    src:url('/schriften/sora-latin.woff2') format('woff2');
+    unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face{
+    font-family:'Sora';font-style:normal;font-weight:600;font-display:swap;
+    src:url('/schriften/sora-latin-ext.woff2') format('woff2');
+    unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
+  /* Instrument Sans 400-600: Fliesstext (variabel) */
+  @font-face{
+    font-family:'Instrument Sans';font-style:normal;font-weight:400 600;font-display:swap;
+    src:url('/schriften/instrument-latin.woff2') format('woff2');
+    unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face{
+    font-family:'Instrument Sans';font-style:normal;font-weight:400 600;font-display:swap;
+    src:url('/schriften/instrument-latin-ext.woff2') format('woff2');
+    unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
+  /* JetBrains Mono 400-500: Zahlen und Kennungen (variabel) */
+  @font-face{
+    font-family:'JetBrains Mono';font-style:normal;font-weight:400 500;font-display:swap;
+    src:url('/schriften/jetbrains-latin.woff2') format('woff2');
+    unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face{
+    font-family:'JetBrains Mono';font-style:normal;font-weight:400 500;font-display:swap;
+    src:url('/schriften/jetbrains-latin-ext.woff2') format('woff2');
+    unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
 /* ---------------------------------------------------------------
    Farbtoken - Regelblatt Abschnitt 2. Keine Farbe ausserhalb.
    --------------------------------------------------------------- */
@@ -55,17 +114,6 @@ body[data-theme="dark"]{
   --track:oklch(0.3 0.014 258);
   --shadow:0 24px 60px -20px oklch(0.05 0 0 / 0.6);
 }
-
-/* Schriften liegen unter /opt/stack/wiki/schriften/ als woff2.
-   Fehlen sie, greift der Fallback - kein CDN, keine externen Quellen. */
-@font-face{font-family:'Sora';src:url('/schriften/sora-600.woff2') format('woff2');
-  font-weight:600;font-display:swap}
-@font-face{font-family:'Instrument Sans';src:url('/schriften/instrument-400.woff2') format('woff2');
-  font-weight:400;font-display:swap}
-@font-face{font-family:'Instrument Sans';src:url('/schriften/instrument-600.woff2') format('woff2');
-  font-weight:600;font-display:swap}
-@font-face{font-family:'JetBrains Mono';src:url('/schriften/jetbrains-400.woff2') format('woff2');
-  font-weight:400;font-display:swap}
 
 *{box-sizing:border-box}
 /* Muss vor allen display-Regeln stehen: eine ID- oder Klassenregel mit
@@ -310,8 +358,15 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
     </div>
 
     <main id="inhalt">
+      <!-- KEIN allow-same-origin (B-03 Teil 4): zusammen mit allow-scripts
+           haette die Sandbox keine Wirkung, und eine eingespielte Seite
+           koennte die Wiki-API im Namen des Betrachters aufrufen und ueber
+           parent.document die Huelle manipulieren. Ohne allow-same-origin
+           laeuft die Seite in einem opaken Origin. Den Riegel setzt der
+           Server zusaetzlich per CSP-sandbox, damit er nicht an diesem
+           Attribut haengt. -->
       <iframe id="rahmen" title="Wiki-Seite" hidden
-              sandbox="allow-scripts allow-same-origin allow-popups allow-downloads"></iframe>
+              sandbox="allow-scripts allow-popups allow-downloads"></iframe>
       <div class="flaeche" id="flaeche" data-noscroll></div>
     </main>
   </div>
@@ -351,7 +406,14 @@ function datum(s){
   return t.length === 3 ? `${t[2]}.${t[1]}.${t[0]}` : s;
 }
 async function hole(pfad, einst){
-  const a = await fetch(pfad, Object.assign({credentials:'same-origin'}, einst||{}));
+  /* Content-Type zentral setzen (B-03): der Server verlangt bei POST einen
+     Typ, der keine CORS-simple-request ist. Ohne eigenen Kopf wuerde der
+     Browser text/plain senden - und genau das ist der Typ, mit dem ein
+     fremdes Formular ohne Preflight hereinschreiben koennte. Wer einen
+     eigenen Typ mitgibt (Datei-Upload: text/html), behaelt ihn. */
+  const o = Object.assign({credentials:'same-origin'}, einst||{});
+  if(o.body && !o.headers) o.headers = {'Content-Type':'application/json'};
+  const a = await fetch(pfad, o);
   let d = null;
   try { d = await a.json(); } catch(e) { d = null; }
   if(!a.ok){
@@ -389,8 +451,11 @@ if(SYSTEM_DUNKEL && SYSTEM_DUNKEL.addEventListener)
 function rahmenThema(){
   const f = $('rahmen');
   if(f && f.contentWindow && !f.hidden){
+    /* Zielorigin '*': die Seite laeuft in einem opaken Origin (B-03 Teil 4)
+       und ist nur so adressierbar. Unkritisch, weil die Nachricht nichts
+       Schuetzenswertes enthaelt - nur den Namen des Themas. */
     try { f.contentWindow.postMessage(
-      {typ:'wiki-thema', thema:document.body.dataset.theme}, location.origin); } catch(e){}
+      {typ:'wiki-thema', thema:document.body.dataset.theme}, '*'); } catch(e){}
   }
 }
 
@@ -493,8 +558,10 @@ async function oeffnen(slug, anker, begriff, ohneWeg){
 function springen(anker, begriff){
   const f = $('rahmen');
   try {
+    /* Zielorigin '*', siehe rahmenThema(). Anker und Suchbegriff hat der
+       Betrachter selbst eingegeben - nichts, was die Seite nicht sehen darf. */
     f.contentWindow.postMessage({typ:'wiki-springen', anker:anker||'', begriff:begriff||'',
-      thema:document.body.dataset.theme}, location.origin);
+      thema:document.body.dataset.theme}, '*');
   } catch(e){}
 }
 $('rahmen').addEventListener('load', () => {
@@ -503,7 +570,14 @@ $('rahmen').addEventListener('load', () => {
   springen(a.anker, a.begriff);
 });
 window.addEventListener('message', (e) => {
-  if(e.origin !== location.origin || !e.data || typeof e.data !== 'object') return;
+  /* Die Seite laeuft in einem opaken Origin, ihr e.origin ist darum "null"
+     und taugt nicht mehr als Nachweis (B-03 Teil 4). Geprueft wird jetzt,
+     dass die Nachricht tatsaechlich aus unserem eigenen Rahmen kommt - das
+     ist der staerkere Test: ein fremdes Fenster kann sich nicht als
+     contentWindow dieses iframes ausgeben. */
+  const f = $('rahmen');
+  if(!f || !e.source || e.source !== f.contentWindow) return;
+  if(!e.data || typeof e.data !== 'object') return;
   if(e.data.typ === 'wiki-bereit') springen(($('rahmen')._auftrag||{}).anker,
                                             ($('rahmen')._auftrag||{}).begriff);
   if(e.data.typ === 'wiki-oeffnen' && e.data.slug) oeffnen(e.data.slug, e.data.anker);
@@ -990,6 +1064,23 @@ function berichtZeichnen(b){
       ${b.warnungen.length === 1 ? 'Hinweis' : 'Hinweise'}</strong><ul
       style="margin:6px 0 0 18px;padding:0">${b.warnungen.map(w =>
       `<li>${schuetzen(w)}</li>`).join('')}</ul></div>`);
+  }
+  /* Sicherheitshinweise als eigener Abschnitt, direkt vor dem
+     Uebernehmen-Knopf (B-07). Bewusst getrennt von den Designwarnungen und
+     bewusst KEINE Fehler: die Seiten duerfen Verhalten mitbringen. Aber wer
+     eine Seite aus fremder Quelle einspielt, soll vorher sehen, was drin
+     steckt - nicht danach. */
+  if(b.sicherheit && b.sicherheit.length){
+    teile.push(`<div class="meldung warn" style="border-left-width:4px">
+      <strong>Was diese Seite mitbringt</strong>
+      <ul style="margin:6px 0 0 18px;padding:0">${b.sicherheit.map(h =>
+      `<li>${schuetzen(h)}</li>`).join('')}</ul>
+      <div style="font-size:12px;margin-top:8px">
+        Eingespielte Seiten bringen eigenen Code mit. Spiele nur Seiten ein,
+        deren Herkunft du kennst. Die Seite läuft in einem abgeschotteten
+        Rahmen und kommt weder an die Wiki-Daten noch an deine Anmeldung —
+        das ist eine Absicherung, kein Ersatz dafür, die Quelle zu kennen.
+      </div></div>`);
   }
   if(!b.fehler.length){
     const pfade = (ZUSTAND.pfade || []).map(p =>

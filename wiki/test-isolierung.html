@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="de">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Probe</title>
+<script type="application/json" id="wiki-meta">
+{"slug":"probe-isolierung","titel":"Probe Isolierung","kurz":"Prueft, ob die Sandbox haelt.",
+ "pfad":["Technik"],"gruppen":[],"stand":"2026-09-14",
+ "abschnitte":[{"anker":"oben","titel":"Oben"}]}
+</script>
+<style>:root{--x:#fff}button:focus-visible{outline:2px solid red}</style>
+</head>
+<body>
+<!--
+  Abnahmehilfe fuer B-03 Teil 4 und B-07. Diese Seite versucht absichtlich
+  vier Dinge, die eine eingespielte Seite NICHT koennen darf:
+
+    1. fetch('/api/ich')          - die Wiki-Schnittstelle aufrufen
+    2. document.cookie            - die Anmeldung lesen
+    3. parent.document.title      - die Huelle manipulieren
+    4. localStorage.setItem       - im Browser speichern
+
+  So wird sie benutzt:
+    - Ueber die Verwaltung pruefen lassen. Erwartet: zwei FEHLER (schemaloser
+      Verweis, javascript:-Ziel) und ein Abschnitt "Was diese Seite
+      mitbringt" mit sechs Hinweisen.
+    - Die Fehler verhindern die Uebernahme. Zum Pruefen der Isolierung die
+      beiden Zeilen mit //fremd.tld und javascript: entfernen, dann
+      einspielen und die Seite im Browser oeffnen.
+    - Erwartet im Browser: unter "Ergebnis" steht bei allen vier Punkten
+      "blockiert". Steht irgendwo "MOEGLICH", haelt die Sandbox nicht - dann
+      ist die CSP auf /seite/<slug> oder das sandbox-Attribut des iframes
+      nachzusehen.
+-->
+<h2 id="oben">Probe</h2>
+<p>Ergebnis der Isolierungspruefung:</p>
+<ul id="ergebnis"></ul>
+<div id="ausgabe"></div>
+<iframe src="//fremd.tld/x.html"></iframe>
+<a href="javascript:alert(1)">klick</a>
+<script>
+(function(){
+  var liste = document.getElementById('ergebnis');
+  function melden(was, moeglich, hinweis){
+    var li = document.createElement('li');
+    li.textContent = was + ': ' + (moeglich ? 'MOEGLICH - die Sandbox haelt NICHT'
+                                            : 'blockiert') + (hinweis ? ' (' + hinweis + ')' : '');
+    li.style.color = moeglich ? '#c00' : '';
+    liste.appendChild(li);
+  }
+  /* 1. Wiki-Schnittstelle */
+  fetch('/api/ich').then(function(r){ return r.json(); })
+    .then(function(d){ melden('fetch /api/ich', true, 'Antwort erhalten'); })
+    .catch(function(e){ melden('fetch /api/ich', false, e.name); });
+  /* 2. Cookies */
+  var c = '';
+  try { c = document.cookie; } catch(e) {}
+  melden('document.cookie', !!c, c ? 'Inhalt lesbar' : 'leer oder gesperrt');
+  /* 3. Huelle */
+  try { parent.document.title = 'uebernommen'; melden('parent.document', true); }
+  catch(e) { melden('parent.document', false, e.name); }
+  /* 4. Speicher */
+  try { localStorage.setItem('probe','1'); localStorage.removeItem('probe');
+        melden('localStorage', true); }
+  catch(e) { melden('localStorage', false, e.name); }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+# /opt/stack/socket-proxy/docker-compose.yml
+#
+# Vermittler vor dem Docker-Socket (B-02).
+#
+# Warum es diesen Dienst gibt: Traefik braucht vom Docker-Socket nur lesenden
+# Zugriff auf "containers" und "events", um seine Router zu finden. Haengt man
+# ihm den Socket direkt ein, bekommt er die vollstaendige Docker-API - und
+# ":ro" hilft dagegen nicht, weil es nur die Socket-DATEI schreibgeschuetzt
+# macht, nicht die API dahinter. Ueber eine solche Verbindung laesst sich
+# weiterhin ein privilegierter Container starten und damit der Host uebernehmen.
+# Traefik steht als einziger Dienst direkt am offenen Netz und haette damit den
+# kuerzesten Weg zur Serveruebernahme.
+#
+# Dieser Vermittler laesst genau die lesenden Aufrufe durch, die Traefik
+# braucht, und weist alles Schreibende ab.
+#
+# Reihenfolge beim Start: dieser Dienst zuerst, dann Traefik. Er legt das Netz
+# "socket" an, das Traefik als externes Netz einbindet.
+
+services:
+  socket-proxy:
+    image: ghcr.io/tecnativa/docker-socket-proxy:0.3.0   # feste Fassung, Betriebsregeln 5
+    container_name: socket-proxy
+    restart: unless-stopped
+    environment:
+      # Was Traefik tatsaechlich braucht
+      CONTAINERS: 1        # Container sehen (daraus entstehen die Router)
+      EVENTS: 1            # Aenderungen mitbekommen
+      NETWORKS: 1          # Netz-Zuordnung der Container aufloesen
+      # Alles andere bleibt zu. POST ist der entscheidende Riegel: ohne
+      # schreibende Aufrufe laesst sich kein Container starten.
+      POST: 0
+      EXEC: 0
+      BUILD: 0
+      IMAGES: 0
+      VOLUMES: 0
+      SERVICES: 0
+      TASKS: 0
+      SWARM: 0
+      INFO: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - socket
+    # Der Vermittler ist die Stelle, die den Socket sieht - er wird darum
+    # selbst so eng gefuehrt wie moeglich (B-29).
+    mem_limit: 64m
+    pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+networks:
+  socket:
+    name: socket           # fester Name, damit Traefik ihn als externes Netz findet
+    internal: true         # kein Weg nach draussen

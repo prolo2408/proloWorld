@@ -12,10 +12,13 @@ server.py und index.html zu ersetzen und den Dienst neu zu starten.
 import argparse
 import base64
 import contextlib
+import datetime
+import decimal
 import json
 import mimetypes
 import os
 import re
+import shutil
 import sqlite3
 import sys
 import threading
@@ -28,8 +31,7 @@ DB_LOCK = threading.Lock()
 # Belege und automatische Sicherungen liegen neben der Datenbank, nicht im
 # Programmverzeichnis: im Container ist das Programmverzeichnis Teil des Abbilds
 # und waere nach jedem Neubau leer. Ein Volume auf das Datenverzeichnis deckt
-# damit Datenbank, Belege und Sicherungen zugleich ab. Auf dem Pi bleibt alles
-# wie bisher, weil die Datenbank dort ohnehin neben server.py liegt.
+# damit Datenbank, Belege und Sicherungen zugleich ab.
 RECEIPT_DIR = os.path.join(HERE, "receipts")
 
 
@@ -39,6 +41,14 @@ def daten_dir():
 # Was der Server ueberhaupt herausgeben darf - der Rest des Verzeichnisses
 # (Datenbank, Quelltext, Sicherungen) bleibt unerreichbar.
 PUBLIC_FILES = {"index.html", "favicon.ico"}
+# Wege, die die Oberflaeche selbst beantwortet (B-10). Der Server liefert
+# dafuer index.html aus; welcher Reiter gezeigt wird, entscheidet die Seite.
+# Eine feste Liste und kein Platzhalter: so bleibt ein Tippfehler in der
+# Adresse ein 404 und wird nicht stillschweigend zur Uebersicht.
+UI_ROUTEN = {
+    "", "fahrzeug", "ladungen", "tanken", "auffaelligkeiten", "wartung",
+    "preise", "verlauf", "bericht", "einstellungen",
+}
 # Wege, die auch mit Schreibrecht NICHT in einem fremden Profil erlaubt sind.
 # Eine Freigabe heisst "mitschreiben duerfen", nicht "das Profil uebernehmen":
 # Fahrzeuge, Einstellungen, Sicherungen und Freigaben bleiben beim Eigentuemer.
@@ -52,16 +62,67 @@ NUR_EIGENTUEMER = {
 TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$")
 
 
+# Aeltere Fahrzeugdaten als 1990 gibt es in diesem Tool nicht - was davor
+# liegt, ist ein Tippfehler im Jahr.
+FRUEHESTES_JAHR = 1990
+
+
 def valid_dat(v):
     """Nur ein Tagesdatum wie 2027-03 oder 2027-03-15 durchlassen.
+
+    Prueft ausschliesslich die FORM, nicht den Bereich. Fuer den Bereich gibt
+    es valid_dat_vergangen() und valid_dat_zukunft() - siehe dort, warum es
+    zwei getrennte Funktionen sind und kein Schalter.
 
     Die HU wird oft nur mit Monat angegeben - dann wird der Erste ergaenzt,
     damit spaeter gerechnet werden kann.
     """
     s = str(v or "").strip()[:10]
     if re.match(r"^\d{4}-\d{2}$", s):
-        return s + "-01"
-    return s if re.match(r"^\d{4}-\d{2}-\d{2}$", s) else ""
+        s = s + "-01"
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", s):
+        return ""
+    # Auch die Form kann unmoeglich sein: 2026-02-31 passt auf das Muster.
+    try:
+        datetime.date.fromisoformat(s)
+    except ValueError:
+        return ""
+    return s
+
+
+def valid_dat_vergangen(v, zukunft_tage=1):
+    """Datum eines EREIGNISSES - darf nicht in der Zukunft liegen (B-05).
+
+    Ein Tag Zukunft ist erlaubt: Zeitzonen und eine falsch gestellte Uhr
+    sollen keine Eingabe verhindern. Eine Tankung im Jahr 2099 dagegen ist
+    ein Tippfehler.
+    """
+    s = valid_dat(v)
+    if not s:
+        return ""
+    d = datetime.date.fromisoformat(s)
+    if d > datetime.date.today() + datetime.timedelta(days=zukunft_tage):
+        return ""
+    if d.year < FRUEHESTES_JAHR:
+        return ""
+    return s
+
+
+def valid_dat_zukunft(v, jahre=50):
+    """Datum einer FAELLIGKEIT - darf in der Zukunft liegen (B-05).
+
+    Die HU im Maerz 2027 ist voellig richtig, ein Termin im Jahr 2400 nicht.
+    Bewusst eine eigene Funktion und kein Schalter an valid_dat_vergangen():
+    bei einem Schalter wird irgendwann die falsche Vorgabe benutzt, und dann
+    lehnt das Tool eine voellig richtige HU-Faelligkeit ab.
+    """
+    s = valid_dat(v)
+    if not s:
+        return ""
+    d = datetime.date.fromisoformat(s)
+    if d.year < FRUEHESTES_JAHR or d.year > datetime.date.today().year + jahre:
+        return ""
+    return s
 
 
 def plus_monate(datum, monate):
@@ -87,12 +148,31 @@ def beleg_datei_weg(name):
         pass
 
 
-def valid_ts(v):
+def valid_ts(v, zukunft_tage=1):
+    """Zeitstempel pruefen - Form UND Bereich (B-05).
+
+    Vorher wurde nur die Form geprueft, nie der Bereich: eine Tankung am
+    31.12.2099 wurde angenommen und als Erfolg gemeldet. Ein Tag Zukunft ist
+    erlaubt (Zeitzonen, falsch gestellte Uhr), mehr nicht.
+    """
     v = str(v or "").strip()[:40]
-    return v if TS_RE.match(v) else ""
+    if not TS_RE.match(v):
+        return ""
+    try:
+        d = datetime.date.fromisoformat(v[:10])
+    except ValueError:
+        return ""
+    if d > datetime.date.today() + datetime.timedelta(days=zukunft_tage):
+        return ""
+    if d.year < FRUEHESTES_JAHR:
+        return ""
+    return v
 
 
 RECEIPT_NAME = re.compile(r"^[0-9a-f]{32}\.(jpg|jpeg|png|webp|heic|pdf)$", re.I)
+# Schriftdateien (B-19). Enge Liste statt Platzhalter: der Ordner soll kein
+# allgemeiner Dateispeicher werden.
+SCHRIFT_NAME = re.compile(r"^[a-z]+-latin(-ext)?\.woff2$")
 # Groesste zulaessige Anfrage: ein Beleg (8 MB) plus Luft fuer Base64 und Text
 MAX_BODY = 14 * 1024 * 1024
 RECEIPT_TYPES = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
@@ -165,6 +245,17 @@ ADD_COLUMNS = [
     # Der Anmeldename von dort ist der Schluessel zum Profil.
     ("users", "authentik_user", "TEXT NOT NULL DEFAULT ''"),
     ("users", "email", "TEXT NOT NULL DEFAULT ''"),
+    # Geldbetraege als Cent-Ganzzahl (B-04). Regelblatt 13 und Betriebsregeln 6
+    # verlangen beides: keine Fliesskommazahl fuer Geld, und die Einheit im
+    # Namen. Die alten REAL-Spalten bleiben vorerst stehen und werden nur noch
+    # mitgeschrieben, nicht gelesen - sie sind der Rueckweg, solange noch
+    # jemand auf eine aeltere Fassung zurueckrollen koennte.
+    ("sessions", "cost_ct", "INTEGER NOT NULL DEFAULT 0"),
+    ("sessions", "net_ct", "INTEGER NOT NULL DEFAULT 0"),
+    ("sessions", "vat_ct", "INTEGER NOT NULL DEFAULT 0"),
+    ("sessions", "invoice_gross_ct", "INTEGER NOT NULL DEFAULT 0"),
+    ("fuelings", "cost_ct", "INTEGER NOT NULL DEFAULT 0"),
+    ("werkstatt", "cost_ct", "INTEGER NOT NULL DEFAULT 0"),
 ]
 ADD_TABLES = ["""
 /* Wer gibt wem Einblick in sein Profil. Bordbuch verwaltet keine Nutzer -
@@ -236,22 +327,34 @@ ADD_INDEXES = [
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_authentik"
     " ON users(authentik_user) WHERE authentik_user<>''",
 ]
-SCHEMA_VERSION = "5"
+SCHEMA_VERSION = "6"
 # Fassungsnummer der Anwendung, getrennt vom Datenstand oben. Wird von
-# --version, /api/version, install.sh und update.sh gelesen.
+# --version und /api/version gelesen.
 VERSION = "2.5.2"
 
 SESSION_FIELDS = ["tx", "start", "finish", "sec", "kwh", "cost", "net", "vat", "station", "city", "zip",
                   "street", "rate", "partner", "entity", "invoice_no", "invoice_date", "invoice_gross",
-                  "src", "manual", "note", "odo"]
+                  "src", "manual", "note", "odo",
+                  # Cent-Ganzzahlen (B-04) - die eigentlichen Werte.
+                  "cost_ct", "net_ct", "vat_ct", "invoice_gross_ct"]
 JSON_TO_COL = {"id": "tx", "start": "start", "end": "finish", "sec": "sec", "kwh": "kwh", "cost": "cost",
                "net": "net", "vat": "vat", "station": "station", "city": "city", "zip": "zip",
                "street": "street", "rate": "rate", "partner": "partner", "entity": "entity",
                "invoiceNo": "invoice_no", "invoiceDate": "invoice_date", "invoiceGross": "invoice_gross", "odo": "odo",
-               "src": "src", "manual": "manual", "note": "note"}
+               "src": "src", "manual": "manual", "note": "note",
+               "costCt": "cost_ct", "netCt": "net_ct", "vatCt": "vat_ct",
+               "invoiceGrossCt": "invoice_gross_ct"}
 COL_TO_JSON = {v: k for k, v in JSON_TO_COL.items()}
-INT_COLS = {"sec", "manual"}
+INT_COLS = {"sec", "manual", "cost_ct", "net_ct", "vat_ct", "invoice_gross_ct"}
 REAL_COLS = {"kwh", "cost", "net", "vat", "invoice_gross", "odo"}
+# Welche Cent-Spalte zu welcher Altspalte gehoert (B-04). Gelesen wird nur die
+# Cent-Spalte; die Altspalte wird zum Rueckrollen mitgeschrieben.
+GELD_SPALTEN = {
+    "sessions": (("cost", "cost_ct"), ("net", "net_ct"), ("vat", "vat_ct"),
+                 ("invoice_gross", "invoice_gross_ct")),
+    "fuelings": (("cost", "cost_ct"),),
+    "werkstatt": (("cost", "cost_ct"),),
+}
 
 
 @contextlib.contextmanager
@@ -287,43 +390,148 @@ def bulk(con):
         con.execute("COMMIT")
 
 
+# Tabellen, in denen der Besitzer ab Stand 5 nutzer_id heisst.
+BESITZER_TABELLEN = ("cars", "sessions", "fuelings", "wartung", "werkstatt")
+
+
+def spalten_von(con, tabelle):
+    """Spaltennamen einer Tabelle - leere Menge, wenn es sie nicht gibt."""
+    try:
+        return {r["name"] for r in con.execute("PRAGMA table_info(%s)" % tabelle)}
+    except sqlite3.OperationalError:
+        return set()
+
+
+def migration_hinweis(aenderungen):
+    """Vor jeder Aenderung, die Daten anfasst, auf die Sicherung hinweisen.
+
+    Regelblatt 15: "Vor Migrationen, die Daten veraendern, weist das Tool auf
+    die Sicherung hin." Der Hinweis steht bewusst VOR der ersten Aenderung -
+    danach waere er wertlos.
+    """
+    print("=" * 68)
+    print("Die Datenbank wird auf Stand %s gebracht." % SCHEMA_VERSION)
+    print("Aenderungen: %s" % ", ".join(aenderungen))
+    print("Das ist nicht umkehrbar. Ohne aktuelle Sicherung jetzt abbrechen")
+    print("(Strg+C) und zuerst /opt/stack/backup.sh laufen lassen.")
+    print("=" * 68)
+
+
+def migration_kopie():
+    """Eine Kopie des bisherigen Stands anlegen - der Rueckweg (Regelblatt 15).
+
+    Die Kopie bleibt liegen. Sie kostet einmalig den Platz der Datenbank und
+    ist das Einzige, was nach einer schiefgegangenen Migration noch hilft.
+    """
+    kopie = CFG.db + ".vor-stand-%s" % SCHEMA_VERSION
+    if os.path.exists(kopie):
+        print("Kopie des bisherigen Stands liegt bereits vor: %s" % kopie)
+        return kopie
+    shutil.copy2(CFG.db, kopie)
+    print("Kopie des bisherigen Stands: %s" % kopie)
+    return kopie
+
+
 def init_db():
+    """Datenbank anlegen oder auf den aktuellen Stand bringen.
+
+    Ablauf in drei Schritten, die seit B-13 fuer jede Migration gelten und in
+    prolo-betriebsregeln.md 19 festgeschrieben sind:
+
+      1. Hinweis auf die Sicherung - bevor etwas passiert.
+      2. Kopie der bisherigen Datei anlegen - der Rueckweg.
+      3. Alle Aenderungen in einer Transaktion - alles oder nichts.
+
+    Vorher liefen fuenf ALTER TABLE hintereinander, jedes sofort wirksam.
+    Brach der Vorgang nach der dritten Tabelle ab - Stromausfall, voller
+    Datentraeger, SIGKILL durch den Container-Neustart -, stand die Datenbank
+    in einem Mischzustand: die Haelfte der Tabellen mit nutzer_id, die andere
+    noch mit user_id. Der Container startete dann in einer Schleife neu.
+    """
     folder = os.path.dirname(os.path.abspath(CFG.db))
     if folder:
         os.makedirs(folder, exist_ok=True)
     os.makedirs(RECEIPT_DIR, exist_ok=True)
     fresh = not os.path.exists(CFG.db) or os.path.getsize(CFG.db) == 0
     with db() as con:
-        # Umbenennung aus Stand 5: der Besitzer heisst jetzt ueberall nutzer_id.
-        # Muss VOR dem Schema laufen, sonst legt BASE_SCHEMA die Tabellen zwar
-        # nicht neu an (IF NOT EXISTS), die Abfragen darunter faenden aber die
-        # alte Spalte. Idempotent: was schon nutzer_id heisst, bleibt.
-        for tab in ("cars", "sessions", "fuelings", "wartung", "werkstatt"):
-            try:
-                spalten = {r["name"] for r in con.execute("PRAGMA table_info(%s)" % tab)}
-            except sqlite3.OperationalError:
-                continue
-            if "user_id" in spalten and "nutzer_id" not in spalten:
-                con.execute("ALTER TABLE %s RENAME COLUMN user_id TO nutzer_id" % tab)
+        # ---- Schritt 0: Bestandsaufnahme, ausschliesslich lesend -----------
+        # Erst wissen, was zu tun ist - dann darf gewarnt und kopiert werden.
+        umbenennen = [t for t in BESITZER_TABELLEN
+                      if "user_id" in spalten_von(con, t)
+                      and "nutzer_id" not in spalten_von(con, t)]
+        fehlend = [(t, sp) for t, sp, _ in ADD_COLUMNS
+                   if spalten_von(con, t) and sp not in spalten_von(con, t)]
+        alt = con.execute(
+            "SELECT v FROM meta WHERE k='schema'").fetchone() if not fresh else None
+        # B-04: steht die Geldumstellung noch aus? Der Merker liegt in meta,
+        # die Tabelle gibt es bei einer alten Datenbank aber vielleicht noch
+        # nicht - darum vorsichtig fragen.
+        geld_offen = False
+        if not fresh and spalten_von(con, "meta"):
+            geld_offen = not con.execute(
+                "SELECT v FROM meta WHERE k='geld_in_ct'").fetchone()
+        aenderungen = []
+        if umbenennen:
+            aenderungen.append("user_id wird zu nutzer_id in %s" % ", ".join(umbenennen))
+        if fehlend:
+            aenderungen.append("neue Spalten: %s"
+                               % ", ".join("%s.%s" % ts for ts in fehlend))
+        if geld_offen:
+            aenderungen.append("Geldbetraege werden auf Cent-Ganzzahlen umgestellt "
+                               "(nicht umkehrbar)")
+
+        # ---- Schritt 1 und 2: Hinweis und Kopie, vor der ersten Aenderung --
+        # Bei einer neuen Datenbank ist das kein Update, sondern der Normalfall.
+        if aenderungen and not fresh:
+            migration_hinweis(aenderungen)
+            migration_kopie()
+
+        # ---- Schritt 3: Aenderungen, jede Gruppe atomar --------------------
+        # Die Umbenennungen muessen VOR BASE_SCHEMA laufen: die Indizes dort
+        # stehen auf nutzer_id und wuerden sonst an der alten Spalte scheitern.
+        # Sie sind zugleich der Fall, den B-13 beschreibt - darum in einer
+        # Transaktion: entweder heissen danach alle fuenf Tabellen nutzer_id
+        # oder keine.
+        if umbenennen:
+            with bulk(con):
+                for tab in umbenennen:
+                    con.execute("ALTER TABLE %s RENAME COLUMN user_id TO nutzer_id" % tab)
+            for tab in umbenennen:
                 print("Datenbank ergaenzt: %s.user_id heisst jetzt nutzer_id" % tab)
+
+        # executescript beendet eine offene Transaktion, muss also ausserhalb
+        # von bulk() stehen. Unkritisch: CREATE TABLE/INDEX IF NOT EXISTS ist
+        # idempotent - ein abgebrochener Lauf wird beim naechsten Start
+        # vollendet und kann keinen Mischzustand hinterlassen.
         con.executescript(BASE_SCHEMA)
         for sql in ADD_TABLES:
             con.executescript(sql)
-        for table, column, decl in ADD_COLUMNS:
-            have = {r["name"] for r in con.execute("PRAGMA table_info(%s)" % table)}
-            if column not in have:
-                con.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, decl))
-                if not fresh:   # bei einer neuen Datenbank ist das kein Update, sondern der Normalfall
-                    print("Datenbank ergaenzt: %s.%s" % (table, column))
-        for sql in ADD_INDEXES:
-            con.execute(sql)
-        old = con.execute("SELECT v FROM meta WHERE k='schema'").fetchone()
-        con.execute("INSERT OR REPLACE INTO meta(k,v) VALUES('schema',?)", (SCHEMA_VERSION,))
-        if old and old["v"] != SCHEMA_VERSION:
-            print("Datenbank von Stand %s auf %s gebracht." % (old["v"], SCHEMA_VERSION))
+
+        with bulk(con):
+            for table, column, decl in ADD_COLUMNS:
+                if column not in spalten_von(con, table):
+                    con.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, decl))
+                    if not fresh:
+                        print("Datenbank ergaenzt: %s.%s" % (table, column))
+            for sql in ADD_INDEXES:
+                con.execute(sql)
+            # Erst nachdem die Cent-Spalten da sind (B-04). In derselben
+            # Transaktion wie die Spalten: entweder beides oder nichts.
+            if geld_umstellen(con) and not fresh:
+                print("Datenbank: Geldbetraege sind jetzt Cent-Ganzzahlen.")
+            con.execute("INSERT OR REPLACE INTO meta(k,v) VALUES('schema',?)",
+                        (SCHEMA_VERSION,))
+        if alt and alt["v"] != SCHEMA_VERSION:
+            print("Datenbank von Stand %s auf %s gebracht." % (alt["v"], SCHEMA_VERSION))
 
 
 def num(v, d=0.0):
+    """Eine Zahl mit Vorgabewert lesen.
+
+    Bleibt fuer die Stellen, an denen eine Null fachlich richtig ist (etwa ein
+    nicht angegebener Kilometerstand). Wo ein fehlender Wert ein Fehler ist,
+    gehoert pflicht_zahl() hin - siehe FEHLT und B-05.
+    """
     try:
         f = float(str(v).replace(",", ".")) if isinstance(v, str) else float(v)
         return f if f == f and abs(f) != float("inf") else d
@@ -331,16 +539,272 @@ def num(v, d=0.0):
         return d
 
 
+# ----------------------------------------------------------------------
+# Eingaben pruefen statt still ersetzen (B-05)
+#
+# Regelblatt 11, woertlich: "Keine stillen Vorgabewerte. Fehlt ein Wert, wird
+# das gemeldet - nicht durch eine Null ersetzt. Eine Null in der
+# Verbrauchsrechnung ist schlimmer als eine Fehlermeldung, weil sie falsche
+# Ergebnisse erzeugt, die niemandem auffallen."
+#
+# Belegt war: 40 Liter fuer "abc" Euro bei Kilometerstand 9 000 000 wurden
+# angenommen, gespeichert und als Erfolg gemeldet - in der Datenbank stand
+# cost 0.0. Neun Millionen Kilometer ist das Beispiel aus dem Regelblatt selbst.
+# ----------------------------------------------------------------------
+
+FEHLT = object()          # Kennzeichen: der Wert war nicht lesbar
+
+
+def zahl(v, d=FEHLT):
+    """Eine Zahl lesen. Ohne d kommt FEHLT zurueck, nicht 0 (Regelblatt 11)."""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return d
+    try:
+        f = float(str(v).replace(",", ".")) if isinstance(v, str) else float(v)
+    except (TypeError, ValueError):
+        return d
+    return f if f == f and abs(f) != float("inf") else d
+
+
+# Plausibilitaetsgrenzen. Bewusst weit gefasst: sie sollen Tippfehler fangen,
+# nicht Sonderfaelle verbieten. Wer eine Grenze aendert, aendert sie hier.
+GRENZEN = {
+    "odo_km":     (0, 2_000_000),     # 2 Mio km faehrt kein PKW
+    "liters_l":   (0, 300),           # groesster PKW-Tank unter 200 l
+    "kwh":        (0, 400),           # groesster PKW-Akku unter 250 kWh
+    "betrag_ct":  (0, 5_000_00),      # 5000 EUR je Einzelvorgang
+    "sec":        (0, 7 * 24 * 3600),  # eine Woche am Stueck laden
+    "km_frei":    (0, 2_000_000),     # Intervalle und Faelligkeiten
+    "monate":     (0, 600),           # 50 Jahre
+    "verbrauch_kwh100": (1, 100),
+    "verbrauch_l100":   (0.5, 60),
+    "akku_kwh":   (0, 250),
+    "tank_l":     (0, 200),
+}
+# Klartextnamen fuer die Fehlermeldung - "odo" sagt einem Nutzer nichts.
+FELD_NAMEN = {
+    "odo": "Der Kilometerstand", "liters": "Die Litermenge", "kwh": "Die Energiemenge",
+    "cost": "Der Betrag", "sec": "Die Ladedauer", "intervallKm": "Das Kilometer-Intervall",
+    "intervallMon": "Das Monats-Intervall", "letzteKm": "Der letzte Kilometerstand",
+    "faelligKm": "Die Faelligkeit in Kilometern", "km": "Der Kilometerstand",
+    "kwhPer100": "Der Verbrauch in kWh/100 km", "lPer100": "Der Verbrauch in l/100 km",
+    "battery": "Die Akkugroesse", "tank": "Die Tankgroesse",
+}
+
+
+def _zahl_text(w):
+    """Eine Zahl so schreiben, wie sie in der Meldung lesbar ist."""
+    return ("%d" % w) if float(w).is_integer() else ("%s" % w)
+
+
+def pflicht_zahl(data, feld, grenze, pflicht=True):
+    """Einen Zahlenwert lesen und pruefen.
+
+    Rueckgabe (wert, fehlertext). fehlertext ist None, wenn alles passt.
+    Die Meldung sagt, was zu tun ist (Regelblatt 7) - nicht nur, was kaputt ist.
+    """
+    name = FELD_NAMEN.get(feld, "Der Wert '%s'" % feld)
+    roh = data.get(feld)
+    # Fehlend und unlesbar sind zwei verschiedene Dinge. pflicht=False heisst
+    # "darf fehlen" - nicht "darf Unsinn sein". Wer etwas eintippt, bekommt
+    # immer eine Antwort darauf; sonst waere genau die stille Null zurueck,
+    # die dieser Befund abschafft.
+    if roh is None or (isinstance(roh, str) and not roh.strip()):
+        if not pflicht:
+            return None, None
+        return None, "%s fehlt. Bitte eintragen." % name
+    w = zahl(roh)
+    if w is FEHLT:
+        return None, ("%s ist keine Zahl (%r). Bitte nur Ziffern eingeben, "
+                      "Komma oder Punkt als Dezimaltrennzeichen."
+                      % (name, str(roh)[:30]))
+    lo, hi = GRENZEN[grenze]
+    if not (lo <= w <= hi):
+        return None, ("%s %s wirkt wie ein Tippfehler - plausibel ist %s bis %s. "
+                      "Bitte pruefen." % (name, _zahl_text(w), _zahl_text(lo), _zahl_text(hi)))
+    return w, None
+
+
+def pflicht_cent(data, feld, pflicht=True):
+    """Einen Geldbetrag als Cent lesen und pruefen (B-04 und B-05 zusammen)."""
+    name = FELD_NAMEN.get(feld, "Der Betrag '%s'" % feld)
+    roh = data.get(feld)
+    if roh is None or (isinstance(roh, str) and not roh.strip()):
+        if not pflicht:
+            return None, None
+        return None, "%s fehlt. Bitte eintragen." % name
+    ct = cent(roh)
+    if ct is None:
+        return None, ("%s ist keine Zahl (%r). Bitte nur Ziffern eingeben, "
+                      "zum Beispiel 12,34." % (name, str(roh)[:30]))
+    lo, hi = GRENZEN["betrag_ct"]
+    if not (lo <= ct <= hi):
+        return None, ("%s %s EUR wirkt wie ein Tippfehler - plausibel ist %s bis "
+                      "%s EUR je Vorgang. Bitte pruefen."
+                      % (name, _zahl_text(ct / 100.0), _zahl_text(lo / 100),
+                         _zahl_text(hi // 100)))
+    return ct, None
+
+
+# ----------------------------------------------------------------------
+# Geld (B-04)
+#
+# Regelblatt 13 und Betriebsregeln 6, beide wortgleich: Geldbetraege niemals
+# als Fliesskommazahl. Der Grund ist nicht Kosmetik - drei Tankungen zu 0,10
+# EUR und eine zu 8,72 EUR ergaben als REAL summiert 9.020000000000001 statt
+# 9,02. Der Fehler ist systematisch, waechst mit der Datenmenge und faellt
+# niemandem auf, weil die Anzeige auf zwei Stellen rundet. Das Bordbuch ist
+# fuer Nachweise gegenueber Arbeitgeber und Finanzamt gedacht.
+#
+# Innerhalb des Servers ist ein Betrag darum immer eine Ganzzahl in Cent.
+# Euro gibt es nur an zwei Stellen: beim Einlesen einer Eingabe und beim
+# Anzeigen.
+# ----------------------------------------------------------------------
+
+def cent(v, d=None):
+    """Einen Betrag als Cent-Ganzzahl lesen.
+
+    Kein stiller Vorgabewert (Regelblatt 11, siehe B-05): ist der Wert nicht
+    lesbar, kommt None zurueck - nicht 0. Eine Null in der Kostenrechnung ist
+    schlimmer als eine Fehlermeldung, weil sie falsche Ergebnisse erzeugt, die
+    niemandem auffallen.
+
+    Gerundet wird kaufmaennisch (ROUND_HALF_UP), nicht wie in Python ueblich
+    zur geraden Zahl: 8,995 EUR sind 900 Cent, nicht 899.
+    """
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return d
+    try:
+        d_ = decimal.Decimal(str(v).replace(",", ".").strip())
+    except (decimal.InvalidOperation, ValueError, TypeError):
+        return None
+    if not d_.is_finite():
+        return None
+    try:
+        return int((d_ * 100).quantize(decimal.Decimal("1"),
+                                       rounding=decimal.ROUND_HALF_UP))
+    except (decimal.InvalidOperation, decimal.Overflow):
+        return None
+
+
+def netto_ct(brutto_ct, satz):
+    """Netto aus Brutto ableiten, ohne Fliesskomma.
+
+    satz ist der Mehrwertsteuersatz in Prozent (z. B. 19). Rueckgabe in Cent.
+    """
+    satz = decimal.Decimal(str(satz))
+    return int((decimal.Decimal(int(brutto_ct)) / (1 + satz / 100))
+               .quantize(decimal.Decimal("1"), rounding=decimal.ROUND_HALF_UP))
+
+
+def mwst_ct(brutto_ct, satz):
+    """Mehrwertsteuer als Differenz, nicht als eigene Rechnung.
+
+    So ist netto + mwst == brutto per Konstruktion garantiert und nicht per
+    Zufall. Vorher wurde net auf vier Stellen gerundet und vat als cost - net
+    gar nicht - dabei entstand eine Mehrwertsteuer mit 16 Nachkommastellen.
+    """
+    return int(brutto_ct) - netto_ct(brutto_ct, satz)
+
+
+def satz_aus_settings(user):
+    """Mehrwertsteuersatz aus dem Profil, mit 19 % als Rueckfall."""
+    try:
+        satz = float(json.loads(user["settings"] or "{}").get("vatRate"))
+    except (ValueError, TypeError):
+        return decimal.Decimal("19")
+    if not (0 <= satz < 50):
+        return decimal.Decimal("19")
+    return decimal.Decimal(str(satz))
+
+
+def cent_aus_sicherung(satz, ct_schluessel, euro_schluessel):
+    """Betrag aus einer Sicherung lesen (B-04).
+
+    Bevorzugt wird die Cent-Angabe. Eine Sicherung aus einer aelteren Fassung
+    kennt nur den Euro-Wert - dann wird von dort umgerechnet, sonst liefe ein
+    alter Stand auf Nullen ein. Regelblatt 15: Datenverlust ist die einzige
+    echte Katastrophe.
+    """
+    w = satz.get(ct_schluessel)
+    if w is not None:
+        ct = cent(w)
+        if ct is not None:
+            return ct
+    return cent(satz.get(euro_schluessel), 0) or 0
+
+
+def geld_umstellen(con):
+    """Einmalige Umrechnung der REAL-Betraege auf Cent-Ganzzahlen (B-04).
+
+    Idempotent ueber einen Merker in meta: ein zweiter Lauf tut nichts. Laeuft
+    innerhalb der Transaktion des Aufrufers (B-13).
+
+    ROUND vor CAST ist wesentlich - CAST allein schneidet ab, und 8,99 EUR
+    wuerden zu 898 Cent.
+    """
+    if con.execute("SELECT v FROM meta WHERE k='geld_in_ct'").fetchone():
+        return False
+    for tab, paare in GELD_SPALTEN.items():
+        for alt_sp, ct_sp in paare:
+            con.execute("UPDATE %s SET %s = CAST(ROUND(%s * 100) AS INTEGER)"
+                        % (tab, ct_sp, alt_sp))
+    con.execute("INSERT INTO meta(k,v) VALUES('geld_in_ct','1')")
+    return True
+
+
+def gruppen_aus_kopf(roh):
+    """Gruppen aus X-Authentik-Groups lesen (B-30).
+
+    Authentik trennt die Gruppen mit einem Pipe ("foo|bar|baz"), nicht mit
+    Komma - das steht so im Wiki-Server dokumentiert, und das Bordbuch trennte
+    trotzdem nur an Komma. Damit war "a|bordbuch-admin|c" EINE Gruppe namens
+    "a|bordbuch-admin|c", ist_admin() schlug fehl und die Gesamtsicherung waere
+    fuer niemanden erreichbar gewesen.
+
+    Komma und Semikolon werden zusaetzlich angenommen, damit ein Wechsel der
+    Identitaetsinstanz nicht alles lahmlegt. Modulweite Funktion, damit sie
+    ohne HTTP pruefbar ist.
+    """
+    return {g.strip() for g in re.split(r"[|,;]", roh or "") if g.strip()}
+
+
+def mail_kurz(m):
+    """a****e@beispiel.de - genug zum Unterscheiden, zu wenig zum Sammeln (B-06).
+
+    Bei aehnlichen Anzeigenamen muss man die richtige Person treffen koennen.
+    Dafuer genuegt ein Umriss der Adresse; die vollstaendige Adresse ist ein
+    Personendatum und hat in einer Trefferliste nichts zu suchen.
+    """
+    m = str(m or "")
+    if "@" not in m:
+        return ""
+    lokal, _, wo = m.partition("@")
+    if len(lokal) <= 2:
+        return "*" * len(lokal) + "@" + wo
+    return lokal[0] + "*" * (len(lokal) - 2) + lokal[-1] + "@" + wo
+
+
 def row_session(r):
     out = {"dbid": r["id"], "carId": r["car_id"]}
     for col in SESSION_FIELDS:
         out[COL_TO_JSON[col]] = r[col]
     out["manual"] = bool(r["manual"])
+    # Die Euro-Felder werden aus den Cent-Feldern abgeleitet, nicht aus der
+    # Altspalte gelesen (B-04 Schritt 5). So koennen die beiden Darstellungen
+    # nicht auseinanderlaufen, auch wenn eine alte Zeile noch einen
+    # abweichenden REAL-Wert traegt. Sie dienen nur der Anzeige - gerechnet
+    # wird in der Oberflaeche mit den Cent-Feldern.
+    for euro, ct in (("cost", "cost_ct"), ("net", "net_ct"), ("vat", "vat_ct"),
+                     ("invoiceGross", "invoice_gross_ct")):
+        out[euro] = r[ct] / 100.0
     return out
 
 
 def row_fuel(r):
-    return {"dbid": r["id"], "carId": r["car_id"], "ts": r["ts"], "liters": r["liters"], "cost": r["cost"],
+    return {"dbid": r["id"], "carId": r["car_id"], "ts": r["ts"], "liters": r["liters"],
+            # Cent ist der Wert, Euro nur die Anzeige (B-04).
+            "costCt": r["cost_ct"], "cost": r["cost_ct"] / 100.0,
             "odo": r["odo"], "full": bool(r["full"]), "station": r["station"], "note": r["note"],
             "receipt": r["receipt"]}
 
@@ -467,8 +931,7 @@ class App(BaseHTTPRequestHandler):
         return con.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
 
     def gruppen(self):
-        roh = self.headers.get("X-Authentik-Groups") or ""
-        return {g.strip() for g in roh.split(",") if g.strip()}
+        return gruppen_aus_kopf(self.headers.get("X-Authentik-Groups"))
 
     def ist_admin(self):
         return CFG.admin_gruppe in self.gruppen()
@@ -515,18 +978,33 @@ class App(BaseHTTPRequestHandler):
             sys.stderr.write("%s %s\n" % (self.address_string(), fmt % args))
 
     def fremde_herkunft(self):
-        """True, wenn die Anfrage von einer fremden Seite ausgeloest wurde.
+        """True, wenn die Anfrage nicht von dieser Seite selbst stammt.
 
         Ohne diese Pruefung koennte eine beliebige Webseite im Browser eines
         Mitbewohners Profile anlegen oder loeschen - die Endpunkte dafuer
         brauchen naemlich keinen eigenen Kopf, der einen Preflight erzwingt.
+
+        "same-site" wird bewusst NICHT akzeptiert (B-03): alle Tools liegen
+        unter prolo.me, und eine Nachbar-Subdomain (Wiki, n8n) ist fuer
+        Bordbuch genauso fremd wie eine beliebige Seite im Netz. Das Wiki
+        liefert per Konstruktion fremdes HTML im eigenen Origin aus - eine
+        eingespielte Wiki-Seite ist also ausfuehrbarer Code auf
+        wiki.prolo.me und duerfte sonst hier hereinschreiben.
         """
-        if (self.headers.get("Sec-Fetch-Site") or "") in ("same-origin", "same-site", "none"):
-            return False
+        ziel = self.headers.get("Sec-Fetch-Site")
+        if ziel is not None:
+            return ziel != "same-origin"        # alles andere ist fremd
+        # Aeltere Browser ohne Sec-Fetch-Site: ueber Origin/Referer entscheiden.
         herkunft = self.headers.get("Origin") or self.headers.get("Referer") or ""
         if not herkunft:
-            return False          # Werkzeuge wie curl senden nichts - erlaubt
-        return ("//" + (self.headers.get("Host") or "")) not in herkunft
+            # Bisher galt hier "kein Origin = erlaubt", mit der Begruendung,
+            # curl schicke nichts. Genau diesen Zustand kann ein Angreifer
+            # aber erzeugen - darum jetzt umgekehrt: kein Nachweis = abweisen.
+            # Werkzeuge auf der Kommandozeile setzen kuenftig
+            #   -H "Origin: https://bordbuch.prolo.me"
+            # oder gleich -H "Sec-Fetch-Site: same-origin".
+            return True
+        return urlparse(herkunft).netloc != (self.headers.get("Host") or "")
 
     # ---------------- GET ----------------
     def do_GET(self):
@@ -543,9 +1021,49 @@ class App(BaseHTTPRequestHandler):
                 return self.send_json(
                     {"error": "Dafuer fehlt die Gruppe '%s'." % CFG.admin_gruppe}, 403)
             return self.admin_export()
+        if path == "/api/freigabe/suche":
+            return self.freigabe_suche(urlparse(self.path).query)
         if path.startswith("/api/"):
             return self.send_json({"error": "unbekannter Endpunkt"}, 404)
         return self.static(path)
+
+    # Wie viele Treffer eine Suche hoechstens zurueckgibt. Klein genug, dass
+    # sich daraus kein Verzeichnis abschoepfen laesst, gross genug fuer den
+    # Alltag.
+    SUCHE_MAX = 10
+    SUCHE_MIN_ZEICHEN = 3
+
+    def freigabe_suche(self, query):
+        """Profile fuer den Freigabe-Dialog suchen (B-06).
+
+        Verlangt mindestens drei Zeichen, gibt hoechstens zehn Treffer und die
+        E-Mail nur verkuerzt. Damit bleibt der Dialog benutzbar, ohne dass sich
+        das Personenverzeichnis abgreifen laesst.
+        """
+        from urllib.parse import parse_qs
+        q = (parse_qs(query or "").get("q") or [""])[0].strip()[:60]
+        with db() as con:
+            ich = self.ich(con)
+            if not ich:
+                return self.send_json(
+                    {"error": "Nicht angemeldet. Bordbuch erwartet die Anmeldung "
+                              "ueber die vorgeschaltete Identitaetsinstanz."}, 401)
+            if len(q) < self.SUCHE_MIN_ZEICHEN:
+                return self.send_json(
+                    {"error": "Bitte mindestens %d Zeichen eingeben - Name oder "
+                              "E-Mail-Adresse der Person, die du freigeben willst."
+                              % self.SUCHE_MIN_ZEICHEN}, 400)
+            # LIKE mit ESCAPE, damit % und _ in der Eingabe keine Platzhalter
+            # sind - sonst waere "%" eine Suche nach allen.
+            muster = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            treffer = [{"id": r["id"], "name": r["name"], "email": mail_kurz(r["email"])}
+                       for r in con.execute(
+                           "SELECT id,name,email FROM users"
+                           " WHERE id<>? AND (name LIKE ? ESCAPE '\\'"
+                           "               OR email LIKE ? ESCAPE '\\')"
+                           " ORDER BY name LIMIT ?",
+                           (ich["id"], muster, muster, self.SUCHE_MAX))]
+            return self.send_json({"treffer": treffer, "grenze": self.SUCHE_MAX})
 
     def backup(self):
         """Vollstaendige Sicherung eines Profils als JSON."""
@@ -648,15 +1166,16 @@ class App(BaseHTTPRequestHandler):
         for f in payload.get("fuelings") or []:
             if not valid_ts(f.get("ts")):
                 continue
-            key = (user["id"], f.get("ts"), round(num(f.get("cost")), 2), round(num(f.get("liters")), 3))
+            f_ct = cent_aus_sicherung(f, "cost_ct", "cost")
+            key = (user["id"], f.get("ts"), f_ct, round(num(f.get("liters")), 3))
             if con.execute("""SELECT 1 FROM fuelings WHERE nutzer_id=? AND ts=? AND
-                              ROUND(cost,2)=? AND ROUND(liters,3)=?""", key).fetchone():
+                              cost_ct=? AND ROUND(liters,3)=?""", key).fetchone():
                 fuel_dup += 1
                 continue
-            con.execute("""INSERT INTO fuelings(nutzer_id,car_id,ts,liters,cost,odo,full,station,note,receipt)
-                           VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            con.execute("""INSERT INTO fuelings(nutzer_id,car_id,ts,liters,cost,cost_ct,odo,full,station,note,receipt)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                         (user["id"], carmap.get(f.get("car_id")), f.get("ts"), num(f.get("liters")),
-                         num(f.get("cost")), num(f.get("odo")), 1 if f.get("full", 1) else 0,
+                         f_ct / 100.0, f_ct, num(f.get("odo")), 1 if f.get("full", 1) else 0,
                          str(f.get("station") or "")[:120], str(f.get("note") or "")[:200],
                          str(f.get("receipt") or "")[:80]))
             fuel_new += 1
@@ -689,16 +1208,17 @@ class App(BaseHTTPRequestHandler):
             ts = valid_ts(w.get("ts"))
             if not ts:
                 continue
-            if con.execute("""SELECT 1 FROM werkstatt WHERE nutzer_id=? AND ts=? AND ROUND(cost,2)=?
+            w_ct = cent_aus_sicherung(w, "cost_ct", "cost")
+            if con.execute("""SELECT 1 FROM werkstatt WHERE nutzer_id=? AND ts=? AND cost_ct=?
                               AND art=?""",
-                           (user["id"], ts, round(num(w.get("cost")), 2),
+                           (user["id"], ts, w_ct,
                             str(w.get("art") or "")[:80])).fetchone():
                 werk_dup += 1
                 continue
-            con.execute("""INSERT INTO werkstatt(nutzer_id,car_id,ts,art,cost,odo,betrieb,note,receipt)
-                           VALUES(?,?,?,?,?,?,?,?,?)""",
+            con.execute("""INSERT INTO werkstatt(nutzer_id,car_id,ts,art,cost,cost_ct,odo,betrieb,note,receipt)
+                           VALUES(?,?,?,?,?,?,?,?,?,?)""",
                         (user["id"], carmap.get(w.get("car_id")), ts, str(w.get("art") or "")[:80],
-                         num(w.get("cost")), num(w.get("odo")), str(w.get("betrieb") or "")[:120],
+                         w_ct / 100.0, w_ct, num(w.get("odo")), str(w.get("betrieb") or "")[:120],
                          str(w.get("note") or "")[:200], str(w.get("receipt") or "")[:80]))
             werk_new += 1
         if payload.get("settings"):
@@ -736,13 +1256,35 @@ class App(BaseHTTPRequestHandler):
         art = str(data.get("art") or "").strip()[:80]
         if not art:
             return self.send_json({"error": "Bitte angeben, um welche Wartung es geht"}, 400)
+        # Geprueft statt still ersetzt (B-05). Alle vier Zahlen sind freiwillig
+        # (0 = spielt keine Rolle), duerfen aber nicht unlesbar sein.
+        for feld, grenze in (("intervallKm", "km_frei"), ("intervallMon", "monate"),
+                             ("letzteKm", "odo_km"), ("faelligKm", "km_frei")):
+            _, fehler = pflicht_zahl(data, feld, grenze, pflicht=False)
+            if fehler:
+                return self.send_json({"error": fehler}, 400)
+        # letztesDat ist ein Ereignis (die letzte Wartung), faelligDat eine
+        # Faelligkeit (die HU im Maerz 2027) - darum zwei verschiedene
+        # Pruefungen. Mit einem Schalter wuerde hier irgendwann die falsche
+        # Vorgabe benutzt und eine richtige HU-Faelligkeit abgelehnt.
+        letztes = valid_dat_vergangen(data.get("letztesDat"))
+        if data.get("letztesDat") and not letztes:
+            return self.send_json(
+                {"error": "Das Datum der letzten Wartung liegt ausserhalb des "
+                          "plausiblen Bereichs (ab %d, nicht in der Zukunft). "
+                          "Bitte pruefen." % FRUEHESTES_JAHR}, 400)
+        faellig = valid_dat_zukunft(data.get("faelligDat"))
+        if data.get("faelligDat") and not faellig:
+            return self.send_json(
+                {"error": "Die Faelligkeit liegt ausserhalb des plausiblen "
+                          "Bereichs (hoechstens 50 Jahre voraus). Bitte pruefen."}, 400)
         werte = (car_id, art,
                  max(0.0, num(data.get("intervallKm"))),
                  max(0.0, num(data.get("intervallMon"))),
                  max(0.0, num(data.get("letzteKm"))),
-                 valid_dat(data.get("letztesDat")),
+                 letztes,
                  max(0.0, num(data.get("faelligKm"))),
-                 valid_dat(data.get("faelligDat")),
+                 faellig,
                  str(data.get("notiz") or "")[:200],
                  1 if data.get("aktiv", True) else 0)
         dbid = data.get("dbid")
@@ -775,8 +1317,18 @@ class App(BaseHTTPRequestHandler):
                           (data.get("dbid"), user["id"])).fetchone()
         if not row:
             return self.send_json({"error": "Wartungseintrag nicht gefunden"}, 404)
-        km = max(0.0, num(data.get("km")))
-        dat = valid_dat(data.get("dat")) or __import__("datetime").date.today().isoformat()
+        km_w, fehler = pflicht_zahl(data, "km", "odo_km", pflicht=False)   # B-05
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        km = km_w or 0.0
+        # "Erledigt" ist ein Ereignis - also nicht in der Zukunft.
+        dat = valid_dat_vergangen(data.get("dat"))
+        if data.get("dat") and not dat:
+            return self.send_json(
+                {"error": "Das Datum der Erledigung liegt ausserhalb des plausiblen "
+                          "Bereichs (ab %d, nicht in der Zukunft). Bitte pruefen."
+                          % FRUEHESTES_JAHR}, 400)
+        dat = dat or datetime.date.today().isoformat()
         f_dat = row["faellig_dat"]
         if f_dat and row["intervall_mon"] > 0:
             f_dat = plus_monate(dat, row["intervall_mon"])
@@ -797,17 +1349,26 @@ class App(BaseHTTPRequestHandler):
             beleg = self.save_receipt(data) or ""
         except ValueError as e:
             return self.send_json({"error": str(e)}, 400)
-        log_id = con.execute("""INSERT INTO werkstatt(nutzer_id,car_id,ts,art,cost,odo,betrieb,note,
-                                receipt,wart_id) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+        kosten_ct, fehler = pflicht_cent(data, "cost", pflicht=False)   # B-04, B-05
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        kosten_ct = kosten_ct or 0
+        log_id = con.execute("""INSERT INTO werkstatt(nutzer_id,car_id,ts,art,cost,cost_ct,odo,
+                                betrieb,note,receipt,wart_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                              (user["id"], row["car_id"], dat + "T12:00:00", row["art"],
-                              round(num(data.get("cost")), 2), km,
+                              kosten_ct / 100.0, kosten_ct, km,
                               str(data.get("betrieb") or "")[:120],
                               str(data.get("note") or "")[:200], beleg, row["id"])).lastrowid
         return self.send_json({"ok": True, "log": log_id})
 
     def service_delete(self, con, user, data):
-        con.execute("DELETE FROM wartung WHERE id=? AND nutzer_id=?", (data.get("dbid"), user["id"]))
-        return self.send_json({"ok": True})
+        cur = con.execute("DELETE FROM wartung WHERE id=? AND nutzer_id=?",
+                          (data.get("dbid"), user["id"]))
+        if not cur.rowcount:
+            return self.send_json(
+                {"error": "Diesen Wartungseintrag gibt es nicht mehr. "
+                          "Lade die Seite neu."}, 404)
+        return self.send_json({"ok": True, "geloescht": cur.rowcount})
 
     # ------------------------------------------------------------------
     # Werkstattkosten - mit Rechnung als Bild oder PDF, wie bei Tankbelegen
@@ -816,20 +1377,33 @@ class App(BaseHTTPRequestHandler):
         car_id, ok = self.own_car(con, user, data.get("carId"))
         if not ok:
             return self.send_json({"error": "Auto nicht gefunden"}, 400)
-        ts = valid_ts(data.get("ts")) or (valid_dat(data.get("ts")) + "T12:00:00"
-                                          if valid_dat(data.get("ts")) else "")
+        # Eine Werkstattrechnung ist ein Ereignis - also nicht in der Zukunft.
+        ts = valid_ts(data.get("ts")) or (valid_dat_vergangen(data.get("ts")) + "T12:00:00"
+                                          if valid_dat_vergangen(data.get("ts")) else "")
         if not ts:
-            return self.send_json({"error": "Datum fehlt oder ist kein Datum"}, 400)
-        cost = round(num(data.get("cost")), 2)
+            return self.send_json(
+                {"error": "Das Datum fehlt oder liegt ausserhalb des plausiblen "
+                          "Bereichs (ab %d, hoechstens einen Tag in der Zukunft). "
+                          "Bitte pruefen." % FRUEHESTES_JAHR}, 400)
+        cost_ct, fehler = pflicht_cent(data, "cost", pflicht=False)   # B-05
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        odo_w, fehler = pflicht_zahl(data, "odo", "odo_km", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        cost_ct = cost_ct or 0
+        cost = cost_ct / 100.0                       # nur noch mitgeschrieben
         art = str(data.get("art") or "").strip()[:80]
-        if cost <= 0 and not art:
-            return self.send_json({"error": "Bitte Betrag oder Art der Arbeit angeben"}, 400)
+        if cost_ct <= 0 and not art:
+            return self.send_json(
+                {"error": "Bitte den Betrag oder die Art der Arbeit angeben - sonst "
+                          "steht in der Liste nur ein Datum."}, 400)
         try:
             beleg = self.save_receipt(data)
         except ValueError as e:
             return self.send_json({"error": str(e)}, 400)
         dbid = data.get("dbid")
-        werte = (car_id, ts, art, cost, max(0.0, num(data.get("odo"))),
+        werte = (car_id, ts, art, cost, cost_ct, odo_w or 0.0,
                  str(data.get("betrieb") or "")[:120], str(data.get("note") or "")[:200],
                  int(num(data.get("wartId"))))
         if dbid:
@@ -839,24 +1413,30 @@ class App(BaseHTTPRequestHandler):
                 return self.send_json({"error": "Rechnung nicht gefunden"}, 404)
             if beleg and alt["receipt"]:
                 beleg_datei_weg(alt["receipt"])
-            con.execute("""UPDATE werkstatt SET car_id=?,ts=?,art=?,cost=?,odo=?,betrieb=?,note=?,
-                           wart_id=?,receipt=? WHERE id=? AND nutzer_id=?""",
+            con.execute("""UPDATE werkstatt SET car_id=?,ts=?,art=?,cost=?,cost_ct=?,odo=?,betrieb=?,
+                           note=?,wart_id=?,receipt=? WHERE id=? AND nutzer_id=?""",
                         werte + (beleg or alt["receipt"] or "", dbid, user["id"]))
             return self.send_json({"ok": True, "id": dbid})
         # save_receipt() gibt None zurueck, wenn keine Datei mitkam - die Spalte
         # ist aber NOT NULL, darum der leere Text.
-        neu = con.execute("""INSERT INTO werkstatt(nutzer_id,car_id,ts,art,cost,odo,betrieb,note,
-                             wart_id,receipt) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+        neu = con.execute("""INSERT INTO werkstatt(nutzer_id,car_id,ts,art,cost,cost_ct,odo,betrieb,
+                             note,wart_id,receipt) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                           (user["id"],) + werte + (beleg or "",)).lastrowid
         return self.send_json({"ok": True, "id": neu})
 
     def shop_delete(self, con, user, data):
         row = con.execute("SELECT receipt FROM werkstatt WHERE id=? AND nutzer_id=?",
                           (data.get("dbid"), user["id"])).fetchone()
+        cur = con.execute("DELETE FROM werkstatt WHERE id=? AND nutzer_id=?",
+                          (data.get("dbid"), user["id"]))
+        if not cur.rowcount:
+            return self.send_json(
+                {"error": "Diese Rechnung gibt es nicht mehr. Lade die Seite neu."}, 404)
+        # Erst nach dem Loeschen der Zeile - sonst waere die Datei weg,
+        # obwohl der Eintrag noch stuende.
         if row and row["receipt"]:
             beleg_datei_weg(row["receipt"])
-        con.execute("DELETE FROM werkstatt WHERE id=? AND nutzer_id=?", (data.get("dbid"), user["id"]))
-        return self.send_json({"ok": True})
+        return self.send_json({"ok": True, "geloescht": cur.rowcount})
 
     def restore(self, con, user, data):
         """Sicherung eines einzelnen Profils einspielen."""
@@ -979,14 +1559,14 @@ class App(BaseHTTPRequestHandler):
                             " JOIN users u ON u.id=f.eigentuemer_id"
                             " WHERE f.empfaenger_id=? AND f.ziel_typ='profil' ORDER BY u.name",
                             (ich["id"],))]
-            # Wem man ueberhaupt etwas freigeben kann: nur bereits angemeldete
-            # Profile, Bordbuch legt niemanden an.
-            # E-Mail mitgeben: bei aehnlichen Anzeigenamen trifft man sonst die
-            # falsche Person, und angelegt hat die Namen nicht Bordbuch.
-            andere = [{"id": r["id"], "name": r["name"], "email": r["email"]}
-                      for r in con.execute(
-                          "SELECT id,name,email FROM users WHERE id<>? ORDER BY name",
-                          (ich["id"],))]
+            # Hier stand bis B-06 eine vollstaendige Liste aller Profile samt
+            # E-Mail-Adresse - bei JEDEM Seitenaufbau, fuer JEDEN angemeldeten
+            # Nutzer, ohne jede Freigabe. Das ist eine Personendatenliste, die
+            # jeder abgreifen konnte, auch wer nur Zugriff auf das Bordbuch
+            # bekommen sollte und nicht auf das Personenverzeichnis.
+            # Gebraucht wird sie nur im Freigabe-Dialog - dafuer gibt es jetzt
+            # GET /api/freigabe/suche?q=..., das gezielt sucht und die Adresse
+            # verkuerzt ausgibt.
             cars = [{"id": r["id"], "name": r["name"], "kind": r["kind"], "kwhPer100": r["kwh_per_100"],
                      "lPer100": r["l_per_100"], "battery": r["battery"], "tank": r["tank"], "plate": r["plate"],
                      "active": bool(r["active"]), "note": r["note"]}
@@ -1012,7 +1592,6 @@ class App(BaseHTTPRequestHandler):
                                    "user": {"id": user["id"], "name": user["name"]},
                                    "profile": profile, "schreiben": darf_schreiben,
                                    "freigabenMeine": meine, "freigabenFuerMich": fuerMich,
-                                   "andere": andere,
                                    "cars": cars, "sessions": sess, "fuelings": fuel,
                                    "service": [dict(r) for r in con.execute(
                                        """SELECT id AS dbid,car_id AS carId,art,intervall_km AS intervallKm,
@@ -1021,8 +1600,10 @@ class App(BaseHTTPRequestHandler):
                                           faellig_dat AS faelligDat,notiz,aktiv
                                           FROM wartung WHERE nutzer_id=? ORDER BY id""",
                                        (user["id"],))],
-                                   "shop": [dict(r) for r in con.execute(
-                                       """SELECT id AS dbid,car_id AS carId,ts,art,cost,odo,betrieb,
+                                   # cost_ct ist der Wert, cost nur die Anzeige (B-04).
+                                   "shop": [dict(r, cost=r["costCt"] / 100.0) for r in con.execute(
+                                       """SELECT id AS dbid,car_id AS carId,ts,art,cost,
+                                          cost_ct AS costCt,odo,betrieb,
                                           note,receipt,wart_id AS wartId
                                           FROM werkstatt WHERE nutzer_id=? ORDER BY ts""",
                                        (user["id"],))],
@@ -1031,6 +1612,17 @@ class App(BaseHTTPRequestHandler):
     # ---------------- POST ----------------
     def do_POST(self):
         path = urlparse(self.path).path
+        # Der eigentliche Riegel gegen Formularangriffe (B-03): application/json
+        # ist KEINE CORS-simple-request. Der Browser erzwingt dafuer einen
+        # Preflight, und der scheitert, weil Bordbuch keine CORS-Kopfzeilen
+        # sendet. Ohne diese Pruefung genuegt ein gewoehnliches Formular mit
+        # enctype="text/plain" - dafuer braucht ein Angreifer nicht einmal
+        # JavaScript.
+        typ = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if typ != "application/json":
+            return self.send_json(
+                {"error": "Diese Schnittstelle nimmt nur application/json entgegen. "
+                          "Bitte den Kopf Content-Type: application/json setzen."}, 415)
         try:
             data = self.body_json()
         except Exception:
@@ -1128,9 +1720,12 @@ class App(BaseHTTPRequestHandler):
         fid = data.get("id")
         if not str(fid).isdigit():
             return self.send_json({"error": "Welche Freigabe?"}, 400)
-        con.execute("DELETE FROM freigaben WHERE id=? AND eigentuemer_id=?",
-                    (int(fid), user["id"]))
-        return self.send_json({"ok": True})
+        cur = con.execute("DELETE FROM freigaben WHERE id=? AND eigentuemer_id=?",
+                          (int(fid), user["id"]))
+        if not cur.rowcount:
+            return self.send_json(
+                {"error": "Diese Freigabe gibt es nicht mehr. Lade die Seite neu."}, 404)
+        return self.send_json({"ok": True, "geloescht": cur.rowcount})
 
     def settings_save(self, con, user, data):
         con.execute("UPDATE users SET settings=? WHERE id=?",
@@ -1141,13 +1736,28 @@ class App(BaseHTTPRequestHandler):
     def car_save(self, con, user, data):
         kind = data.get("kind") if data.get("kind") in ("bev", "phev", "petrol", "diesel") else "bev"
         name = (data.get("name") or "").strip()[:60] or "Auto"
-        kwh = max(1.0, min(100.0, num(data.get("kwhPer100"), 18)))
-        lit = max(0.5, min(60.0, num(data.get("lPer100"), 7)))
+        # Geprueft statt stillschweigend in die Grenze gezwungen (B-05):
+        # wer 999 kWh/100 km eintippt, hat sich verschrieben und soll das
+        # erfahren, statt lautlos 100 gespeichert zu bekommen.
+        kwh_w, fehler = pflicht_zahl(data, "kwhPer100", "verbrauch_kwh100", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        lit_w, fehler = pflicht_zahl(data, "lPer100", "verbrauch_l100", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        akku_w, fehler = pflicht_zahl(data, "battery", "akku_kwh", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        tank_w, fehler = pflicht_zahl(data, "tank", "tank_l", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        kwh = kwh_w if kwh_w is not None else 18.0
+        lit = lit_w if lit_w is not None else 7.0
+        akku = akku_w or 0.0
+        tank = tank_w or 0.0
         active = 1 if data.get("active", True) else 0
         note = (data.get("note") or "")[:120]
         plate = (data.get("plate") or "")[:20]
-        akku = max(0.0, min(250.0, num(data.get("battery"))))
-        tank = max(0.0, min(200.0, num(data.get("tank"))))
         cid = data.get("id")
         if cid:
             if not con.execute("SELECT 1 FROM cars WHERE id=? AND nutzer_id=?", (cid, user["id"])).fetchone():
@@ -1163,8 +1773,16 @@ class App(BaseHTTPRequestHandler):
         return self.send_json({"ok": True, "id": cid})
 
     def car_delete(self, con, user, data):
-        con.execute("DELETE FROM cars WHERE id=? AND nutzer_id=?", (data.get("id"), user["id"]))
-        return self.send_json({"ok": True})
+        # rowcount ansehen (B-09): sonst meldet das Tool "Geloescht", obwohl
+        # nichts geloescht wurde - und nach dem Neuladen ist die Zeile wieder
+        # da. Beim Loeschen ist genau das der Fall, in dem man dem Tool nicht
+        # mehr traut.
+        cur = con.execute("DELETE FROM cars WHERE id=? AND nutzer_id=?",
+                          (data.get("id"), user["id"]))
+        if not cur.rowcount:
+            return self.send_json(
+                {"error": "Dieses Auto gibt es nicht mehr. Lade die Seite neu."}, 404)
+        return self.send_json({"ok": True, "geloescht": cur.rowcount})
 
     def own_car(self, con, user, car_id):
         if car_id in (None, ""):
@@ -1181,14 +1799,50 @@ class App(BaseHTTPRequestHandler):
         cols = ",".join(["nutzer_id", "car_id"] + SESSION_FIELDS)
         ph = ",".join(["?"] * (len(SESSION_FIELDS) + 2))
         added = dup = 0
-        with bulk(con):
-          for s in rows:
-            if not s.get("id") or not valid_ts(s.get("start")):
+        # Ganz oder gar nicht (B-05 Schritt 6, Regelblatt 12): "Import von 200
+        # Zeilen, Zeile 137 ist kaputt: Die Datei wird entweder ganz uebernommen
+        # oder gar nicht - und es steht im Klartext da, welche Zeile das Problem
+        # war." Vorher wurden kaputte Zeilen mit continue stillschweigend
+        # uebersprungen; der Nutzer sah "erfolgreich" und merkte nie, dass ein
+        # Teil seiner Abrechnung fehlt.
+        #
+        # Zuerst alle Zeilen pruefen, ohne etwas zu schreiben. Erst wenn keine
+        # Zeile Fehler hat, wird geschrieben.
+        gepruefte, kaputte = [], []
+        for nr, s in enumerate(rows, start=1):
+            if not s.get("id"):
+                kaputte.append((nr, "ohne Kennung - die Spalte mit der "
+                                    "Vorgangsnummer fehlt oder ist leer"))
                 continue
+            if not valid_ts(s.get("start")):
+                kaputte.append((nr, "Startzeitpunkt %r ist kein plausibles Datum"
+                                % str(s.get(COL_TO_JSON["start"]) or "")[:30]))
+                continue
+            gepruefte.append(s)
+        if kaputte:
+            teil = "; ".join("Zeile %d: %s" % (nr, was) for nr, was in kaputte[:5])
+            mehr = ("  … und %d weitere" % (len(kaputte) - 5)) if len(kaputte) > 5 else ""
+            return self.send_json(
+                {"error": "Die Datei wurde NICHT uebernommen - %d von %d Zeilen "
+                          "haben Fehler. %s%s. Bitte die genannten Zeilen in der "
+                          "Datei berichtigen und erneut einlesen."
+                          % (len(kaputte), len(rows), teil, mehr),
+                 "zeilen": [nr for nr, _ in kaputte],
+                 "geprueft": len(rows), "uebernommen": 0}, 400)
+        with bulk(con):
+          for s in gepruefte:
             vals = [user["id"], car_id]
             for col in SESSION_FIELDS:
                 v = s.get(COL_TO_JSON[col])
-                if col in INT_COLS:
+                if col in ("cost_ct", "net_ct", "vat_ct", "invoice_gross_ct"):
+                    # Geld (B-04): bevorzugt die Cent-Angabe. Aeltere Dateien
+                    # kennen nur die Euro-Spalte - dann von dort umrechnen,
+                    # damit ein alter Export nicht auf Nullen einlaeuft.
+                    w = cent(v) if v is not None else None
+                    if w is None:
+                        w = cent(s.get(COL_TO_JSON[col[:-3]]), 0) or 0
+                    v = w
+                elif col in INT_COLS:
                     v = int(num(v))
                 elif col in REAL_COLS:
                     v = round(num(v), 4)
@@ -1209,21 +1863,37 @@ class App(BaseHTTPRequestHandler):
             return self.send_json({"error": "Auto nicht gefunden"}, 400)
         start = valid_ts(data.get("start"))
         if not start:
-            return self.send_json({"error": "Startzeit fehlt oder ist kein Datum"}, 400)
-        kwh, cost = round(num(data.get("kwh")), 4), round(num(data.get("cost")), 4)
-        sec = int(num(data.get("sec")))
+            return self.send_json(
+                {"error": "Die Startzeit fehlt oder liegt ausserhalb des plausiblen "
+                          "Bereichs (ab %d, hoechstens einen Tag in der Zukunft). "
+                          "Bitte pruefen." % FRUEHESTES_JAHR}, 400)
+        # Geprueft statt still ersetzt (B-05).
+        kwh, fehler = pflicht_zahl(data, "kwh", "kwh", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        cost_ct, fehler = pflicht_cent(data, "cost", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        sec_w, fehler = pflicht_zahl(data, "sec", "sec", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        odo, fehler = pflicht_zahl(data, "odo", "odo_km", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        kwh = round(kwh or 0.0, 4)
+        cost_ct = cost_ct or 0
+        sec = int(sec_w or 0)
         station = (data.get("station") or "Zuhause")[:200]
         note = (data.get("note") or "")[:200]
-        odo = round(num(data.get("odo")), 1)
+        odo = round(odo or 0.0, 1)
         # Netto mit dem im Profil eingestellten Satz ableiten, nicht fest mit
         # 19 % (B3). Fehlt der Satz oder ist er unsinnig, gilt 19 %.
-        try:
-            satz = float(json.loads(user["settings"] or "{}").get("vatRate"))
-        except (ValueError, TypeError):
-            satz = 19.0
-        if not (0 <= satz < 50):
-            satz = 19.0
-        net = round(cost / (1 + satz / 100.0), 4)
+        satz = satz_aus_settings(user)
+        net_ct = netto_ct(cost_ct, satz)
+        vat_ct = cost_ct - net_ct          # Summe stimmt per Konstruktion
+        # Altspalten werden nur noch mitgeschrieben, nicht gelesen (B-04
+        # Schritt 5) - sie sind der Rueckweg auf eine aeltere Fassung.
+        cost, net, vat = cost_ct / 100.0, net_ct / 100.0, vat_ct / 100.0
         dbid = data.get("dbid")
         if dbid:
             # Auch importierte Ladungen duerfen korrigiert werden - eine falsch
@@ -1234,8 +1904,10 @@ class App(BaseHTTPRequestHandler):
             if not row:
                 return self.send_json({"error": "Ladung nicht gefunden"}, 404)
             cur = con.execute("""UPDATE sessions SET car_id=?,start=?,finish=?,sec=?,kwh=?,cost=?,net=?,
-                                 vat=?,station=?,note=?,odo=? WHERE id=? AND nutzer_id=?""",
-                              (car_id, start, finish, sec, kwh, cost, net, cost - net, station, note,
+                                 vat=?,cost_ct=?,net_ct=?,vat_ct=?,station=?,note=?,odo=?
+                                 WHERE id=? AND nutzer_id=?""",
+                              (car_id, start, finish, sec, kwh, cost, net, vat,
+                               cost_ct, net_ct, vat_ct, station, note,
                                odo, dbid, user["id"]))
             if not cur.rowcount:
                 return self.send_json({"error": "Ladung nicht gefunden"}, 404)
@@ -1247,9 +1919,10 @@ class App(BaseHTTPRequestHandler):
         tx = str(data.get("tx") or "").strip()[:200] or ("manual-" + uuid.uuid4().hex[:16])
         try:
             con.execute("""INSERT INTO sessions(nutzer_id,car_id,tx,start,finish,sec,kwh,cost,net,vat,
-                           station,manual,note,odo,src) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,'manuell')""",
-                        (user["id"], car_id, tx, start, start, sec, kwh, cost, net, cost - net, station,
-                         note, odo))
+                           cost_ct,net_ct,vat_ct,station,manual,note,odo,src)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,'manuell')""",
+                        (user["id"], car_id, tx, start, start, sec, kwh, cost, net, vat,
+                         cost_ct, net_ct, vat_ct, station, note, odo))
         except sqlite3.IntegrityError:
             return self.send_json({"error": "Diese Ladung ist schon erfasst"}, 409)
         return self.send_json({"ok": True, "tx": tx})
@@ -1296,15 +1969,32 @@ class App(BaseHTTPRequestHandler):
             return self.send_json({"error": "Auto nicht gefunden"}, 400)
         ts = valid_ts(data.get("ts"))
         if not ts:
-            return self.send_json({"error": "Datum fehlt oder ist kein Datum"}, 400)
-        cost = round(num(data.get("cost")), 2)
-        liters = round(num(data.get("liters")), 3)
-        odo = round(num(data.get("odo")), 1)
+            return self.send_json(
+                {"error": "Das Datum fehlt oder liegt ausserhalb des plausiblen "
+                          "Bereichs (ab %d, hoechstens einen Tag in der Zukunft). "
+                          "Bitte pruefen." % FRUEHESTES_JAHR}, 400)
+        # Geprueft statt still ersetzt (B-05). Menge und Kilometerstand sind
+        # freiwillig - unlesbar duerfen sie aber nicht sein.
+        cost_ct, fehler = pflicht_cent(data, "cost", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        liters, fehler = pflicht_zahl(data, "liters", "liters_l", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        odo, fehler = pflicht_zahl(data, "odo", "odo_km", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        cost_ct = cost_ct or 0
+        cost = cost_ct / 100.0                       # nur noch mitgeschrieben
+        liters = round(liters or 0.0, 3)
+        odo = round(odo or 0.0, 1)
         full = 1 if data.get("full", True) else 0
         station = (data.get("station") or "")[:120]
         note = (data.get("note") or "")[:200]
-        if cost <= 0 and liters <= 0:
-            return self.send_json({"error": "Bitte Betrag oder Liter angeben"}, 400)
+        if cost_ct <= 0 and liters <= 0:
+            return self.send_json(
+                {"error": "Bitte den Betrag oder die Litermenge angeben - ohne "
+                          "eines von beiden laesst sich nichts auswerten."}, 400)
         try:
             receipt = self.save_receipt(data)
         except ValueError as e:
@@ -1316,26 +2006,29 @@ class App(BaseHTTPRequestHandler):
             if not row:
                 return self.send_json({"error": "Tankung nicht gefunden"}, 404)
             keep = receipt or ("" if data.get("dropReceipt") else row["receipt"])
-            con.execute("""UPDATE fuelings SET car_id=?,ts=?,liters=?,cost=?,odo=?,full=?,station=?,
-                           note=?,receipt=? WHERE id=? AND nutzer_id=?""",
-                        (car_id, ts, liters, cost, odo, full, station, note, keep, dbid, user["id"]))
+            con.execute("""UPDATE fuelings SET car_id=?,ts=?,liters=?,cost=?,cost_ct=?,odo=?,full=?,
+                           station=?,note=?,receipt=? WHERE id=? AND nutzer_id=?""",
+                        (car_id, ts, liters, cost, cost_ct, odo, full, station, note, keep,
+                         dbid, user["id"]))
             return self.send_json({"ok": True, "id": dbid})
-        new = con.execute("""INSERT INTO fuelings(nutzer_id,car_id,ts,liters,cost,odo,full,station,note,receipt)
-                             VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                          (user["id"], car_id, ts, liters, cost, odo, full, station, note,
+        new = con.execute("""INSERT INTO fuelings(nutzer_id,car_id,ts,liters,cost,cost_ct,odo,full,
+                             station,note,receipt) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                          (user["id"], car_id, ts, liters, cost, cost_ct, odo, full, station, note,
                            receipt or "")).lastrowid
         return self.send_json({"ok": True, "id": new})
 
     def fuel_delete(self, con, user, data):
         row = con.execute("SELECT receipt FROM fuelings WHERE id=? AND nutzer_id=?",
                           (data.get("id"), user["id"])).fetchone()
-        con.execute("DELETE FROM fuelings WHERE id=? AND nutzer_id=?", (data.get("id"), user["id"]))
+        cur = con.execute("DELETE FROM fuelings WHERE id=? AND nutzer_id=?",
+                          (data.get("id"), user["id"]))
+        if not cur.rowcount:
+            return self.send_json(
+                {"error": "Diese Tankung gibt es nicht mehr. Lade die Seite neu."}, 404)
+        # Die Belegdatei erst entfernen, wenn die Zeile wirklich weg ist.
         if row and row["receipt"]:
-            try:
-                os.remove(os.path.join(RECEIPT_DIR, row["receipt"]))
-            except OSError:
-                pass
-        return self.send_json({"ok": True})
+            beleg_datei_weg(row["receipt"])
+        return self.send_json({"ok": True, "geloescht": cur.rowcount})
 
     # ---------------- statische Dateien ----------------
     def static(self, path):
@@ -1346,8 +2039,30 @@ class App(BaseHTTPRequestHandler):
         eine feste Liste erlaubter Dateien, alles andere ist nicht zu holen.
         """
         rel = "index.html" if path in ("/", "") else unquote(path).lstrip("/")
+        # Oberflaechen-Routen (B-10): alles ohne Punkt im letzten Teil ist eine
+        # Route der Anwendung, nicht eine Datei - /einstellungen, /wartung,
+        # /preise. Sie werden von der einen Seite beantwortet. Nur so
+        # funktioniert ein Neuladen auf einer solchen Adresse, und nur so
+        # laesst sich ein Verweis darauf teilen.
+        if (rel not in PUBLIC_FILES
+                and not rel.startswith(("api/", "receipts/", "schriften/"))
+                and "." not in os.path.basename(rel)):
+            if rel.split("/")[0] in UI_ROUTEN:
+                rel = "index.html"      # damit die CSP-Kopfzeile unten greift
+            else:
+                return self.send_error(404, "Nicht gefunden")
         if rel in PUBLIC_FILES:
             full = os.path.join(HERE, rel)
+        elif rel.startswith("schriften/"):
+            # Schriften selbst ausliefern (B-19), nicht von einer fremden Seite
+            # laden - das deckt sich mit der CSP und haelt die Oberflaeche
+            # lesbar, auch wenn ein Anbieter verschwindet. Unauthentifiziert
+            # erreichbar: es sind oeffentliche Schriften unter der OFL, und
+            # sie muessen laden, bevor irgendetwas anderes zu sehen ist.
+            name = os.path.basename(rel)
+            if not SCHRIFT_NAME.match(name):
+                return self.send_error(404, "Nicht gefunden")
+            full = os.path.join(HERE, "schriften", name)
         elif rel.startswith("receipts/"):
             name = os.path.basename(rel)   # schneidet jeden Pfadanteil ab
             if not RECEIPT_NAME.match(name):
@@ -1384,7 +2099,12 @@ class App(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", ctype + ("; charset=utf-8" if ctype.startswith("text/") else ""))
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-cache")
+        if rel.startswith("schriften/"):
+            # Ein Jahr und unveraenderlich: die Dateien tragen ihren Inhalt im
+            # Namen und werden nie an derselben Adresse ausgetauscht.
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        else:
+            self.send_header("Cache-Control", "no-cache")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "SAMEORIGIN")
         if rel == "index.html":
@@ -1393,6 +2113,10 @@ class App(BaseHTTPRequestHandler):
             self.send_header("Content-Security-Policy",
                              "default-src 'self'; img-src 'self' data: blob:; "
                              "style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; "
+                             # font-src ausdruecklich nennen (B-19), auch wenn
+                             # default-src es schon deckt: so steht schwarz auf
+                             # weiss, dass Schriften nur von hier kommen.
+                             "font-src 'self'; "
                              "base-uri 'none'; form-action 'none'; frame-ancestors 'self'")
         self.end_headers()
         self.wfile.write(data)
@@ -1431,6 +2155,13 @@ def main():
     p.add_argument("--verbose", action="store_true")
     p.add_argument("--version", action="store_true",
                    help="Fassungsnummer ausgeben und beenden")
+    # --version bleibt bewusst ohne Nebenwirkung: es wird von der
+    # Gesundheitspruefung und von Skripten aufgerufen, und ein Aufruf, der
+    # nur nach der Fassung fragt, darf keine Datenbank migrieren. Wer eine
+    # Migration gezielt anstossen oder auf einer Kopie ausprobieren will,
+    # nimmt --migrieren.
+    p.add_argument("--migrieren", action="store_true",
+                   help="Datenbank auf den aktuellen Stand bringen und beenden")
     global CFG, RECEIPT_DIR
     CFG = p.parse_args()
     # Belege dorthin, wo auch die Datenbank liegt (siehe oben). Ein eigener Ort
@@ -1441,6 +2172,9 @@ def main():
         print(VERSION)
         return
     init_db()
+    if CFG.migrieren:
+        print("Datenbank ist auf Stand %s." % SCHEMA_VERSION)
+        return
     if CFG.verknuepfe:
         if "=" not in CFG.verknuepfe:
             print("Bitte in der Form --verknuepfe anmeldename=Profilname angeben.")

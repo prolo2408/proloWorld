@@ -1,16 +1,13 @@
 # Nur server.py und index.html gehoeren ins Abbild.
+# Die Testversion laeuft ueber ?demo=1 in derselben Datei (B-31) - es gibt
+# keine zweite HTML-Datei mehr, die hier auszuschliessen waere.
 *.db
 *.db-journal
 receipts/
 backups/
 .sicherung-*
 __pycache__/
-bordbuch-demo.html
 *.md
-*.service
-*.timer
-install.sh
-update.sh
 docker-compose.yml
 sicherung.conf
 .env

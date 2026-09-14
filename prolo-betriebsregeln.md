@@ -198,6 +198,30 @@ authentik/data/
 authentik/certs/
 ```
 
+Dazu, aus B-49 nachgetragen:
+
+```
+**/.env.*
+!**/.env.beispiel
+**/*.db-wal
+**/*.db-shm
+**/*.db-journal
+**/seiten/
+**/.vorschau/
+**/*.vor-stand-*
+```
+
+Die Zeile `!**/.env.beispiel` ist nötig, weil `**/.env.*` sonst die
+Beispieldatei mitfängt — und die soll ausdrücklich im Repository stehen.
+`**/*.vor-stand-*` fängt die Kopien, die eine Migration nach Abschnitt 19a
+anlegt.
+
+**Zusätzlich eine `.gitignore` je Tool.** Die Wurzeldatei allein trägt nicht:
+sie ist leicht zu übersehen, und ein Tool, das eine neue Art von Daten ablegt,
+bringt seine Regel am besten dort mit, wo die Daten entstehen. Vorbild ist
+`bordbuch/.gitignore`; `wiki/.gitignore` ist danach gebaut und um `seiten/`
+und `.vorschau/` ergänzt.
+
 Wer ein Tool anlegt, das eine neue Art von Daten ablegt, ergänzt die Regel
 **im selben Arbeitsschritt** — nicht später.
 
@@ -212,18 +236,31 @@ git diff --cached       # was wirklich hochgeht
 Taucht dort etwas aus Abschnitt 8 auf: **nicht committen**, erst die
 `.gitignore` korrigieren.
 
-Einmalig einrichten lohnt sich ein Vorab-Test:
+Dazu gibt es einen Vorab-Test. Er liegt **versioniert** unter
+`werkzeuge/pre-commit` (aus B-49) — vorher stand er nur in `.git/hooks/` und
+war damit bei jedem frischen Klon weg, ohne dass es jemandem auffiel.
 
 ```bash
-cat > /opt/stack/.git/hooks/pre-commit <<'EOF'
-#!/bin/bash
-if git diff --cached --name-only | grep -E '\.env$|acme\.json$|\.key$|\.pem$|\.db$'; then
-  echo "ABBRUCH: schuetzenswerte Datei im Commit (siehe oben)."
-  exit 1
-fi
-EOF
-chmod +x /opt/stack/.git/hooks/pre-commit
+cd /opt/stack
+ln -sf ../../werkzeuge/pre-commit .git/hooks/pre-commit
+ls -l .git/hooks/pre-commit          # haengt er?
 ```
+
+**Das muss nach jedem frischen Klon neu gesetzt werden.** `.git/hooks` wird von
+Git nicht mitversioniert; die Datei im Repository ist die Vorlage, der
+Symlink ist die Einrichtung.
+
+Zwei Dinge, über die man beim Schreiben eines solchen Hakens stolpert:
+
+- **`grep -PE` gibt es nicht.** grep lässt sich nicht beide Sprachen
+  gleichzeitig vorgeben und meldet „conflicting matchers specified" — der
+  Haken tut dann gar nichts und lässt die Datei durch. Das Muster braucht
+  `-P` allein, weil es mit `(?!beispiel)` eine PCRE-Eigenschaft benutzt.
+- **`--diff-filter=ACM`**, damit eine *gelöschte* `.env` den Commit nicht
+  blockiert.
+
+Ist eine Datei wirklich beabsichtigt, ist das eine bewusste Entscheidung:
+`git commit --no-verify`.
 
 Das ist ein Netz, kein Ersatz fürs Hinschauen.
 
@@ -279,7 +316,19 @@ DB_USER=""
 DB_NAME=""
 
 # Dateien aus dem Tool-Ordner, die mitgesichert werden (meist .env).
+# Ein "?" davor heisst "darf fehlen" - ohne "?" ist das Fehlen ein Fehler.
 DATEIEN=".env"
+
+# Ordner aus dem Tool-Ordner, die mitgesichert werden (neu aus B-08).
+# Noetig fuer Bind-Mounts: DATEIEN kopiert nur Dateien, und Ordner wie
+# authentik/data oder authentik/certs wurden darum von KEINER Sicherung
+# erfasst. Auch hier gilt das "?" fuer freiwillige Eintraege.
+ORDNER=""
+
+# SQLite-Datenbanken IM CONTAINER, als "behaelter:/pfad/zur.db" (neu aus
+# B-08). Sie werden mit sqlite3.backup() gesichert, nicht aus dem Volume
+# kopiert - siehe unten, warum das wesentlich ist.
+SQLITE=""
 
 # Hinweis fuer spaeter, z. B. ungeschuetzte Webhook-Pfade.
 HINWEIS=""
@@ -288,20 +337,71 @@ HINWEIS=""
 **Regel: Ein Volume, das nicht in einer `sicherung.conf` steht, existiert
 für das Backup nicht.**
 
+### Warum SQLite ein eigenes Feld braucht
+
+Bordbuch und Wiki laufen im WAL-Modus (`PRAGMA journal_mode=WAL`). Ein `tar`
+über das Volume greift `.db`, `.db-wal` und `.db-shm` zu **verschiedenen
+Zeitpunkten** ab. Das Ergebnis kann eine unbrauchbare Datenbank sein — und man
+merkt es erst beim Wiederherstellen, also im schlechtesten Moment.
+
+`sqlite3.backup()` aus der Standardbibliothek liest einen in sich
+geschlossenen Stand, auch während geschrieben wird. Der Container muss dafür
+**nicht** angehalten werden. Nachgeprüft: während 600 Einfügungen pro Sekunde
+lief die Sicherung durch und kam mit `integrity_check: ok` und einem
+abgeschlossenen Stand heraus.
+
+Das Volume-Archiv bleibt zusätzlich — es enthält die Belege. Die Datenbank
+**darin** gilt aber nicht mehr als Sicherung.
+
 Stand für die bestehenden Tools:
 
 ```
-authentik: VOLUMES="authentik_database"  DB_CONTAINER="authentik-db"
-           DB_USER="authentik"  DB_NAME="authentik"  DATEIEN=".env"
-n8n:       VOLUMES="n8n_n8n_data"
-           HINWEIS="Webhook-Pfade laufen ohne Authentik-Middleware"
-bordbuch:  VOLUMES="bordbuch_bordbuch_daten bordbuch_bordbuch_belege"
-           HINWEIS="SQLite liegt im Volume, kein eigener DB-Container"
+authentik:    VOLUMES="authentik_database"  DB_CONTAINER="authentik-db"
+              DB_USER="authentik"  DB_NAME="authentik"  DATEIEN=".env"
+              ORDNER="data certs ?custom-templates"
+n8n:          VOLUMES="n8n_n8n_data"
+bordbuch:     VOLUMES="bordbuch_bordbuch_daten bordbuch_bordbuch_belege"
+              DATEIEN="?.env"  SQLITE="bordbuch:/daten/bordbuch.db"
+wiki:         VOLUMES="wiki_wiki_daten wiki_wiki_seiten"
+              DATEIEN=".env"   SQLITE="wiki:/daten/wiki.db"
+socket-proxy: alles leer - der Dienst hat keine Daten. Die Datei ist
+              trotzdem Pflicht (Abschnitt 1).
 ```
 
 ## 15. Zentrales Sicherungsskript
 
-`/opt/stack/backup.sh`, ausführbar (`chmod +x`), erste Zeile `#!/bin/bash`:
+`/opt/stack/backup.sh`, ausführbar (`chmod +x`), erste Zeile `#!/bin/bash`.
+
+**Die Datei im Repository ist maßgeblich, nicht der Abdruck hier.** Bis B-08
+wichen beide voneinander ab: hier stand `rm -rf "$ZIEL"` vor `mkdir -p`, im
+Skript fehlte es — ein zweiter Lauf am selben Tag mischte damit alt und neu,
+und Archive eines entfernten Tools blieben liegen und sahen aus wie gültige
+Sicherungen.
+
+Was das Skript seit B-08 zusätzlich leistet:
+
+- **Verschlüsselung** am Ende des Laufs mit `age`. Der **öffentliche**
+  Schlüssel liegt unter `/opt/stack/.backup-schluessel.pub`, der **private**
+  gehört ausschließlich in den Passwortmanager und auf den Arbeitsrechner —
+  liegt er auf dem Server, ist die Verschlüsselung sinnlos.
+  Erzeugen dort: `age-keygen -o ~/.age/prolo.key`. Fehlt der Schlüssel oder
+  ist `age` nicht installiert, sagt das Skript das deutlich und endet mit
+  einem Fehler, statt still Klartext liegen zu lassen.
+- **Rechte auf alles**, nicht auf zwei Dateinamen: `chmod 700` auf die
+  Verzeichnisse, `600` auf jede Datei. Die Volume-Archive sind genauso
+  schützenswert wie die `.env` darin.
+- **`SQLITE=`** für einen konsistenten Datenbankstand (siehe Abschnitt 14).
+- **`ORDNER=`** für Bind-Mounts.
+- **Fehlertoleranz je Schritt:** ein fehlendes `acme.json` bricht nicht mehr
+  die gesamte Sicherung ab, bevor ein einziges Tool gesichert ist. Jeder
+  Schritt merkt sich seinen Fehler; am Ende entscheidet `FEHLER` über den
+  Rückgabewert.
+- **`/opt/backups/.letzter-erfolg`** wird nur bei einem fehlerfreien Lauf
+  gesetzt. **Dafür braucht es eine Überwachung, die anschlägt, wenn die Datei
+  älter als zwei Tage ist** — eine Sicherung, deren Scheitern niemand merkt,
+  ist keine Sicherung.
+
+Zum Vergleich der ursprüngliche Aufbau:
 
 ```bash
 #!/bin/bash
@@ -450,6 +550,52 @@ bordbuch:  TYP="build"  PRUEF_URL="http://bordbuch:8080/"                       
 ```
 
 Authentik braucht spürbar länger, weil beim Start Migrationen laufen.
+
+### 19a. Datenbank-Migrationen: Hinweis, Kopie, Transaktion
+
+Gilt für jede Migration in jedem Tool, das eine eigene Datenbank mitbringt.
+Aus B-13: fünf `ALTER TABLE` liefen hintereinander, jedes sofort wirksam.
+Bricht der Vorgang nach der dritten Tabelle ab — Stromausfall, voller
+Datenträger, `SIGKILL` durch den Container-Neustart —, steht die Datenbank in
+einem Mischzustand, und der Container startet in einer Schleife neu.
+
+Darum sind diese drei Schritte Pflicht, in dieser Reihenfolge:
+
+1. **Hinweis auf die Sicherung — bevor etwas passiert.** Das Tool schreibt
+   beim Start, welche Änderungen anstehen, dass sie nicht umkehrbar sind und
+   wie man abbricht. Ein Hinweis nach der ersten Änderung ist wertlos.
+2. **Kopie der bisherigen Datei anlegen.** Nach dem Muster
+   `<datenbank>.vor-stand-<n>`. Die Kopie bleibt liegen; sie kostet einmalig
+   den Platz der Datenbank und ist das Einzige, was nach einer
+   schiefgegangenen Migration noch hilft.
+3. **Alle Änderungen in einer Transaktion.** Entweder ist die Datenbank
+   vollständig im alten oder vollständig im neuen Stand — nichts dazwischen.
+   SQLite kann `ALTER TABLE` innerhalb einer Transaktion.
+
+Zwei Dinge, über die man dabei stolpert:
+
+- **`executescript()` beendet eine offene Transaktion.** In Python schickt
+  `sqlite3` davor ein implizites `COMMIT`. Wer `CREATE TABLE IF NOT EXISTS`
+  per `executescript()` ausführt, kann das also nicht in dieselbe Transaktion
+  packen. Unkritisch, solange dort nur idempotente Anweisungen stehen: ein
+  abgebrochener Lauf wird beim nächsten Start vollendet. Alles, was Daten
+  anfasst oder umbenennt, gehört in die Transaktion.
+- **Reihenfolge.** Umbenennungen müssen vor dem Anlegen von Indizes laufen,
+  die auf den neuen Spaltennamen stehen — sonst scheitert das Anlegen an der
+  alten Spalte.
+
+**Ein Aufruf, der nur nach der Fassung fragt, migriert nicht.** `--version`
+wird von der Gesundheitsprüfung und von Skripten benutzt und bleibt ohne
+Nebenwirkung. Für eine gezielte Migration — etwa zum Ausprobieren auf einer
+Kopie — gibt es `--migrieren`:
+
+```bash
+cp bordbuch.db /tmp/probe.db
+python3 server.py --db /tmp/probe.db --migrieren
+ls -la /tmp/probe.db.vor-stand-*          # Kopie muss da sein
+sqlite3 /tmp/probe.db "PRAGMA integrity_check;"        # ok
+sqlite3 /tmp/probe.db "SELECT COUNT(*) FROM sessions;" # Anzahl unveraendert
+```
 
 ## 20. Zentrales Aktualisierungsskript
 

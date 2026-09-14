@@ -8,6 +8,9 @@ FROM python:3.13-slim
 # Standardbibliothek. Darum kein pip, kein requirements.txt, kein Bauschritt.
 WORKDIR /app
 COPY server.py index.html ./
+# Schriften mitnehmen (B-19) - sie werden selbst ausgeliefert, nicht von einer
+# fremden Seite geladen. Das deckt sich mit der CSP.
+COPY schriften/ ./schriften/
 
 # Datenbank unter /daten, Belege unter /belege - zwei benannte Volumes,
 # beide in sicherung.conf eingetragen.

@@ -1,8 +1,75 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="dark">
+<!-- "light dark" statt fest "dark" (B-11). Mit einem festen Wert bleiben die
+     nativen Bedienelemente - Auswahllisten, Datumswaehler, Bildlaufleisten,
+     Autovervollstaendigung - im Hellmodus DUNKEL. Das sieht aus wie ein halb
+     geladenes Theme und verletzt Regelblatt 1: "Hellmodus muss gleichwertig
+     funktionieren." -->
+<meta name="color-scheme" content="light dark">
 <title>Bordbuch</title>
 <style>
+  /* ---------------------------------------------------------------
+     Schriften (B-19)
+
+     Vorher wurden sie NIE geladen: es gab keine @font-face-Regel, kein
+     <link> und keine Schriftdateien. Auf praktisch keinem Geraet sind Sora,
+     Instrument Sans oder JetBrains Mono installiert - das Bordbuch lief also
+     fuer alle Nutzer in der Systemschrift, und damit griffen wesentliche
+     Teile des Designsystems nicht. Die Unterscheidung zwischen Anzeige-,
+     Fliess- und Monospace-Schrift ist der Kern von Regelblatt 3, und
+     letter-spacing:-0.02em auf Ueberschriften ist auf Sora abgestimmt.
+
+     Die Absicht, keine fremden Quellen einzubinden, war richtig und deckt
+     sich mit der CSP - der richtige Weg ist aber, die Schriften SELBST
+     auszuliefern, nicht auf sie zu verzichten. Sie liegen unter
+     bordbuch/schriften/ und werden von server.py mit
+     Cache-Control: immutable herausgegeben.
+
+     Alle drei stehen unter der SIL Open Font License; die Lizenztexte
+     liegen als OFL-*.txt daneben, wie die OFL es verlangt.
+
+     Zwei Dateien je Familie, aufgeteilt nach unicode-range: "latin" deckt
+     den Alltag ab, "latin-ext" laedt der Browser nur nachtraeglich, wenn
+     ein Zeichen daraus vorkommt. Instrument Sans und JetBrains Mono sind
+     variable Schriften - eine Datei deckt den ganzen Gewichtsbereich ab,
+     darum steht dort eine Spanne statt einer Zahl.
+     --------------------------------------------------------------- */
+  /* Sora 600: Ueberschriften und Kennzahlen */
+  @font-face{
+    font-family:'Sora';font-style:normal;font-weight:600;font-display:swap;
+    src:url('/schriften/sora-latin.woff2') format('woff2');
+    unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face{
+    font-family:'Sora';font-style:normal;font-weight:600;font-display:swap;
+    src:url('/schriften/sora-latin-ext.woff2') format('woff2');
+    unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
+  /* Instrument Sans 400-600: Fliesstext (variabel) */
+  @font-face{
+    font-family:'Instrument Sans';font-style:normal;font-weight:400 600;font-display:swap;
+    src:url('/schriften/instrument-latin.woff2') format('woff2');
+    unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face{
+    font-family:'Instrument Sans';font-style:normal;font-weight:400 600;font-display:swap;
+    src:url('/schriften/instrument-latin-ext.woff2') format('woff2');
+    unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
+  /* JetBrains Mono 400-500: Zahlen und Kennungen (variabel) */
+  @font-face{
+    font-family:'JetBrains Mono';font-style:normal;font-weight:400 500;font-display:swap;
+    src:url('/schriften/jetbrains-latin.woff2') format('woff2');
+    unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face{
+    font-family:'JetBrains Mono';font-style:normal;font-weight:400 500;font-display:swap;
+    src:url('/schriften/jetbrains-latin-ext.woff2') format('woff2');
+    unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
   /* ---------------------------------------------------------------
      Prolo-Designsystem, Regelblatt Teil I, Abschnitt 2.
      Hell steht in :root, Dunkel ueberschreibt. Dunkel ist der Standard -
@@ -99,14 +166,38 @@
   /* Regelblatt 3: Ueberschriften, Kennzahlen und Betraege in der
      Anzeige-Schrift, mit engerer Laufweite. */
   h1,h2,h3,.kpi b,.kpi .v,.amt,.sumrow{font-family:var(--display);letter-spacing:-0.02em}
-  .wrap{max-width:1120px;margin:0 auto;padding:18px 16px calc(96px + env(safe-area-inset-bottom))}
+  /* 1280px nach Regelblatt 6 (B-18). Bei 1120px wurden die vier Spalten der
+     KPI-Reihe so schmal, dass grosse Betraege (1.284.500,55 EUR) umbrachen -
+     und zwei Tools nebeneinander hatten sichtbar verschiedene Satzspiegel.
+     Das Wiki hielt den Wert bereits ein. */
+  .wrap{max-width:1280px;margin:0 auto;padding:18px 16px calc(96px + env(safe-area-inset-bottom))}
 
   header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap}
   .brand{display:flex;align-items:center;gap:11px;min-width:0}
-  .brand svg{width:32px;height:32px;flex:0 0 32px}
+  /* Kachel nach Regelblatt 5: 30 px, Radius 8, --accent als Flaeche, ein
+     Grossbuchstabe in #fff. Das #fff auf --accent ist hier ausdruecklich
+     erlaubt (Regelblatt 1: "Nie #000 oder #fff direkt setzen, ausser als Text
+     auf --accent"). Vorher waren es 32 px und eine Illustration. */
+  .brand{text-decoration:none;color:inherit}
+  .brand .kachel{width:30px;height:30px;flex:0 0 30px;border-radius:8px;
+    background:var(--accent);color:#fff;display:flex;align-items:center;
+    justify-content:center;font-family:var(--display);font-size:15px;font-weight:600}
+  .brand .unterzeile{font-family:var(--mono);font-size:10px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--dim);line-height:1.4}
+  .brand h1 #testmarke{font-size:11px;color:var(--accent);vertical-align:super;
+    font-family:var(--mono);margin-left:4px}
   .brand h1{font-size:21px;margin:0;letter-spacing:-.02em;font-weight:650;line-height:1.1}
-  .brand .who{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46vw}
+  /* Der Anzeigename ist ein Verweis auf die Einstellungen (B-16). Er steht
+     neben der Marke, nicht als deren Unterzeile - die beschreibt das Tool. */
+  .who{font-family:var(--mono);font-size:11px;letter-spacing:.06em;
+    color:var(--muted);text-decoration:none;align-self:center;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:34vw}
+  .who:hover{color:var(--text)}
+  /* Zustandsangabe im Kopfbereich rechts - dorthin, wo Regelblatt 6 die
+     Kontextangaben verortet. */
+  .zustand{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--dim);
+    align-self:center;max-width:40vw}
+  .zustand.hidden{display:none}
   .headtools{display:flex;gap:8px;align-items:center}
 
   button{font:inherit;cursor:pointer;border-radius:11px;border:1px solid var(--line);background:var(--panel);
@@ -114,7 +205,15 @@
     display:inline-flex;align-items:center;gap:7px}
   button:hover{border-color:var(--ink-3);background:var(--panel2)}
   button:active{transform:translateY(1px)}
-  button:focus-visible{outline:2px solid var(--volt);outline-offset:2px}
+  /* Pflichtblock aus Regelblatt 8.1 (B-15). Vorher stand hier nur
+     "button:focus-visible" - Auswahllisten im Kopfbereich, alle Eingaben und
+     alle Verweise bekamen bei Tastaturbedienung keinen sichtbaren
+     Fokusrahmen. Regelblatt 9 nennt das "nicht verhandelbar". Der Block ist
+     woertlich aus dem Wiki uebernommen, einschliesslich [tabindex]. */
+  button:focus-visible, a:focus-visible, input:focus-visible,
+  select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible{
+    outline:2px solid var(--volt); outline-offset:2px;
+  }
   .primary{background:var(--volt);border-color:var(--volt);color:var(--on-accent);font-weight:650}
   .primary:hover{background:var(--volt-hover);border-color:var(--volt-hover)}
   .ghost{background:transparent}
@@ -345,7 +444,10 @@
     section{padding:14px}
     .row .amt{font-size:15.5px}
   }
-  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+  /* animation:none gehoert dazu (B-15). Derzeit gibt es keine @keyframes in
+     der Datei - der Block war trotzdem unvollstaendig, und die naechste
+     Animation waere durchgerutscht. */
+  @media (prefers-reduced-motion:reduce){*{transition:none!important; animation:none!important}}
 
 /* ---------- Fragezeichen-Hilfe ---------- */
 .hlp{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;
@@ -406,22 +508,45 @@ label>.hlp{margin-left:4px}
 
 </style>
 
+</head>
 <body data-theme="dark">
 <div class="wrap">
   <header class="no-print">
-    <div class="brand">
-      <svg viewBox="0 0 40 40" aria-hidden="true">
-        <rect x="7" y="12" width="26" height="20" rx="6" fill="none" stroke="var(--line)" stroke-width="2"/>
-        <path d="M14 12V7M26 12V7" stroke="var(--good)" stroke-width="2.4" stroke-linecap="round"/>
-        <path d="M21 17l-5 7h4l-1 6 6-8h-4l1-5z" fill="var(--accent)"/></svg>
-      <div><h1>Bordbuch</h1><div class="who" id="who"></div></div>
-    </div>
+    <!-- Tool-Logo nach Regelblatt 5 (B-17). Vorher stand hier eine
+         Illustration - ein Auto mit Blitz -, die das Regelblatt ausdruecklich
+         verbietet: "Keine Emojis, keine Icon-Bibliothek, keine Illustration.
+         Wer mehr als einen Buchstaben braucht, braucht ein einfacheres Logo."
+         Der Zweck der Regel steht dort auch: "damit die Tools als Familie
+         erkennbar sind". Bordbuch und Wiki sahen nicht aus wie zwei Tools
+         derselben Werkstatt; das Wiki hielt das Muster bereits ein.
+
+         Ein Klick auf das Logo fuehrt immer zur Startseite des Tools - das
+         war vorher nicht umgesetzt. -->
+    <a class="brand" href="/" title="Zur Übersicht">
+      <div class="kachel" aria-hidden="true">B</div>
+      <div style="min-width:0">
+        <h1>Bordbuch<span id="testmarke" hidden>TEST</span></h1>
+        <!-- Die Unterzeile beschreibt das TOOL, nicht den Zustand
+             (Regelblatt 5: "'Fahrtenbuch' ist richtig, '1 Seite' gehoert in
+             den Inhalt"). Vorher stand hier "Angemeldet: … · sieht …". -->
+        <div class="unterzeile">Fahrtenbuch</div>
+      </div>
+    </a>
     <div class="headtools">
       <div class="carpick"><span class="lab">Auto</span><select id="carPick" aria-label="Auto wählen"></select></div>
       <div class="carpick hidden" id="profilWrap"><span class="lab">Profil</span><select id="profilPick" aria-label="Profil wählen"></select></div>
-      <button class="ghost sm" id="thema" data-act="thema" aria-pressed="false"
-        title="Zwischen hell und dunkel wechseln">Hell</button>
-      <a class="ghost sm hidden" id="abmelden" href="#">Abmelden</a>
+      <!-- Regelblatt 6a, letzter Absatz, woertlich: "Im Header steht nur noch
+           der Anzeigename, verlinkt auf diese Seite. Kein Theme-Umschalter und
+           kein Abmelden-Knopf direkt in der Kopfzeile." Beides stand genau
+           hier (B-16). Der Theme-Umschalter ist jetzt ein Segment in den
+           Einstellungen unter "Darstellung" (B-11), das Abmelden steht dort
+           unter "Konto". Der alte <a href="#"> war zudem ein Verweis ohne
+           Ziel: bis das JavaScript ihn nachtraeglich befuellte, war er
+           fokussierbar und fuehrte ins Leere. -->
+      <div class="zustand" id="zustand"></div>
+      <!-- Ganz rechts der Anzeigename als Verweis auf die Einstellungen -
+           die Reihenfolge gibt Regelblatt 6 vor. -->
+      <a class="who" id="who" href="/einstellungen"></a>
     </div>
   </header>
   <div class="navwrap no-print" id="navwrap"><nav id="tabs" role="tablist"></nav></div>
@@ -479,9 +604,18 @@ const DEFAULTS={kwhPer100:18,fuelPer100:7,fuelPrice:1.75,homePrice:0.32,useHomeP
      (AT 20, PL 23, LU 17), und die Zahl geht in Dokumente fuer Arbeitgeber
      und Finanzamt. Darum einstellbar - und dort, wo Netto abgeleitet statt
      ausgewiesen ist, wird es gesagt. */
-  vatRate:19};
+  vatRate:19,
+  /* Darstellung (B-11): 'system', 'hell' oder 'dunkel'. System ist die
+     Voreinstellung und folgt prefers-color-scheme. Der Wert liegt PRO NUTZER
+     in der Datenbank des Tools, nicht nur im Browser - sonst ist die Wahl auf
+     dem Handy wieder weg, und genau diesen Fall nennt Regelblatt 6a beim
+     Namen. localStorage ist nur der Zwischenspeicher fuer den ersten
+     Bildaufbau, damit nicht kurz das falsche Theme aufblitzt. */
+  thema:'system'};
 
-let ich=null,profile=[],freigabenMeine=[],freigabenFuerMich=[],andere=[],darfSchreiben=true,
+/* Keine Liste aller Profile mehr (B-06) - gesucht wird gezielt ueber
+   /api/freigabe/suche. freiTreffer haelt nur das Ergebnis der letzten Suche. */
+let ich=null,profile=[],freigabenMeine=[],freigabenFuerMich=[],freiTreffer=[],darfSchreiben=true,
     me=null,cars=[],sessions=[],fuelings=[],service=[],shop=[],settings={...DEFAULTS};
 let cCache=null,fCache=null,iCache=null,sCache=null,dCache=null,filePickMode='csv';
 let state={tab:'overview',carId:null,range:'all',metric:'cost',gran:'week',weekOffset:0,
@@ -495,6 +629,28 @@ let state={tab:'overview',carId:null,range:'all',metric:'cost',gran:'week',weekO
 
 /* ---------- Formate ---------- */
 const eur=n=>new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(isFinite(n)?n:0);
+/* Geld ist im Bordbuch eine Ganzzahl in Cent (B-04). Gerechnet und summiert
+   wird ausschliesslich in Cent - in Euro umgerechnet wird erst beim Anzeigen.
+   Drei Tankungen zu 0,10 EUR und eine zu 8,72 EUR ergaben als Fliesskomma
+   summiert 9.020000000000001 statt 9,02; der Fehler waechst mit der
+   Datenmenge und faellt niemandem auf, weil die Anzeige rundet. */
+/* Euro-Eingabe -> Cent. Zwei Feinheiten, die beide belegt sind:
+   - 8.995*100 ergibt in Fliesskomma 899.4999999999999, weil 8,995 sich nicht
+     exakt darstellen laesst. Math.round allein liefert dann 899 statt 900.
+     toPrecision(15) raeumt dieses Darstellungsrauschen weg, bevor gerundet
+     wird.
+   - Gerundet wird von der Null weg (wie ROUND_HALF_UP auf dem Server), nicht
+     zur naechsten geraden Zahl und nicht Richtung plus unendlich - sonst
+     wichen Oberflaeche und Server bei -8,995 voneinander ab. */
+const ct=v=>{const n=+v;if(!isFinite(n))return 0;
+  return (n<0?-1:1)*Math.round(+(Math.abs(n)*100).toPrecision(15));};
+/* Einen Cent-Wert sicher lesen. Bewusst kein |0: der bitweise Operator
+   schneidet auf 32 Bit ab und macht aus grossen Summen stillschweigend
+   falsche Zahlen. */
+const cz=v=>{const n=Math.round(+v);return Number.isFinite(n)?n:0;};
+const eurCt=c=>eur(cz(c)/100);                  /* Cent -> Anzeige in Euro */
+const ctZahl=c=>cz(c)/100;                      /* Cent -> Euro als Zahl */
+const summeCt=(l,f)=>l.reduce((a,x)=>a+cz(f?f(x):x),0);   /* exakte Summe */
 const num=(n,d=2)=>new Intl.NumberFormat('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d}).format(isFinite(n)?n:0);
 const dt=new Intl.DateTimeFormat('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'});
 const dtS=new Intl.DateTimeFormat('de-DE',{day:'2-digit',month:'2-digit'});
@@ -518,6 +674,10 @@ function daysInMonth(y,m){return new Date(y,m+1,0).getDate();}
 /* R8: Netto aus Brutto ableiten, mit dem eingestellten Satz. */
 function vatSatz(){const n=+settings.vatRate;return isFinite(n)&&n>=0&&n<50?n:19;}
 function nettoAus(brutto){return brutto/(1+vatSatz()/100);}
+/* Netto aus Brutto in Cent, kaufmaennisch gerundet (B-04). Die
+   Mehrwertsteuer entsteht danach als Differenz brutto-netto, damit
+   netto+mwst==brutto per Konstruktion stimmt und nicht per Zufall. */
+function nettoCtAus(bruttoCt){return Math.round(cz(bruttoCt)/(1+vatSatz()/100));}
 function median(a){if(!a.length)return 0;const s=a.slice().sort((x,y)=>x-y),i=s.length>>1;return s.length%2?s[i]:(s[i-1]+s[i])/2;}
 /* Kilometerstände: ohne Tausenderpunkt anzeigen und "20.000" richtig lesen */
 function plainInt(n){return isFinite(n)&&n?String(Math.round(n)):'';}
@@ -754,7 +914,10 @@ function mapChargeRows(rows,file,zusatz){
       city:g(ix.city),zip:g(ix.zip),street:g(ix.street),
       odo:isFinite(toInt(g(ix.odo)))?toInt(g(ix.odo)):0,
       rate:g(ix.rate),partner:g(ix.partner),entity:g(ix.entity),invoiceNo:g(ix.inv),
-      invoiceDate:g(ix.invd)?String(g(ix.invd)).slice(0,10):'',invoiceGross:cost,src:file||'',
+      invoiceDate:g(ix.invd)?String(g(ix.invd)).slice(0,10):'',invoiceGross:cost,
+      /* Cent-Felder mitgeben (B-04): der Server bevorzugt sie und rechnet
+         nur bei aelteren Dateien aus dem Euro-Wert zurueck. */
+      costCt:ct(cost),netCt:ct(net),vatCt:ct(cost)-ct(net),invoiceGrossCt:ct(cost),src:file||'',
       manual:false,note:(zusatz&&zusatz.note)||''});
   }
   return {rows:out,bad};
@@ -1007,8 +1170,17 @@ async function parseXlsx(file){
 }
 
 /* ---------- Server / Testmodus ---------- */
+/* Testbetrieb (B-31). Drei Wege fuehren hinein:
+     - ?demo=1 an der Adresse - der uebliche Weg am laufenden Server
+     - window.LADELOG_DEMO=true - fuer eigene Einbettungen
+     - die Datei direkt aus dem Dateisystem geoeffnet (file:)
+   Es gab dafuer bis B-31 eine zweite Datei, bordbuch-demo.html: eine Kopie
+   von 6394 Zeilen, die sich in drei Zeilen unterschied. Sie war nach wenigen
+   Aenderungen um 314 Zeilen hinter index.html zurueck und lief damit auf
+   altem Rechenstand - genau das, was zwei Kopien derselben Datei immer tun. */
 const DEMO=(typeof window!=='undefined')&&(window.LADELOG_DEMO===true||
-  (typeof location!=='undefined'&&location&&location.protocol==='file:'));
+  (typeof location!=='undefined'&&location&&(location.protocol==='file:'||
+    /(?:^|[?&])demo=1(?:&|$)/.test(location.search))));
 async function api(path,body){
   if(DEMO)return demoApi(path,body);
   const h={};if(body)h['Content-Type']='application/json';
@@ -1026,10 +1198,12 @@ async function loadState(){
   /* Wer fragt, sagt die Identitaetsinstanz (ich). Gearbeitet wird im eigenen
      Profil oder in einem freigegebenen (me). */
   ich=st.ich||null;profile=st.profile||[];darfSchreiben=st.schreiben!==false;
-  freigabenMeine=st.freigabenMeine||[];freigabenFuerMich=st.freigabenFuerMich||[];andere=st.andere||[];
+  freigabenMeine=st.freigabenMeine||[];freigabenFuerMich=st.freigabenFuerMich||[];
   me=st.user||null;cars=st.cars||[];sessions=st.sessions||[];fuelings=st.fuelings||[];
   service=st.service||[];shop=st.shop||[];
   settings={...DEFAULTS,...(st.settings||{})};
+  /* Der Wert aus der Datenbank gewinnt gegen den Zwischenspeicher (B-11). */
+  themaAnwenden(settings.thema);
   if(me&&cars.length&&(!state.carId||!cars.some(c=>c.id===state.carId))){
     const a=cars.filter(c=>c.active);state.carId=(a[0]||cars[0]).id;
   }
@@ -1070,14 +1244,20 @@ function chargeAll(){
   if(cCache)return cCache;
   const base=sessions.filter(s=>!state.carId||s.carId===state.carId).map(s=>{
     const d=new Date(s.start),pl=placeOf(s),kw=s.sec>60?s.kwh/(s.sec/3600):0;
-    let cost=s.cost,over=false;
-    if(pl==='home'&&settings.useHomePrice){cost=s.kwh*homePreisAm(s.start);over=true;}
+    /* Geld in Cent (B-04). Wird der Hauspreis angewandt, entsteht der Betrag
+       hier neu - dann wird er sofort auf Cent gerundet, damit er nicht als
+       Fliesskommazahl weiterlaeuft. */
+    let costCt=cz(s.costCt),over=false;
+    if(pl==='home'&&settings.useHomePrice){costCt=ct(s.kwh*homePreisAm(s.start));over=true;}
     /* Nur eine Abrechnung des Anbieters weist Netto aus. Bei selbst
        eingetragenen Ladungen rechnet der Server ebenfalls einen Netto-Wert -
        der ist aber genauso abgeleitet und darf nicht als ausgewiesen gelten. */
-    const ausgewiesen=!over&&!s.manual&&isFinite(s.net)&&s.net>0;
-    const net=ausgewiesen?s.net:nettoAus(cost);
-    return {...s,d,type:'charge',place:pl,kw,cost,rawCost:s.cost,over,net,vat:cost-net,
+    const ausgewiesen=!over&&!s.manual&&cz(s.netCt)>0;
+    const netCt=ausgewiesen?cz(s.netCt):nettoCtAus(costCt);
+    const cost=ctZahl(costCt);
+    return {...s,d,type:'charge',place:pl,kw,costCt,cost,rawCostCt:cz(s.costCt),
+      rawCost:ctZahl(s.costCt),over,netCt,net:ctZahl(netCt),
+      vatCt:costCt-netCt,vat:ctZahl(costCt-netCt),
       netAbgeleitet:!ausgewiesen,liters:0,
       ppk:s.kwh>0?cost/s.kwh:0,km:0,dkm:0,measured:0,carLabel:carName(s.carId)};
   }).sort((a,b)=>a.d-b.d);
@@ -1238,9 +1418,13 @@ function fuelAll(){
   if(fCache)return fCache;
   const base=fuelings.filter(f=>!state.carId||f.carId===state.carId).map(f=>{
     const d=new Date(f.ts);
-    return {...f,d,type:'fuel',kwh:0,sec:0,ppl:f.liters>0?f.cost/f.liters:0,
+    /* Geld in Cent (B-04); Euro nur zum Anzeigen und fuer Verhaeltnisse. */
+    const costCt=cz(f.costCt),netCt=nettoCtAus(costCt);
+    return {...f,d,type:'fuel',kwh:0,sec:0,costCt,cost:ctZahl(costCt),
+      ppl:f.liters>0?ctZahl(costCt)/f.liters:0,
       /* Tankbelege weisen keine Steuer aus - der Wert ist abgeleitet. */
-      net:nettoAus(f.cost),vat:f.cost-nettoAus(f.cost),netAbgeleitet:true,
+      netCt,net:ctZahl(netCt),vatCt:costCt-netCt,vat:ctZahl(costCt-netCt),
+      netAbgeleitet:true,
       carLabel:carName(f.carId),measured:0,dkm:0,km:0};
   }).sort((a,b)=>a.d-b.d);
   const byCar=new Map();
@@ -1344,9 +1528,14 @@ function kmVon(von,bis,fallbackListe){
 }
 function items(){if(iCache)return iCache;iCache=chargeAll().concat(fuelAll()).sort((a,b)=>a.d-b.d);return iCache;}
 function provider(s){return s.partner||s.entity||s.rate||'Ohne Angabe';}
-function sum(l){return l.reduce((a,x)=>({cost:a.cost+(x.cost||0),net:a.net+(x.net||0),vat:a.vat+(x.vat||0),
+/* Summiert eine Liste. Geldfelder laufen als Cent-Ganzzahl (B-04); cost, net
+   und vat werden daraus abgeleitet und sind nur zum Anzeigen und fuer
+   Verhaeltnisse gedacht (EUR/kWh). Wer weiterrechnet, nimmt costCt. */
+function sum(l){const a=l.reduce((a,x)=>({costCt:a.costCt+cz(x.costCt),netCt:a.netCt+cz(x.netCt),
+  vatCt:a.vatCt+cz(x.vatCt),
   kwh:a.kwh+(x.kwh||0),liters:a.liters+(x.liters||0),sec:a.sec+(x.sec||0),km:a.km+(x.km||0),n:a.n+1}),
-  {cost:0,net:0,vat:0,kwh:0,liters:0,sec:0,km:0,n:0});}
+  {costCt:0,netCt:0,vatCt:0,kwh:0,liters:0,sec:0,km:0,n:0});
+  return {...a,cost:ctZahl(a.costCt),net:ctZahl(a.netCt),vat:ctZahl(a.vatCt)};}
 function inRange(l){
   const n=new Date();
   if(state.range==='month')return l.filter(x=>x.d.getFullYear()===n.getFullYear()&&x.d.getMonth()===n.getMonth());
@@ -1474,17 +1663,19 @@ function tipOn(svg,el,html){
 }
 function buckets(gran){
   const list=items();if(!list.length)return[];
-  const blank=(key,start,week,year)=>({key,start,week,year,cost:0,kwh:0,liters:0,count:0,sec:0});
+  const blank=(key,start,week,year)=>({key,start,week,year,costCt:0,cost:0,kwh:0,liters:0,count:0,sec:0});
   const map=new Map(),out=[];
   if(gran==='week'){
     for(const s of list){const w=isoWeek(s.d);const b=map.get(w.key)||blank(w.key,w.start,w.week,w.year);
-      b.cost+=s.cost;b.kwh+=s.kwh||0;b.liters+=s.liters||0;b.sec+=s.sec||0;b.count++;map.set(w.key,b);}
+      b.costCt+=cz(s.costCt);b.cost=ctZahl(b.costCt);b.kwh+=s.kwh||0;b.liters+=s.liters||0;
+    b.sec+=s.sec||0;b.count++;map.set(w.key,b);}
     for(let d=weekStart(list[0].d);d<=weekStart(new Date());d=addWeeks(d,1)){
       const w=isoWeek(d);out.push(map.get(w.key)||blank(w.key,w.start,w.week,w.year));}
     return out.slice(-26);
   }
   for(const s of list){const k=monthKey(s.d);const b=map.get(k)||blank(k,new Date(s.d.getFullYear(),s.d.getMonth(),1));
-    b.cost+=s.cost;b.kwh+=s.kwh||0;b.liters+=s.liters||0;b.sec+=s.sec||0;b.count++;map.set(k,b);}
+    b.costCt+=cz(s.costCt);b.cost=ctZahl(b.costCt);b.kwh+=s.kwh||0;b.liters+=s.liters||0;
+    b.sec+=s.sec||0;b.count++;map.set(k,b);}
   const a=new Date(list[0].d.getFullYear(),list[0].d.getMonth(),1),n=new Date();
   for(let d=new Date(a);d<=n;d.setMonth(d.getMonth()+1))out.push(map.get(monthKey(d))||blank(monthKey(d),new Date(d)));
   return out.slice(-24);
@@ -1585,7 +1776,7 @@ function carStats(c){
   const ev=sessions.filter(s=>s.carId===c.id),fu=fuelings.filter(f=>f.carId===c.id);
   const evCost=ev.reduce((a,s)=>a+((settings.stationKind[s.station]==='home'&&settings.useHomePrice)?s.kwh*homePreisAm(s.start):s.cost),0);
   const kwh=ev.reduce((a,s)=>a+s.kwh,0),lit=fu.reduce((a,f)=>a+f.liters,0);
-  const fuCost=fu.reduce((a,f)=>a+f.cost,0);
+  const fuCostCt=summeCt(fu,f=>f.costCt),fuCost=ctZahl(fuCostCt);
   let p1=c.kwhPer100>0?c.kwhPer100:settings.kwhPer100,measE=0;
   /* Stromverbrauch aus den Ablesungen der Ladungen */
   const evOdo=mischAntrieb(c.kind)?[]:ev.filter(s=>s.odo>0).sort((a,b)=>new Date(a.start)-new Date(b.start));
@@ -1833,7 +2024,8 @@ function vChecks(){
   const K=KINDS[kind()];
   /* --- Ausgaben im Monatsvergleich --- */
   const monate=new Map();
-  for(const x of alle){const k=monthKey(x.d);monate.set(k,(monate.get(k)||0)+x.cost);}
+  /* Monatssummen in Cent (B-04) - hier entstehen die Jahreszahlen. */
+  for(const x of alle){const k=monthKey(x.d);monate.set(k,(monate.get(k)||0)+cz(x.costCt));}
   const keys=[...monate.keys()].sort();
   const werte=keys.map(k=>monate.get(k));
   const medM=median(werte.slice(0,-1).length?werte.slice(0,-1):werte);
@@ -1911,7 +2103,7 @@ function vChecks(){
     '<b>'+monthName(m.k)+'</b> mit '+eur(m.v)).join(', ')+' (üblich '+eur(medM)+').');
   if(K.charge){
     const ch=chargeAll(),unterwegs=ch.filter(s=>s.place==='public');
-    const mehr=unterwegs.reduce((a,s)=>a+(s.cost-s.kwh*homePreisAm(s.start)),0);
+    const mehr=ctZahl(unterwegs.reduce((a,s)=>a+(cz(s.costCt)-ct(s.kwh*homePreisAm(s.start))),0));
     if(mehr>5)punkte.push('Laden unterwegs kostet dich <b>'+eur(mehr)+'</b> mehr, als dieselbe Energie zuhause gekostet hätte.');
     const teuerste=ch.filter(s=>s.ppk>0).sort((a,b)=>b.ppk-a.ppk)[0];
     const guenstig=ch.filter(s=>s.ppk>0&&s.place==='public').sort((a,b)=>a.ppk-b.ppk)[0];
@@ -1923,10 +2115,12 @@ function vChecks(){
     const fu=fuelAll().filter(f=>f.ppl>0);
     if(fu.length>2){
       const st=new Map();
-      for(const f of fu){const b=st.get(f.station||'—')||{c:0,l:0,n:0};b.c+=f.cost;b.l+=f.liters;b.n++;st.set(f.station||'—',b);}
+      for(const f of fu){const b=st.get(f.station||'—')||{cCt:0,c:0,l:0,n:0};
+        b.cCt+=cz(f.costCt);b.c=ctZahl(b.cCt);b.l+=f.liters;b.n++;st.set(f.station||'—',b);}
       const r=[...st.entries()].map(([k,b])=>({k,p:b.c/b.l,l:b.l})).sort((a,b)=>a.p-b.p);
       if(r.length>1&&r[r.length-1].p>r[0].p*1.02){
-        const spar=fu.reduce((a,f)=>a+f.liters,0)*(fu.reduce((a,f)=>a+f.cost,0)/fu.reduce((a,f)=>a+f.liters,0)-r[0].p);
+        const litAlle=fu.reduce((a,f)=>a+f.liters,0);
+        const spar=litAlle*(ctZahl(summeCt(fu,f=>f.costCt))/litAlle-r[0].p);
         punkte.push('Immer bei <b>'+esc(r[0].k)+'</b> getankt ('+num(r[0].p,3)+' €/l) hätte '+eur(spar)+' gespart.');
       }
     }
@@ -2053,7 +2247,7 @@ function blockFuel(list){
   const ausreisser=fuelAll().filter(f=>f.odd).length;
   const st=new Map();
   for(const f of list)if(f.liters>0){const k=f.station||'Ohne Angabe';const b=st.get(k)||{c:0,l:0,n:0};
-    b.c+=f.cost;b.l+=f.liters;b.n++;st.set(k,b);}
+    b.cCt=cz(b.cCt)+cz(f.costCt);b.c=ctZahl(b.cCt);b.l+=f.liters;b.n++;st.set(k,b);}
   const ranked=[...st.entries()].map(([k,b])=>({k,ppl:b.c/b.l,n:b.n})).sort((a,b)=>a.ppl-b.ppl);
   return sect('<b>Sprit</b>',
     '<div class="kpis">'+
@@ -2474,8 +2668,9 @@ function paneWerkstatt(){
   const jahr=state.kostenJahr;
   const liste=werkstattListe(jahr);
   const alle=werkstattListe('alle');
-  const summe=liste.reduce((a,w)=>a+(+w.cost||0),0);
-  const summeAlle=alle.reduce((a,w)=>a+(+w.cost||0),0);
+  /* Summen in Cent (B-04), Euro erst beim Anzeigen. */
+  const summeCtW=summeCt(liste,w=>w.costCt),summe=ctZahl(summeCtW);
+  const summeAlleCt=summeCt(alle,w=>w.costCt),summeAlle=ctZahl(summeAlleCt);
   /* Strecke im gewaehlten Jahr - fuer die Kosten je 100 km */
   const km=(()=>{
     const a=items();
@@ -2488,12 +2683,13 @@ function paneWerkstatt(){
   /* Aufteilung nach Art der Arbeit */
   const arten=new Map();
   for(const w of liste){const k=(w.art||'Sonstiges').trim()||'Sonstiges';
-    const b=arten.get(k)||{c:0,n:0};b.c+=(+w.cost||0);b.n++;arten.set(k,b);}
+    const b=arten.get(k)||{cCt:0,c:0,n:0};b.cCt+=cz(w.costCt);b.c=ctZahl(b.cCt);b.n++;arten.set(k,b);}
   const sortiert=[...arten.entries()].sort((a,b)=>b[1].c-a[1].c);
   const maxArt=Math.max(0.01,...sortiert.map(x=>x[1].c));
   const jahresSummen=new Map();
+  /* Jahressummen in Cent (B-04) - das sind die Zahlen fuer den Nachweis. */
   for(const w of alle)jahresSummen.set(w.d.getFullYear(),
-    (jahresSummen.get(w.d.getFullYear())||0)+(+w.cost||0));
+    (jahresSummen.get(w.d.getFullYear())||0)+cz(w.costCt));
   const titel=jahr==='alle'?'alle Jahre':'Jahr '+jahr;
   const c=car();
 
@@ -2853,7 +3049,7 @@ function paneLogbuch(){
     '<p class="hint" style="margin:0">Alles, was am Fahrzeug gemacht wurde — nach Art gruppiert. '+
     'Jeder Erledigt-Vermerk landet hier automatisch.</p>')
   +gruppen.map(([art,liste])=>{
-    const summe=liste.reduce((a,w)=>a+(+w.cost||0),0);
+    const summe=ctZahl(summeCt(liste,w=>w.costCt));
     const abstand=(()=>{
       if(liste.length<2)return '';
       const j=liste.map(w=>w.d.getTime()).sort((a,b)=>a-b);
@@ -2922,7 +3118,8 @@ function reviewPanel(){
   if(p.type==='charge'){
     const known=new Set(sessions.map(s=>s.id));
     const neu=p.rows.filter(r=>!known.has(r.id)),dup=p.rows.length-neu.length;
-    const t=neu.reduce((a,r)=>({kwh:a.kwh+r.kwh,cost:a.cost+r.cost}),{kwh:0,cost:0});
+    const t=neu.reduce((a,r)=>({kwh:a.kwh+r.kwh,costCt:a.costCt+ct(r.cost)}),{kwh:0,costCt:0});
+    t.cost=ctZahl(t.costCt);
     return sect('Gefundene Ladungen prüfen',
       '<div class="kpis">'+kpi('a','Neu',String(neu.length),'werden übernommen')+
       kpi('','Schon vorhanden',String(dup),'werden übersprungen')+
@@ -2938,7 +3135,8 @@ function reviewPanel(){
       '<button class="ghost" data-act="entry" data-v="">Abbrechen</button></div>','accent');
   }
   if(p.type==='fuelCsv'){
-    const t=p.rows.reduce((a,r)=>({l:a.l+r.liters,c:a.c+r.cost}),{l:0,c:0});
+    const t=p.rows.reduce((a,r)=>({l:a.l+r.liters,cCt:a.cCt+ct(r.cost)}),{l:0,cCt:0});
+    t.c=ctZahl(t.cCt);
     return sect('Gefundene Tankungen prüfen',
       '<div class="kpis">'+kpi('a','Tankungen',String(p.rows.length),'werden übernommen')+
       kpi('p','Liter',num(t.l,1)+'<u>l</u>','')+kpi('','Kosten',eur(t.c),'')+'</div>'+
@@ -2993,14 +3191,16 @@ function vPrices(){
     const rf=inRange(chargeAll());
     const grp=fn=>{const m=new Map();
       for(const s of rf){const k=fn(s)||'—';const b=m.get(k)||{k,cost:0,kwh:0,sec:0,n:0};
-        b.cost+=s.cost;b.kwh+=s.kwh;b.sec+=s.sec;b.n++;m.set(k,b);}
+        b.costCt=cz(b.costCt)+cz(s.costCt);b.cost=ctZahl(b.costCt);
+        b.kwh+=s.kwh;b.sec+=s.sec;b.n++;m.set(k,b);}
       return [...m.values()].map(b=>({...b,ppk:b.kwh?b.cost/b.kwh:0}));};
     const prov=grp(provider).filter(b=>b.kwh>0).sort((a,b)=>b.ppk-a.ppk);
     const spots=grp(s=>s.station+(s.city?' · '+s.city:'')).sort((a,b)=>b.cost-a.cost).slice(0,8);
     const maxP=Math.max(.001,...prov.map(b=>b.ppk)),maxC=Math.max(.01,...spots.map(b=>b.cost));
     const CL=[[0,3.7,'Langsam AC (bis 3,7 kW)'],[3.7,11,'AC 11 kW'],[11,22,'AC 22 kW'],[22,50,'DC bis 50 kW'],[50,1e9,'Über 50 kW']];
     const cls=CL.map(([a,b,l])=>{const x=rf.filter(s=>s.kw>=a&&s.kw<b&&s.kwh>0);
-      return {l,n:x.length,kwh:x.reduce((q,s)=>q+s.kwh,0),cost:x.reduce((q,s)=>q+s.cost,0)};}).filter(c=>c.n);
+      const cCt=summeCt(x,s=>s.costCt);
+      return {l,n:x.length,kwh:x.reduce((q,s)=>q+s.kwh,0),costCt:cCt,cost:ctZahl(cCt)};}).filter(c=>c.n);
     const maxN=Math.max(1,...cls.map(c=>c.n));
     /* F3a — Preis je Anbieter, aber getrennt nach Ladeart.
        Ein gemeinsamer Mittelwert aus Wechselstrom zuhause (~0,30 €/kWh) und
@@ -3014,7 +3214,8 @@ function vPrices(){
       const teil=rf.filter(s=>s.kwh>0.5&&s.kw>=von&&s.kw<bis&&s.ppk>0);
       const m=new Map();
       for(const s of teil){const k=provider(s);const b=m.get(k)||{k,cost:0,kwh:0,n:0};
-        b.cost+=s.cost;b.kwh+=s.kwh;b.n++;m.set(k,b);}
+        b.costCt=cz(b.costCt)+cz(s.costCt);b.cost=ctZahl(b.costCt);
+        b.kwh+=s.kwh;b.n++;m.set(k,b);}
       const reihen=[...m.values()].filter(b=>b.n>=MIND_LADUNGEN)
         .map(b=>({...b,ppk:b.cost/b.kwh})).sort((a,b)=>b.ppk-a.ppk);
       return {titel,reihen,gesamt:teil.length,anbieter:m.size};
@@ -3072,7 +3273,8 @@ function vPrices(){
     const rf=inRange(fuelAll()).filter(f=>f.liters>0);
     const m=new Map();
     for(const f of rf){const k=f.station||'Ohne Angabe';const b=m.get(k)||{k,cost:0,liters:0,n:0};
-      b.cost+=f.cost;b.liters+=f.liters;b.n++;m.set(k,b);}
+      b.costCt=cz(b.costCt)+cz(f.costCt);b.cost=ctZahl(b.costCt);
+      b.liters+=f.liters;b.n++;m.set(k,b);}
     const st=[...m.values()].map(b=>({...b,ppl:b.liters?b.cost/b.liters:0})).sort((a,b)=>b.ppl-a.ppl);
     const maxP=Math.max(.001,...st.map(b=>b.ppl));
     out+=sect('Literpreis je Tankstelle <span style="color:var(--muted)">— '+rangeLabel()+'</span>',
@@ -3171,9 +3373,10 @@ function weekGrid(years){
   if(!state.gridYear||!years.includes(state.gridYear))state.gridYear=years[0];
   const y=state.gridYear,m=state.gridMetric;
   const map=new Map();
-  const hol=k=>map.get(k)||(map.set(k,{cost:0,kwh:0,liters:0,n:0,km:0}),map.get(k));
+  const hol=k=>map.get(k)||(map.set(k,{costCt:0,cost:0,kwh:0,liters:0,n:0,km:0}),map.get(k));
   for(const x of items()){const w=isoWeek(x.d);if(w.year!==y)continue;
-    const b=hol(w.week);b.cost+=x.cost;b.kwh+=x.kwh||0;b.liters+=x.liters||0;b.n++;}
+    const b=hol(w.week);b.costCt+=cz(x.costCt);b.cost=ctZahl(b.costCt);
+    b.kwh+=x.kwh||0;b.liters+=x.liters||0;b.n++;}
   for(const [tag,km] of kmPerDay()){
     const w=isoWeek(new Date(tag+'T12:00:00'));
     if(w.year===y)hol(w.week).km+=km;
@@ -3200,7 +3403,9 @@ function weekGrid(years){
       '"'+(v>0?' style="background:color-mix(in oklab,var(--accent) '+Math.round(a*100)+'%,transparent)"':'')+'>'+
       '<div class="k">KW '+k+'</div><div class="v">'+zeig(v)+'</div></div>');
   }
-  const g=[...map.values()].reduce((a,b)=>({cost:a.cost+b.cost,km:a.km+b.km,n:a.n+b.n}),{cost:0,km:0,n:0});
+  const g=[...map.values()].reduce((a,b)=>({costCt:a.costCt+cz(b.costCt),km:a.km+b.km,n:a.n+b.n}),
+    {costCt:0,km:0,n:0});
+  g.cost=ctZahl(g.costCt);
   const beste=wochen.map(k=>({k,v:wert(map.get(k))})).filter(x=>x.v>0).sort((a,b)=>b.v-a.v);
   return sect('Jede Woche in '+y,
     '<div class="weeks">'+zellen.join('')+'</div>'+
@@ -3232,7 +3437,8 @@ function fakten(){
   const messFu=fu.filter(x=>x.measured>0),messCh=ch.filter(x=>x.measured>0);
   /* Orte */
   const orte=new Map();
-  for(const x of all){const k=x.station||'ohne Angabe';const b=orte.get(k)||{n:0,c:0};b.n++;b.c+=x.cost;orte.set(k,b);}
+  for(const x of all){const k=x.station||'ohne Angabe';const b=orte.get(k)||{n:0,cCt:0,c:0};
+    b.n++;b.cCt+=cz(x.costCt);b.c=ctZahl(b.cCt);orte.set(k,b);}
   const topOrt=[...orte.entries()].sort((a,b)=>b[1].n-a[1].n)[0];
   /* Wochentage */
   const WD=['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'];
@@ -3495,8 +3701,13 @@ function vReport(){
   if(jahresbericht){
     const mm=new Map();
     for(const x of f){const k=monthKey(x.d);
-      if(!mm.has(k))mm.set(k,{n:0,kwh:0,liters:0,net:0,vat:0,cost:0});
-      const b=mm.get(k);b.n++;b.kwh+=x.kwh||0;b.liters+=x.liters||0;b.net+=x.net;b.vat+=x.vat;b.cost+=x.cost;}
+      if(!mm.has(k))mm.set(k,{n:0,kwh:0,liters:0,netCt:0,vatCt:0,costCt:0,net:0,vat:0,cost:0});
+      /* Netto, MwSt und Brutto in Cent summieren (B-04). Genau hier entstehen
+         die Zahlen, die im Nachweis gegenueber Arbeitgeber und Finanzamt
+         stehen - eine Abweichung um Cent-Betraege ist hier nicht Kosmetik. */
+      const b=mm.get(k);b.n++;b.kwh+=x.kwh||0;b.liters+=x.liters||0;
+      b.netCt+=cz(x.netCt);b.vatCt+=cz(x.vatCt);b.costCt+=cz(x.costCt);
+      b.net=ctZahl(b.netCt);b.vat=ctZahl(b.vatCt);b.cost=ctZahl(b.costCt);}
     const keys=[...mm.keys()].sort();
     uebersicht='<h4 style="margin:4px 0 8px;font-size:14px">Monatsübersicht</h4>'+
       '<div class="scroll"><table><thead><tr><th>Monat</th><th class="n">Anzahl</th>'+
@@ -3825,8 +4036,11 @@ function vCars(){
 /* Fuenf Unterpunkte statt sieben, benannt nach dem, was man sucht - nicht
    nach dem, wie es intern heisst. „Tarife" und „Warnungen" verstand niemand;
    „Daten", „Profil" und „Verwaltung" waren drei Orte fuer eine Sache. */
-const SETTABS=[['cars','Autos'],['prices','Preise'],['points','Orte'],
-  ['remind','Erinnerungen'],['data','Daten & Profil']];
+/* Die Reihenfolge ist von Regelblatt 6a vorgeschrieben: Darstellung, dann
+   die Tool-Einstellungen, dann Freigaben, dann Konto. Freigaben und Konto
+   stehen unter "Daten & Profil" (B-11, B-16). */
+const SETTABS=[['darstellung','Darstellung'],['cars','Autos'],['prices','Preise'],
+  ['points','Orte'],['remind','Erinnerungen'],['data','Daten & Profil']];
 function setTabsFor(){
   return SETTABS.filter(([k])=>k!=='points'||canCharge());
 }
@@ -3931,9 +4145,9 @@ function vSettings(){
   const nav=sect('Einstellungen',
     '<div class="seg" style="width:100%">'+tabs.map(([k,l])=>
       '<button data-act="setTab" data-v="'+k+'" aria-pressed="'+(state.setTab===k)+'">'+l+'</button>').join('')+'</div>');
-  const seiten={cars:paneCars,points:panePoints,prices:panePrices,remind:paneRemind,
-    data:paneDataAlles};
-  return nav+(seiten[state.setTab]||paneCars)();
+  const seiten={darstellung:paneDarstellung,cars:paneCars,points:panePoints,
+    prices:panePrices,remind:paneRemind,data:paneDataAlles};
+  return nav+(seiten[state.setTab]||paneDarstellung)();
 }
 
 /* ---------- Unterpunkt: Autos ---------- */
@@ -3945,8 +4159,9 @@ function panePoints(){
   const map=new Map();
   for(const s of sessions){
     if(!s.station)continue;
-    const b=map.get(s.station)||{name:s.station,n:0,kwh:0,cost:0,letzte:null,adresse:'',autos:new Set()};
-    b.n++;b.kwh+=s.kwh||0;b.cost+=s.cost||0;
+    const b=map.get(s.station)||{name:s.station,n:0,kwh:0,costCt:0,cost:0,letzte:null,
+      adresse:'',autos:new Set()};
+    b.n++;b.kwh+=s.kwh||0;b.costCt=cz(b.costCt)+cz(s.costCt);b.cost=ctZahl(b.costCt);
     const d=new Date(s.start);
     if(!b.letzte||d>b.letzte)b.letzte=d;
     if(!b.adresse){
@@ -4088,7 +4303,8 @@ function paneData(){
     '<button class="ghost" data-act="exportCsv">Alle Vorgänge (CSV)</button></div>'+
     '<p class="hint">'+(DEMO?'Testversion — alles liegt nur in diesem Browser.'
       :'Im Container liegt alles im Volume <code>bordbuch_daten</code> — das sichert der Stack. '+
-      'Auf dem Pi sind es <code>bordbuch.db</code> und <code>receipts/</code>.')+'</p>');
+      'Im Container liegen sie in den Volumes <code>bordbuch_daten</code> und '+
+      '<code>bordbuch_belege</code>.')+'</p>');
 }
 
 /* =====================================================================
@@ -4245,7 +4461,7 @@ function paneAdmin(){
       'ersetzend — dann wird alles vorher gelöscht.</span></button></div>'+
     '<div class="formbar"><button class="ghost" data-act="adminCsvAll">Alle Fahrzeuge (CSV)</button></div>'+
     '<p class="hint">'+(DEMO?'Testversion: die Datei enthält nur die Beispieldaten.'
-      :'Auf dem Pi ist das Wegkopieren von <code>bordbuch.db</code> und <code>receipts/</code> gleichwertig '+
+      :'Gleichwertig ist die Sicherung ueber <code>/opt/stack/backup.sh</code> '+
        'und nimmt auch die Belege mit.')+'</p>');
 }
 
@@ -4326,6 +4542,21 @@ function personZeile(){
   const eigen=ich&&me&&me.id===ich.id;
   return esc(me?me.name:'')+((eigen&&ich.email)?' · '+esc(ich.email):'');
 }
+/* Abschnitt 1 der Einstellungsseite nach Regelblatt 6a (B-11). */
+function paneDarstellung(){
+  const w=settings.thema||'system';
+  const systemIst=(!SYSTEM_DUNKEL||SYSTEM_DUNKEL.matches)?'dunkel':'hell';
+  return sect('Darstellung',
+    zeile('Thema',
+      'System folgt der Einstellung deines Geräts — dort steht es gerade auf '+
+      '<b>'+systemIst+'</b>.',
+      seg('thema',[['system','System'],['hell','Hell'],['dunkel','Dunkel']],w),
+      'thema')+
+    '<p class="hint">Die Wahl gehört zu deinem Profil, nicht zum Gerät: sie gilt '+
+    'auch auf dem Handy und nach dem Neuladen. Gespeichert wird sie in der '+
+    'Datenbank des Bordbuchs, nicht bei der Anmeldung.</p>');
+}
+
 function paneProfile(){
   const eigen=!ich||!me||me.id===ich.id;
   let out=sect('Profil',
@@ -4343,18 +4574,25 @@ function paneProfile(){
         '</p></div>' : '')+
     (eigen
       ? '<div class="formbar" style="margin:0">'+
-        (ich&&ich.abmelden?'<a class="ghost" href="'+esc(ich.abmelden)+'">Abmelden</a>':'')+
+        /* Beschriftung woertlich nach Regelblatt 6a (B-16). Die doppelte
+           Beschriftung ist Absicht - Betriebsregeln 3: "Es ist eine
+           Weiterleitung, die Seite lädt dabei neu." */
+        (ich&&ich.abmelden
+          ? '<a class="ghost" href="'+esc(ich.abmelden)+'">Abmelden / neu laden</a>' : '')+
         '<button class="ghost danger" data-act="profilReset">Profil zurücksetzen</button>'+
         (DEMO?'<button class="ghost danger" data-act="demoReset">Beispieldaten zurücksetzen</button>':'')+'</div>'+
-        '<p class="hint">Abmelden beendet die Sitzung bei der Anmeldung, die vor Bordbuch sitzt — '+
-        'danach kannst du dich als jemand anderes anmelden. Name, E-Mail und Passwort werden dort '+
-        'gepflegt, nicht hier.<br>Zurücksetzen leert alle Autos, Ladungen, Tankungen und Wartungen '+
+        /* Der erste Satz ist von Regelblatt 6a woertlich vorgeschrieben. */
+        '<p class="hint">Beendet die Anmeldung und lädt die Seite neu. Danach kann ein '+
+        'anderes Konto verwendet werden.<br>Name, E-Mail und Passwort werden bei der '+
+        'Anmeldung gepflegt, die vor Bordbuch sitzt — nicht hier.<br>'+
+        'Zurücksetzen leert alle Autos, Ladungen, Tankungen und Wartungen '+
         'dieses Profils. Das Profil selbst bleibt — wer du bist, legt die Anmeldung fest.</p>'
       : '<p class="hint">Du arbeitest gerade im freigegebenen Profil von '+esc(me.name)+'. '+
         'Wechseln kannst du oben rechts.</p>'));
   if(!eigen)return out;
   /* Meine Freigaben */
-  const wahl=andere.filter(u=>!freigabenMeine.some(f=>f.profil===u.id));
+  /* Nur Treffer anzeigen, die nicht schon freigegeben sind. */
+  const wahl=freiTreffer.filter(u=>!freigabenMeine.some(f=>f.profil===u.id));
   out+=sect('Meine Freigaben',
     (freigabenMeine.length
       ? '<div class="rows">'+freigabenMeine.map(f=>
@@ -4368,15 +4606,31 @@ function paneProfile(){
           '<button class="ghost sm danger" data-act="freigabeWeg" data-v="'+f.id+'">Zurücknehmen</button>'+
           '</div></div>').join('')+'</div>'
       : '<div class="empty">Du hast niemandem Einblick gegeben. Deine Daten sieht nur du.</div>')+
+    /* Suchfeld statt Liste aller Profile (B-06): eine vollstaendige
+       Personenliste hat in der Oberflaeche nichts zu suchen. Der haeufigste
+       Fall bleibt schnell - Namen antippen, Recht waehlen, freigeben. */
+    '<div class="formbar" style="margin-top:12px">'+
+      '<input id="freiSuche" type="search" placeholder="Name oder E-Mail — mindestens 3 Zeichen" '+
+        'autocomplete="off" value="'+esc(state.freiQ||'')+'" aria-label="Person suchen">'+
+      '<button class="ghost sm" data-act="freigabeSuche">Suchen</button></div>'+
+    (state.freiFehler?'<p class="hint" role="alert">'+esc(state.freiFehler)+'</p>':'')+
     (wahl.length
-      ? '<div class="formbar" style="margin-top:12px">'+
-        '<select id="freiWer">'+wahl.map(u=>'<option value="'+u.id+'">'+esc(u.name)+
-          (u.email?' — '+esc(u.email):'')+'</option>').join('')+'</select>'+
-        '<select id="freiRecht"><option value="lesen">darf nur lesen</option>'+
-        '<option value="schreiben">darf auch eintragen</option></select>'+
-        '<button class="primary sm" data-act="freigabeNeu">Freigeben</button></div>'
-      : '<p class="hint" style="margin-top:12px">Zur Auswahl stehen nur Personen, die sich schon einmal '+
-        'bei Bordbuch angemeldet haben. Wer das sein darf, legt die Anmeldung fest.</p>'));
+      ? '<div class="rows" style="margin-top:8px">'+wahl.map(u=>
+          '<div class="row"><div class="t"><span class="nm">'+esc(u.name)+'</span>'+
+          (u.email?' <span class="who">'+esc(u.email)+'</span>':'')+'</div>'+
+          '<div class="act">'+
+          '<button class="ghost sm" data-act="freigabeNeu" data-v="'+u.id+'|lesen">'+
+            'nur lesen</button>'+
+          '<button class="ghost sm" data-act="freigabeNeu" data-v="'+u.id+'|schreiben">'+
+            'auch eintragen</button>'+
+          '</div></div>').join('')+'</div>'
+      : (state.freiQ&&!state.freiFehler
+          ? '<div class="empty">Niemand gefunden. Zur Auswahl stehen nur Personen, die sich '+
+            'schon einmal bei Bordbuch angemeldet haben — wer das sein darf, legt die '+
+            'Anmeldung fest.</div>'
+          : '<p class="hint" style="margin-top:8px">Such die Person über Name oder '+
+            'E-Mail-Adresse. Die Adresse wird nur verkürzt angezeigt, damit man die '+
+            'richtige Person erkennt, ohne dass hier ein Verzeichnis entsteht.</p>')));
   /* Für mich freigegeben */
   out+=sect('Für mich freigegeben',
     freigabenFuerMich.length
@@ -4392,6 +4646,58 @@ function paneProfile(){
 const VIEWS={overview:vOverview,about:vAbout,charges:vCharges,fuel:vFuel,checks:vChecks,
   wartung:vWartung,prices:vPrices,
   time:vTime,report:vReport,settings:vSettings};
+
+/* ---------- Wege (B-10) ----------
+   Die VIEWS-Tabelle oben war bereits eine Routentabelle - sie hing nur an
+   keinem Pfad. Vorher gab es ueberhaupt kein Routing: kein pushState, kein
+   popstate, kein hash. Der Zustand lag allein in state.tab und ging bei
+   jedem Neuladen verloren.
+
+   Folgen im Alltag, alle vier behoben:
+     - /einstellungen gab es nicht, obwohl Regelblatt 6a und Betriebsregeln 3
+       es beide verlangen.
+     - Die Zurueck-Taste verliess das Tool, statt einen Schritt zurueckzugehen.
+       Auf dem Handy ist das die meistbenutzte Geste ueberhaupt.
+     - Kein Verweis liess sich teilen ("schau dir mal die Wartung an").
+     - Nach jedem Neuladen landete man auf der Uebersicht, auch mitten in
+       einer Eingabe.
+
+   Die Wege sind deutsch, weil sie in der Adresszeile sichtbar sind
+   (Betriebsregeln 6); die Reiternamen im Code bleiben, wie sie sind. */
+/* Die Wege entsprechen genau den Reitern aus tabsFor() und heissen wie deren
+   Beschriftung - wer "Verlauf" sieht, findet /verlauf in der Adresse.
+   Der Bericht schlug 'zeitraum' und 'pruefungen' vor; das waren die
+   englischen VIEWS-Schluessel uebersetzt, nicht die sichtbaren
+   Beschriftungen. "werkstatt" ist bewusst NICHT dabei: es gibt keinen
+   Werkstatt-Reiter, die Rechnungen stehen in der Wartungsansicht. Ein Weg
+   auf einen Reiter, den es nicht gibt, waere stillschweigend die
+   Uebersicht. */
+const WEGE={
+  '':                 'overview',
+  'fahrzeug':         'about',
+  'ladungen':         'charges',
+  'tanken':           'fuel',
+  'auffaelligkeiten': 'checks',
+  'wartung':          'wartung',
+  'preise':           'prices',
+  'verlauf':          'time',
+  'bericht':          'report',
+  'einstellungen':    'settings',
+};
+const NACH_WEG=Object.fromEntries(Object.entries(WEGE).map(([w,t])=>[t,w]));
+
+function wegLesen(){
+  const teil=location.pathname.replace(/^\/|\/$/g,'').split('/')[0];
+  return WEGE[teil]||'overview';
+}
+function wegSetzen(tab,ersetzen){
+  /* Im Testbetrieb aus dem Dateisystem gibt es keinen Pfad, den man setzen
+     koennte - pushState wuerde dort werfen. */
+  if(location.protocol==='file:')return;
+  const ziel='/'+(NACH_WEG[tab]||'')+location.search;
+  if(location.pathname+location.search===ziel)return;
+  try{history[ersetzen?'replaceState':'pushState']({tab},'',ziel);}catch(e){}
+}
 
 /* =====================================================================
    Rendern
@@ -4496,6 +4802,7 @@ const HELP={
   satzJahr:['Jahr des Satzes','Der Satz ändert sich jährlich. So bleibt nachvollziehbar, welcher gemeint ist.'],
   satzQuelle:['Herkunft des Satzes','Erscheint auf der Abrechnung, damit die Zahl belegt ist.'],
   vatRate:['Mehrwertsteuer','Damit wird Netto aus Brutto abgeleitet, wenn die Abrechnung kein Netto ausweist. Deutschland 19, Österreich 20.'],
+  thema:['Thema','System folgt der Einstellung deines Geräts und wechselt mit ihr, auch ohne Neuladen. Hell und Dunkel gelten fest. Die Wahl liegt bei deinem Profil, nicht beim Gerät — sie gilt darum auch auf dem Handy.'],
   kwhStd:['Standard Strom','Gilt nur, solange bei einem Auto kein eigener Wert steht.'],
   fuelStd:['Standard Sprit','Gilt nur, solange bei einem Auto kein eigener Wert steht.'],
   ppkMax:['Teurer Strom','Ab diesem Preis je kWh meldet Bordbuch die Ladung als teuer.'],
@@ -4864,16 +5171,24 @@ function render(){
      Kontowechsel nicht, als wer man unterwegs ist. In einem freigegebenen
      Profil steht zusaetzlich, wessen Daten man sieht. */
   const fremd=ich&&me.id!==ich.id;
-  document.getElementById('who').textContent=
-    'Angemeldet: '+(ich?ich.name:'—')+(ich&&ich.anmeldung&&ich.anmeldung!==ich.name?' ('+ich.anmeldung+')':'')+
-    (fremd?' · sieht '+me.name+' — '+(darfSchreiben?'lesen und eintragen':'nur lesen'):'');
-  /* Abmelden beendet die Sitzung bei der Anmeldung davor - ein lokales Löschen
-     von Keksen brächte nichts, die Anmeldung würde sofort wieder bestätigen. */
-  const ab=document.getElementById('abmelden');
-  if(ab){
-    const ziel=ich&&ich.abmelden;
-    ab.classList.toggle('hidden',!ziel);
-    if(ziel)ab.setAttribute('href',ziel);
+  /* Die Unterzeile unter dem Namen beschreibt das TOOL, nicht den Zustand
+     (Regelblatt 5, B-17) - "FAHRTENBUCH" steht fest im Markup. Der
+     Anzeigename ist ein Verweis auf die Einstellungen, wie Regelblatt 6a es
+     verlangt. */
+  const wh=document.getElementById('who');
+  if(wh){
+    wh.textContent=ich?ich.name:'—';
+    wh.setAttribute('href','/einstellungen');
+    wh.setAttribute('title','Einstellungen und Konto');
+  }
+  /* Die Zustandsangabe gehoert in den Kopfbereich rechts, neben die
+     Kontext-Auswahl - dorthin, wo Regelblatt 6 die Kontextangaben verortet. */
+  const zu=document.getElementById('zustand');
+  if(zu){
+    zu.textContent=fremd
+      ? 'sieht '+me.name+' — '+(darfSchreiben?'lesen und eintragen':'nur lesen')
+      : '';
+    zu.classList.toggle('hidden',!fremd);
   }
   const pw=document.getElementById('profilWrap');
   /* Der Umschalter erscheint nur, wenn es wirklich etwas zu wechseln gibt. */
@@ -4956,7 +5271,8 @@ async function handleClick(el){
   const a=el.dataset.act,v=el.dataset.v;
   const go=()=>{render();window.scrollTo({top:0,behavior:'smooth'});};
   if(state.importFehler)state.importFehler=null;
-  if(a==='tab'){state.tab=v;state.entry=null;state.pending=null;state.queue=null;state.zeige=LISTE_START;go();}
+  if(a==='tab'){state.tab=v;state.entry=null;state.pending=null;state.queue=null;
+    state.zeige=LISTE_START;wegSetzen(v);go();}
   else if(a==='range'){state.range=v;state.zeige=LISTE_START;render();}
   else if(a==='metric'){state.metric=v;render();}
   else if(a==='gran'){state.gran=v;render();}
@@ -4966,7 +5282,8 @@ async function handleClick(el){
   else if(a==='abrCsv')abrechnungCsv();
   else if(a==='gridMetric'){state.gridMetric=v;render();}
   else if(a==='setTab'){state.setTab=v;state.stationQ='';render();window.scrollTo({top:0,behavior:'smooth'});}
-  else if(a==='settings'){state.tab='settings';state.setTab=v||'cars';render();window.scrollTo({top:0,behavior:'smooth'});}
+  else if(a==='settings'){state.tab='settings';state.setTab=v||'cars';wegSetzen('settings');
+    render();window.scrollTo({top:0,behavior:'smooth'});}
   else if(a==='invoiceAll'){state.invoiceAll=v==='1';render();}
   else if(a==='ackShow'){state.ackShow=v==='1';render();}
   /* --- Verbrauch: neuen Wert übernehmen oder Hinweis abhaken --- */
@@ -5255,11 +5572,12 @@ async function handleClick(el){
   else if(a==='wizDone'){await wizSpeichern();return;}
   /* Profile */
   else if(a==='thema'){
-    /* Dunkel ist der Standard. Die Wahl bleibt auf diesem Geraet - sie gehoert
-       zum Geraet, nicht zum Profil, und wird darum nicht am Server abgelegt. */
-    const dunkel=document.body.dataset.theme!=='light';
-    themaSetzen(dunkel?'light':'dark');
-    try{localStorage.setItem('bordbuch_thema',dunkel?'light':'dark');}catch(e){}
+    /* Drei Zustaende, und die Wahl gehoert zum Nutzer, nicht zum Geraet
+       (B-11) - darum wird sie in der Datenbank abgelegt und gilt auf dem
+       Handy genauso. */
+    settings.thema=themaAnwenden(v);
+    render();
+    await saveSettings();
   }
   else if(a==='profilWechsel'){await profilOeffnen(v);}
   else if(a==='profilReset'){
@@ -5271,13 +5589,33 @@ async function handleClick(el){
     state.carId=null;state.tab='overview';state.entry=null;
     await loadState();render();toast('Profil zurückgesetzt.');
   }
+  else if(a==='freigabeSuche'){
+    /* Gezielt suchen statt alle Profile zu laden (B-06). */
+    const feld=document.getElementById('freiSuche');
+    const q=feld?feld.value.trim():'';
+    state.freiQ=q;state.freiFehler='';
+    if(q.length<3){state.freiTrefferLeer=true;freiTreffer=[];
+      state.freiFehler='Bitte mindestens 3 Zeichen eingeben.';render();return;}
+    try{
+      const a2=await api('/api/freigabe/suche?q='+encodeURIComponent(q));
+      freiTreffer=a2.treffer||[];
+      if(freiTreffer.length>=(a2.grenze||10))
+        state.freiFehler='Es werden nur die ersten '+(a2.grenze||10)+
+          ' Treffer gezeigt. Gib mehr Zeichen ein, wenn die richtige Person fehlt.';
+    }catch(e){freiTreffer=[];state.freiFehler=e.message;}
+    render();
+  }
   else if(a==='freigabeNeu'){
-    const wer=document.getElementById('freiWer'),recht=document.getElementById('freiRecht');
-    if(!wer||!wer.value)return toast('Bitte jemanden auswählen.');
-    const name=wer.options[wer.selectedIndex].text;
-    await api('/api/freigabe/save',{empfaenger:+wer.value,rechte:recht?recht.value:'lesen'});
+    const [pid,recht]=String(v).split('|');
+    const person=freiTreffer.find(u=>String(u.id)===String(pid));
+    if(!pid)return toast('Bitte jemanden auswählen.');
+    await api('/api/freigabe/save',{empfaenger:+pid,rechte:recht||'lesen'});
+    /* Nach dem Freigeben ist die Suche erledigt - das Feld raeumt sich auf,
+       damit keine Trefferliste stehen bleibt. */
+    state.freiQ='';state.freiFehler='';freiTreffer=[];
     await loadState();render();
-    toast(name+' sieht jetzt dein Profil'+((recht&&recht.value==='schreiben')?' und darf eintragen.':' (nur lesen).'));
+    toast((person?person.name:'Die Person')+' sieht jetzt dein Profil'+
+      (recht==='schreiben'?' und darf eintragen.':' (nur lesen).'));
   }
   else if(a==='freigabeRechte'){
     const [pid,recht]=String(v).split('|');
@@ -5360,8 +5698,14 @@ async function handleClick(el){
   }
   else if(a==='chargeDelete'){
     if(!confirm('Diese Ladung wirklich löschen?'))return;
-    await api('/api/sessions/delete',{ids:[+v]});
-    state.entry=null;state.pending=null;await loadState();render();toast('Ladung gelöscht.');
+    /* Die Anzahl auswerten (B-09): 0 heisst, die Ladung war schon weg -
+       etwa weil sie in einem anderen Fenster geloescht wurde. Dann darf hier
+       nicht "geloescht" stehen, sonst sieht es aus wie ein Tool, das Daten
+       willkuerlich zurueckbringt. */
+    const a1=await api('/api/sessions/delete',{ids:[+v]});
+    state.entry=null;state.pending=null;await loadState();render();
+    toast(a1&&a1.deleted?'Ladung gelöscht.'
+      :'Diese Ladung war schon gelöscht. Die Ansicht ist jetzt aktuell.');
   }
   /* Tankungen */
   else if(a==='fuelNew'){state.pending={type:'fuel',row:{}};state.entry='fuelForm';state.tab='fuel';go();}
@@ -5925,7 +6269,7 @@ function exportCsv(month){
 function werkstattCsv(){
   const jahr=state.kostenJahr,liste=werkstattListe(jahr);
   if(!liste.length)return toast('Für diesen Zeitraum ist nichts erfasst.');
-  const c=car(),summe=liste.reduce((a,w)=>a+(+w.cost||0),0);
+  const c=car(),summe=ctZahl(summeCt(liste,w=>w.costCt));
   const kopf=['Datum','Art','Wo','Kilometerstand','Betrag_EUR','Aus_Wartungsplan','Beleg',
     'Notiz','Fahrzeug','Kennzeichen'];
   const zeilen=liste.slice().sort((a,b)=>a.d-b.d).map(w=>[dt.format(w.d),w.art||'Werkstatt',
@@ -5963,8 +6307,11 @@ function exportXls(){
   if(jahr){
     const mm=new Map();
     for(const x of f){const k=monthKey(x.d);
-      if(!mm.has(k))mm.set(k,{n:0,kwh:0,liters:0,net:0,vat:0,cost:0});
-      const b=mm.get(k);b.n++;b.kwh+=x.kwh||0;b.liters+=x.liters||0;b.net+=x.net;b.vat+=x.vat;b.cost+=x.cost;}
+      if(!mm.has(k))mm.set(k,{n:0,kwh:0,liters:0,netCt:0,vatCt:0,costCt:0,net:0,vat:0,cost:0});
+      const b=mm.get(k);b.n++;b.kwh+=x.kwh||0;b.liters+=x.liters||0;
+      b.netCt=cz(b.netCt)+cz(x.netCt);b.vatCt=cz(b.vatCt)+cz(x.vatCt);
+      b.costCt=cz(b.costCt)+cz(x.costCt);
+      b.net=ctZahl(b.netCt);b.vat=ctZahl(b.vatCt);b.cost=ctZahl(b.costCt);}
     monatsteil='<h4>Monatsübersicht</h4><table border="1"><thead><tr><th>Monat</th><th>Anzahl</th>'+
       '<th>kWh</th><th>Liter</th><th>Netto EUR</th><th>MwSt EUR</th><th>Brutto EUR</th></tr></thead><tbody>'+
       [...mm.keys()].sort().map(k=>{const b=mm.get(k);
@@ -5977,7 +6324,13 @@ function exportXls(){
     x.type==='fuel'?num(x.liters,2):num(x.kwh,3),x.type==='fuel'?'l':'kWh',x.odo?num(x.odo,0):'',
     num(x.net,2),num(x.vat,2),num(x.cost,2)]);
   download('fahrzeugkosten-'+z+'.xls','application/vnd.ms-excel',
-    '<html><head><meta charset="utf-8"></head><body><h3>Fahrzeugkosten '+titel+
+    /* DOCTYPE und lang auch hier (B-14): das ist die Datei, die beim
+       Arbeitgeber oder beim Finanzamt landet. Ohne DOCTYPE oeffnet sie
+       Excel und der Browser im Quirks Mode, ohne lang liest ein
+       Vorleseprogramm sie englisch vor. */
+    '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">'+
+    '<title>Fahrzeugkosten '+esc(titel)+'</title></head>'+
+    '<body><h3>Fahrzeugkosten '+titel+
     (car()?' — '+esc(car().name):'')+'</h3>'+monatsteil+'<table border="1"><thead><tr>'+
     th.map(x=>'<th>'+esc(x)+'</th>').join('')+'</tr></thead><tbody>'+
     body.map(r=>'<tr>'+r.map(c=>'<td>'+esc(c)+'</td>').join('')+'</tr>').join('')+
@@ -6015,11 +6368,17 @@ function demoSeed(){
     const cost=+(kwh*ppk).toFixed(2),st=now-ago*D;
     return {dbid:++sid,nutzerId:1,carId,id:'DEMO'+sid,start:iso(st),end:iso(st+min*60000),sec:min*60,kwh,cost,
       odo:odo||0,
-      net:+(cost/1.19).toFixed(2),vat:+(cost-cost/1.19).toFixed(2),station,city,zip:'',street:'',rate:'TARIF',
-      partner,entity:'',invoiceNo:'MC/DE/2026/'+(2000+sid),invoiceDate:iso(st).slice(0,10),invoiceGross:cost,
+      /* Demo-Daten fuehren dieselben Cent-Felder wie der Server (B-04). */
+      costCt:ct(cost),netCt:Math.round(ct(cost)/1.19),
+      vatCt:ct(cost)-Math.round(ct(cost)/1.19),
+      net:ctZahl(Math.round(ct(cost)/1.19)),
+      vat:ctZahl(ct(cost)-Math.round(ct(cost)/1.19)),
+      station,city,zip:'',street:'',rate:'TARIF',
+      partner,entity:'',invoiceNo:'MC/DE/2026/'+(2000+sid),invoiceDate:iso(st).slice(0,10),
+      invoiceGross:cost,invoiceGrossCt:ct(cost),
       src:'Beispiel',manual:false,note:''};};
   const fu=(nutzerId,carId,ago,lit,ppl,odo,station)=>({dbid:++fid,nutzerId,carId,ts:iso(now-ago*D),liters:lit,
-    cost:+(lit*ppl).toFixed(2),odo,full:true,station,note:'',receipt:''});
+    cost:ctZahl(ct(lit*ppl)),costCt:ct(lit*ppl),odo,full:true,station,note:'',receipt:''});
   const heute=new Date();
   const inMon=n=>{const t=new Date(heute);t.setMonth(t.getMonth()+n);return t.toISOString().slice(0,10);};
   return {seq:{car:5,sess:0,fuel:0,wart:4,shop:9},
@@ -6116,10 +6475,24 @@ async function demoApi(path,body){
       user:{id:selbst.id,name:selbst.name},
       profile:[{id:selbst.id,name:selbst.name,rechte:'eigen'}].concat(
         fuerMich.map(f=>({id:f.profil,name:f.name,rechte:f.rechte}))),
+      /* Kein "andere" mehr (B-06) - gesucht wird ueber /api/freigabe/suche. */
       schreiben:true,freigabenMeine:meine,freigabenFuerMich:fuerMich,
-      andere:d.users.filter(u=>u.id!==uid).map(u=>({id:u.id,name:u.name,email:''})),
       cars:myCars(),sessions:mine(d.sessions),fuelings:mine(d.fuelings),
       service:mine(d.service||[]),shop:mine(d.shop||[]),settings:d.settings[uid]||{},schema:'demo'};
+  }
+  if(path.split('?')[0]==='/api/freigabe/suche'){
+    /* Wie der echte Endpunkt (B-06): mindestens drei Zeichen, hoechstens zehn
+       Treffer, E-Mail verkuerzt. */
+    const q=decodeURIComponent((path.split('q=')[1]||'')).trim();
+    if(q.length<3)throw new Error('Bitte mindestens 3 Zeichen eingeben - Name oder '+
+      'E-Mail-Adresse der Person, die du freigeben willst.');
+    const kurz=m=>{if(!m||m.indexOf('@')<0)return '';
+      const i=m.indexOf('@'),l=m.slice(0,i),w=m.slice(i);
+      return l.length<=2?'*'.repeat(l.length)+w:l[0]+'*'.repeat(l.length-2)+l[l.length-1]+w;};
+    const n=q.toLowerCase();
+    return {treffer:d.users.filter(u=>u.id!==uid&&
+        ((u.name||'').toLowerCase().includes(n)||(u.email||'').toLowerCase().includes(n)))
+      .slice(0,10).map(u=>({id:u.id,name:u.name,email:kurz(u.email||'')})),grenze:10};
   }
   /* --- Verwaltung im Testmodus ---
      Der Ersatz-Server liefert dasselbe Format wie der echte Server: eine
@@ -6198,7 +6571,10 @@ async function demoApi(path,body){
     return ok();
   }
   if(path==='/api/freigabe/delete'){
+    const vorFr=(d.freigaben||[]).length;
     d.freigaben=(d.freigaben||[]).filter(f=>!(f.id===+body.id&&f.von===uid));
+    if((d.freigaben||[]).length===vorFr)
+      throw new Error('Diese Freigabe gibt es nicht mehr. Lade die Seite neu.');
     return ok();
   }
   if(!uid)throw new Error('kein Profil gewählt');
@@ -6239,16 +6615,24 @@ async function demoApi(path,body){
     /* Logbucheintrag wie beim echten Server: Kosten, Kilometerstand, Beleg. */
     const rec=body.receiptData?('data:application/octet-stream;base64,'+body.receiptData):'';
     d.shop.push({dbid:++d.seq.shop,nutzerId:uid,carId:w.carId,ts:dat+'T12:00:00',art:w.art,
-      cost:+body.cost||0,odo:+body.km||0,betrieb:body.betrieb||'',note:body.note||'',
+      cost:ctZahl(ct(body.cost)),costCt:ct(body.cost),
+      odo:+body.km||0,betrieb:body.betrieb||'',note:body.note||'',
       receipt:rec,wartId:w.dbid});
     return ok();
   }
   if(path==='/api/service/delete'){
-    d.service=d.service.filter(x=>!(x.dbid===body.dbid&&x.nutzerId===uid));return ok();
+    /* Wie der Server (B-09): war nichts zu loeschen, ist das ein Fehler und
+       keine Erfolgsmeldung. */
+    const vor=d.service.length;
+    d.service=d.service.filter(x=>!(x.dbid===body.dbid&&x.nutzerId===uid));
+    if(d.service.length===vor)
+      throw new Error('Diesen Wartungseintrag gibt es nicht mehr. Lade die Seite neu.');
+    return ok();
   }
   if(path==='/api/shop/save'){
     const rec=body.receiptData?('data:application/octet-stream;base64,'+body.receiptData):null;
-    const werte={carId:body.carId,ts:body.ts,art:body.art||'',cost:+body.cost||0,
+    const werte={carId:body.carId,ts:body.ts,art:body.art||'',
+      cost:ctZahl(ct(body.cost)),costCt:ct(body.cost),
       odo:+body.odo||0,betrieb:body.betrieb||'',note:body.note||'',wartId:+body.wartId||0};
     if(body.dbid){
       const w=d.shop.find(x=>x.dbid===body.dbid&&x.nutzerId===uid);
@@ -6260,7 +6644,11 @@ async function demoApi(path,body){
     return ok({id});
   }
   if(path==='/api/shop/delete'){
-    d.shop=d.shop.filter(x=>!(x.dbid===body.dbid&&x.nutzerId===uid));return ok();
+    const vorS=d.shop.length;
+    d.shop=d.shop.filter(x=>!(x.dbid===body.dbid&&x.nutzerId===uid));
+    if(d.shop.length===vorS)
+      throw new Error('Diese Rechnung gibt es nicht mehr. Lade die Seite neu.');
+    return ok();
   }
   if(path==='/api/cars/save'){
     const kd=['bev','phev','petrol','diesel'].includes(body.kind)?body.kind:'bev';
@@ -6279,7 +6667,10 @@ async function demoApi(path,body){
     return ok({id});
   }
   if(path==='/api/cars/delete'){
+    const vorC=d.cars.length;
     d.cars=d.cars.filter(c=>!(c.id===body.id&&c.nutzerId===uid));
+    if(d.cars.length===vorC)
+      throw new Error('Dieses Auto gibt es nicht mehr. Lade die Seite neu.');
     d.sessions.forEach(x=>{if(x.carId===body.id)x.carId=null;});
     d.fuelings.forEach(x=>{if(x.carId===body.id)x.carId=null;});
     return ok();
@@ -6292,7 +6683,8 @@ async function demoApi(path,body){
     return ok({added,dup});
   }
   if(path==='/api/sessions/save'){
-    const cost=+body.cost||0,net=+(cost/1.19).toFixed(2);
+    const costCt=ct(body.cost),netCt=Math.round(costCt/1.19),vatCt=costCt-netCt;
+    const cost=ctZahl(costCt),net=ctZahl(netCt);
     if(!body.dbid&&body.tx&&d.sessions.some(x=>x.nutzerId===uid&&x.id===body.tx))
       throw new Error('Diese Ladung ist schon erfasst');
     if(body.dbid){
@@ -6301,38 +6693,51 @@ async function demoApi(path,body){
       const sec=+body.sec||0;
       Object.assign(x,{carId:body.carId,start:body.start,
         end:new Date(new Date(body.start).getTime()+sec*1000).toISOString(),
-        sec,kwh:+body.kwh||0,cost,net,vat:+(cost-net).toFixed(2),odo:+body.odo||0,
+        sec,kwh:+body.kwh||0,cost,net,vat:ctZahl(vatCt),
+        costCt,netCt,vatCt,odo:+body.odo||0,
         station:body.station||x.station});
       return ok({id:x.dbid});
     }
     d.sessions.push({dbid:++d.seq.sess,nutzerId:uid,carId:body.carId,
       id:body.tx||('manual-'+d.seq.sess),start:body.start,
-      end:body.start,sec:+body.sec||0,kwh:+body.kwh||0,cost,net,vat:+(cost-net).toFixed(2),
+      end:body.start,sec:+body.sec||0,kwh:+body.kwh||0,cost,net,vat:ctZahl(vatCt),
+      costCt,netCt,vatCt,invoiceGrossCt:costCt,
       odo:+body.odo||0,station:body.station||'Zuhause',city:'',zip:'',street:'',rate:'',partner:'',
       entity:'',invoiceNo:'',invoiceDate:'',invoiceGross:cost,src:'manuell',manual:true,note:''});
     return ok();
   }
   if(path==='/api/sessions/delete'){
-    if(body.all){d.sessions=d.sessions.filter(x=>x.nutzerId!==uid);return ok();}
+    /* Anzahl zurueckgeben wie der Server (B-09) - die Oberflaeche wertet sie aus. */
+    if(body.all){const v=d.sessions.length;
+      d.sessions=d.sessions.filter(x=>x.nutzerId!==uid);
+      return ok({deleted:v-d.sessions.length});}
     const ids=new Set((body.ids||[]).map(Number));
-    d.sessions=d.sessions.filter(x=>!(x.nutzerId===uid&&ids.has(x.dbid)));return ok();
+    const vorL=d.sessions.length;
+    d.sessions=d.sessions.filter(x=>!(x.nutzerId===uid&&ids.has(x.dbid)));
+    return ok({deleted:vorL-d.sessions.length});
   }
   if(path==='/api/fuel/save'){
     const rec=body.receiptData?('data:image/*;base64,'+body.receiptData):null;
     if(body.dbid){
       const f=d.fuelings.find(x=>x.dbid===body.dbid&&x.nutzerId===uid);
       if(!f)throw new Error('Tankung nicht gefunden');
-      Object.assign(f,{carId:body.carId,ts:body.ts,liters:+body.liters||0,cost:+body.cost||0,odo:+body.odo||0,
+      Object.assign(f,{carId:body.carId,ts:body.ts,liters:+body.liters||0,
+        cost:ctZahl(ct(body.cost)),costCt:ct(body.cost),odo:+body.odo||0,
         full:body.full!==false,station:body.station||'',note:body.note||'',receipt:rec||f.receipt});
       return ok({id:f.dbid});
     }
     const id=++d.seq.fuel;
-    d.fuelings.push({dbid:id,nutzerId:uid,carId:body.carId,ts:body.ts,liters:+body.liters||0,cost:+body.cost||0,
+    d.fuelings.push({dbid:id,nutzerId:uid,carId:body.carId,ts:body.ts,liters:+body.liters||0,
+      cost:ctZahl(ct(body.cost)),costCt:ct(body.cost),
       odo:+body.odo||0,full:body.full!==false,station:body.station||'',note:body.note||'',receipt:rec||''});
     return ok({id});
   }
   if(path==='/api/fuel/delete'){
-    d.fuelings=d.fuelings.filter(x=>!(x.dbid===body.id&&x.nutzerId===uid));return ok();
+    const vorF=d.fuelings.length;
+    d.fuelings=d.fuelings.filter(x=>!(x.dbid===body.id&&x.nutzerId===uid));
+    if(d.fuelings.length===vorF)
+      throw new Error('Diese Tankung gibt es nicht mehr. Lade die Seite neu.');
+    return ok();
   }
   if(path==='/api/restore'){
     const p=body.data||{};
@@ -6368,19 +6773,57 @@ async function demoApi(path,body){
   throw new Error('unbekannter Endpunkt');
 }
 
-/* Thema umschalten: setzt das Kennzeichen am <body>, worauf der ganze
-   Token-Block umschaltet, und sagt dem Browser Bescheid, damit auch
-   Bildlaufleisten und Formularelemente mitziehen. */
-function themaSetzen(wert){
-  document.body.dataset.theme=wert;
-  const m=document.querySelector('meta[name="color-scheme"]');
-  if(m)m.setAttribute('content',wert);
-  const b=document.getElementById('thema');
-  if(b){b.textContent=wert==='dark'?'Hell':'Dunkel';b.setAttribute('aria-pressed',wert==='light'?'true':'false');}
+/* ---------- Darstellung (B-11) ----------
+   Drei Zustaende nach Regelblatt 6a: System / Hell / Dunkel. System ist die
+   Voreinstellung und folgt prefers-color-scheme.
+
+   Vorher waren es zwei Zustaende, System fehlte, prefers-color-scheme wurde
+   nie abgefragt, und die Wahl lag ausschliesslich im localStorage - auf dem
+   Handy war sie damit weg. Das ist genau der Fall, den das Regelblatt beim
+   Namen nennt. Die Umsetzung folgt dem Wiki, das alle drei Punkte richtig
+   macht; neu erfunden wird hier nichts.
+
+   Das meta[name=color-scheme] wird NICHT mehr umgeschrieben: es steht fest
+   auf "light dark" und sagt dem Browser damit, dass beide Themen
+   unterstuetzt werden. Welches gilt, entscheidet data-theme am <body>. */
+const SYSTEM_DUNKEL=window.matchMedia
+  ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+const THEMA_SCHLUESSEL='bordbuch_thema';
+
+function themaAnwenden(wahl){
+  const w=(wahl==='hell'||wahl==='dunkel')?wahl:'system';
+  const dunkel = w==='dunkel' ||
+    (w==='system' && (!SYSTEM_DUNKEL || SYSTEM_DUNKEL.matches));
+  document.body.dataset.theme=dunkel?'dark':'light';
+  try{localStorage.setItem(THEMA_SCHLUESSEL,w);}catch(e){}
+  return w;
 }
-try{const gw=localStorage.getItem('bordbuch_thema');themaSetzen(gw==='light'?'light':'dark');}catch(e){themaSetzen('dark');}
+/* Folgt der Systemeinstellung ohne Neuladen - aber nur, solange "System"
+   gewaehlt ist. */
+if(SYSTEM_DUNKEL&&SYSTEM_DUNKEL.addEventListener)
+  SYSTEM_DUNKEL.addEventListener('change',()=>{
+    if((settings.thema||'system')==='system')themaAnwenden('system');
+  });
+/* Erster Bildaufbau: der zwischengespeicherte Wert verhindert, dass vor der
+   ersten Antwort des Servers kurz das falsche Theme aufblitzt. Gewinnen tut
+   danach der Wert aus /api/state. */
+try{themaAnwenden(localStorage.getItem(THEMA_SCHLUESSEL)||'system');}
+catch(e){themaAnwenden('system');}
 
 /* ---------- Start ---------- */
+/* Im Testbetrieb sichtbar machen, dass es der Testbetrieb ist - sonst haelt
+   man die Beispieldaten fuer die eigenen (B-31). Das leistete bisher der
+   TEST-Zusatz in der zweiten Datei. */
+if(DEMO){
+  const tm=document.getElementById('testmarke');
+  if(tm)tm.hidden=false;
+  document.title='Bordbuch — Testversion';
+}
+/* Weg aus der Adresse lesen und auf Zurueck/Vorwaerts hoeren (B-10). */
+state.tab=wegLesen();
+window.addEventListener('popstate',()=>{state.tab=wegLesen();state.entry=null;
+  state.pending=null;render();});
+
 /* B5: zuletzt gewaehltes Profil vorbelegen, dann holt loadState dessen Daten.
    Kennt der Server die Kennung nicht mehr, kommt kein Profil zurueck und das
    Gate erscheint wie bisher. Nur im echten Betrieb, nicht in der Demo. */
@@ -6389,6 +6832,8 @@ loadState().then(render).catch(e=>{
   document.getElementById('gate').classList.add('hidden');
   document.getElementById('view').innerHTML=
     '<section><div class="empty">Keine Verbindung zum Bordbuch-Server.<br>'+esc(e.message)+
-    '<br><br>Läuft <code>server.py</code> auf dem Raspberry Pi?</div></section>';
+    '<br><br>Läuft der Container? <code>docker compose ps</code> zeigt es.</div></section>';
 });
 </script>
+</body>
+</html>

@@ -20,9 +20,10 @@ im Browser aufrufen — der Rest erklärt sich in der Oberfläche selbst.
 ## Inhalt
 
 **Teil 1 — Einrichten**
-Schnellstart · Testen ohne Installation · Was du brauchst · Dateien auf den Pi bringen ·
-Bedienung im Alltag · Auf dem Handy wie eine App · Umstieg von Ladelog ·
-Aktualisieren · Sicherung · Wichtig zur Sicherheit · Startbefehl im Detail
+Im Stack hinter Traefik und Authentik · Der eigenständige Weg ohne Docker ·
+Testen ohne eigene Daten · Aktualisieren · Bedienung im Alltag ·
+Auf dem Handy wie eine App · Umstieg von Ladelog · Sicherung ·
+Wichtig zur Sicherheit · Startbefehl im Detail
 
 **Teil 2 — Benutzen**
 Bedienung · Erfassen · Warum langsames Heimladen nicht gemeldet wird ·
@@ -66,145 +67,90 @@ in die Gruppe `bordbuch-admin` (Name über `BORDBUCH_ADMIN_GRUPPE` änderbar).
 
 ---
 
-## Schnellstart auf einem einzelnen Raspberry Pi
+## Der eigenständige Weg ohne Docker
 
-Wenn du dich auf dem Pi auskennst, genügt das:
+Bis Fassung 2.5.2 lagen hier zusätzlich `install.sh`, `update.sh` und
+`bordbuch.service` für einen einzelnen Raspberry Pi. Dieser Weg **entfällt**
+(Befund B-34). Drei Gründe:
 
-```bash
-sudo mkdir -p /opt/bordbuch
-sudo cp server.py index.html /opt/bordbuch/
-sudo cp bordbuch.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now bordbuch
+* Die Betriebsregeln des Stacks kennen nur den Docker-Weg. Zwei parallele
+  Betriebsarten ohne klare Trennung führen dazu, dass für keine von beiden
+  die Regeln gelten.
+* `bordbuch.service` setzte `User=pi` fest, während `install.sh` einen
+  `--user`-Schalter hatte — die beiden widersprachen sich.
+* `update.sh` führte frisch heruntergeladenen Code als root aus, um dessen
+  Fassungsnummer zu erfahren, und nahm ein GitHub-Token auf der
+  Kommandozeile an, wo es in der Shell-Historie landet und für andere
+  Nutzer in `ps` sichtbar ist (Befund B-32).
+
+Wer Bordbuch auf einem einzelnen Gerät betreiben will, nimmt dort ebenfalls
+Docker — `Dockerfile` und `docker-compose.yml` liegen bei und laufen auch auf
+einem Pi. Ohne vorgeschalteten Proxy muss `BORDBUCH_HEADER_VERTRAUEN` dann
+**leer** bleiben, damit der Server nur auf `127.0.0.1` lauscht: die
+Anmeldeköpfe wären sonst frei erfindbar.
+
+## Testen ohne eigene Daten
+
+Hänge **`?demo=1`** an die Adresse:
+
+```
+https://bordbuch.prolo.me/?demo=1
 ```
 
-Dann `http://raspberrypi.local:8080` öffnen. Alles Weitere steht unten.
+Dann läuft die Testversion: Beispieldaten (drei Fahrzeuge, mehrere Jahre
+Historie), alles nur im Browser gespeichert, kein Schreiben auf dem Server.
+Oben im Kopf steht **TEST**, damit man die Beispieldaten nicht für die eigenen
+hält. Unter *Einstellungen → Verwaltung* lassen sie sich jederzeit
+zurücksetzen.
 
-## Testen ohne Installation
+Alternativ `index.html` direkt aus dem Dateisystem öffnen — auch das schaltet
+die Testversion ein.
 
-Die Datei **`bordbuch-demo.html`** öffnest du mit einem Doppelklick in jedem
-Browser. Sie bringt Beispieldaten mit (drei Fahrzeuge, mehrere Jahre Historie),
-speichert nur im Browser und braucht keinen Server. Ideal, um vorher zu sehen,
-worauf du dich einlässt. Unter *Einstellungen → Verwaltung* kannst du die
-Beispieldaten jederzeit zurücksetzen.
+> Bis Fassung 2.5.2 gab es dafür eine eigene Datei `bordbuch-demo.html`. Sie
+> war eine Kopie von `index.html` mit drei geänderten Zeilen und lief
+> unweigerlich auseinander: nach wenigen Änderungen war sie um 314 Zeilen
+> hinter dem Original und rechnete mit veraltetem Code. Darum gibt es sie
+> nicht mehr (Befund B-31).
 
 ---
 
-## Was du brauchst
+## Aktualisieren
 
-* Raspberry Pi (jedes Modell ab Pi 2 genügt; das Tool ist winzig)
-* Raspberry Pi OS, per SSH erreichbar oder mit Tastatur und Bildschirm
-* Die drei Dateien: `server.py`, `index.html`, `bordbuch.service`
-
-Prüfe zuerst die Python-Version:
+Über das zentrale Skript des Stacks:
 
 ```bash
-python3 --version
+sudo /opt/stack/aktualisieren.sh bordbuch
 ```
 
-Steht dort `3.9` oder höher, kann es losgehen.
+Es liest `aktualisierung.conf`, baut das Abbild neu, startet den Container
+und prüft, ob er antwortet. Schlägt die Prüfung fehl, rollt es auf die
+vorige Fassung zurück.
 
----
-
-## Schritt 1 — Dateien auf den Pi bringen
-
-Vom eigenen Rechner aus, im Ordner mit den entpackten Dateien:
+Die Datenbank wird beim Start automatisch auf den aktuellen Stand gebracht.
+Steht eine Änderung an, die Daten anfasst, sagt Bordbuch das **vor** der
+ersten Änderung, legt eine Kopie unter `<datenbank>.vor-stand-<n>` an und
+führt alles in einer Transaktion aus — entweder ganz oder gar nicht
+(Betriebsregeln 19a). Eine Migration von Hand anstoßen, etwa zum
+Ausprobieren auf einer Kopie:
 
 ```bash
-scp server.py index.html bordbuch.service pi@raspberrypi.local:/tmp/
+cp bordbuch.db /tmp/probe.db
+python3 server.py --db /tmp/probe.db --migrieren
 ```
 
-Klappt der Name `raspberrypi.local` nicht, nimm die IP-Adresse des Pi, zum Beispiel
-`pi@192.168.178.42`. Die findest du im Router oder auf dem Pi selbst mit
-`hostname -I`.
-
-Falls du am Pi direkt sitzt, kopiere die Dateien einfach per USB-Stick oder
-Dateimanager nach `/tmp`.
-
----
-
-## Schritt 2 — Ins Zielverzeichnis legen
-
-Jetzt auf dem Pi (per SSH einloggen mit `ssh pi@raspberrypi.local`):
-
-```bash
-sudo mkdir -p /opt/bordbuch
-sudo mv /tmp/server.py /tmp/index.html /opt/bordbuch/
-sudo chown -R pi:pi /opt/bordbuch
-```
-
-`/opt/bordbuch` ist der Ort, den die mitgelieferte Dienstdatei erwartet. Ein anderer
-Pfad geht auch — dann musst du ihn in Schritt 4 anpassen.
-
----
-
-## Schritt 3 — Erster Probelauf
-
-```bash
-cd /opt/bordbuch
-python3 server.py --port 8080
-```
-
-Es erscheinen zwei Zeilen:
-
-```
-Bordbuch (Stand 4) laeuft auf http://0.0.0.0:8080
-Datenbank: /opt/bordbuch/bordbuch.db
-```
-
-Öffne nun am Handy oder Rechner im gleichen Netz:
-
-```
-http://raspberrypi.local:8080
-```
-
-Ohne die vorgeschaltete Anmeldung erscheint „Nicht angemeldet" — das ist beim
-Probelauf ohne Proxy richtig so. Beende den Probelauf danach
-mit `Strg + C`.
-
-**Kommt nichts?** Dann prüfe der Reihe nach:
-
-| Problem | Ursache und Abhilfe |
-|---|---|
-| Seite lädt nicht | Falsche Adresse. Nimm `hostname -I` auf dem Pi und dann `http://<IP>:8080` |
-| `Address already in use` | Der Port ist belegt. Nimm einen anderen: `--port 8090` |
-| `python3: command not found` | Python fehlt: `sudo apt update && sudo apt install python3` |
-| Seite lädt, aber leer | `index.html` liegt nicht neben `server.py`. Beide müssen im selben Ordner sein |
-
----
-
-## Schritt 4 — Als Dienst dauerhaft einrichten
-
-Damit Bordbuch nach jedem Neustart von allein läuft:
-
-```bash
-sudo cp /tmp/bordbuch.service /etc/systemd/system/
-sudo nano /etc/systemd/system/bordbuch.service
-```
-
-Prüfe im Editor die drei Zeilen `User=`, `Group=` und `WorkingDirectory=`. Heißt dein
-Benutzer nicht `pi`, trage deinen Namen ein (`whoami` zeigt ihn). Speichern mit
-`Strg + O`, `Enter`, schließen mit `Strg + X`.
-
-Dann starten und dauerhaft aktivieren:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now bordbuch
-systemctl status bordbuch
-```
-
-Bei `active (running)` läuft alles. Verlasse die Statusanzeige mit `q`.
-
----
+`--version` gibt nur die Fassungsnummer aus und ändert bewusst nichts.
 
 ## Bedienung im Alltag
 
+Alles aus `/opt/stack/bordbuch`:
+
 | Zweck | Befehl |
 |---|---|
-| Läuft der Dienst? | `systemctl status bordbuch` |
-| Neu starten | `sudo systemctl restart bordbuch` |
-| Anhalten | `sudo systemctl stop bordbuch` |
-| Mitlesen, was passiert | `journalctl -u bordbuch -f` |
+| Läuft der Container? | `docker compose ps` |
+| Neu starten | `docker compose restart` |
+| Anhalten | `docker compose down` |
+| Mitlesen, was passiert | `docker compose logs -f bordbuch` |
+| Nach einer Code-Änderung | `docker compose up -d --build` |
 
 ---
 
@@ -223,45 +169,26 @@ Heimnetz — unterwegs ist der Pi nicht erreichbar.
 
 ## Umstieg von Ladelog
 
-Das Tool hieß früher Ladelog. Beim Update ändert sich nur der Name:
+Das Tool hieß früher Ladelog. Die Datenbank wird unverändert weiter benutzt:
+Bordbuch sucht ausdrücklich nach `ladelog.db`, wenn keine `bordbuch.db`
+existiert. Die Datei darf `ladelog.db` heißen bleiben.
+
+Im Docker-Betrieb steht der Pfad in `docker-compose.yml` unter
+`BORDBUCH_DB`. Wer eine bestehende `ladelog.db` mitnehmen will, legt sie ins
+Volume und zeigt darauf:
 
 ```bash
-sudo systemctl stop ladelog
-sudo cp /tmp/server.py /tmp/index.html /opt/ladelog/
-sudo systemctl start ladelog
+docker cp ladelog.db bordbuch:/daten/bordbuch.db
+cd /opt/stack/bordbuch && docker compose restart
+docker compose logs bordbuch --tail 30   # was ergaenzt wurde, steht hier
 ```
 
-Das genügt — deine `ladelog.db` wird weiter benutzt (Bordbuch sucht sie
-ausdrücklich, wenn keine `bordbuch.db` existiert), und der alte Dienstname
-funktioniert unverändert weiter.
-
-Wer auch die Verzeichnisse umbenennen möchte:
+Beim ersten Start wird die Datenbank auf den aktuellen Stand gebracht. Vorher
+eine Sicherung ziehen — das kostet zehn Sekunden und ist der einzige Rückweg:
 
 ```bash
-sudo systemctl stop ladelog && sudo systemctl disable ladelog
-sudo mv /opt/ladelog /opt/bordbuch
-sudo rm /etc/systemd/system/ladelog.service
-sudo cp bordbuch.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now bordbuch
+sudo /opt/stack/backup.sh
 ```
-
-Die Datenbankdatei darf dabei `ladelog.db` heißen bleiben.
-
-## Aktualisieren
-
-Neue Fassung einspielen, ohne Daten zu verlieren:
-
-```bash
-sudo systemctl stop bordbuch
-sudo cp /tmp/server.py /tmp/index.html /opt/bordbuch/
-sudo systemctl start bordbuch
-journalctl -u bordbuch -n 20
-```
-
-Die Datenbank wird beim Start automatisch um neue Felder ergänzt; deine Ladungen,
-Tankungen und Einstellungen bleiben. Was ergänzt wurde, steht im Log — bei einer
-frisch angelegten Datenbank bleibt es still. Mach vorher trotzdem die Sicherung aus
-dem Abschnitt oben; das kostet zehn Sekunden.
 
 ---
 
@@ -271,24 +198,34 @@ Am schnellsten geht es in der Oberfläche: *Einstellungen → Verwaltung →
 **Ganze Datenbank sichern*** zieht jedes Profil mit allen Fahrzeugen, Ladungen,
 Tankungen und Einstellungen in eine Datei. Nur die Belegbilder fehlen darin.
 
-Vollständig und ohne Browser geht es so — zwei Dinge enthalten alles, was dir gehört:
+Vollständig und ohne Browser macht es das zentrale Skript des Stacks:
 
 ```bash
-cd /opt/bordbuch
-tar czf ~/bordbuch-sicherung-$(date +%F).tar.gz bordbuch.db receipts
+sudo /opt/stack/backup.sh
 ```
 
-Diese Datei irgendwohin kopieren, wo sie den Ausfall der SD-Karte übersteht.
+Es zieht die Datenbank mit `sqlite3.backup()` — ein in sich geschlossener
+Stand, auch während geschrieben wird — und die Belege aus dem Volume,
+verschlüsselt alles mit `age` und legt es unter `/opt/backups` ab. Was je
+Tool gesichert wird, steht in `sicherung.conf`.
+
 Zusätzlich kannst du in der Oberfläche unter *Einstellungen → Sicherung
 herunterladen* eine JSON-Datei ziehen — die lässt sich in jedes Profil
-zurückspielen, auch auf einem anderen Pi.
+zurückspielen, auch auf einem anderen Server. Die Belegbilder fehlen darin.
 
-Wiederherstellen ist ein Kopiervorgang:
+Wiederherstellen, Ablauf nach Betriebsregeln 17:
 
 ```bash
-sudo systemctl stop bordbuch
-cd /opt/bordbuch && tar xzf ~/bordbuch-sicherung-2026-08-26.tar.gz
-sudo systemctl start bordbuch
+# Auf dem Arbeitsrechner entschluesseln
+age -d -i ~/.age/prolo.key /opt/backups/2026-09-14.tar.gz.age | tar xzf - -C /tmp/wieder
+
+# Unversehrtheit pruefen, BEVOR man sie einspielt
+sqlite3 /tmp/wieder/2026-09-14/bordbuch/bordbuch.db "PRAGMA integrity_check;"
+
+# Einspielen
+cd /opt/stack/bordbuch && docker compose down
+docker cp /tmp/wieder/2026-09-14/bordbuch/bordbuch.db bordbuch:/daten/bordbuch.db
+docker compose up -d
 ```
 
 ## Wichtig zur Sicherheit
@@ -658,11 +595,16 @@ Auch die Verwaltung hat **keine eigene Anmeldung**. Wer im Heimnetz ist, kann si
 
 | Zweck | Befehl |
 |---|---|
-| Läuft der Dienst? | `systemctl status bordbuch` |
-| Neu starten | `sudo systemctl restart bordbuch` |
-| Mitlesen | `journalctl -u bordbuch -f` |
+| Läuft der Container? | `docker compose ps` |
+| Neu starten | `docker compose restart` |
+| Mitlesen | `docker compose logs -f bordbuch` |
+| Nach einer Code-Änderung | `docker compose up -d --build` |
+| Aktualisieren | `sudo /opt/stack/aktualisieren.sh bordbuch` |
 | Von Hand starten | `python3 server.py --port 8080 --verbose` |
-| Vollständig sichern | `tar czf ~/sicherung.tar.gz bordbuch.db receipts` |
+| Fassung anzeigen | `python3 server.py --version` |
+| Migration ausprobieren | `python3 server.py --db /tmp/probe.db --migrieren` |
+| Vollständig sichern | `sudo /opt/stack/backup.sh` |
+| Tests | `./tests/alle.sh` |
 
 Die Optionen des Startbefehls stehen ausführlich in Teil 1 unter
 *Startbefehl im Detail*.

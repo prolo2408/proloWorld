@@ -507,12 +507,25 @@ def regeln_pruefen(html, meta):
         warnungen.append("Es fehlt die viewport-Angabe. Am Handy wird die Seite "
                          "dann winzig dargestellt.")
 
-    extern = set(re.findall(r'(?i)(?:src|href)=["\'](https?://[^"\']+)["\']', html))
+    # Schemalose Verweise (//fremd.tld/x.js) und javascript:-Ziele wurden
+    # bisher nicht erkannt (B-07 Nebenbefund, B-48). Die CSP faengt sie zwar
+    # ab, aber der Einspielende erfuhr nicht, warum seine Seite halb kaputt
+    # ist - und genau das soll die Pruefung leisten.
+    extern = set(re.findall(
+        r'(?i)(?:src|href)=["\'](\s*(?:https?:)?//[^"\']+|javascript:[^"\']*)["\']',
+        html))
+    extern = {u.strip() for u in extern}
     extern = {u for u in extern if not u.startswith(("https://wiki.prolo.me",))}
+    js_ziele = {u for u in extern if u.lower().startswith("javascript:")}
+    extern -= js_ziele
     if extern:
         bsp = ", ".join(sorted(extern)[:3])
         fehler.append("Externe Verweise sind nicht erlaubt (kein CDN, keine "
                       f"fremden Schriften). Gefunden: {bsp}")
+    if js_ziele:
+        fehler.append("javascript:-Verweise sind nicht erlaubt - die CSP "
+                      "blockiert sie ohnehin, die Seite waere also halb kaputt. "
+                      f"Gefunden: {', '.join(sorted(js_ziele)[:3])}")
 
     ohne_token = ERLAUBT_FARBE_IM_TOKENBLOCK.sub(" ", html)
     ohne_token = re.sub(r"(?is)<script\b.*?</script>", " ", ohne_token)
@@ -526,6 +539,66 @@ def regeln_pruefen(html, meta):
                          "(focus-visible, prefers-reduced-motion).")
 
     return fehler, warnungen
+
+
+def sicherheit_pruefen(html):
+    """Was eine eingespielte Seite an Verhalten mitbringt (B-07).
+
+    Getrennt von regeln_pruefen(), weil das eine Designpruefung ist und diese
+    hier keine ist. Das Ergebnis sind ausdruecklich HINWEISE, keine Fehler:
+    die Architektur sieht eigenstaendige Seiten mit eigenem Verhalten vor, und
+    eine Seite darf Skripte mitbringen. Aber der Einspielende muss sehen, WAS
+    er sich holt - bevor er "Uebernehmen" drueckt.
+
+    Seit B-03 Teil 4 laufen die Seiten in einem opaken Origin, koennen also
+    weder an die Wiki-API noch an Cookies oder die Huelle. Diese Hinweise sind
+    die zweite Schicht: sie machen sichtbar, was der Code tut, statt sich
+    allein darauf zu verlassen, dass die Sandbox haelt.
+    """
+    hinweise = []
+
+    # Der Meta-Block ist type="application/json" und kein ausfuehrbarer Code -
+    # er darf die Zaehlung nicht aufblaehen, sonst meldet die Pruefung bei
+    # jeder voellig harmlosen Seite einen Skriptblock und wird nicht gelesen.
+    skripte = [(attr, inhalt) for attr, inhalt in
+               re.findall(r"(?is)<script\b([^>]*)>(.*?)</script>", html)]
+    code = [inhalt for attr, inhalt in skripte
+            if inhalt.strip()
+            and not re.search(r'(?i)type\s*=\s*["\']?application/(?:ld\+)?json', attr)]
+    if code:
+        zeichen = sum(len(k) for k in code)
+        hinweise.append(f"{len(code)} Skriptblock(e) mit zusammen {zeichen} "
+                        "Zeichen. Die Seite bringt eigenen Code mit.")
+
+    ganz = "\n".join(code)
+    for muster, was in (
+            (r"\bfetch\s*\(", "fetch( - die Seite ruft Adressen ab"),
+            (r"\bXMLHttpRequest\b", "XMLHttpRequest - die Seite ruft Adressen ab"),
+            (r"\bnavigator\.sendBeacon\b", "navigator.sendBeacon - die Seite sendet Daten"),
+            (r"\bparent\s*\.", "parent. - die Seite greift nach der Huelle"),
+            (r"\btop\s*\.", "top. - die Seite greift nach dem obersten Fenster"),
+            (r"\bdocument\s*\.\s*cookie\b", "document.cookie - die Seite liest Cookies"),
+            (r"\blocalStorage\b", "localStorage - die Seite speichert im Browser"),
+            (r"\bsessionStorage\b", "sessionStorage - die Seite speichert im Browser"),
+            (r"\bindexedDB\b", "indexedDB - die Seite speichert im Browser"),
+            (r"\beval\s*\(", "eval( - die Seite fuehrt zusammengesetzten Code aus"),
+            (r"new\s+Function\s*\(", "new Function( - die Seite baut Code zur Laufzeit"),
+            (r"\bWebSocket\b", "WebSocket - die Seite haelt eine Verbindung offen"),
+    ):
+        if re.search(muster, ganz):
+            hinweise.append(was)
+
+    for tag in ("iframe", "object", "embed", "form"):
+        n = len(re.findall(r"(?i)<%s\b" % tag, html))
+        if n:
+            hinweise.append(f"{n} <{tag}>-Element(e) in der Seite.")
+
+    schemalos = re.findall(r'(?i)(?:src|href)=["\']\s*//[^"\']+', html)
+    if schemalos:
+        hinweise.append(f"{len(schemalos)} schemalose Verweise (//...). Die CSP "
+                        "blockiert sie - die Seite bleibt an diesen Stellen leer.")
+
+    return hinweise
 
 
 # ---------------------------------------------------------------- Import
@@ -593,6 +666,10 @@ def seitenordner(slug):
 def pruefen(rohbytes, nutzer):
     """Vollstaendiger Probelauf ohne zu speichern. Liefert den Bericht."""
     bericht = {"fehler": [], "warnungen": [], "anhaenge": [], "abschnitte": 0,
+               # Eigener Schluessel, getrennt von den Designwarnungen (B-07):
+               # die Oberflaeche zeigt ihn als eigenen Abschnitt vor dem
+               # Uebernehmen-Knopf.
+               "sicherheit": [],
                "meta": None, "groesse_vorher_b": len(rohbytes), "groesse_nachher_b": 0,
                "neu": True, "fassung": 1}
     try:
@@ -619,6 +696,10 @@ def pruefen(rohbytes, nutzer):
     fehler, warnungen = regeln_pruefen(html, meta)
     bericht["fehler"] += fehler
     bericht["warnungen"] += warnungen
+    # Sicherheitshinweise auch dann sammeln, wenn die Designpruefung Fehler
+    # gefunden hat (B-07): wer eine Seite aus fremder Quelle einspielt, will
+    # gerade dann wissen, was darin steckt.
+    bericht["sicherheit"] = sicherheit_pruefen(html)
     if fehler:
         return bericht, None, None
 
@@ -1087,6 +1168,54 @@ class Handler(BaseHTTPRequestHandler):
 
     # -------------------------------------------------- Verteilung
 
+    def fremde_herkunft(self):
+        """True, wenn die Anfrage nicht von dieser Seite selbst stammt (B-03).
+
+        Das Wiki hatte bisher gar keine Herkunftspruefung: kein
+        Sec-Fetch-Site, kein Origin, kein Referer. Damit standen die
+        schreibenden Endpunkte jeder fremden Webseite offen, solange das
+        Opfer eine gueltige Authentik-Sitzung hatte.
+
+        "same-site" wird bewusst NICHT akzeptiert: alle Tools liegen unter
+        prolo.me, und eine Nachbar-Subdomain ist fuer das Wiki genauso fremd
+        wie eine beliebige Seite im Netz.
+        """
+        ziel = self.headers.get("Sec-Fetch-Site")
+        if ziel is not None:
+            return ziel != "same-origin"        # alles andere ist fremd
+        # Aeltere Browser ohne Sec-Fetch-Site: ueber Origin/Referer entscheiden.
+        herkunft = self.headers.get("Origin") or self.headers.get("Referer") or ""
+        if not herkunft:
+            return True                         # kein Nachweis = abweisen
+        return urlparse(herkunft).netloc != (self.headers.get("Host") or "")
+
+    # Welcher Content-Type je Endpunkt zulaessig ist (B-03).
+    #
+    # Der Sinn der Pruefung ist, CORS-"simple requests" auszuschliessen: nur
+    # text/plain, application/x-www-form-urlencoded und multipart/form-data
+    # darf ein gewoehnliches HTML-Formular ohne Preflight quer ueber Origins
+    # senden. Alles andere erzwingt einen Preflight, und der scheitert, weil
+    # das Wiki keine CORS-Kopfzeilen sendet.
+    #
+    # Darum wird hier nicht ueberall application/json verlangt: /api/pruefen
+    # und /api/import nehmen die Seite als Datei entgegen und schicken
+    # text/html. Das ist ebenfalls kein simple type und damit genauso dicht -
+    # eine Pflicht auf application/json haette diese beiden Wege nur
+    # zerstoert. Endpunkte, die hier nicht stehen, muessen JSON schicken.
+    POST_TYPEN = {
+        "pruefen": ("text/html",),
+        "import": ("text/html",),
+    }
+
+    def typ_pruefen(self, rest):
+        """Content-Type gegen POST_TYPEN pruefen. Wirft 415, wenn er nicht passt."""
+        erlaubt = self.POST_TYPEN.get(rest[0] if rest else "", ("application/json",))
+        typ = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if typ not in erlaubt:
+            raise Antwort(415, "Diese Schnittstelle nimmt nur %s entgegen. "
+                               "Bitte den Kopf Content-Type entsprechend setzen."
+                               % " oder ".join(erlaubt))
+
     def do_GET(self):
         schiefgegangen = False
         try:
@@ -1286,8 +1415,9 @@ class Handler(BaseHTTPRequestHandler):
             an = db().execute("SELECT typ FROM anhang WHERE seite_id=? AND name=?",
                               (z["id"], name)).fetchone()
             return self.datei_senden(p, (an["typ"] if an else "application/octet-stream"))
+        # Eingespielter Inhalt, kein eigener Code: fremd=True (B-03 Teil 4).
         return self.datei_senden(os.path.join(ordner, "seite.html"),
-                                 "text/html; charset=utf-8", huelle=True)
+                                 "text/html; charset=utf-8", fremd=True)
 
     def vorschau_senden(self, teile):
         n = self.nutzer()
@@ -1301,15 +1431,52 @@ class Handler(BaseHTTPRequestHandler):
         if not os.path.exists(p):
             raise Antwort(404, "Keine Vorschau vorhanden.")
         typ = "text/html; charset=utf-8" if p.endswith(".html") else "application/octet-stream"
-        return self.datei_senden(p, typ, huelle=p.endswith(".html"))
+        # Die Vorschau zeigt genau den Inhalt, der eingespielt werden soll -
+        # also ebenfalls fremder Code (B-03 Teil 4).
+        return self.datei_senden(p, typ, fremd=p.endswith(".html"))
 
-    def datei_senden(self, pfad, typ, huelle=False, zwischenspeicher=False):
+    def datei_senden(self, pfad, typ, huelle=False, zwischenspeicher=False,
+                     fremd=False):
+        """Eine Datei ausliefern.
+
+        huelle=True  - die Anwendungshuelle (eigenes index.html). Vertrauter
+                       Code, darf die Wiki-API im eigenen Origin benutzen.
+        fremd=True   - eingespielter Seiteninhalt. Das ist Code aus fremder
+                       Quelle und bekommt darum eine ganz andere CSP (B-03
+                       Teil 4, B-07). Bisher bekamen beide dieselbe - das war
+                       die Ursache des Problems.
+        """
         if not os.path.exists(pfad):
             raise Antwort(404, "Datei nicht gefunden.")
         with open(pfad, "rb") as f:
             daten = f.read()
         extra = {}
-        if huelle:
+        if fremd:
+            # Eine eingespielte Seite ist ausfuehrbarer Code aus fremder
+            # Quelle. Ohne Isolierung koennte sie die gesamte Wiki-API im
+            # Namen des Betrachters aufrufen (einschliesslich /api/import und
+            # Loeschvorgaengen, sobald ein Admin sie ansieht) und ueber
+            # parent.document die Huelle manipulieren.
+            #
+            # "sandbox" OHNE allow-same-origin setzt den Origin des Dokuments
+            # auf "opaque": document.cookie, localStorage und parent.document
+            # sind damit unerreichbar, und jeder fetch() auf /api/... ist eine
+            # Anfrage ueber Origin-Grenzen, die ohne CORS-Kopfzeilen scheitert.
+            #
+            # allow-scripts bleibt drin, weil jede Wiki-Seite einen
+            # Pflichtteil hat, der auf die Huelle hoert (Ankersprung,
+            # Suchbegriff hervorheben, Thema uebernehmen). Wichtig: zusammen
+            # mit allow-same-origin waere die Sandbox aufgehoben - genau diese
+            # Kombination stand bisher im sandbox-Attribut des iframes und ist
+            # dort ebenfalls entfernt worden.
+            extra["Content-Security-Policy"] = (
+                "sandbox allow-scripts allow-popups allow-downloads; "
+                "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+                "font-src 'self'; object-src 'none'; frame-src 'none'; "
+                "connect-src 'none'; frame-ancestors 'self'; base-uri 'none'; "
+                "form-action 'none'")
+        elif huelle:
             # Inline-Stil und Inline-Skript sind noetig, weil die Seiten
             # eigenstaendig sind. Externe Quellen bleiben gesperrt.
             extra["Content-Security-Policy"] = (
@@ -1332,6 +1499,11 @@ class Handler(BaseHTTPRequestHandler):
         if teile[:1] != ["api"]:
             raise Antwort(404, "Unbekannter Aufruf.")
         rest = teile[1:]
+        # Herkunft und Content-Type vor allem anderen (B-03). Ausnahme: keine -
+        # auch /api/einstellungen braucht beides.
+        if self.fremde_herkunft():
+            raise Antwort(403, "Anfrage von fremder Seite abgelehnt.")
+        self.typ_pruefen(rest)
 
         if rest == ["pruefen"] or rest == ["import"]:
             n = self.admin()
