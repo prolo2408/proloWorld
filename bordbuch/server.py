@@ -170,6 +170,9 @@ def valid_ts(v, zukunft_tage=1):
 
 
 RECEIPT_NAME = re.compile(r"^[0-9a-f]{32}\.(jpg|jpeg|png|webp|heic|pdf)$", re.I)
+# Schriftdateien (B-19). Enge Liste statt Platzhalter: der Ordner soll kein
+# allgemeiner Dateispeicher werden.
+SCHRIFT_NAME = re.compile(r"^[a-z]+-latin(-ext)?\.woff2$")
 # Groesste zulaessige Anfrage: ein Beleg (8 MB) plus Luft fuer Base64 und Text
 MAX_BODY = 14 * 1024 * 1024
 RECEIPT_TYPES = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
@@ -2050,6 +2053,16 @@ class App(BaseHTTPRequestHandler):
                 return self.send_error(404, "Nicht gefunden")
         if rel in PUBLIC_FILES:
             full = os.path.join(HERE, rel)
+        elif rel.startswith("schriften/"):
+            # Schriften selbst ausliefern (B-19), nicht von einer fremden Seite
+            # laden - das deckt sich mit der CSP und haelt die Oberflaeche
+            # lesbar, auch wenn ein Anbieter verschwindet. Unauthentifiziert
+            # erreichbar: es sind oeffentliche Schriften unter der OFL, und
+            # sie muessen laden, bevor irgendetwas anderes zu sehen ist.
+            name = os.path.basename(rel)
+            if not SCHRIFT_NAME.match(name):
+                return self.send_error(404, "Nicht gefunden")
+            full = os.path.join(HERE, "schriften", name)
         elif rel.startswith("receipts/"):
             name = os.path.basename(rel)   # schneidet jeden Pfadanteil ab
             if not RECEIPT_NAME.match(name):
@@ -2086,7 +2099,12 @@ class App(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", ctype + ("; charset=utf-8" if ctype.startswith("text/") else ""))
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-cache")
+        if rel.startswith("schriften/"):
+            # Ein Jahr und unveraenderlich: die Dateien tragen ihren Inhalt im
+            # Namen und werden nie an derselben Adresse ausgetauscht.
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        else:
+            self.send_header("Cache-Control", "no-cache")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "SAMEORIGIN")
         if rel == "index.html":
@@ -2095,6 +2113,10 @@ class App(BaseHTTPRequestHandler):
             self.send_header("Content-Security-Policy",
                              "default-src 'self'; img-src 'self' data: blob:; "
                              "style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; "
+                             # font-src ausdruecklich nennen (B-19), auch wenn
+                             # default-src es schon deckt: so steht schwarz auf
+                             # weiss, dass Schriften nur von hier kommen.
+                             "font-src 'self'; "
                              "base-uri 'none'; form-action 'none'; frame-ancestors 'self'")
         self.end_headers()
         self.wfile.write(data)
