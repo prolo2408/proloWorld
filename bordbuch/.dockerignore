@@ -8,10 +8,6 @@ backups/
 .sicherung-*
 __pycache__/
 *.md
-*.service
-*.timer
-install.sh
-update.sh
 docker-compose.yml
 sicherung.conf
 .env

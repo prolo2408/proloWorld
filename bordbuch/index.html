@@ -4168,7 +4168,8 @@ function paneData(){
     '<button class="ghost" data-act="exportCsv">Alle Vorgänge (CSV)</button></div>'+
     '<p class="hint">'+(DEMO?'Testversion — alles liegt nur in diesem Browser.'
       :'Im Container liegt alles im Volume <code>bordbuch_daten</code> — das sichert der Stack. '+
-      'Auf dem Pi sind es <code>bordbuch.db</code> und <code>receipts/</code>.')+'</p>');
+      'Im Container liegen sie in den Volumes <code>bordbuch_daten</code> und '+
+      '<code>bordbuch_belege</code>.')+'</p>');
 }
 
 /* =====================================================================
@@ -4325,7 +4326,7 @@ function paneAdmin(){
       'ersetzend — dann wird alles vorher gelöscht.</span></button></div>'+
     '<div class="formbar"><button class="ghost" data-act="adminCsvAll">Alle Fahrzeuge (CSV)</button></div>'+
     '<p class="hint">'+(DEMO?'Testversion: die Datei enthält nur die Beispieldaten.'
-      :'Auf dem Pi ist das Wegkopieren von <code>bordbuch.db</code> und <code>receipts/</code> gleichwertig '+
+      :'Gleichwertig ist die Sicherung ueber <code>/opt/stack/backup.sh</code> '+
        'und nimmt auch die Belege mit.')+'</p>');
 }
 
@@ -6575,6 +6576,6 @@ loadState().then(render).catch(e=>{
   document.getElementById('gate').classList.add('hidden');
   document.getElementById('view').innerHTML=
     '<section><div class="empty">Keine Verbindung zum Bordbuch-Server.<br>'+esc(e.message)+
-    '<br><br>Läuft <code>server.py</code> auf dem Raspberry Pi?</div></section>';
+    '<br><br>Läuft der Container? <code>docker compose ps</code> zeigt es.</div></section>';
 });
 </script>

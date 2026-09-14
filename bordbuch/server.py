@@ -31,8 +31,7 @@ DB_LOCK = threading.Lock()
 # Belege und automatische Sicherungen liegen neben der Datenbank, nicht im
 # Programmverzeichnis: im Container ist das Programmverzeichnis Teil des Abbilds
 # und waere nach jedem Neubau leer. Ein Volume auf das Datenverzeichnis deckt
-# damit Datenbank, Belege und Sicherungen zugleich ab. Auf dem Pi bleibt alles
-# wie bisher, weil die Datenbank dort ohnehin neben server.py liegt.
+# damit Datenbank, Belege und Sicherungen zugleich ab.
 RECEIPT_DIR = os.path.join(HERE, "receipts")
 
 
@@ -319,7 +318,7 @@ ADD_INDEXES = [
 ]
 SCHEMA_VERSION = "6"
 # Fassungsnummer der Anwendung, getrennt vom Datenstand oben. Wird von
-# --version, /api/version, install.sh und update.sh gelesen.
+# --version und /api/version gelesen.
 VERSION = "2.5.2"
 
 SESSION_FIELDS = ["tx", "start", "finish", "sec", "kwh", "cost", "net", "vat", "station", "city", "zip",
