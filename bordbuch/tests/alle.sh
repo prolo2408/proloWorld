@@ -12,6 +12,7 @@ echo "=== Oberflaeche (Node) ==="
 if command -v node >/dev/null 2>&1; then
   node tests/test_geld_oberflaeche.mjs || FEHLER=1
   node tests/test_wege.mjs || FEHLER=1
+  node tests/test_thema.mjs || FEHLER=1
 else
   echo "node ist nicht installiert - die Oberflaechen-Tests wurden UEBERSPRUNGEN." >&2
   echo "Das ist kein Erfolg: bitte node installieren oder die Tests von Hand laufen lassen." >&2

@@ -3,7 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="dark">
+<!-- "light dark" statt fest "dark" (B-11). Mit einem festen Wert bleiben die
+     nativen Bedienelemente - Auswahllisten, Datumswaehler, Bildlaufleisten,
+     Autovervollstaendigung - im Hellmodus DUNKEL. Das sieht aus wie ein halb
+     geladenes Theme und verletzt Regelblatt 1: "Hellmodus muss gleichwertig
+     funktionieren." -->
+<meta name="color-scheme" content="light dark">
 <title>Bordbuch</title>
 <style>
   /* ---------------------------------------------------------------
@@ -500,7 +505,14 @@ const DEFAULTS={kwhPer100:18,fuelPer100:7,fuelPrice:1.75,homePrice:0.32,useHomeP
      (AT 20, PL 23, LU 17), und die Zahl geht in Dokumente fuer Arbeitgeber
      und Finanzamt. Darum einstellbar - und dort, wo Netto abgeleitet statt
      ausgewiesen ist, wird es gesagt. */
-  vatRate:19};
+  vatRate:19,
+  /* Darstellung (B-11): 'system', 'hell' oder 'dunkel'. System ist die
+     Voreinstellung und folgt prefers-color-scheme. Der Wert liegt PRO NUTZER
+     in der Datenbank des Tools, nicht nur im Browser - sonst ist die Wahl auf
+     dem Handy wieder weg, und genau diesen Fall nennt Regelblatt 6a beim
+     Namen. localStorage ist nur der Zwischenspeicher fuer den ersten
+     Bildaufbau, damit nicht kurz das falsche Theme aufblitzt. */
+  thema:'system'};
 
 /* Keine Liste aller Profile mehr (B-06) - gesucht wird gezielt ueber
    /api/freigabe/suche. freiTreffer haelt nur das Ergebnis der letzten Suche. */
@@ -1091,6 +1103,8 @@ async function loadState(){
   me=st.user||null;cars=st.cars||[];sessions=st.sessions||[];fuelings=st.fuelings||[];
   service=st.service||[];shop=st.shop||[];
   settings={...DEFAULTS,...(st.settings||{})};
+  /* Der Wert aus der Datenbank gewinnt gegen den Zwischenspeicher (B-11). */
+  themaAnwenden(settings.thema);
   if(me&&cars.length&&(!state.carId||!cars.some(c=>c.id===state.carId))){
     const a=cars.filter(c=>c.active);state.carId=(a[0]||cars[0]).id;
   }
@@ -3923,8 +3937,11 @@ function vCars(){
 /* Fuenf Unterpunkte statt sieben, benannt nach dem, was man sucht - nicht
    nach dem, wie es intern heisst. „Tarife" und „Warnungen" verstand niemand;
    „Daten", „Profil" und „Verwaltung" waren drei Orte fuer eine Sache. */
-const SETTABS=[['cars','Autos'],['prices','Preise'],['points','Orte'],
-  ['remind','Erinnerungen'],['data','Daten & Profil']];
+/* Die Reihenfolge ist von Regelblatt 6a vorgeschrieben: Darstellung, dann
+   die Tool-Einstellungen, dann Freigaben, dann Konto. Freigaben und Konto
+   stehen unter "Daten & Profil" (B-11, B-16). */
+const SETTABS=[['darstellung','Darstellung'],['cars','Autos'],['prices','Preise'],
+  ['points','Orte'],['remind','Erinnerungen'],['data','Daten & Profil']];
 function setTabsFor(){
   return SETTABS.filter(([k])=>k!=='points'||canCharge());
 }
@@ -4029,9 +4046,9 @@ function vSettings(){
   const nav=sect('Einstellungen',
     '<div class="seg" style="width:100%">'+tabs.map(([k,l])=>
       '<button data-act="setTab" data-v="'+k+'" aria-pressed="'+(state.setTab===k)+'">'+l+'</button>').join('')+'</div>');
-  const seiten={cars:paneCars,points:panePoints,prices:panePrices,remind:paneRemind,
-    data:paneDataAlles};
-  return nav+(seiten[state.setTab]||paneCars)();
+  const seiten={darstellung:paneDarstellung,cars:paneCars,points:panePoints,
+    prices:panePrices,remind:paneRemind,data:paneDataAlles};
+  return nav+(seiten[state.setTab]||paneDarstellung)();
 }
 
 /* ---------- Unterpunkt: Autos ---------- */
@@ -4426,6 +4443,21 @@ function personZeile(){
   const eigen=ich&&me&&me.id===ich.id;
   return esc(me?me.name:'')+((eigen&&ich.email)?' · '+esc(ich.email):'');
 }
+/* Abschnitt 1 der Einstellungsseite nach Regelblatt 6a (B-11). */
+function paneDarstellung(){
+  const w=settings.thema||'system';
+  const systemIst=(!SYSTEM_DUNKEL||SYSTEM_DUNKEL.matches)?'dunkel':'hell';
+  return sect('Darstellung',
+    zeile('Thema',
+      'System folgt der Einstellung deines Geräts — dort steht es gerade auf '+
+      '<b>'+systemIst+'</b>.',
+      seg('thema',[['system','System'],['hell','Hell'],['dunkel','Dunkel']],w),
+      'thema')+
+    '<p class="hint">Die Wahl gehört zu deinem Profil, nicht zum Gerät: sie gilt '+
+    'auch auf dem Handy und nach dem Neuladen. Gespeichert wird sie in der '+
+    'Datenbank des Bordbuchs, nicht bei der Anmeldung.</p>');
+}
+
 function paneProfile(){
   const eigen=!ich||!me||me.id===ich.id;
   let out=sect('Profil',
@@ -4665,6 +4697,7 @@ const HELP={
   satzJahr:['Jahr des Satzes','Der Satz ändert sich jährlich. So bleibt nachvollziehbar, welcher gemeint ist.'],
   satzQuelle:['Herkunft des Satzes','Erscheint auf der Abrechnung, damit die Zahl belegt ist.'],
   vatRate:['Mehrwertsteuer','Damit wird Netto aus Brutto abgeleitet, wenn die Abrechnung kein Netto ausweist. Deutschland 19, Österreich 20.'],
+  thema:['Thema','System folgt der Einstellung deines Geräts und wechselt mit ihr, auch ohne Neuladen. Hell und Dunkel gelten fest. Die Wahl liegt bei deinem Profil, nicht beim Gerät — sie gilt darum auch auf dem Handy.'],
   kwhStd:['Standard Strom','Gilt nur, solange bei einem Auto kein eigener Wert steht.'],
   fuelStd:['Standard Sprit','Gilt nur, solange bei einem Auto kein eigener Wert steht.'],
   ppkMax:['Teurer Strom','Ab diesem Preis je kWh meldet Bordbuch die Ladung als teuer.'],
@@ -5426,11 +5459,12 @@ async function handleClick(el){
   else if(a==='wizDone'){await wizSpeichern();return;}
   /* Profile */
   else if(a==='thema'){
-    /* Dunkel ist der Standard. Die Wahl bleibt auf diesem Geraet - sie gehoert
-       zum Geraet, nicht zum Profil, und wird darum nicht am Server abgelegt. */
-    const dunkel=document.body.dataset.theme!=='light';
-    themaSetzen(dunkel?'light':'dark');
-    try{localStorage.setItem('bordbuch_thema',dunkel?'light':'dark');}catch(e){}
+    /* Drei Zustaende, und die Wahl gehoert zum Nutzer, nicht zum Geraet
+       (B-11) - darum wird sie in der Datenbank abgelegt und gilt auf dem
+       Handy genauso. */
+    settings.thema=themaAnwenden(v);
+    render();
+    await saveSettings();
   }
   else if(a==='profilWechsel'){await profilOeffnen(v);}
   else if(a==='profilReset'){
@@ -6626,17 +6660,42 @@ async function demoApi(path,body){
   throw new Error('unbekannter Endpunkt');
 }
 
-/* Thema umschalten: setzt das Kennzeichen am <body>, worauf der ganze
-   Token-Block umschaltet, und sagt dem Browser Bescheid, damit auch
-   Bildlaufleisten und Formularelemente mitziehen. */
-function themaSetzen(wert){
-  document.body.dataset.theme=wert;
-  const m=document.querySelector('meta[name="color-scheme"]');
-  if(m)m.setAttribute('content',wert);
-  const b=document.getElementById('thema');
-  if(b){b.textContent=wert==='dark'?'Hell':'Dunkel';b.setAttribute('aria-pressed',wert==='light'?'true':'false');}
+/* ---------- Darstellung (B-11) ----------
+   Drei Zustaende nach Regelblatt 6a: System / Hell / Dunkel. System ist die
+   Voreinstellung und folgt prefers-color-scheme.
+
+   Vorher waren es zwei Zustaende, System fehlte, prefers-color-scheme wurde
+   nie abgefragt, und die Wahl lag ausschliesslich im localStorage - auf dem
+   Handy war sie damit weg. Das ist genau der Fall, den das Regelblatt beim
+   Namen nennt. Die Umsetzung folgt dem Wiki, das alle drei Punkte richtig
+   macht; neu erfunden wird hier nichts.
+
+   Das meta[name=color-scheme] wird NICHT mehr umgeschrieben: es steht fest
+   auf "light dark" und sagt dem Browser damit, dass beide Themen
+   unterstuetzt werden. Welches gilt, entscheidet data-theme am <body>. */
+const SYSTEM_DUNKEL=window.matchMedia
+  ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+const THEMA_SCHLUESSEL='bordbuch_thema';
+
+function themaAnwenden(wahl){
+  const w=(wahl==='hell'||wahl==='dunkel')?wahl:'system';
+  const dunkel = w==='dunkel' ||
+    (w==='system' && (!SYSTEM_DUNKEL || SYSTEM_DUNKEL.matches));
+  document.body.dataset.theme=dunkel?'dark':'light';
+  try{localStorage.setItem(THEMA_SCHLUESSEL,w);}catch(e){}
+  return w;
 }
-try{const gw=localStorage.getItem('bordbuch_thema');themaSetzen(gw==='light'?'light':'dark');}catch(e){themaSetzen('dark');}
+/* Folgt der Systemeinstellung ohne Neuladen - aber nur, solange "System"
+   gewaehlt ist. */
+if(SYSTEM_DUNKEL&&SYSTEM_DUNKEL.addEventListener)
+  SYSTEM_DUNKEL.addEventListener('change',()=>{
+    if((settings.thema||'system')==='system')themaAnwenden('system');
+  });
+/* Erster Bildaufbau: der zwischengespeicherte Wert verhindert, dass vor der
+   ersten Antwort des Servers kurz das falsche Theme aufblitzt. Gewinnen tut
+   danach der Wert aus /api/state. */
+try{themaAnwenden(localStorage.getItem(THEMA_SCHLUESSEL)||'system');}
+catch(e){themaAnwenden('system');}
 
 /* ---------- Start ---------- */
 /* Im Testbetrieb sichtbar machen, dass es der Testbetrieb ist - sonst haelt
