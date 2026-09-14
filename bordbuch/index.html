@@ -99,7 +99,11 @@
   /* Regelblatt 3: Ueberschriften, Kennzahlen und Betraege in der
      Anzeige-Schrift, mit engerer Laufweite. */
   h1,h2,h3,.kpi b,.kpi .v,.amt,.sumrow{font-family:var(--display);letter-spacing:-0.02em}
-  .wrap{max-width:1120px;margin:0 auto;padding:18px 16px calc(96px + env(safe-area-inset-bottom))}
+  /* 1280px nach Regelblatt 6 (B-18). Bei 1120px wurden die vier Spalten der
+     KPI-Reihe so schmal, dass grosse Betraege (1.284.500,55 EUR) umbrachen -
+     und zwei Tools nebeneinander hatten sichtbar verschiedene Satzspiegel.
+     Das Wiki hielt den Wert bereits ein. */
+  .wrap{max-width:1280px;margin:0 auto;padding:18px 16px calc(96px + env(safe-area-inset-bottom))}
 
   header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap}
   .brand{display:flex;align-items:center;gap:11px;min-width:0}
