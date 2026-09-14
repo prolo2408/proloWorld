@@ -1,6 +1,17 @@
 services:
   wiki:
     build: .
+    # image: ist Pflicht, auch beim eigenen Dockerfile (B-23). Das zentrale
+    # aktualisieren.sh liest genau diese Zeile, um sich die bisherige Fassung
+    # zu merken:
+    #   ALT=$(grep -E '^\s*image:' .../docker-compose.yml | head -1 | ...)
+    #   echo "$ALT" > .../.letzte-fassung
+    # Ohne sie blieb ALT leer, .letzte-fassung enthielt nichts, und der
+    # dokumentierte Rueckweg war fuer das Wiki nicht vorhanden. Bordbuch
+    # machte es richtig (build: . UND image: bordbuch:2.5.2).
+    #
+    # Die Fassung passt zum CHANGELOG.md und wird dort mitgezogen.
+    image: wiki:1.0.0
     container_name: wiki
     restart: unless-stopped
     env_file: .env

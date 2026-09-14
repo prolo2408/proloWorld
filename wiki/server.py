@@ -29,6 +29,13 @@ from urllib.parse import unquote, urlparse, parse_qs
 
 # ---------------------------------------------------------------- Konfiguration
 
+# Fassungsnummer der Anwendung (B-23). Ohne sie liess sich am laufenden
+# System nicht feststellen, welche Fassung des Wikis arbeitet - das Bordbuch
+# hatte VERSION, --version und /api/version, das Wiki gar nichts. Gelesen von
+# --version, /api/version und der image:-Zeile im docker-compose.yml; die
+# drei muessen zusammenpassen.
+VERSION = "1.0.0"
+
 DATEN = os.environ.get("WIKI_DATEN", "/daten")
 SEITEN = os.environ.get("WIKI_SEITEN", "/seiten")
 PORT = int(os.environ.get("WIKI_PORT", "8080"))
@@ -1272,6 +1279,11 @@ class Handler(BaseHTTPRequestHandler):
 
         # Ohne Anmeldung erreichbar: nur die Lebendpruefung fuer
         # aktualisieren.sh, die intern am Traefik vorbei aufgerufen wird.
+        # Fassung abfragen - ohne Anmeldung, wie die Lebendpruefung, damit
+        # aktualisieren.sh und die Gesundheitspruefung herankommen (B-23).
+        if teile == ["api", "version"]:
+            return self.json_senden({"version": VERSION})
+
         if teile == ["gesundheit"]:
             return self.senden(200, "ok\n", "text/plain; charset=utf-8")
 
@@ -1615,6 +1627,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    # --version gibt nur die Fassung aus und aendert nichts (wie im Bordbuch,
+    # B-13): der Aufruf kommt von Skripten und darf keine Nebenwirkung haben.
+    if "--version" in sys.argv:
+        print(VERSION)
+        return
     datenbank_anlegen()
     os.makedirs(VORSCHAU_ORDNER, exist_ok=True)
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)

@@ -626,6 +626,17 @@ echo "[1/5] Sicherung laeuft ..."
 echo "      erledigt."
 
 ALT=$(grep -E '^\s*image:' "$ORDNER/docker-compose.yml" | head -1 | sed 's/.*image:\s*//' | tr -d '"')
+# Ohne image:-Zeile gibt es keinen Rueckweg (B-23). Lieber gar nicht
+# aktualisieren als ohne Rueckweg: bis dahin blieb ALT leer,
+# .letzte-fassung enthielt nichts, und das Zurueckrollen unten haette
+# stillschweigend ins Nichts gegriffen.
+if [ -z "$ALT" ]; then
+  echo "ABBRUCH: in $ORDNER/docker-compose.yml fehlt eine image:-Zeile."
+  echo "         Ohne sie gibt es keinen Rueckweg (Betriebsregeln 5)."
+  echo "         Auch bei einem eigenen Dockerfile gehoert sie dazu -"
+  echo "         'build: .' UND 'image: <tool>:<fassung>'."
+  exit 1
+fi
 echo "$ALT" > "$ORDNER/.letzte-fassung"
 echo "[2/5] Bisherige Fassung: $ALT"
 
