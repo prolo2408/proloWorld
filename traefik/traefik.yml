@@ -1,5 +1,17 @@
+# /opt/stack/traefik/traefik.yml
+#
+# Statische Konfiguration. Aenderungen hier brauchen einen Neustart des
+# Containers; die dynamische Konfiguration liegt in dynamic/.
+
 api:
-  dashboard: true
+  # Aus (B-26). Vorher stand hier "true". Erreichbar war es nicht, weil kein
+  # Router mit service: api@internal existiert - also eine scharfe Waffe ohne
+  # Abzug, bis jemand beim naechsten Umbau api.insecure ergaenzt oder einen
+  # Router anlegt. Dann liegt die vollstaendige Routeruebersicht offen.
+  #
+  # Wer es braucht: Router mit authentik@file UND Bindung an eine eigene
+  # Gruppe (Betriebsregeln 24), nicht nur "angemeldet".
+  dashboard: false
 
 entryPoints:
   web:
@@ -11,6 +23,13 @@ entryPoints:
           scheme: https
   websecure:
     address: ":443"
+    http:
+      # Gilt damit fuer ALLE Router - kein Tool kann die
+      # Sicherheitskopfzeilen versehentlich auslassen (B-26).
+      middlewares:
+        - sicherheitskopf@file
+      tls:
+        options: streng@file
 
 providers:
   docker:
@@ -33,3 +52,18 @@ certificatesResolvers:
 
 log:
   level: INFO
+
+# Zugriffsprotokolle (B-26). Vorher gab es KEINE - nach einem Vorfall liess
+# sich nicht rekonstruieren, wer wann was aufgerufen hat.
+accessLog:
+  filePath: /var/log/traefik/zugriff.log
+  format: json
+  fields:
+    headers:
+      # drop als Vorgabe ist wesentlich: Betriebsregeln 12 verlangt, dass
+      # X-Authentik-Jwt und Cookie nicht ins Protokoll geraten. Mit drop als
+      # Vorgabe gilt das auch fuer Kopfzeilen, die spaeter dazukommen - eine
+      # Ausschlussliste waere irgendwann unvollstaendig.
+      defaultMode: drop
+      names:
+        User-Agent: keep

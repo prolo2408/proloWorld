@@ -14,6 +14,11 @@ services:
       - ./traefik.yml:/etc/traefik/traefik.yml:ro
       - ./dynamic:/etc/traefik/dynamic:ro
       - ./acme.json:/letsencrypt/acme.json
+      # Zugriffsprotokolle (B-26). Ordner vorher anlegen:
+      #   sudo mkdir -p /opt/stack/traefik/log
+      # Dazu gehoert eine logrotate-Regel - sonst laeuft der Datentraeger
+      # voll. Siehe Betriebsregeln 12.
+      - ./log:/var/log/traefik
     networks:
       - proxy
       - socket
