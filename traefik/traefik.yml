@@ -14,7 +14,9 @@ entryPoints:
 
 providers:
   docker:
-    endpoint: "unix:///var/run/docker.sock"
+    # Nicht mehr direkt am Socket (B-02), sondern ueber den Vermittler, der
+    # ausschliesslich lesende Aufrufe durchlaesst.
+    endpoint: "tcp://socket-proxy:2375"
     exposedByDefault: false
     network: proxy
   file:

@@ -7,13 +7,21 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # KEIN Docker-Socket mehr (B-02): Traefik fragt die Container ueber den
+      # Vermittler in /opt/stack/socket-proxy ab, der nur lesende Aufrufe
+      # durchlaesst. ":ro" auf dem Socket waere truegerisch - es schuetzt die
+      # Datei, nicht die API dahinter.
       - ./traefik.yml:/etc/traefik/traefik.yml:ro
       - ./dynamic:/etc/traefik/dynamic:ro
       - ./acme.json:/letsencrypt/acme.json
     networks:
       - proxy
+      - socket
 
 networks:
   proxy:
+    external: true
+  # Wird von /opt/stack/socket-proxy angelegt (internes Netz, kein Weg nach
+  # draussen). Darum dort zuerst "docker compose up -d" laufen lassen.
+  socket:
     external: true
