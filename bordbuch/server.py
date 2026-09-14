@@ -246,6 +246,10 @@ ERLAUBTE_EINSTELLUNGEN = {
 }
 # 64 KB reichen fuer sehr viele Ladepunkte und einen langen Preisverlauf.
 MAX_EINSTELLUNGEN_B = 64 * 1024
+# Hoechstzahl Zeilen je Import-Aufruf (B-20). Die Oberflaeche stapelt in
+# Bloecken dieser Groesse, damit ein grosser Import die Sperre nicht
+# minutenlang haelt.
+MAX_IMPORT_ZEILEN = 5000
 
 BASE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(
@@ -940,7 +944,20 @@ class App(BaseHTTPRequestHandler):
     timeout = 30
 
     # ---------------- Helfer ----------------
+    # Wird waehrend eines schreibenden Aufrufs auf True gesetzt (B-20): dann
+    # merkt sich send_json() die Antwort, statt sie zu senden. Gesendet wird
+    # erst, nachdem die Sperre freigegeben ist.
+    _sammeln = False
+    _antwort = None
+
     def send_json(self, obj, code=200):
+        if self._sammeln:
+            # Nur die ERSTE Antwort zaehlt - die Handler benutzen durchgaengig
+            # "return self.send_json(...)", eine zweite kann es also nicht
+            # geben. Falls doch, waere die erste die richtige.
+            if self._antwort is None:
+                self._antwort = (obj, code)
+            return
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -1701,7 +1718,57 @@ class App(BaseHTTPRequestHandler):
             return self.send_json({"error": "Die Anfrage muss ein JSON-Objekt sein."}, 400)
         if self.fremde_herkunft():
             return self.send_json({"error": "Anfrage von fremder Seite abgelehnt"}, 403)
+        # Antwort erst NACH der Sperre senden (B-20).
+        #
+        # send_json() schreibt in den Socket. Das geschah bisher INNERHALB des
+        # with-Blocks, also unter der globalen Sperre. Bei einem langsamen oder
+        # haengenden Client - Handy im Funkloch, eingeschlafene Verbindung -
+        # blockiert dieses Schreiben, bis der Zeitablauf von 30 Sekunden
+        # greift. In dieser Zeit stand JEDER schreibende Zugriff ALLER Nutzer:
+        # ein einzelnes Geraet mit schlechter Verbindung legte die
+        # Schreibfunktion des ganzen Tools lahm.
+        #
+        # Der Bericht schlaegt vor, alle Handler auf Rueckgabewerte
+        # umzustellen. Das waeren 107 Aufrufstellen, und jede einzelne koennte
+        # dabei kaputtgehen. Derselbe Gewinn entsteht, wenn send_json() die
+        # Antwort waehrend der Sperre nur EINSAMMELT und der Versand danach
+        # passiert - ohne eine einzige Handler-Aenderung. Die Eigenschaft, auf
+        # die es ankommt, ist identisch: kein Socket-Schreiben unter der Sperre.
+        self._sammeln = True
+        self._antwort = None
         try:
+            # Der gesperrte Teil steckt in einer eigenen Methode. Die Handler
+            # benutzen durchgaengig "return self.send_json(...)" - stuende der
+            # Block hier, verliesse ein solches return do_POST vollstaendig
+            # und uebersprang den Versand unten. In einer eigenen Methode
+            # beendet es nur diese.
+            self._post_unter_sperre(path, data)
+        except sqlite3.Error as e:
+            sys.stderr.write("Datenbankfehler bei %s: %s\n" % (path, e))
+            self.send_json({"error": "Datenbankfehler. Bitte im Log nachsehen."}, 500)
+        except Exception as e:
+            # Nichts darf den Verbindungs-Thread ungebremst verlassen, sonst
+            # bekommt der Browser eine abgeschnittene Antwort statt einer Meldung.
+            sys.stderr.write("Unerwarteter Fehler bei %s: %r\n" % (path, e))
+            self.send_json({"error": "Unerwarteter Fehler. Bitte im Log nachsehen."}, 500)
+        finally:
+            # Ab hier ist die Sperre in jedem Fall frei - auch wenn oben eine
+            # Ausnahme geflogen ist.
+            self._sammeln = False
+        if self._antwort is None:
+            sys.stderr.write("Kein Ergebnis bei %s\n" % path)
+            return self.send_json({"error": "Unerwarteter Fehler. Bitte im Log nachsehen."}, 500)
+        obj, code = self._antwort
+        self._antwort = None
+        return self.send_json(obj, code)
+
+    def _post_unter_sperre(self, path, data):
+        """Der Teil, der die Datenbank anfasst. Laeuft unter DB_LOCK.
+
+        Antworten werden hier nur eingesammelt (siehe send_json und B-20);
+        gesendet wird sie von do_POST, nachdem die Sperre frei ist.
+        """
+        if True:
             with DB_LOCK, db() as con:
                 ich, user, darf_schreiben = self.profil(con)
                 if not ich:
@@ -1744,14 +1811,6 @@ class App(BaseHTTPRequestHandler):
                 if not fn:
                     return self.send_json({"error": "unbekannter Endpunkt"}, 404)
                 return fn(con, user, data)
-        except sqlite3.Error as e:
-            sys.stderr.write("Datenbankfehler bei %s: %s\n" % (path, e))
-            return self.send_json({"error": "Datenbankfehler. Bitte im Log nachsehen."}, 500)
-        except Exception as e:
-            # Nichts darf den Verbindungs-Thread ungebremst verlassen, sonst
-            # bekommt der Browser eine abgeschnittene Antwort statt einer Meldung.
-            sys.stderr.write("Unerwarteter Fehler bei %s: %r\n" % (path, e))
-            return self.send_json({"error": "Unerwarteter Fehler. Bitte im Log nachsehen."}, 500)
 
     # ---------------- Profile ----------------
     def user_reset(self, con, user, data):
@@ -1895,6 +1954,18 @@ class App(BaseHTTPRequestHandler):
         if not ok:
             return self.send_json({"error": "Auto nicht gefunden"}, 400)
         rows = data.get("rows") or []
+        # Obergrenze je Aufruf (B-20). Ein grosser Import hielt die Sperre fuer
+        # die gesamte Dauer - begrenzt war er nur durch MAX_BODY mit 14 MB, also
+        # durch Zehntausende Zeilen. Die Oberflaeche stapelt jetzt: sie schickt
+        # in Bloecken, und zwischen den Bloecken kommen andere Nutzer dran.
+        if len(rows) > MAX_IMPORT_ZEILEN:
+            return self.send_json(
+                {"error": "Es lassen sich hoechstens %d Zeilen auf einmal "
+                          "einlesen (angekommen sind %d). Die Oberflaeche "
+                          "teilt groessere Dateien selbst auf - kommt diese "
+                          "Meldung trotzdem, bitte die Datei teilen."
+                          % (MAX_IMPORT_ZEILEN, len(rows)),
+                 "grenze": MAX_IMPORT_ZEILEN}, 413)
         cols = ",".join(["nutzer_id", "car_id"] + SESSION_FIELDS)
         ph = ",".join(["?"] * (len(SESSION_FIELDS) + 2))
         added = dup = 0

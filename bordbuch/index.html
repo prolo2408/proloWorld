@@ -5762,7 +5762,20 @@ async function handleClick(el){
   else if(a==='pickBackup'){filePickMode='backup';document.getElementById('filePick').click();}
   else if(a==='commitCharge'){
     const p=state.pending;if(!p)return;
-    const r=await api('/api/sessions/import',{carId:state.carId,rows:p.rows});
+    /* In Bloecken schicken (B-20). Ein Aufruf mit Zehntausenden Zeilen hielt
+       die Schreibsperre des Servers fuer die gesamte Dauer - in dieser Zeit
+       kam kein anderer Nutzer zum Schreiben. Zwischen den Bloecken ist die
+       Sperre frei. Die Blockgroesse liegt unter der Obergrenze des Servers
+       (MAX_IMPORT_ZEILEN). */
+    const BLOCK=2000;
+    const r={added:0,dup:0};
+    for(let i=0;i<p.rows.length;i+=BLOCK){
+      const teil=p.rows.slice(i,i+BLOCK);
+      if(p.rows.length>BLOCK)
+        toast('Lese ein … '+Math.min(i+teil.length,p.rows.length)+' von '+p.rows.length);
+      const t=await api('/api/sessions/import',{carId:state.carId,rows:teil});
+      r.added+=t.added||0;r.dup+=t.dup||0;
+    }
     const weiter=state.queue;state.queue=null;
     state.entry=null;state.pending=null;await loadState();
     if(weiter&&weiter.rows&&weiter.rows.length&&canFuel()){
