@@ -41,6 +41,14 @@ def daten_dir():
 # Was der Server ueberhaupt herausgeben darf - der Rest des Verzeichnisses
 # (Datenbank, Quelltext, Sicherungen) bleibt unerreichbar.
 PUBLIC_FILES = {"index.html", "favicon.ico"}
+# Wege, die die Oberflaeche selbst beantwortet (B-10). Der Server liefert
+# dafuer index.html aus; welcher Reiter gezeigt wird, entscheidet die Seite.
+# Eine feste Liste und kein Platzhalter: so bleibt ein Tippfehler in der
+# Adresse ein 404 und wird nicht stillschweigend zur Uebersicht.
+UI_ROUTEN = {
+    "", "fahrzeug", "ladungen", "tanken", "auffaelligkeiten", "wartung",
+    "preise", "verlauf", "bericht", "einstellungen",
+}
 # Wege, die auch mit Schreibrecht NICHT in einem fremden Profil erlaubt sind.
 # Eine Freigabe heisst "mitschreiben duerfen", nicht "das Profil uebernehmen":
 # Fahrzeuge, Einstellungen, Sicherungen und Freigaben bleiben beim Eigentuemer.
@@ -2028,6 +2036,18 @@ class App(BaseHTTPRequestHandler):
         eine feste Liste erlaubter Dateien, alles andere ist nicht zu holen.
         """
         rel = "index.html" if path in ("/", "") else unquote(path).lstrip("/")
+        # Oberflaechen-Routen (B-10): alles ohne Punkt im letzten Teil ist eine
+        # Route der Anwendung, nicht eine Datei - /einstellungen, /wartung,
+        # /preise. Sie werden von der einen Seite beantwortet. Nur so
+        # funktioniert ein Neuladen auf einer solchen Adresse, und nur so
+        # laesst sich ein Verweis darauf teilen.
+        if (rel not in PUBLIC_FILES
+                and not rel.startswith(("api/", "receipts/", "schriften/"))
+                and "." not in os.path.basename(rel)):
+            if rel.split("/")[0] in UI_ROUTEN:
+                rel = "index.html"      # damit die CSP-Kopfzeile unten greift
+            else:
+                return self.send_error(404, "Nicht gefunden")
         if rel in PUBLIC_FILES:
             full = os.path.join(HERE, rel)
         elif rel.startswith("receipts/"):

@@ -4510,6 +4510,58 @@ const VIEWS={overview:vOverview,about:vAbout,charges:vCharges,fuel:vFuel,checks:
   wartung:vWartung,prices:vPrices,
   time:vTime,report:vReport,settings:vSettings};
 
+/* ---------- Wege (B-10) ----------
+   Die VIEWS-Tabelle oben war bereits eine Routentabelle - sie hing nur an
+   keinem Pfad. Vorher gab es ueberhaupt kein Routing: kein pushState, kein
+   popstate, kein hash. Der Zustand lag allein in state.tab und ging bei
+   jedem Neuladen verloren.
+
+   Folgen im Alltag, alle vier behoben:
+     - /einstellungen gab es nicht, obwohl Regelblatt 6a und Betriebsregeln 3
+       es beide verlangen.
+     - Die Zurueck-Taste verliess das Tool, statt einen Schritt zurueckzugehen.
+       Auf dem Handy ist das die meistbenutzte Geste ueberhaupt.
+     - Kein Verweis liess sich teilen ("schau dir mal die Wartung an").
+     - Nach jedem Neuladen landete man auf der Uebersicht, auch mitten in
+       einer Eingabe.
+
+   Die Wege sind deutsch, weil sie in der Adresszeile sichtbar sind
+   (Betriebsregeln 6); die Reiternamen im Code bleiben, wie sie sind. */
+/* Die Wege entsprechen genau den Reitern aus tabsFor() und heissen wie deren
+   Beschriftung - wer "Verlauf" sieht, findet /verlauf in der Adresse.
+   Der Bericht schlug 'zeitraum' und 'pruefungen' vor; das waren die
+   englischen VIEWS-Schluessel uebersetzt, nicht die sichtbaren
+   Beschriftungen. "werkstatt" ist bewusst NICHT dabei: es gibt keinen
+   Werkstatt-Reiter, die Rechnungen stehen in der Wartungsansicht. Ein Weg
+   auf einen Reiter, den es nicht gibt, waere stillschweigend die
+   Uebersicht. */
+const WEGE={
+  '':                 'overview',
+  'fahrzeug':         'about',
+  'ladungen':         'charges',
+  'tanken':           'fuel',
+  'auffaelligkeiten': 'checks',
+  'wartung':          'wartung',
+  'preise':           'prices',
+  'verlauf':          'time',
+  'bericht':          'report',
+  'einstellungen':    'settings',
+};
+const NACH_WEG=Object.fromEntries(Object.entries(WEGE).map(([w,t])=>[t,w]));
+
+function wegLesen(){
+  const teil=location.pathname.replace(/^\/|\/$/g,'').split('/')[0];
+  return WEGE[teil]||'overview';
+}
+function wegSetzen(tab,ersetzen){
+  /* Im Testbetrieb aus dem Dateisystem gibt es keinen Pfad, den man setzen
+     koennte - pushState wuerde dort werfen. */
+  if(location.protocol==='file:')return;
+  const ziel='/'+(NACH_WEG[tab]||'')+location.search;
+  if(location.pathname+location.search===ziel)return;
+  try{history[ersetzen?'replaceState':'pushState']({tab},'',ziel);}catch(e){}
+}
+
 /* =====================================================================
    Rendern
    ===================================================================== */
@@ -5073,7 +5125,8 @@ async function handleClick(el){
   const a=el.dataset.act,v=el.dataset.v;
   const go=()=>{render();window.scrollTo({top:0,behavior:'smooth'});};
   if(state.importFehler)state.importFehler=null;
-  if(a==='tab'){state.tab=v;state.entry=null;state.pending=null;state.queue=null;state.zeige=LISTE_START;go();}
+  if(a==='tab'){state.tab=v;state.entry=null;state.pending=null;state.queue=null;
+    state.zeige=LISTE_START;wegSetzen(v);go();}
   else if(a==='range'){state.range=v;state.zeige=LISTE_START;render();}
   else if(a==='metric'){state.metric=v;render();}
   else if(a==='gran'){state.gran=v;render();}
@@ -5083,7 +5136,8 @@ async function handleClick(el){
   else if(a==='abrCsv')abrechnungCsv();
   else if(a==='gridMetric'){state.gridMetric=v;render();}
   else if(a==='setTab'){state.setTab=v;state.stationQ='';render();window.scrollTo({top:0,behavior:'smooth'});}
-  else if(a==='settings'){state.tab='settings';state.setTab=v||'cars';render();window.scrollTo({top:0,behavior:'smooth'});}
+  else if(a==='settings'){state.tab='settings';state.setTab=v||'cars';wegSetzen('settings');
+    render();window.scrollTo({top:0,behavior:'smooth'});}
   else if(a==='invoiceAll'){state.invoiceAll=v==='1';render();}
   else if(a==='ackShow'){state.ackShow=v==='1';render();}
   /* --- Verbrauch: neuen Wert übernehmen oder Hinweis abhaken --- */
@@ -6593,6 +6647,11 @@ if(DEMO){
   if(tm)tm.hidden=false;
   document.title='Bordbuch — Testversion';
 }
+/* Weg aus der Adresse lesen und auf Zurueck/Vorwaerts hoeren (B-10). */
+state.tab=wegLesen();
+window.addEventListener('popstate',()=>{state.tab=wegLesen();state.entry=null;
+  state.pending=null;render();});
+
 /* B5: zuletzt gewaehltes Profil vorbelegen, dann holt loadState dessen Daten.
    Kennt der Server die Kennung nicht mehr, kommt kein Profil zurueck und das
    Gate erscheint wie bisher. Nur im echten Betrieb, nicht in der Demo. */
