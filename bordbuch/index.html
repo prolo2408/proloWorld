@@ -1,3 +1,6 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
@@ -421,6 +424,7 @@ label>.hlp{margin-left:4px}
 
 </style>
 
+</head>
 <body data-theme="dark">
 <div class="wrap">
   <header class="no-print">
@@ -6119,7 +6123,13 @@ function exportXls(){
     x.type==='fuel'?num(x.liters,2):num(x.kwh,3),x.type==='fuel'?'l':'kWh',x.odo?num(x.odo,0):'',
     num(x.net,2),num(x.vat,2),num(x.cost,2)]);
   download('fahrzeugkosten-'+z+'.xls','application/vnd.ms-excel',
-    '<html><head><meta charset="utf-8"></head><body><h3>Fahrzeugkosten '+titel+
+    /* DOCTYPE und lang auch hier (B-14): das ist die Datei, die beim
+       Arbeitgeber oder beim Finanzamt landet. Ohne DOCTYPE oeffnet sie
+       Excel und der Browser im Quirks Mode, ohne lang liest ein
+       Vorleseprogramm sie englisch vor. */
+    '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">'+
+    '<title>Fahrzeugkosten '+esc(titel)+'</title></head>'+
+    '<body><h3>Fahrzeugkosten '+titel+
     (car()?' — '+esc(car().name):'')+'</h3>'+monatsteil+'<table border="1"><thead><tr>'+
     th.map(x=>'<th>'+esc(x)+'</th>').join('')+'</tr></thead><tbody>'+
     body.map(r=>'<tr>'+r.map(c=>'<td>'+esc(c)+'</td>').join('')+'</tr>').join('')+
@@ -6594,3 +6604,5 @@ loadState().then(render).catch(e=>{
     '<br><br>Läuft der Container? <code>docker compose ps</code> zeigt es.</div></section>';
 });
 </script>
+</body>
+</html>
