@@ -316,7 +316,19 @@ DB_USER=""
 DB_NAME=""
 
 # Dateien aus dem Tool-Ordner, die mitgesichert werden (meist .env).
+# Ein "?" davor heisst "darf fehlen" - ohne "?" ist das Fehlen ein Fehler.
 DATEIEN=".env"
+
+# Ordner aus dem Tool-Ordner, die mitgesichert werden (neu aus B-08).
+# Noetig fuer Bind-Mounts: DATEIEN kopiert nur Dateien, und Ordner wie
+# authentik/data oder authentik/certs wurden darum von KEINER Sicherung
+# erfasst. Auch hier gilt das "?" fuer freiwillige Eintraege.
+ORDNER=""
+
+# SQLite-Datenbanken IM CONTAINER, als "behaelter:/pfad/zur.db" (neu aus
+# B-08). Sie werden mit sqlite3.backup() gesichert, nicht aus dem Volume
+# kopiert - siehe unten, warum das wesentlich ist.
+SQLITE=""
 
 # Hinweis fuer spaeter, z. B. ungeschuetzte Webhook-Pfade.
 HINWEIS=""
@@ -325,20 +337,71 @@ HINWEIS=""
 **Regel: Ein Volume, das nicht in einer `sicherung.conf` steht, existiert
 für das Backup nicht.**
 
+### Warum SQLite ein eigenes Feld braucht
+
+Bordbuch und Wiki laufen im WAL-Modus (`PRAGMA journal_mode=WAL`). Ein `tar`
+über das Volume greift `.db`, `.db-wal` und `.db-shm` zu **verschiedenen
+Zeitpunkten** ab. Das Ergebnis kann eine unbrauchbare Datenbank sein — und man
+merkt es erst beim Wiederherstellen, also im schlechtesten Moment.
+
+`sqlite3.backup()` aus der Standardbibliothek liest einen in sich
+geschlossenen Stand, auch während geschrieben wird. Der Container muss dafür
+**nicht** angehalten werden. Nachgeprüft: während 600 Einfügungen pro Sekunde
+lief die Sicherung durch und kam mit `integrity_check: ok` und einem
+abgeschlossenen Stand heraus.
+
+Das Volume-Archiv bleibt zusätzlich — es enthält die Belege. Die Datenbank
+**darin** gilt aber nicht mehr als Sicherung.
+
 Stand für die bestehenden Tools:
 
 ```
-authentik: VOLUMES="authentik_database"  DB_CONTAINER="authentik-db"
-           DB_USER="authentik"  DB_NAME="authentik"  DATEIEN=".env"
-n8n:       VOLUMES="n8n_n8n_data"
-           HINWEIS="Webhook-Pfade laufen ohne Authentik-Middleware"
-bordbuch:  VOLUMES="bordbuch_bordbuch_daten bordbuch_bordbuch_belege"
-           HINWEIS="SQLite liegt im Volume, kein eigener DB-Container"
+authentik:    VOLUMES="authentik_database"  DB_CONTAINER="authentik-db"
+              DB_USER="authentik"  DB_NAME="authentik"  DATEIEN=".env"
+              ORDNER="data certs ?custom-templates"
+n8n:          VOLUMES="n8n_n8n_data"
+bordbuch:     VOLUMES="bordbuch_bordbuch_daten bordbuch_bordbuch_belege"
+              DATEIEN="?.env"  SQLITE="bordbuch:/daten/bordbuch.db"
+wiki:         VOLUMES="wiki_wiki_daten wiki_wiki_seiten"
+              DATEIEN=".env"   SQLITE="wiki:/daten/wiki.db"
+socket-proxy: alles leer - der Dienst hat keine Daten. Die Datei ist
+              trotzdem Pflicht (Abschnitt 1).
 ```
 
 ## 15. Zentrales Sicherungsskript
 
-`/opt/stack/backup.sh`, ausführbar (`chmod +x`), erste Zeile `#!/bin/bash`:
+`/opt/stack/backup.sh`, ausführbar (`chmod +x`), erste Zeile `#!/bin/bash`.
+
+**Die Datei im Repository ist maßgeblich, nicht der Abdruck hier.** Bis B-08
+wichen beide voneinander ab: hier stand `rm -rf "$ZIEL"` vor `mkdir -p`, im
+Skript fehlte es — ein zweiter Lauf am selben Tag mischte damit alt und neu,
+und Archive eines entfernten Tools blieben liegen und sahen aus wie gültige
+Sicherungen.
+
+Was das Skript seit B-08 zusätzlich leistet:
+
+- **Verschlüsselung** am Ende des Laufs mit `age`. Der **öffentliche**
+  Schlüssel liegt unter `/opt/stack/.backup-schluessel.pub`, der **private**
+  gehört ausschließlich in den Passwortmanager und auf den Arbeitsrechner —
+  liegt er auf dem Server, ist die Verschlüsselung sinnlos.
+  Erzeugen dort: `age-keygen -o ~/.age/prolo.key`. Fehlt der Schlüssel oder
+  ist `age` nicht installiert, sagt das Skript das deutlich und endet mit
+  einem Fehler, statt still Klartext liegen zu lassen.
+- **Rechte auf alles**, nicht auf zwei Dateinamen: `chmod 700` auf die
+  Verzeichnisse, `600` auf jede Datei. Die Volume-Archive sind genauso
+  schützenswert wie die `.env` darin.
+- **`SQLITE=`** für einen konsistenten Datenbankstand (siehe Abschnitt 14).
+- **`ORDNER=`** für Bind-Mounts.
+- **Fehlertoleranz je Schritt:** ein fehlendes `acme.json` bricht nicht mehr
+  die gesamte Sicherung ab, bevor ein einziges Tool gesichert ist. Jeder
+  Schritt merkt sich seinen Fehler; am Ende entscheidet `FEHLER` über den
+  Rückgabewert.
+- **`/opt/backups/.letzter-erfolg`** wird nur bei einem fehlerfreien Lauf
+  gesetzt. **Dafür braucht es eine Überwachung, die anschlägt, wenn die Datei
+  älter als zwei Tage ist** — eine Sicherung, deren Scheitern niemand merkt,
+  ist keine Sicherung.
+
+Zum Vergleich der ursprüngliche Aufbau:
 
 ```bash
 #!/bin/bash
