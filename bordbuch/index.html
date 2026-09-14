@@ -114,7 +114,15 @@
     display:inline-flex;align-items:center;gap:7px}
   button:hover{border-color:var(--ink-3);background:var(--panel2)}
   button:active{transform:translateY(1px)}
-  button:focus-visible{outline:2px solid var(--volt);outline-offset:2px}
+  /* Pflichtblock aus Regelblatt 8.1 (B-15). Vorher stand hier nur
+     "button:focus-visible" - Auswahllisten im Kopfbereich, alle Eingaben und
+     alle Verweise bekamen bei Tastaturbedienung keinen sichtbaren
+     Fokusrahmen. Regelblatt 9 nennt das "nicht verhandelbar". Der Block ist
+     woertlich aus dem Wiki uebernommen, einschliesslich [tabindex]. */
+  button:focus-visible, a:focus-visible, input:focus-visible,
+  select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible{
+    outline:2px solid var(--volt); outline-offset:2px;
+  }
   .primary{background:var(--volt);border-color:var(--volt);color:var(--on-accent);font-weight:650}
   .primary:hover{background:var(--volt-hover);border-color:var(--volt-hover)}
   .ghost{background:transparent}
@@ -345,7 +353,10 @@
     section{padding:14px}
     .row .amt{font-size:15.5px}
   }
-  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+  /* animation:none gehoert dazu (B-15). Derzeit gibt es keine @keyframes in
+     der Datei - der Block war trotzdem unvollstaendig, und die naechste
+     Animation waere durchgerutscht. */
+  @media (prefers-reduced-motion:reduce){*{transition:none!important; animation:none!important}}
 
 /* ---------- Fragezeichen-Hilfe ---------- */
 .hlp{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;
