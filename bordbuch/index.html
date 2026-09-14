@@ -2199,7 +2199,13 @@ function entryRow(x,acts){
       '<div class="amt">'+eur(x.cost)+'</div>'+
       '<div class="s">'+wd.format(x.d)+' '+dt.format(x.d)+' · '+tm.format(x.d)+
         (x.odo?' · '+num(x.odo,0)+' km':'')+
-        (x.receipt?' · <a href="'+(String(x.receipt).startsWith('data:')?esc(x.receipt):'/receipts/'+esc(x.receipt))+
+        /* Der data:-Zweig greift nur im Testbetrieb (B-21): dort gibt es keinen
+       Server, der Belege ablegt, darum liegen sie als data:-Wert im Browser.
+       Im echten Betrieb kommt ein Belegname ausschliesslich vom Server und
+       passt auf RECEIPT_NAME - ein manipulierter Sicherungsstand kann dort
+       keinen data:-Verweis mehr einschmuggeln, weil der Server ihn beim
+       Einspielen verwirft (beleg_name_pruefen). */
+    (x.receipt?' · <a href="'+((DEMO&&String(x.receipt).startsWith('data:'))?esc(x.receipt):'/receipts/'+esc(x.receipt))+
           '" target="_blank" rel="noopener">Beleg</a>':'')+'</div>'+
       '<div class="s2">'+(x.liters?num(x.liters,2)+' l · '+num(x.ppl,3)+' €/l':'ohne Liter')+
         (x.measured?'<br>'+num(x.dkm,0)+' km · '+num(x.measured,2)+' l/100km':'')+'</div>'+
@@ -2486,7 +2492,7 @@ function fuelForm(){
       (rec||f.receipt?'Beleg ersetzen':'Foto aufnehmen oder Datei wählen')+'</button>':'')+
     (img?'<img class="thumb" src="data:image/*;base64,'+rec.data+'" alt="Beleg">':'')+
     (rec?'<small style="color:var(--teal)">'+esc(rec.name)+' angehängt</small>'
-      :(f.receipt?'<small>Beleg hinterlegt — <a href="'+(String(f.receipt).startsWith('data:')?esc(f.receipt):'/receipts/'+esc(f.receipt))+
+      :(f.receipt?'<small>Beleg hinterlegt — <a href="'+((DEMO&&String(f.receipt).startsWith('data:'))?esc(f.receipt):'/receipts/'+esc(f.receipt))+
         '" target="_blank" rel="noopener">ansehen</a></small>'
       :'<small>noch keiner — freiwillig, am Handy direkt mit der Kamera</small>'))+
     '</label>';
@@ -3020,7 +3026,7 @@ function logZeile(w,mitArt){
       (w.wartId?' <span class="tag home">geplant</span>':'')+'</div>'+
     '<div class="amt">'+(w.cost>0?eur(w.cost):'—')+'</div>'+
     '<div class="s">'+(mitArt?dt.format(w.d)+(teile.length?' · ':''):'')+teile.join(' · ')+
-      (w.receipt?' · <a href="'+(String(w.receipt).startsWith('data:')?esc(w.receipt)
+      (w.receipt?' · <a href="'+((DEMO&&String(w.receipt).startsWith('data:'))?esc(w.receipt)
         :'/receipts/'+esc(w.receipt))+'" target="_blank" rel="noopener">Rechnung</a>':'')+'</div>'+
     '<div class="s2"><button class="ghost sm" data-act="shopEdit" data-v="'+w.dbid+'">Ändern</button></div>'+
     '</div>';
@@ -3933,7 +3939,7 @@ function vAbrechnung(monate,jahre){
       '<table><thead><tr><th>Datum</th><th>Ort</th><th class="n">Brutto €</th><th>Beleg</th></tr></thead>'+
       '<tbody>'+belege.map(x=>'<tr><td>'+dt.format(x.d)+'</td><td>'+esc(x.station||'—')+'</td>'+
       '<td class="n">'+num(x.cost,2)+'</td><td>'+
-      (String(x.receipt).startsWith('data:')?'im Browser hinterlegt'
+      ((DEMO&&String(x.receipt).startsWith('data:'))?'im Browser hinterlegt'
         :'<a href="/receipts/'+esc(x.receipt)+'">'+esc(x.receipt).slice(0,12)+'…</a>')+
       '</td></tr>').join('')+'</tbody></table>':'')+
     '<div class="foot">Bordbuch · alle Beträge brutto · '+

@@ -11,6 +11,7 @@ server.py und index.html zu ersetzen und den Dienst neu zu starten.
 """
 import argparse
 import base64
+import binascii
 import contextlib
 import datetime
 import decimal
@@ -178,6 +179,53 @@ MAX_BODY = 14 * 1024 * 1024
 RECEIPT_TYPES = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
                  "webp": "image/webp", "heic": "image/heic", "pdf": "application/pdf"}
 MAX_RECEIPT = 8 * 1024 * 1024
+
+# Typerkennung aus dem INHALT, nicht aus dem Namen (B-21).
+#
+# Geprueft wurde vorher allein die Dateiendung im Namen, den der Client
+# mitschickt - der Inhalt wurde nie angesehen. Eine HTML-Datei als "x.jpg"
+# hochgeladen landete als .jpg im Ablageort und wurde mit Content-Type
+# image/jpeg ausgeliefert. Dass nosniff die Ausfuehrung verhinderte, war
+# Glueck und kein Entwurf; der Ablageort wurde damit zum Dateispeicher fuer
+# beliebige Inhalte, und der Nutzer merkte erst beim Ansehen, dass sein
+# Beleg kein Bild ist.
+MAGISCHE_BYTES = (
+    (b"\xff\xd8\xff", "jpg"),
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"%PDF-", "pdf"),
+)
+
+
+def beleg_name_pruefen(v):
+    """Einen Belegnamen aus einer Sicherung annehmen oder verwerfen (B-21).
+
+    Beim Einspielen wurde das Feld ungeprueft uebernommen. Die Oberflaeche
+    verzweigte darauf und baute bei einem Wert, der mit "data:" beginnt,
+    einen data:-Verweis in die Seite - ein manipulierter Sicherungsstand
+    konnte damit beliebige Inhalte in die Oberflaeche bringen. Moderne
+    Browser verhindern die oberste Navigation zu data:, aber der Zweig
+    gehoert weg, und hier ist die Stelle, an der er nicht entsteht.
+
+    Was nicht auf einen von uns selbst erzeugten Dateinamen passt, wird
+    verworfen - die Zeile bleibt, nur ohne Beleg.
+    """
+    name = str(v or "")[:80]
+    return name if RECEIPT_NAME.match(name) else ""
+
+
+def typ_aus_inhalt(blob):
+    """Dateityp am Inhalt erkennen. None, wenn es keiner der erlaubten ist."""
+    if blob[:4] == b"RIFF" and blob[8:12] == b"WEBP":
+        return "webp"
+    # HEIC und Verwandte: der Typ steht im ftyp-Kasten ab Byte 4.
+    if blob[4:8] == b"ftyp" and blob[8:12] in (
+            b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1", b"heim", b"heis"):
+        return "heic"
+    for kennung, typ in MAGISCHE_BYTES:
+        if blob.startswith(kennung):
+            return typ
+    return None
+
 
 # Erlaubte Einstellungsschluessel (B-22). Vollstaendig aus den DEFAULTS in
 # index.html uebernommen, plus homePrices - das ist der Preisverlauf, der
@@ -1197,7 +1245,7 @@ class App(BaseHTTPRequestHandler):
                         (user["id"], carmap.get(f.get("car_id")), f.get("ts"), num(f.get("liters")),
                          f_ct / 100.0, f_ct, num(f.get("odo")), 1 if f.get("full", 1) else 0,
                          str(f.get("station") or "")[:120], str(f.get("note") or "")[:200],
-                         str(f.get("receipt") or "")[:80]))
+                         beleg_name_pruefen(f.get("receipt"))))
             fuel_new += 1
 
         # Wartungsplan und Werkstattrechnungen. Beide haengen am Auto, darum
@@ -1239,7 +1287,7 @@ class App(BaseHTTPRequestHandler):
                            VALUES(?,?,?,?,?,?,?,?,?,?)""",
                         (user["id"], carmap.get(w.get("car_id")), ts, str(w.get("art") or "")[:80],
                          w_ct / 100.0, w_ct, num(w.get("odo")), str(w.get("betrieb") or "")[:120],
-                         str(w.get("note") or "")[:200], str(w.get("receipt") or "")[:80]))
+                         str(w.get("note") or "")[:200], beleg_name_pruefen(w.get("receipt"))))
             werk_new += 1
         if payload.get("settings"):
             if mode == "replace":
@@ -2000,16 +2048,37 @@ class App(BaseHTTPRequestHandler):
 
     # ---------------- Tankungen ----------------
     def save_receipt(self, data):
+        """Einen Beleg ablegen. Der INHALT entscheidet ueber den Typ (B-21)."""
         raw = data.get("receiptData")
         if not raw:
             return None
-        ext = re.sub(r"[^a-z0-9]", "", (data.get("receiptName") or "").rsplit(".", 1)[-1].lower())[:5]
-        if ext not in RECEIPT_TYPES:
-            raise ValueError("Belegformat nicht erlaubt (JPG, PNG, WEBP, HEIC oder PDF)")
-        blob = base64.b64decode(raw.split(",", 1)[-1], validate=False)
+        roh = raw.split(",", 1)[-1]
+        # Groesse VOR dem Dekodieren pruefen. Vorher wurde erst dekodiert und
+        # dann gemessen - bei 14 MB Rumpf also erst einmal alles in den
+        # Speicher geholt. Base64 ist rund ein Drittel groesser als die
+        # Nutzlast.
+        if len(roh) > MAX_RECEIPT * 4 // 3 + 64:
+            raise ValueError("Der Beleg ist groesser als %d MB. Bitte kleiner "
+                             "fotografieren oder als PDF speichern."
+                             % (MAX_RECEIPT // 1024 // 1024))
+        try:
+            blob = base64.b64decode(roh, validate=True)
+        except (ValueError, binascii.Error):
+            raise ValueError("Die Belegdatei kam beschaedigt an. Bitte noch "
+                             "einmal hochladen.")
         if len(blob) > MAX_RECEIPT:
-            raise ValueError("Beleg ist groesser als 8 MB")
-        name = uuid.uuid4().hex + "." + ext
+            raise ValueError("Der Beleg ist groesser als %d MB."
+                             % (MAX_RECEIPT // 1024 // 1024))
+        if not blob:
+            raise ValueError("Die Belegdatei ist leer.")
+        # Die vom Client genannte Endung wird VERWORFEN und die erkannte
+        # benutzt. Ein echtes PNG als "foto.jpg" wird damit angenommen und
+        # richtig als .png abgelegt.
+        erkannt = typ_aus_inhalt(blob)
+        if erkannt is None:
+            raise ValueError("Diese Datei ist kein Bild und kein PDF. "
+                             "Erlaubt sind JPG, PNG, WEBP, HEIC und PDF.")
+        name = uuid.uuid4().hex + "." + erkannt
         with open(os.path.join(RECEIPT_DIR, name), "wb") as fh:
             fh.write(blob)
         return name
@@ -2158,6 +2227,21 @@ class App(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "SAMEORIGIN")
+        if rel.startswith("receipts/"):
+            # Belege sind fremde Dateien und bekommen darum eine eigene,
+            # sehr enge CSP (B-21). Vorher wurde eine CSP nur fuer
+            # index.html gesetzt; nosniff allein verhinderte zwar die
+            # Ausfuehrung, aber der Entwurf verliess sich darauf.
+            self.send_header("Content-Security-Policy",
+                             "default-src 'none'; sandbox; base-uri 'none'")
+            endung = os.path.splitext(rel)[1].lstrip(".").lower()
+            # PDF als Anhang, nicht inline: eine PDF-Datei wuerde sonst im
+            # PDF-Betrachter des Browsers geoeffnet, und PDFs koennen
+            # Skripte und Weiterleitungen enthalten. Bilder bleiben inline -
+            # sie sollen ja angesehen werden.
+            art = "attachment" if endung == "pdf" else "inline"
+            self.send_header("Content-Disposition",
+                             '%s; filename="beleg.%s"' % (art, endung or "dat"))
         if rel == "index.html":
             # Alles liegt in der einen Datei - externe Quellen braucht es nicht.
             # 'unsafe-inline' ist noetig, weil CSS und JS bewusst eingebettet sind.
