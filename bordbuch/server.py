@@ -239,7 +239,7 @@ ADD_INDEXES = [
 SCHEMA_VERSION = "5"
 # Fassungsnummer der Anwendung, getrennt vom Datenstand oben. Wird von
 # --version, /api/version, install.sh und update.sh gelesen.
-VERSION = "2.4.1"
+VERSION = "2.5.2"
 
 SESSION_FIELDS = ["tx", "start", "finish", "sec", "kwh", "cost", "net", "vat", "station", "city", "zip",
                   "street", "rate", "partner", "entity", "invoice_no", "invoice_date", "invoice_gross",
@@ -1349,8 +1349,29 @@ class App(BaseHTTPRequestHandler):
         if rel in PUBLIC_FILES:
             full = os.path.join(HERE, rel)
         elif rel.startswith("receipts/"):
-            name = os.path.basename(rel)
+            name = os.path.basename(rel)   # schneidet jeden Pfadanteil ab
             if not RECEIPT_NAME.match(name):
+                return self.send_error(404, "Nicht gefunden")
+            # Ein Beleg gehoert zu einem Profil. Der zufaellige Dateiname allein
+            # waere nur Verschleierung - wer ihn kennt, saehe sonst fremde
+            # Rechnungen. Darum: angemeldet sein UND der Beleg muss zum eigenen
+            # oder einem freigegebenen Profil gehoeren.
+            with db() as con:
+                ich, _ziel, _darf = self.profil(con)
+                if not ich:
+                    return self.send_error(401, "Nicht angemeldet")
+                erlaubt = [ich["id"]]
+                for r in con.execute("SELECT eigentuemer_id FROM freigaben"
+                                     " WHERE empfaenger_id=? AND ziel_typ='profil'", (ich["id"],)):
+                    erlaubt.append(r["eigentuemer_id"])
+                platz = ",".join("?" * len(erlaubt))
+                treffer = con.execute(
+                    "SELECT 1 FROM fuelings WHERE receipt=? AND nutzer_id IN (%s)"
+                    " UNION ALL"
+                    " SELECT 1 FROM werkstatt WHERE receipt=? AND nutzer_id IN (%s) LIMIT 1"
+                    % (platz, platz),
+                    tuple([name] + erlaubt + [name] + erlaubt)).fetchone()
+            if not treffer:
                 return self.send_error(404, "Nicht gefunden")
             full = os.path.join(RECEIPT_DIR, name)
         else:

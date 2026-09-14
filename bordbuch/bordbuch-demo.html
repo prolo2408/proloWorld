@@ -4,20 +4,102 @@
 <title>Bordbuch — Testversion</title>
 <script>window.LADELOG_DEMO=true;</script>
 <style>
+  /* ---------------------------------------------------------------
+     Prolo-Designsystem, Regelblatt Teil I, Abschnitt 2.
+     Hell steht in :root, Dunkel ueberschreibt. Dunkel ist der Standard -
+     darum traegt <body> von Haus aus data-theme="dark".
+     Nie Farbwerte direkt in Komponenten schreiben.
+     --------------------------------------------------------------- */
   :root{
-    --ink:#0b1520; --panel:#132030; --panel2:#18293c; --line:#263b50; --soft:#1e3145;
-    --text:#e9f1f8; --muted:#8aa2b8; --volt:#f6c344; --teal:#48c3b4; --violet:#9c8ce0; --red:#e2765f;
-    --volt-hover:#ffd464;   /* Hover des Hauptknopfes */
-    --hint:#a3b6c9;         /* Hilfetexte - bewusst heller als --muted, siehe Design-System */
-    --dim:var(--hint);      /* Nebentext in Assistent und Einstellungszeilen */
+    --bg:oklch(0.96 0.004 250);        /* Seitenhintergrund             */
+    --app:oklch(0.985 0.002 250);      /* Fensterflaeche                */
+    --surface:#fff;                    /* Karte, Tabelle, Panel         */
+    --chrome:oklch(0.995 0.001 250);   /* Sidebar, Header, Tabbar       */
+    --line:oklch(0.92 0.004 250);      /* Rahmen, Trennlinien           */
+    --line-soft:oklch(0.96 0.002 250); /* Zeilentrenner in Listen       */
+    --hover:oklch(0.96 0.003 250);     /* Hover-Flaeche                 */
+
+    --ink:oklch(0.2 0.01 250);         /* Ueberschriften, Zahlen        */
+    --ink-2:oklch(0.3 0.01 250);       /* Fliesstext, Tabellenzellen    */
+    --ink-3:oklch(0.52 0.01 250);      /* Labels, Sekundaertext         */
+
+    --accent:oklch(0.52 0.17 262);     /* Primaeraktion, aktiver Zustand*/
+    --accent-hover:oklch(0.45 0.17 262);
+    --accent-soft:oklch(0.94 0.02 262);/* Badge-, Icon-Hintergrund      */
+    --accent-ink:oklch(0.38 0.13 262); /* Text auf accent-soft          */
+    --bar:oklch(0.86 0.03 262);        /* zweite Datenreihe im Chart    */
+
+    --good:oklch(0.45 0.14 158);       /* Ersparnis, guenstigster Preis */
+    --good-soft:oklch(0.97 0.01 158);
+    --warm-soft:oklch(0.94 0.01 60);   /* Kategorie Verbrenner/Tanken   */
+    --warm-ink:oklch(0.45 0.08 60);
+
+    --feature:oklch(0.34 0.12 262);    /* eine farbige Hero-Flaeche     */
+    --feature-ink:oklch(0.99 0.002 250);
+    --feature-ink-2:oklch(0.86 0.03 262);
+    --feature-line:oklch(0.46 0.11 262);
+    --feature-good:oklch(0.88 0.16 158);
+
+    --track:oklch(0.94 0.004 250);     /* Fortschritts-, Segmentspur    */
+    --shadow:0 24px 60px -20px oklch(0.4 0.03 250 / 0.22);
+
+    /* Ergaenzungen: das Regelblatt kennt weder eine Warnfarbe noch einen
+       Wert fuer Text auf dem Akzent. Neue Bedeutung = neues Token (Abs. 8).
+       Fuer Warnungen steht laut Zusatzregel nie Farbe allein - im Tool
+       kommt immer ein Wort dazu ("faellig", "geloescht"). */
+    --danger:oklch(0.52 0.18 25);
+    --danger-soft:oklch(0.95 0.03 25);
+    --on-accent:oklch(0.99 0.002 250); /* Text auf --accent             */
+    --overlay:oklch(0.28 0.02 258);    /* Hinweisfenster, Meldung       */
+    --on-overlay:oklch(0.98 0.002 250);/* Text darauf - in beiden Themen hell */
+
+    /* Form (Regelblatt 4) */
     --r:14px;
-    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
-    --sans:ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+
+    /* Schrift (Regelblatt 3). Die drei Schriften werden nicht von einer
+       fremden Seite geladen - das Tool bleibt ohne Fremdquellen. Sind sie
+       auf dem Geraet vorhanden, greifen sie; sonst die Systemschrift. */
+    --display:"Sora","Instrument Sans",ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --sans:"Instrument Sans",ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  /* Altnamen aus der Bordbuch-Zeit zeigen auf die neuen Token. Dadurch gilt
+     das neue System in allen Ansichten, ohne 200 Stellen anzufassen.
+     WICHTIG: Diese Zeilen muessen am <body> stehen, nicht in :root. var()
+     wird auf dem Element aufgeloest, auf dem die Zeile steht - in :root
+     (also am <html>) wuerden die Aliase immer die hellen Werte greifen und
+     nach unten vererben, waehrend die Dunkel-Werte am <body> haengen. Genau
+     das ergab eine helle Karte auf dunklem Grund. */
+  body{
+    --panel:var(--surface); --panel2:var(--hover); --soft:var(--line-soft);
+    --text:var(--ink); --muted:var(--ink-3); --hint:var(--ink-2); --dim:var(--ink-2);
+    --volt:var(--accent); --volt-hover:var(--accent-hover);
+    --teal:var(--good); --violet:var(--warm-ink); --red:var(--danger);
+  }
+  body[data-theme="dark"]{
+    --bg:oklch(0.16 0.012 258); --app:oklch(0.2 0.012 258);
+    --surface:oklch(0.235 0.013 258); --chrome:oklch(0.205 0.012 258);
+    --line:oklch(0.31 0.014 258); --line-soft:oklch(0.27 0.012 258); --hover:oklch(0.27 0.013 258);
+    --ink:oklch(0.96 0.004 250); --ink-2:oklch(0.87 0.006 250); --ink-3:oklch(0.69 0.01 250);
+    --accent:oklch(0.62 0.16 262); --accent-hover:oklch(0.69 0.16 262);
+    --accent-soft:oklch(0.33 0.06 262); --accent-ink:oklch(0.85 0.09 262); --bar:oklch(0.38 0.06 262);
+    --good:oklch(0.8 0.14 158); --good-soft:oklch(0.29 0.05 158);
+    --warm-soft:oklch(0.33 0.05 60); --warm-ink:oklch(0.86 0.08 60);
+    --feature:oklch(0.31 0.07 262); --feature-ink:oklch(0.97 0.004 250); --feature-ink-2:oklch(0.8 0.02 250);
+    --feature-line:oklch(0.42 0.05 262); --feature-good:oklch(0.85 0.15 158);
+    --track:oklch(0.3 0.014 258);
+    --shadow:0 24px 60px -20px oklch(0.05 0 0 / 0.6);
+    --danger:oklch(0.7 0.16 25); --danger-soft:oklch(0.32 0.06 25);
+    --on-accent:oklch(0.16 0.012 258);
+    --overlay:oklch(0.2 0.012 258); --on-overlay:oklch(0.98 0.002 250);
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;padding:0}
-  body{background:radial-gradient(1100px 560px at 12% -10%,#17293c 0%,transparent 60%),var(--ink);
+  body{background:var(--bg);
     color:var(--text);font-family:var(--sans);font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  /* Regelblatt 3: Ueberschriften, Kennzahlen und Betraege in der
+     Anzeige-Schrift, mit engerer Laufweite. */
+  h1,h2,h3,.kpi b,.kpi .v,.amt,.sumrow{font-family:var(--display);letter-spacing:-0.02em}
   .wrap{max-width:1120px;margin:0 auto;padding:18px 16px calc(96px + env(safe-area-inset-bottom))}
 
   header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap}
@@ -31,10 +113,10 @@
   button{font:inherit;cursor:pointer;border-radius:11px;border:1px solid var(--line);background:var(--panel);
     color:var(--text);padding:10px 15px;transition:.14s background,.14s border-color,.14s color;
     display:inline-flex;align-items:center;gap:7px}
-  button:hover{border-color:#3a5876;background:var(--panel2)}
+  button:hover{border-color:var(--ink-3);background:var(--panel2)}
   button:active{transform:translateY(1px)}
   button:focus-visible{outline:2px solid var(--volt);outline-offset:2px}
-  .primary{background:var(--volt);border-color:var(--volt);color:#221a03;font-weight:650}
+  .primary{background:var(--volt);border-color:var(--volt);color:var(--on-accent);font-weight:650}
   .primary:hover{background:var(--volt-hover);border-color:var(--volt-hover)}
   .ghost{background:transparent}
   .sm{padding:6px 11px;font-size:13px;border-radius:9px}
@@ -44,7 +126,7 @@
     font:inherit;font-size:16px;background:var(--panel2);border:1px solid var(--line);color:var(--text);
     border-radius:11px;padding:10px 12px;max-width:100%}
   select:focus,input:focus{outline:2px solid var(--volt);outline-offset:1px}
-  input::placeholder{color:#5d7288}
+  input::placeholder{color:var(--ink-3)}
   a{color:var(--teal)}
 
   .carpick{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);
@@ -56,12 +138,12 @@
      rechts noch etwas folgt. Der Rahmen bekommt darum einen Farbverlauf am
      Rand, der beim Scrollen bis zum Ende verschwindet (per JS gesetzt). */
   .navwrap{position:sticky;top:0;z-index:20;margin-bottom:16px;
-    background:rgba(11,21,32,.96);backdrop-filter:blur(10px)}
+    background:var(--chrome);backdrop-filter:blur(10px)}
   .navwrap::after{content:'';position:absolute;top:0;right:0;bottom:1px;width:34px;pointer-events:none;
-    background:linear-gradient(to right,transparent,var(--ink));opacity:0;transition:opacity .15s}
+    background:linear-gradient(to right,transparent,var(--bg));opacity:0;transition:opacity .15s}
   .navwrap.mehr-rechts::after{opacity:.95}
   .navwrap::before{content:'';position:absolute;top:0;left:0;bottom:1px;width:26px;pointer-events:none;
-    background:linear-gradient(to left,transparent,var(--ink));opacity:0;transition:opacity .15s;z-index:1}
+    background:linear-gradient(to left,transparent,var(--bg));opacity:0;transition:opacity .15s;z-index:1}
   .navwrap.mehr-links::before{opacity:.95}
   nav{display:flex;gap:2px;overflow-x:auto;border-bottom:1px solid var(--soft);
     scrollbar-width:none;-ms-overflow-style:none}
@@ -70,7 +152,7 @@
     border-bottom:2px solid transparent;white-space:nowrap;font-size:14.5px}
   nav button:hover{background:transparent;color:var(--text)}
   nav button[aria-selected=true]{color:var(--volt);border-bottom-color:var(--volt);font-weight:650}
-  nav .badge{min-width:17px;padding:1px 5px;border-radius:99px;background:var(--red);color:#22090b;
+  nav .badge{min-width:17px;padding:1px 5px;border-radius:99px;background:var(--red);color:var(--on-accent);
     font-size:10.5px;font-weight:700;font-family:var(--mono);margin-left:6px;display:inline-block}
 
   section{border:1px solid var(--soft);background:var(--panel);border-radius:var(--r);padding:16px;margin-bottom:14px}
@@ -98,8 +180,8 @@
   .seg::-webkit-scrollbar{display:none}
   .seg button{border:0;border-radius:0;background:transparent;padding:9px 13px;font-size:13.5px;color:var(--muted);white-space:nowrap}
   .seg button+button{border-left:1px solid var(--soft)}
-  .seg button[aria-pressed=true]{background:var(--volt);color:#221a03;font-weight:650}
-  .seg button:hover{background:rgba(255,255,255,.05);color:var(--text)}
+  .seg button[aria-pressed=true]{background:var(--volt);color:var(--on-accent);font-weight:650}
+  .seg button:hover{background:var(--hover);color:var(--text)}
   .seg button[aria-pressed=true]:hover{background:var(--volt-hover)}
 
   .rows{display:flex;flex-direction:column}
@@ -114,7 +196,7 @@
   .row .s2{grid-column:2;font-family:var(--mono);font-size:12px;color:var(--muted);text-align:right;white-space:nowrap}
   .row .act{grid-column:1/-1;display:flex;gap:7px;margin-top:8px;flex-wrap:wrap}
   .row.clickable{cursor:pointer;border-radius:10px;margin:0 -8px;padding-left:10px;padding-right:10px}
-  .row.clickable:hover{background:rgba(255,255,255,.035)}
+  .row.clickable:hover{background:var(--hover)}
   .sumrow{display:flex;justify-content:space-between;gap:12px;padding:12px 2px 0;margin-top:4px;
     border-top:1px solid var(--line);font-family:var(--mono);font-weight:650;flex-wrap:wrap}
   .sumrow .r{color:var(--volt)}
@@ -143,9 +225,10 @@
 
   .chart{position:relative}
   svg{display:block;width:100%;height:auto;overflow:visible}
-  .tip{position:absolute;pointer-events:none;opacity:0;transform:translate(-50%,-115%);background:#04090f;
+  .tip{position:absolute;pointer-events:none;opacity:0;transform:translate(-50%,-115%);background:var(--overlay);
+    color:var(--on-overlay);
     border:1px solid var(--line);border-radius:9px;padding:7px 10px;font-family:var(--mono);font-size:11.5px;
-    white-space:nowrap;transition:opacity .1s;z-index:5;box-shadow:0 8px 22px rgba(0,0,0,.55)}
+    white-space:nowrap;transition:opacity .1s;z-index:5;box-shadow:var(--shadow)}
   .tip b{color:var(--volt)}
   .hit{cursor:pointer} .hit:hover rect.seg{opacity:.72}
   .ax{font-family:var(--mono);font-size:10px;fill:var(--muted)}
@@ -190,7 +273,7 @@
   .choose .sub{font-size:12.5px;color:var(--muted);font-weight:400;white-space:normal;line-height:1.4}
   .thumb{width:100%;max-width:220px;border-radius:11px;border:1px solid var(--line);margin-top:6px;display:block}
 
-  .gate{position:fixed;inset:0;background:rgba(6,12,20,.975);display:grid;place-items:center;z-index:60;
+  .gate{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;z-index:60;
     padding:22px;overflow:auto}
   .gate .box{max-width:460px;width:100%;text-align:center}
   .gate .list{display:grid;gap:10px;margin:18px 0}
@@ -205,7 +288,7 @@
   .wk.now{border-color:var(--volt);box-shadow:0 0 0 1px var(--volt) inset}
   .wk .k{font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:.04em}
   .wk .v{font-family:var(--mono);font-size:12px;margin-top:2px;font-variant-numeric:tabular-nums}
-  .wk.leer .v{color:#43596f}
+  .wk.leer .v{color:var(--ink-3)}
   .fakten{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:0 22px}
   .fakt{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--soft);
     align-items:baseline}
@@ -224,11 +307,11 @@
   .empty{text-align:center;color:var(--muted);padding:24px 10px;font-size:14px}
   .hidden{display:none!important}
   .toast{position:fixed;left:50%;bottom:calc(78px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(18px);
-    background:#04090f;border:1px solid var(--line);border-radius:12px;padding:12px 17px;font-size:14px;opacity:0;
+    background:var(--overlay);color:var(--on-overlay);border:1px solid var(--line);border-radius:12px;padding:12px 17px;font-size:14px;opacity:0;
     transition:.18s all;z-index:70;max-width:92vw;text-align:center}
   .toast.on{opacity:1;transform:translateX(-50%)}
   .fab{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));z-index:30;
-    box-shadow:0 8px 24px rgba(0,0,0,.5);padding:15px 20px;font-size:15.5px;border-radius:14px}
+    box-shadow:var(--shadow);padding:15px 20px;font-size:15.5px;border-radius:14px}
 
   .paper{background:#fff;color:#111;border-radius:11px;padding:24px}
   .paper h3{font-size:19px;margin:0 0 3px;color:#111}
@@ -270,23 +353,23 @@
   min-width:18px;padding:0;margin-left:6px;border-radius:50%;border:1px solid var(--line);
   background:transparent;color:var(--dim);font-size:11px;font-weight:700;line-height:1;
   cursor:pointer;vertical-align:middle;font-family:var(--sans)}
-.hlp:hover,.hlp:focus-visible{border-color:var(--teal);color:var(--teal);background:rgba(72,195,180,.08)}
+.hlp:hover,.hlp:focus-visible{border-color:var(--teal);color:var(--teal);background:var(--good-soft)}
 label>.hlp{margin-left:4px}
 .lz{display:inline-flex;align-items:center;gap:2px}
 .hlpsheet{z-index:95}
 .sheet{position:fixed;inset:0;z-index:90;display:flex;align-items:flex-end;justify-content:center;
-  background:rgba(6,12,18,.55);padding:0}
+  background:var(--overlay);padding:0}
 .sheet.hidden{display:none}
 .sheet .card{width:100%;max-width:520px;background:var(--panel);border:1px solid var(--line);
   border-bottom:0;border-radius:16px 16px 0 0;padding:20px 20px 24px;
-  box-shadow:0 -8px 40px rgba(0,0,0,.4)}
+  box-shadow:var(--shadow)}
 .sheet h3{margin:0 0 8px;font-size:16px}
 .sheet p{margin:0 0 16px;color:var(--dim);font-size:14px;line-height:1.55}
 @media(min-width:560px){.sheet{align-items:center}
   .sheet .card{border-radius:16px;border-bottom:1px solid var(--line)}}
 
 /* ---------- Einrichtungs-Assistent ---------- */
-.wiz{position:fixed;inset:0;z-index:75;background:var(--ink);overflow-y:auto;
+.wiz{position:fixed;inset:0;z-index:75;background:var(--bg);overflow-y:auto;
   padding:24px 16px 40px;display:block}
 .wiz.hidden{display:none}
 .wiz .inner{max-width:560px;margin:0 auto}
@@ -298,8 +381,8 @@ label>.hlp{margin-left:4px}
 .wiz .lead{margin:0 0 20px;color:var(--dim);font-size:14px;line-height:1.5}
 .wiz .bar{display:flex;gap:10px;margin-top:24px;align-items:center}
 .wiz .bar .grow{flex:1}
-.wiz .why{margin-top:18px;padding:12px 14px;border-radius:10px;background:rgba(72,195,180,.07);
-  border:1px solid rgba(72,195,180,.22);color:var(--dim);font-size:13px;line-height:1.5}
+.wiz .why{margin-top:18px;padding:12px 14px;border-radius:10px;background:var(--good-soft);
+  border:1px solid var(--good);color:var(--dim);font-size:13px;line-height:1.5}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:0 0 4px}
 .tiles button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:14px;
   border-radius:12px;border:1px solid var(--line);background:var(--panel2);
@@ -307,7 +390,7 @@ label>.hlp{margin-left:4px}
 .tiles button .ic{font-size:20px}
 .tiles button .nm{font-weight:600;font-size:14px}
 .tiles button .sub{color:var(--dim);font-size:12px}
-.tiles button[aria-pressed=true]{border-color:var(--teal);background:rgba(72,195,180,.1)}
+.tiles button[aria-pressed=true]{border-color:var(--teal);background:var(--good-soft)}
 .wiz .skip{background:none;border:0;color:var(--dim);font-size:13px;cursor:pointer;
   text-decoration:underline;font-family:var(--sans);padding:6px 0}
 
@@ -324,18 +407,21 @@ label>.hlp{margin-left:4px}
 
 </style>
 
+<body data-theme="dark">
 <div class="wrap">
   <header class="no-print">
     <div class="brand">
       <svg viewBox="0 0 40 40" aria-hidden="true">
-        <rect x="7" y="12" width="26" height="20" rx="6" fill="none" stroke="#263b50" stroke-width="2"/>
-        <path d="M14 12V7M26 12V7" stroke="#48c3b4" stroke-width="2.4" stroke-linecap="round"/>
-        <path d="M21 17l-5 7h4l-1 6 6-8h-4l1-5z" fill="#f6c344"/></svg>
-      <div><h1>Bordbuch <span style="font-size:11px;color:var(--volt);vertical-align:super;font-family:var(--mono)">TEST</span></h1><div class="who" id="who"></div></div>
+        <rect x="7" y="12" width="26" height="20" rx="6" fill="none" stroke="var(--line)" stroke-width="2"/>
+        <path d="M14 12V7M26 12V7" stroke="var(--good)" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M21 17l-5 7h4l-1 6 6-8h-4l1-5z" fill="var(--accent)"/></svg>
+      <div><h1>Bordbuch <span style="font-size:11px;color:var(--accent);vertical-align:super;font-family:var(--mono)">TEST</span></h1><div class="who" id="who"></div></div>
     </div>
     <div class="headtools">
       <div class="carpick"><span class="lab">Auto</span><select id="carPick" aria-label="Auto wählen"></select></div>
       <div class="carpick hidden" id="profilWrap"><span class="lab">Profil</span><select id="profilPick" aria-label="Profil wählen"></select></div>
+      <button class="ghost sm" id="thema" data-act="thema" aria-pressed="false"
+        title="Zwischen hell und dunkel wechseln">Hell</button>
       <a class="ghost sm hidden" id="abmelden" href="#">Abmelden</a>
     </div>
   </header>
@@ -351,9 +437,9 @@ label>.hlp{margin-left:4px}
 <div class="gate hidden" id="gate">
   <div class="box">
     <svg viewBox="0 0 40 40" style="width:46px;height:46px" aria-hidden="true">
-      <rect x="7" y="12" width="26" height="20" rx="6" fill="none" stroke="#263b50" stroke-width="2"/>
-      <path d="M14 12V7M26 12V7" stroke="#48c3b4" stroke-width="2.4" stroke-linecap="round"/>
-      <path d="M21 17l-5 7h4l-1 6 6-8h-4l1-5z" fill="#f6c344"/></svg>
+      <rect x="7" y="12" width="26" height="20" rx="6" fill="none" stroke="var(--line)" stroke-width="2"/>
+      <path d="M14 12V7M26 12V7" stroke="var(--good)" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M21 17l-5 7h4l-1 6 6-8h-4l1-5z" fill="var(--accent)"/></svg>
     <h1 style="margin:14px 0 6px;font-size:24px">Nicht angemeldet</h1>
     <p class="hint" style="margin:0">Bordbuch erfährt erst über die vorgeschaltete Anmeldung, wer du bist.
       Diese Seite siehst du, wenn du den Server direkt aufgerufen hast statt über die übliche Adresse.</p>
@@ -372,10 +458,10 @@ label>.hlp{margin-left:4px}
    Bordbuch — alles dreht sich um das gerade gewählte Auto.
    ===================================================================== */
 const KINDS={
-  bev:   {t:'Elektro',        s:'Elektro', ico:'⚡',  charge:true,  fuel:false},
-  phev:  {t:'Plug-in-Hybrid', s:'Hybrid',  ico:'⚡⛽', charge:true,  fuel:true },
-  petrol:{t:'Benzin',         s:'Benzin',  ico:'⛽',  charge:false, fuel:true },
-  diesel:{t:'Diesel',         s:'Diesel',  ico:'⛽',  charge:false, fuel:true }
+  bev:   {t:'Elektro',        s:'Elektro', ico:'',  charge:true,  fuel:false},
+  phev:  {t:'Plug-in-Hybrid', s:'Hybrid',  ico:'', charge:true,  fuel:true },
+  petrol:{t:'Benzin',         s:'Benzin',  ico:'',  charge:false, fuel:true },
+  diesel:{t:'Diesel',         s:'Diesel',  ico:'',  charge:false, fuel:true }
 };
 /* Grenzen fuer plausible Werte - schuetzt vor vertippten Kilometerstaenden */
 /* R9: Die Stromgrenzen 8-45 kWh/100 km schnitten sparsame Kleinwagen (unter
@@ -972,7 +1058,7 @@ function mengeWort(){
   const K=KINDS[kind()];
   return K.charge&&K.fuel?'aus Strom und Sprit':(K.charge?'aus der geladenen Energie':'aus der getankten Menge');
 }
-function kindTag(k){return '<span class="tag '+k+'">'+KINDS[k].ico+' '+KINDS[k].s+'</span>';}
+function kindTag(k){return '<span class="tag '+k+'">'+KINDS[k].s+'</span>';}
 /* R3: per100Charge() ist entfallen - die Funktion wurde nirgends mehr
    aufgerufen und hatte eine andere Logik als der tatsaechlich benutzte Weg
    in chargeAll() (ihr fehlte der gemessene Wert). Zwei Wege zur selben Zahl
@@ -1432,7 +1518,7 @@ function drawBars(){
     const sel=state.gran==='week'&&b.key===selKey;
     let cells='';
     for(let s=0;s<SEG;s++){const y=T+ph-(s+1)*sh-s*gap;
-      const c=s<on?(sel?'var(--volt-hover)':(m==='kwh'?'var(--teal)':m==='liters'?'var(--violet)':'var(--volt)')):'rgba(255,255,255,.05)';
+      const c=s<on?(sel?'var(--volt-hover)':(m==='kwh'?'var(--teal)':m==='liters'?'var(--violet)':'var(--volt)')):'var(--hover)';
       cells+='<rect class="seg" x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+sh.toFixed(1)+'" rx="1.6" fill="'+c+'"/>';}
     const lab=state.gran==='week'?b.week:MON[b.start.getMonth()];
     const show=bs.length<=14||i%2===0;
@@ -1480,7 +1566,7 @@ function drawTrend(id,pts,unit){
     g+='<g class="hit"><circle cx="'+X(p.t).toFixed(1)+'" cy="'+Y(p.v).toFixed(1)+'" r="5" fill="'+p.c+
       '" data-p="'+esc(p.label+'|'+num(p.v,3)+' '+unit+(p.extra?' · '+p.extra:''))+'"/></g>';
   for(const p of line)g+='<circle cx="'+X(p.t).toFixed(1)+'" cy="'+Y(p.v).toFixed(1)+
-    '" r="3.4" fill="#221a03" stroke="var(--volt)" stroke-width="2"/>';
+    '" r="3.4" fill="var(--on-accent)" stroke="var(--volt)" stroke-width="2"/>';
   if(line.length>1){
     const seen=new Set();
     for(const p of line){const d=new Date(p.t);
@@ -1795,16 +1881,15 @@ function vChecks(){
 
   /* --- Gruppen ausgeben --- */
   const block=(g)=>{
-    const zeichen=g.rang==='geld'?'💸':'❓';
-    const offen=g.zeilen.filter(z=>!z.erledigt);
-    return '<section><div class="head"><h2><b>'+zeichen+' '+esc(g.titel)+'</b> '+
+        const offen=g.zeilen.filter(z=>!z.erledigt);
+    return '<section><div class="head"><h2><b>'+esc(g.titel)+'</b> '+
       '<span class="tag warn">'+g.zeilen.length+'×</span></h2>'+
       (offen.length>1?'<button class="ghost sm" data-act="ackGroup" data-v="'+esc(g.titel)+
         '">Alle '+offen.length+' bestätigen</button>':'')+'</div>'+
       '<div class="rows">'+g.zeilen.slice(0,15).map(z=>{
         const x=z.eintrag,k=ackKey(x,{t:g.titel});
         return '<div class="row"'+(z.erledigt?' style="opacity:.55"':'')+'>'+
-          '<div class="t">'+(x.type==='fuel'?'⛽':'⚡')+' <span class="nm">'+esc(x.station||'—')+'</span>'+
+          '<div class="t">'+(x.type==='fuel'?'<span class="tag">Tanken</span>':'<span class="tag">Laden</span>')+' <span class="nm">'+esc(x.station||'—')+'</span>'+
             (z.erledigt?' <span class="tag home">bestätigt</span>':'')+'</div>'+
           '<div class="amt">'+eur(x.cost)+'</div>'+
           '<div class="s" style="white-space:normal">'+dt.format(x.d)+' · '+esc(z.text)+'</div>'+
@@ -1847,7 +1932,7 @@ function vChecks(){
       }
     }
   }
-  if(punkte.length)muster=sect('💸 Wo das Geld hingeht',
+  if(punkte.length)muster=sect('Wo das Geld hingeht',
     '<div class="rows">'+punkte.map(t=>'<div class="row"><div class="t" style="font-weight:400;white-space:normal">'+
     t+'</div></div>').join('')+'</div>');
 
@@ -1873,13 +1958,13 @@ function vChecks(){
   if(K.charge&&!settings.stationKind||K.charge&&Object.keys(settings.stationKind||{}).length===0)
     lueck.push({t:'Kein Ladepunkt als „Zuhause" eingeordnet',
       w:'Solange das fehlt, rechnet Bordbuch alle Ladungen mit dem Anbieterpreis. Unter Einstellungen › Ladepunkte einordnen.'});
-  if(lueck.length)fehlt=sect('❓ Was Bordbuch fehlt',
+  if(lueck.length)fehlt=sect('Was Bordbuch fehlt',
     '<div class="rows">'+lueck.map(l=>'<div class="row"><div class="t">'+esc(l.t)+'</div>'+
     '<div class="s" style="white-space:normal">'+l.w+'</div></div>').join('')+'</div>');
 
   /* --- Verbrauch hat sich verändert: mit einem Klick übernehmen --- */
   const vh=verbrauchsHinweise();
-  const verbrauch=vh.length?sect('📈 Verbrauch hat sich verändert',
+  const verbrauch=vh.length?sect('Verbrauch hat sich verändert',
     '<div class="rows">'+vh.map(h=>{
       const richtung=h.hoch?'gestiegen':'gesunken';
       const farbe=h.hoch?'var(--red)':'var(--teal)';
@@ -1901,7 +1986,7 @@ function vChecks(){
 
   /* --- Fällige Wartungen erscheinen auch hier: hier schaut man ohnehin nach --- */
   const wh=wartungHinweise();
-  const wartung=wh.length?sect('🔧 Wartung steht an',
+  const wartung=wh.length?sect('Wartung steht an',
     '<div class="rows">'+wh.map(w=>wartungZeile(w,true)).join('')+'</div>'+
     '<p class="hint">Mehr dazu im Tab <button class="ghost sm" data-act="tab" data-v="wartung">'+
     'Wartung</button>.</p>'):'';
@@ -1913,10 +1998,10 @@ function vChecks(){
 /* ---------- Vorgangszeile ---------- */
 function entryRow(x,acts){
   const sicht=visFlags(x),bad=sicht.length;
-  const warn=bad?' <span class="tag warn" title="'+esc(sicht.map(f=>f.t).join(' · '))+'">⚠ '+esc(sicht[0].t)+'</span>':'';
+  const warn=bad?' <span class="tag warn" title="'+esc(sicht.map(f=>f.t).join(' · '))+'">'+esc(sicht[0].t)+'</span>':'';
   if(x.type==='fuel'){
     return '<div class="row'+(acts?'':' clickable')+'"'+(acts?'':' data-act="fuelEdit" data-v="'+x.dbid+'"')+'>'+
-      '<div class="t">⛽ <span class="nm">'+esc(x.station||'Tankstelle')+'</span>'+
+      '<div class="t"><span class="nm">'+esc(x.station||'Tankstelle')+'</span>'+
         (x.full?'':' <span class="tag">Teiltankung</span>')+warn+'</div>'+
       '<div class="amt">'+eur(x.cost)+'</div>'+
       '<div class="s">'+wd.format(x.d)+' '+dt.format(x.d)+' · '+tm.format(x.d)+
@@ -1929,7 +2014,7 @@ function entryRow(x,acts){
         '<button class="ghost sm danger" data-act="fuelDelete" data-v="'+x.dbid+'">Löschen</button></div>':'')+'</div>';
   }
   return '<div class="row'+(acts?'':' clickable')+'"'+(acts?'':' data-act="chargeEdit" data-v="'+x.dbid+'"')+'>'+
-    '<div class="t">⚡ <span class="nm">'+esc(x.station)+'</span>'+
+    '<div class="t"><span class="nm">'+esc(x.station)+'</span>'+
       (x.place!=='public'?' <span class="tag '+PLACE[x.place].c+'">'+PLACE[x.place].t+'</span>':'')+
       (x.manual?' <span class="tag">selbst</span>':'')+warn+'</div>'+
     '<div class="amt">'+eur(x.cost)+(x.over?'*':'')+'</div>'+
@@ -1949,7 +2034,7 @@ function blockCharge(list){
   const pl={home:sum(list.filter(x=>x.place==='home')),work:sum(list.filter(x=>x.place==='work')),
     public:sum(list.filter(x=>x.place==='public'))};
   const tot=Math.max(.01,t.cost),extra=pl.public.cost-pl.public.kwh*homePreisJetzt();
-  return sect('<b>⚡ Strom</b>',
+  return sect('<b>Strom</b>',
     '<div class="kpis">'+
     kpi('t','Ausgaben',eur(t.cost),t.n+' Ladungen')+
     kpi('','Energie',num(t.kwh,1)+'<u>kWh</u>',t.n?'Ø '+num(t.kwh/t.n,1)+' kWh je Ladung':'—')+
@@ -1971,7 +2056,7 @@ function blockFuel(list){
   for(const f of list)if(f.liters>0){const k=f.station||'Ohne Angabe';const b=st.get(k)||{c:0,l:0,n:0};
     b.c+=f.cost;b.l+=f.liters;b.n++;st.set(k,b);}
   const ranked=[...st.entries()].map(([k,b])=>({k,ppl:b.c/b.l,n:b.n})).sort((a,b)=>a.ppl-b.ppl);
-  return sect('<b>⛽ Sprit</b>',
+  return sect('<b>Sprit</b>',
     '<div class="kpis">'+
     kpi('p','Ausgaben',eur(t.cost),t.n+' Tankungen')+
     kpi('','Getankt',num(t.liters,1)+'<u>l</u>',t.n?'Ø '+num(t.liters/t.n,1)+' l je Tankung':'—')+
@@ -2098,7 +2183,7 @@ function vCharges(){
       '<span class="r">'+eur(t.cost)+(t.kwh?' · '+num(t.cost/t.kwh,3)+' €/kWh':'')+'</span></div>'
       :'<div class="empty">Keine Ladungen in diesem Zeitraum.</div>'),
     '','<button class="ghost sm" data-act="pickCsv">Mehrere Dateien einlesen</button>'+
-       '<button class="primary" data-act="chargeNew">＋ Ladung erfassen</button>');
+       '<button class="primary" data-act="chargeNew">Ladung erfassen</button>');
 }
 function chargeForm(){
   const p=state.pending||{};
@@ -2119,7 +2204,7 @@ function chargeForm(){
     /* B1: Vorher standen hier drei Knöpfe für zwei Wirkungen, zwei davon
        identisch. Entscheidend ist nicht „eine oder viele", sondern ob man die
        Werte vorher sieht - danach heißen sie jetzt. */
-    '<button class="ghost" data-act="pickOneCsv" data-v="charge">📄 Datei einlesen und prüfen</button>'+
+    '<button class="ghost" data-act="pickOneCsv" data-v="charge">Datei einlesen und prüfen</button>'+
     '<button class="ghost sm" data-act="pickCsv">Mehrere Dateien ohne Einzelprüfung</button></div>';
   return sect(kopf,meldung+knopf+
     '<div class="form">'+
@@ -2179,7 +2264,7 @@ function vFuel(){
       '<span class="r">'+eur(t.cost)+(t.liters?' · '+num(t.cost/t.liters,3)+' €/l':'')+'</span></div>'
       :'<div class="empty">Noch keine Tankungen. Nimm den nächsten Kassenbeleg und trage ihn ein.</div>'),
     '','<button class="ghost sm" data-act="pickCsv">Mehrere Dateien einlesen</button>'+
-       '<button class="primary" data-act="fuelNew">＋ Tankung erfassen</button>');
+       '<button class="primary" data-act="fuelNew">Tankung erfassen</button>');
 }
 function fuelForm(){
   const p=state.pending||{};
@@ -2199,12 +2284,12 @@ function fuelForm(){
       'Das Foto oben ist nur der Nachweis — abtippen musst du Betrag und Liter selbst.</p>');
   const knopfleiste=bearbeiten?'':
     '<div class="formbar" style="margin:0 0 16px">'+
-    '<button class="ghost" data-act="pickReceipt">📷 Beleg fotografieren</button>'+
-    '<button class="ghost" data-act="pickOneCsv" data-v="fuel">📄 Datei einlesen und prüfen</button>'+
+    '<button class="ghost" data-act="pickReceipt">Beleg fotografieren</button>'+
+    '<button class="ghost" data-act="pickOneCsv" data-v="fuel">Datei einlesen und prüfen</button>'+
     '<button class="ghost sm" data-act="pickCsv">Mehrere Dateien ohne Einzelprüfung</button></div>';
   const belegzeile=
     '<label class="wide">Kassenbeleg als Nachweis'+
-    (bearbeiten?'<button class="ghost" data-act="pickReceipt" style="justify-content:center">📷 '+
+    (bearbeiten?'<button class="ghost" data-act="pickReceipt" style="justify-content:center">'+
       (rec||f.receipt?'Beleg ersetzen':'Foto aufnehmen oder Datei wählen')+'</button>':'')+
     (img?'<img class="thumb" src="data:image/*;base64,'+rec.data+'" alt="Beleg">':'')+
     (rec?'<small style="color:var(--teal)">'+esc(rec.name)+' angehängt</small>'
@@ -2338,18 +2423,18 @@ function paneFaellig(){
     '</div>'+
     (proTag?'':'<p class="hint">Ohne Kilometerstände kann Bordbuch kein Datum vorhersagen — '+
       'es bleibt bei den Kilometern. Trage den Tacho beim Laden oder Tanken mit ein.</p>'),
-    '','<button class="primary" data-act="wartNew" data-v="">＋ Wartung anlegen</button>');
+    '','<button class="primary" data-act="wartNew" data-v="">Wartung anlegen</button>');
 
-  if(faellig.length)out+=sect('🔴 Jetzt fällig',
+  if(faellig.length)out+=sect('Jetzt fällig',
     '<div class="rows">'+faellig.map(w=>wartungZeile(w,true)).join('')+'</div>');
-  if(bald.length)out+=sect('🟡 Bald fällig',
+  if(bald.length)out+=sect('Bald fällig',
     '<div class="rows">'+bald.map(w=>wartungZeile(w,true)).join('')+'</div>');
   if(!faellig.length&&!bald.length)out+=sect('Alles im Rahmen',
     '<div class="empty">Nichts überschritten, nichts in den nächsten Wochen.'+
     (naechster&&naechster.prognose?' Als nächstes: <b>'+esc(naechster.art)+'</b> etwa '+
       dt.format(naechster.prognose)+'.':'')+'</div>');
   /* Der volle Plan - dauerhaft sichtbar, nach Termin sortiert. */
-  if(spaeter.length)out+=sect('📅 Später — der ganze Plan',
+  if(spaeter.length)out+=sect('Später — der ganze Plan',
     '<div class="rows">'+spaeter.map(w=>wartungZeile(w,true)).join('')+'</div>'+
     '<p class="hint">Nach Termin sortiert, damit auch weit entfernte Fälligkeiten auf dem Schirm '+
     'bleiben. <b>Wie gerechnet wird:</b> Kilometer und Zeit gelten unabhängig voneinander — '+
@@ -2431,7 +2516,7 @@ function paneWerkstatt(){
         ' ('+eur(jahresSummen.get(j)||0)+')</option>').join('')+'</select>':'')+
     '<button class="ghost sm" data-act="print">Blatt drucken (PDF)</button>'+
     '<button class="ghost sm" data-act="werkCsv">Kostenliste (CSV)</button>'+
-    '<button class="primary sm" data-act="shopNew">＋ Rechnung</button></div>')
+    '<button class="primary sm" data-act="shopNew">Rechnung</button></div>')
 
   +(sortiert.length?sect('Wofür das Geld ging',
     '<div class="bars">'+sortiert.map(([k,b])=>bar(esc(k),eur(b.c),b.c/maxArt*100,
@@ -2695,7 +2780,7 @@ function shopForm(){
         {mode:'numeric',value:w.odo?plainInt(w.odo):'',ph:'z. B. 48000'}))+
     field('sNote','Noch etwas dazu?','z. B. „Bremsleitung ersetzt"',{wide:true,value:w.note||'',ph:'optional'})+
     '<label class="wide">Rechnung als Nachweis'+
-      '<button class="ghost" data-act="pickShopBeleg" style="justify-content:center">📷 '+
+      '<button class="ghost" data-act="pickShopBeleg" style="justify-content:center">'+
         (rec||w.receipt?'Beleg ersetzen':'Foto oder PDF wählen')+'</button>'+
       (rec?'<small style="color:var(--teal)">'+esc(rec.name)+' angehängt</small>'
         :(w.receipt?'<small>hinterlegt — <a href="/receipts/'+esc(w.receipt)+
@@ -2819,7 +2904,7 @@ function doneForm(){
     field('dNote','Noch etwas dazu?','freiwillig, z. B. „ohne Mängel" oder „Bremsen bemängelt"',
       {wide:true,value:'',ph:'optional'})+
     '<label class="wide">Rechnung oder Bericht'+
-      '<button class="ghost" data-act="pickShopBeleg" style="justify-content:center">📷 '+
+      '<button class="ghost" data-act="pickShopBeleg" style="justify-content:center">'+
         (rec?'Beleg ersetzen':'Foto oder PDF wählen')+'</button>'+
       (rec?'<small style="color:var(--teal)">'+esc(rec.name)+' angehängt</small>'
         :'<small>optional — der TÜV-Bericht oder die Werkstattrechnung</small>')+
@@ -2844,7 +2929,7 @@ function reviewPanel(){
       kpi('','Schon vorhanden',String(dup),'werden übersprungen')+
       kpi('t','Energie',num(t.kwh,1)+'<u>kWh</u>','')+kpi('','Kosten',eur(t.cost),'')+'</div>'+
       (neu.length?'<div class="rows" style="margin-top:12px;max-height:360px;overflow:auto">'+
-        neu.slice(0,60).map(r=>'<div class="row"><div class="t">⚡ <span class="nm">'+esc(r.station)+'</span></div>'+
+        neu.slice(0,60).map(r=>'<div class="row"><div class="t"><span class="nm">'+esc(r.station)+'</span></div>'+
         '<div class="amt">'+eur(r.cost)+'</div><div class="s">'+dt.format(new Date(r.start))+' '+tm.format(new Date(r.start))+
         (r.city?' · '+esc(r.city):'')+'</div><div class="s2">'+num(r.kwh,2)+' kWh · '+durShort(r.sec)+'</div></div>').join('')+
         (neu.length>60?'<p class="hint">… und '+(neu.length-60)+' weitere</p>':'')+'</div>':'')+
@@ -2859,7 +2944,7 @@ function reviewPanel(){
       '<div class="kpis">'+kpi('a','Tankungen',String(p.rows.length),'werden übernommen')+
       kpi('p','Liter',num(t.l,1)+'<u>l</u>','')+kpi('','Kosten',eur(t.c),'')+'</div>'+
       '<div class="rows" style="margin-top:12px;max-height:360px;overflow:auto">'+
-      p.rows.slice(0,60).map(r=>'<div class="row"><div class="t">⛽ <span class="nm">'+esc(r.station||'Tankstelle')+'</span></div>'+
+      p.rows.slice(0,60).map(r=>'<div class="row"><div class="t"><span class="nm">'+esc(r.station||'Tankstelle')+'</span></div>'+
       '<div class="amt">'+eur(r.cost)+'</div><div class="s">'+dt.format(new Date(r.ts))+'</div>'+
       '<div class="s2">'+num(r.liters,2)+' l'+(r.odo?' · '+num(r.odo,0)+' km':'')+'</div></div>').join('')+'</div>'+
       '<p class="hint">Wird <b>'+esc(carName(state.carId))+'</b> zugeordnet.</p>'+
@@ -2936,7 +3021,7 @@ function vPrices(){
       return {titel,reihen,gesamt:teil.length,anbieter:m.size};
     }).filter(x=>x.reihen.length>=MIND_ANBIETER);
     if(artBloecke.length){
-      out+=sect('⚡ Anbieter im Vergleich <span style="color:var(--muted)">— '+rangeLabel()+'</span>',
+      out+=sect('Anbieter im Vergleich <span style="color:var(--muted)">— '+rangeLabel()+'</span>',
         artBloecke.map(b=>{
           const mx=Math.max(...b.reihen.map(r=>r.ppk));
           return '<h3 style="margin:14px 0 8px">'+esc(b.titel)+'</h3><div class="bars">'+
@@ -2950,7 +3035,7 @@ function vPrices(){
         'Anbieter mit mindestens '+MIND_LADUNGEN+' Ladungen. Grundgebühren einer Ladekarte kennt Bordbuch '+
         'nicht — sie fehlen in dieser Rechnung.</p>','',rangeSeg());
     }else if(rf.length){
-      out+=sect('⚡ Anbieter im Vergleich <span style="color:var(--muted)">— '+rangeLabel()+'</span>',
+      out+=sect('Anbieter im Vergleich <span style="color:var(--muted)">— '+rangeLabel()+'</span>',
         '<div class="empty">Für einen belastbaren Vergleich reichen die Daten noch nicht.<br>'+
         'Nötig sind mindestens '+MIND_ANBIETER+' Anbieter mit je '+MIND_LADUNGEN+
         ' Ladungen derselben Ladeart.</div>','',rangeSeg());
@@ -2961,7 +3046,7 @@ function vPrices(){
       .sort((a,b)=>b.ppk-a.ppk);
     if(punkte.length>1){
       const mx=Math.max(...punkte.map(b=>b.ppk));
-      out+=sect('⚡ Deine Ladepunkte nach Preis',
+      out+=sect('Deine Ladepunkte nach Preis',
         '<div class="bars">'+punkte.slice(0,12).map(b=>bar(esc(b.k),num(b.ppk,3)+' €/kWh',b.ppk/mx*100,
           'aus '+b.n+' Ladung'+(b.n===1?'':'en')+' · '+num(b.kwh,1)+' kWh · '+eur(b.cost))).join('')+
         '</div>'+
@@ -2971,16 +3056,16 @@ function vPrices(){
         ' Cent je kWh — bei 30 kWh sind das '+
         eur((punkte[0].ppk-punkte[punkte.length-1].ppk)*30)+' Unterschied je Ladung.</p>');
     }
-    out+=sect('⚡ Preisentwicklung',
+    out+=sect('Preisentwicklung',
       '<div class="chart"><svg id="tKwh"></svg><div class="tip"></div></div>'+
       '<div class="legend"><span><i style="background:var(--volt)"></i>Monatsmittel €/kWh</span>'+
-      '<span><i style="background:rgba(233,241,248,.55)"></i>unterwegs</span>'+
+      '<span><i style="background:var(--ink-3)"></i>unterwegs</span>'+
       '<span><i style="background:var(--teal)"></i>zuhause</span></div>');
-    if(cls.length)out+=sect('⚡ Ladeleistung',
+    if(cls.length)out+=sect('Ladeleistung',
       '<div class="bars">'+cls.map(c=>bar(esc(c.l),c.n+'×',c.n/maxN*100,
         num(c.kwh,1)+' kWh · '+eur(c.cost)+(c.kwh?' · '+num(c.cost/c.kwh,3)+' €/kWh':''),'t')).join('')+'</div>'+
       '<p class="hint">kWh geteilt durch Ladedauer — daran erkennst du AC-Säule oder Schnelllader.</p>');
-    if(spots.length)out+=sect('⚡ Wo bezahlt',
+    if(spots.length)out+=sect('Wo bezahlt',
       '<div class="bars">'+spots.map(b=>bar(esc(b.k),eur(b.cost),b.cost/maxC*100,
         b.n+'× · '+num(b.kwh,1)+' kWh'+(b.kwh?' · '+num(b.cost/b.kwh,3)+' €/kWh':''))).join('')+'</div>');
   }
@@ -2991,21 +3076,21 @@ function vPrices(){
       b.cost+=f.cost;b.liters+=f.liters;b.n++;m.set(k,b);}
     const st=[...m.values()].map(b=>({...b,ppl:b.liters?b.cost/b.liters:0})).sort((a,b)=>b.ppl-a.ppl);
     const maxP=Math.max(.001,...st.map(b=>b.ppl));
-    out+=sect('⛽ Literpreis je Tankstelle <span style="color:var(--muted)">— '+rangeLabel()+'</span>',
+    out+=sect('Literpreis je Tankstelle <span style="color:var(--muted)">— '+rangeLabel()+'</span>',
       st.length?'<div class="bars">'+st.map(b=>bar(esc(b.k),num(b.ppl,3)+' €/l',b.ppl/maxP*100,
         b.n+'× · '+num(b.liters,1)+' l · '+eur(b.cost),'p')).join('')+'</div>'+
         (st.length>1?'<p class="hint">Zwischen günstigster und teuerster Tankstelle liegen '+
           num((st[0].ppl-st[st.length-1].ppl)*100,1)+' Cent je Liter — bei 40 l sind das '+
           eur((st[0].ppl-st[st.length-1].ppl)*40)+' pro Tankfüllung.</p>':'')
       :'<div class="empty">Keine Tankungen mit Literangabe im Zeitraum.</div>','',K.charge?'':rangeSeg());
-    out+=sect('⛽ Literpreis über die Zeit',
+    out+=sect('Literpreis über die Zeit',
       '<div class="chart"><svg id="tLit"></svg><div class="tip"></div></div>'+
       '<div class="legend"><span><i style="background:var(--volt)"></i>Monatsmittel €/l</span>'+
       '<span><i style="background:var(--violet)"></i>einzelne Tankung</span></div>');
     const meas=fuelAll().filter(f=>f.measured>0);
     if(meas.length){
       const best=Math.min(...meas.map(f=>f.measured)),worst=Math.max(...meas.map(f=>f.measured));
-      out+=sect('⛽ Verbrauch je Tankfüllung',
+      out+=sect('Verbrauch je Tankfüllung',
         '<div class="rows">'+meas.slice().reverse().slice(0,10).map(f=>'<div class="row">'+
         '<div class="t"><span class="nm">'+dt.format(f.d)+' · '+esc(f.station||'Tankstelle')+'</span></div>'+
         '<div class="amt">'+num(f.measured,2)+' l</div>'+
@@ -3038,7 +3123,7 @@ function vTime(){
   const weeks=[];
   for(let i=0;i>-12;i--){const x=weekOf(i),xk=kmVon(x.s.getTime(),x.e.getTime(),x.l);
     weeks.push('<div class="row clickable" data-act="week" data-v="'+i+'"'+
-      (i===state.weekOffset?' style="background:rgba(246,195,68,.08)"':'')+'>'+
+      (i===state.weekOffset?' style="background:var(--accent-soft)"':'')+'>'+
       '<div class="t"><span class="nm">KW '+x.info.week+' · '+x.info.year+'</span></div>'+
       '<div class="amt">'+eur(x.t.cost)+'</div>'+
       '<div class="s">'+dtS.format(x.s)+'–'+dtS.format(x.e-86400000)+'</div>'+
@@ -3113,7 +3198,7 @@ function weekGrid(years){
     zellen.push('<div class="wk'+(v>0?'':' leer')+(y===jetzt.year&&k===jetzt.week?' now':'')+
       '" data-act="week" data-v="'+off+'" title="'+
       (b?esc('KW '+k+': '+eur(b.cost)+' · '+num(b.km,0)+' km · '+b.n+' '+vorgangWort(b.n)):'KW '+k+': nichts erfasst')+
-      '"'+(v>0?' style="background:rgba(246,195,68,'+a+')"':'')+'>'+
+      '"'+(v>0?' style="background:color-mix(in oklab,var(--accent) '+Math.round(a*100)+'%,transparent)"':'')+'>'+
       '<div class="k">KW '+k+'</div><div class="v">'+zeig(v)+'</div></div>');
   }
   const g=[...map.values()].reduce((a,b)=>({cost:a.cost+b.cost,km:a.km+b.km,n:a.n+b.n}),{cost:0,km:0,n:0});
@@ -3671,7 +3756,7 @@ function vCars(){
           esc(c.name)+'" maxlength="60"></label>',
         '<label>'+lz('Antrieb','kind')+'<select data-act="carField" data-k="kind" data-id="'+c.id+'">'+
           Object.entries(KINDS).map(([v,d])=>'<option value="'+v+'"'+(c.kind===v?' selected':'')+'>'+
-            d.ico+' '+d.t+'</option>').join('')+'</select></label>')+
+            d.t+'</option>').join('')+'</select></label>')+
       /* Kennzeichen: steht auf jeder Abrechnung, die man weiterreicht. */
       paar(
         '<label>'+lz('Kennzeichen','plate')+'<input type="text" data-act="carField" data-k="plate" data-id="'+c.id+'" '+
@@ -3724,7 +3809,7 @@ function vCars(){
   return sect('Autos',
     '<p class="hint" style="margin:0">Jedes Auto hat eigene Vorgänge und eine eigene Auswertung. Beim Autowechsel '+
     'legst du ein neues an und stellst das alte auf „wird nicht mehr gefahren" — die Historie bleibt erhalten.</p>','',
-    '<button class="primary" data-act="carAdd">＋ Auto hinzufügen</button>')
+    '<button class="primary" data-act="carAdd">Auto hinzufügen</button>')
     +cars.map(cardOf).join('')+cmp;
 }
 
@@ -3991,10 +4076,10 @@ function paneWarn(){
 function paneData(){
   return sect('Viele Daten auf einmal einlesen',
     '<div class="choose">'+
-    '<button data-act="pickCsv"><span class="big">📄 Alle CSV-Dateien hierher</span>'+
+    '<button data-act="pickCsv"><span class="big">Alle CSV-Dateien hierher</span>'+
       '<span class="sub">Beliebig viele Lade-Abrechnungen und Tanklisten gleichzeitig auswählen. '+
       'Du siehst eine Liste und übernimmst alles mit einem Klick. Doppelte werden erkannt.</span></button>'+
-    '<button data-act="pickBackup"><span class="big">🗃️ Sicherung wiederherstellen</span>'+
+    '<button data-act="pickBackup"><span class="big">Sicherung wiederherstellen</span>'+
       '<span class="sub">Eine JSON-Sicherung — ergänzend oder alles ersetzend.</span></button></div>'+
     '<p class="hint">Alles landet beim gerade gewählten Auto: <b>'+esc(car()?car().name:'kein Auto')+'</b>. '+
     'Dateien kannst du auch einfach ins Fenster ziehen. Für eine einzelne neue Ladung oder Tankung '+
@@ -4153,10 +4238,10 @@ function paneAdmin(){
 
   +sect('Ganze Datenbank',
     '<div class="choose">'+
-    '<button data-act="adminExport"><span class="big">🗄️ Alles sichern (JSON)</span>'+
+    '<button data-act="adminExport"><span class="big">Alles sichern (JSON)</span>'+
       '<span class="sub">Jedes Profil mit Fahrzeugen, Ladungen, Tankungen und Einstellungen in einer '+
       'Datei. Das ist die vollständige Sicherung — Belegbilder ausgenommen.</span></button>'+
-    '<button data-act="adminPickImport"><span class="big">📥 Gesamtsicherung einspielen</span>'+
+    '<button data-act="adminPickImport"><span class="big">Gesamtsicherung einspielen</span>'+
       '<span class="sub">Ergänzend (bekannte Profile werden über den Namen gefunden) oder '+
       'ersetzend — dann wird alles vorher gelöscht.</span></button></div>'+
     '<div class="formbar"><button class="ghost" data-act="adminCsvAll">Alle Fahrzeuge (CSV)</button></div>'+
@@ -4573,7 +4658,7 @@ function wizHtml(){
       '<p style="margin:16px 0 8px;font-weight:600;font-size:14px">Was fährt es?'+hlp('kind')+'</p>'+
       '<div class="tiles">'+Object.entries(KINDS).map(([v,k])=>
         '<button type="button" data-act="wizKind" data-v="'+v+'" aria-pressed="'+(d.kind===v)+'">'+
-        '<span class="ic">'+k.ico+'</span><span class="nm">'+k.t+'</span>'+
+        '<span class="nm">'+k.t+'</span>'+
         '<span class="sub">'+(k.charge&&k.fuel?'Strom und Sprit':(k.charge?'nur Strom':'nur Sprit'))+
         '</span></button>').join('')+'</div>'+
       '<div class="form" style="margin-top:14px">'+
@@ -4801,7 +4886,7 @@ function render(){
   }
   document.getElementById('carPick').innerHTML=cars.length
     ? cars.map(x=>'<option value="'+x.id+'"'+(x.id===state.carId?' selected':'')+'>'+
-      KINDS[x.kind].ico+' '+esc(x.name)+(x.active?'':' (inaktiv)')+'</option>').join('')
+      esc(x.name)+(x.active?'':' (inaktiv)')+'</option>').join('')
     : '<option value="">kein Auto</option>';
   /* In einem freigegebenen Profil ohne Schreibrecht wird das einmal oben
      gesagt - statt den Nutzer erst beim Speichern auflaufen zu lassen. */
@@ -4812,8 +4897,8 @@ function render(){
     (state.importFehler?importFehlerPanel():(VIEWS[state.tab]||vOverview)());
   if(!state.entry&&c&&darfSchreiben&&(state.tab==='charges'||state.tab==='fuel')){
     fab.classList.remove('hidden');
-    if(state.tab==='fuel'){fab.textContent='＋ Tankung';fab.dataset.act='fuelNew';fab.dataset.v='';}
-    else{fab.textContent='＋ Ladung';fab.dataset.act='chargeNew';fab.dataset.v='';}
+    if(state.tab==='fuel'){fab.textContent='Tankung';fab.dataset.act='fuelNew';fab.dataset.v='';}
+    else{fab.textContent='Ladung';fab.dataset.act='chargeNew';fab.dataset.v='';}
   }
   /* B5: Bei vielen Reitern lag der aktive außerhalb des sichtbaren Bereichs. */
   const aktiv=document.querySelector('nav button[aria-selected="true"]');
@@ -4825,7 +4910,7 @@ function render(){
   if(state.tab==='prices'){
     drawTrend('tKwh',chargeAll().filter(s=>s.kwh>.3&&s.ppk>0).map(s=>({t:s.d.getTime(),v:s.ppk,w:s.kwh,
       label:dt.format(s.d)+' · '+s.station,extra:num(s.kwh,1)+' kWh · '+num(s.kw,1)+' kW',
-      c:s.place==='home'?'var(--teal)':s.place==='work'?'var(--violet)':'rgba(233,241,248,.55)'})),'€/kWh');
+      c:s.place==='home'?'var(--teal)':s.place==='work'?'var(--violet)':'var(--ink-3)'})),'€/kWh');
     drawTrend('tLit',fuelAll().filter(f=>f.liters>.3&&f.ppl>0).map(f=>({t:f.d.getTime(),v:f.ppl,w:f.liters,
       label:dt.format(f.d)+' · '+(f.station||'Tankstelle'),extra:num(f.liters,1)+' l',c:'var(--violet)'})),'€/l');
   }
@@ -5170,6 +5255,13 @@ async function handleClick(el){
   else if(a==='wizCancel'){state.wiz=null;render();return;}
   else if(a==='wizDone'){await wizSpeichern();return;}
   /* Profile */
+  else if(a==='thema'){
+    /* Dunkel ist der Standard. Die Wahl bleibt auf diesem Geraet - sie gehoert
+       zum Geraet, nicht zum Profil, und wird darum nicht am Server abgelegt. */
+    const dunkel=document.body.dataset.theme!=='light';
+    themaSetzen(dunkel?'light':'dark');
+    try{localStorage.setItem('bordbuch_thema',dunkel?'light':'dark');}catch(e){}
+  }
   else if(a==='profilWechsel'){await profilOeffnen(v);}
   else if(a==='profilReset'){
     const n=cars.length,v1=sessions.length,v2=fuelings.length;
@@ -5333,13 +5425,20 @@ async function handleClick(el){
   }
   else if(a==='commitFuelCsv'){
     const p=state.pending;if(!p)return;
-    let ok=0;
+    let ok=0;const gruende=[];
     for(const r of p.rows){
+      /* Fehlgeschlagene Zeilen nicht stumm verschlucken: der Grund wird
+         gesammelt und am Ende genannt, sonst steht der Nutzer vor einer
+         Zahl ohne Erklaerung. */
       try{await api('/api/fuel/save',{carId:state.carId,ts:r.ts,liters:r.liters,cost:r.cost,
-        odo:r.odo,full:r.full,station:r.station,note:r.note});ok++;}catch(e){}
+        odo:r.odo,full:r.full,station:r.station,note:r.note});ok++;}
+      catch(e){const g=e&&e.message?e.message:'unbekannter Grund';
+        if(gruende.length<2&&gruende.indexOf(g)<0)gruende.push(g);}
     }
     state.queue=null;state.entry=null;state.pending=null;await loadState();render();
-    toast(ok+' von '+p.rows.length+' Tankungen übernommen.');
+    const fehl=p.rows.length-ok;
+    toast(ok+' von '+p.rows.length+' Tankungen übernommen.'+
+      (fehl?' '+fehl+' nicht: '+gruende.join('; ')+'.':''));
   }
   else if(a==='commitRestore'){
     const p=state.pending;if(!p)return;
@@ -5600,7 +5699,7 @@ function importFehlerPanel(){
       'Wallbox-Seite, kopiere sie (Strg+C) und füge sie hier ein. Die erste Zeile sollte die Überschriften '+
       'enthalten (z. B. Datum, '+menge+', Preis).</div>'+
     '<textarea id="pasteRows" rows="5" placeholder="Datum;'+menge+';Preis;Kilometerstand   (dann die Zeilen darunter)" '+
-      'style="width:100%;box-sizing:border-box;min-height:96px;background:var(--ink);color:var(--text);'+
+      'style="width:100%;box-sizing:border-box;min-height:96px;background:var(--bg);color:var(--text);'+
       'border:1px solid var(--line);border-radius:10px;padding:10px;font-family:var(--mono);font-size:13px"></textarea>'+
     '<div style="margin-top:10px"><button class="primary sm" data-act="pasteImport">Zeilen einlesen</button></div>'+
     '</div>'+
@@ -6269,6 +6368,18 @@ async function demoApi(path,body){
   }
   throw new Error('unbekannter Endpunkt');
 }
+
+/* Thema umschalten: setzt das Kennzeichen am <body>, worauf der ganze
+   Token-Block umschaltet, und sagt dem Browser Bescheid, damit auch
+   Bildlaufleisten und Formularelemente mitziehen. */
+function themaSetzen(wert){
+  document.body.dataset.theme=wert;
+  const m=document.querySelector('meta[name="color-scheme"]');
+  if(m)m.setAttribute('content',wert);
+  const b=document.getElementById('thema');
+  if(b){b.textContent=wert==='dark'?'Hell':'Dunkel';b.setAttribute('aria-pressed',wert==='light'?'true':'false');}
+}
+try{const gw=localStorage.getItem('bordbuch_thema');themaSetzen(gw==='light'?'light':'dark');}catch(e){themaSetzen('dark');}
 
 /* ---------- Start ---------- */
 /* B5: zuletzt gewaehltes Profil vorbelegen, dann holt loadState dessen Daten.

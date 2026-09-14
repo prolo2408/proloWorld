@@ -10,6 +10,79 @@ erste = etwas Bestehendes bricht.
 
 ---
 
+## 2.5.2 — 2026-09-13
+
+### Behoben (Sicherheit)
+- **Belegbilder waren nicht an das Profil gebunden.** Wer einen Dateinamen
+  kannte, bekam die Rechnung — unabhängig davon, wem sie gehört. Der zufällige
+  Name war Verschleierung, kein Zugangsschutz. Jetzt muss man angemeldet sein
+  **und** der Beleg muss zum eigenen oder einem freigegebenen Profil gehören;
+  nach Entzug der Freigabe ist er sofort wieder gesperrt.
+
+### Behoben
+- **Der Stapel-Import verschluckte den Grund fehlgeschlagener Zeilen.** Es stand
+  nur „37 von 40 übernommen" da. Jetzt wird gesagt, woran die übrigen scheiterten.
+
+### Geprüft
+- 32 Angriffsproben gegen den laufenden Server: fremde Datensätze über die
+  Kennung, Grenzen der Freigaben, Pfadangriffe, Herkunftsprüfung, kaputte und
+  übergroße Anfragen, SQL- und Skripteinschleusung, Anmeldung und Gruppen.
+- Die Oberfläche wurde auf unmaskierten Nutzertext durchsucht: 234 Ausgaben,
+  alle maskiert.
+
+---
+
+## 2.5.1 — 2026-09-13
+
+### Behoben
+- **Das Thema wirkte nur zur Hälfte.** Kopfleiste und Seitenhintergrund waren
+  dunkel, Karten und Text dagegen hell — ein Mischzustand. Ursache: die
+  Altnamen (`--panel`, `--text`, `--volt` …) zeigten als Aliase auf die neuen
+  Token, standen aber in `:root`, also am `<html>`. CSS löst `var()` auf dem
+  Element auf, auf dem die Zeile steht — die Aliase griffen deshalb immer die
+  hellen Werte und vererbten sie nach unten, während die Dunkel-Werte am
+  `<body>` hängen. Die Aliase stehen jetzt ebenfalls am `<body>`.
+- **Alle Emojis sind raus** (Regelblatt 1: keine Emojis). Betroffen waren
+  Abschnittstitel („⚡ Strom"), Knopfbeschriftungen und Listenzeilen. Wo das
+  Symbol wirklich etwas unterschied — Laden gegen Tanken in einer gemischten
+  Liste — steht jetzt eine Wortmarke statt eines Bildchens.
+
+---
+
+## 2.5.0 — 2026-09-13
+
+### Neu
+- **Das Prolo-Designsystem gilt jetzt** (Regelblatt Teil I, Abschnitt 2). Alle
+  Farben kommen aus den vorgegebenen Token in `oklch`; feste Farbwerte stehen
+  nur noch im weißen Druckblatt, wo sie hingehören. Die Akzentfarbe ist Blau
+  statt Gelb.
+- **Hell- und Dunkelmodus.** Dunkel ist der Standard, oben rechts wird
+  umgeschaltet, die Wahl bleibt auf dem Gerät. Beide Themen sind auf Kontrast
+  nachgerechnet: 14 Text-zu-Fläche-Paare, alle über der Vorgabe.
+- **Schriftrollen nach Regelblatt:** Sora für Überschriften, Kennzahlen und
+  Beträge (mit engerer Laufweite), Instrument Sans als Grundschrift, JetBrains
+  Mono für Rohwerte.
+
+### Behoben
+- **Im Hellmodus wäre die Meldung unlesbar gewesen** — dunkler Text auf dunkler
+  Fläche (1,24:1). Die Meldefläche ist in beiden Themen dunkel, der Text erbte
+  aber die Themenfarbe. Jetzt gibt es dafür ein eigenes Token.
+- Der dekorative Farbverlauf im Seitenhintergrund ist entfernt (Regelblatt 1:
+  keine Verläufe).
+
+### Hinweis zu den Schriften
+- Die drei Schriften werden **nicht** von einer fremden Seite geladen. Sind sie
+  auf dem Gerät vorhanden, greifen sie; sonst wird die Systemschrift benutzt.
+  Sollen sie überall gleich aussehen, müssen die Schriftdateien mit ausgeliefert
+  werden — das ist bewusst offen gelassen.
+
+### Noch offen
+- Der Seitenaufbau aus Regelblatt 5 (Sidebar 248 px und Kopf 76 px am Rechner,
+  Tabbar mit vier Einträgen am Handy) ist **nicht** umgesetzt. Bordbuch hat
+  weiterhin seine Reiterleiste.
+
+---
+
 ## 2.4.1 — 2026-09-13
 
 ### Behoben

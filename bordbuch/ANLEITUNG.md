@@ -307,6 +307,12 @@ Anfrage diese Köpfe und legt beim ersten Besuch automatisch ein Profil an:
 
 Groß- und Kleinschreibung spielt dabei keine Rolle.
 
+**Hell oder dunkel** wählst du oben rechts; dunkel ist voreingestellt, und die
+Wahl bleibt auf diesem Gerät. Die drei Schriften des Designsystems (Sora,
+Instrument Sans, JetBrains Mono) werden bewusst nicht von fremden Seiten
+geladen — sind sie auf dem Gerät vorhanden, greifen sie, sonst die
+Systemschrift.
+
 **Abmelden** steht oben rechts. Der Knopf führt zu
 `/outpost.goauthentik.io/sign_out` — die Sitzung liegt bei der Anmeldung davor,
 nicht in Bordbuch; Kekse hier zu löschen würde nichts bringen. Ein anderer Pfad

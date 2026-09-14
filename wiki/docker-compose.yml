@@ -1,0 +1,31 @@
+services:
+  wiki:
+    build: .
+    container_name: wiki
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      WIKI_ADMIN_GRUPPE: "${WIKI_ADMIN_GRUPPE:-wiki-admin}"
+      WIKI_ADMIN_NUTZER: "${WIKI_ADMIN_NUTZER:-}"
+    volumes:
+      - wiki_daten:/daten
+      - wiki_seiten:/seiten
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.services.wiki.loadbalancer.server.port=8080"
+      - "traefik.http.routers.wiki.rule=Host(`wiki.prolo.me`)"
+      - "traefik.http.routers.wiki.entrypoints=websecure"
+      - "traefik.http.routers.wiki.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.wiki.middlewares=authentik@file"
+      - "traefik.http.routers.wiki.service=wiki"
+
+volumes:
+  wiki_daten:
+  wiki_seiten:
+
+networks:
+  proxy:
+    external: true

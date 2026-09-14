@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Prolo Wiki</title>
+<style>
+/* ---------------------------------------------------------------
+   Farbtoken - Regelblatt Abschnitt 2. Keine Farbe ausserhalb.
+   --------------------------------------------------------------- */
+:root{
+  --bg:oklch(0.96 0.004 250);
+  --app:oklch(0.985 0.002 250);
+  --surface:#fff;
+  --chrome:oklch(0.995 0.001 250);
+  --line:oklch(0.92 0.004 250);
+  --line-soft:oklch(0.96 0.002 250);
+  --hover:oklch(0.96 0.003 250);
+
+  --ink:oklch(0.2 0.01 250);
+  --ink-2:oklch(0.3 0.01 250);
+  --ink-3:oklch(0.52 0.01 250);
+
+  --accent:oklch(0.52 0.17 262);
+  --accent-hover:oklch(0.45 0.17 262);
+  --accent-soft:oklch(0.94 0.02 262);
+  --accent-ink:oklch(0.38 0.13 262);
+  --bar:oklch(0.86 0.03 262);
+
+  --good:oklch(0.45 0.14 158);
+  --good-soft:oklch(0.97 0.01 158);
+  --warm-soft:oklch(0.94 0.01 60);
+  --warm-ink:oklch(0.45 0.08 60);
+
+  --feature:oklch(0.34 0.12 262);
+  --feature-ink:oklch(0.99 0.002 250);
+  --feature-ink-2:oklch(0.86 0.03 262);
+  --feature-line:oklch(0.46 0.11 262);
+  --feature-good:oklch(0.88 0.16 158);
+
+  --track:oklch(0.94 0.004 250);
+  --shadow:0 24px 60px -20px oklch(0.4 0.03 250 / 0.22);
+}
+body[data-theme="dark"]{
+  --bg:oklch(0.16 0.012 258); --app:oklch(0.2 0.012 258);
+  --surface:oklch(0.235 0.013 258); --chrome:oklch(0.205 0.012 258);
+  --line:oklch(0.31 0.014 258); --line-soft:oklch(0.27 0.012 258); --hover:oklch(0.27 0.013 258);
+  --ink:oklch(0.96 0.004 250); --ink-2:oklch(0.87 0.006 250); --ink-3:oklch(0.69 0.01 250);
+  --accent:oklch(0.62 0.16 262); --accent-hover:oklch(0.69 0.16 262);
+  --accent-soft:oklch(0.33 0.06 262); --accent-ink:oklch(0.85 0.09 262); --bar:oklch(0.38 0.06 262);
+  --good:oklch(0.8 0.14 158); --good-soft:oklch(0.29 0.05 158);
+  --warm-soft:oklch(0.33 0.05 60); --warm-ink:oklch(0.86 0.08 60);
+  --feature:oklch(0.31 0.07 262); --feature-ink:oklch(0.97 0.004 250); --feature-ink-2:oklch(0.8 0.02 250);
+  --feature-line:oklch(0.42 0.05 262); --feature-good:oklch(0.85 0.15 158);
+  --track:oklch(0.3 0.014 258);
+  --shadow:0 24px 60px -20px oklch(0.05 0 0 / 0.6);
+}
+
+/* Schriften liegen unter /opt/stack/wiki/schriften/ als woff2.
+   Fehlen sie, greift der Fallback - kein CDN, keine externen Quellen. */
+@font-face{font-family:'Sora';src:url('/schriften/sora-600.woff2') format('woff2');
+  font-weight:600;font-display:swap}
+@font-face{font-family:'Instrument Sans';src:url('/schriften/instrument-400.woff2') format('woff2');
+  font-weight:400;font-display:swap}
+@font-face{font-family:'Instrument Sans';src:url('/schriften/instrument-600.woff2') format('woff2');
+  font-weight:600;font-display:swap}
+@font-face{font-family:'JetBrains Mono';src:url('/schriften/jetbrains-400.woff2') format('woff2');
+  font-weight:400;font-display:swap}
+
+*{box-sizing:border-box}
+/* Muss vor allen display-Regeln stehen: eine ID- oder Klassenregel mit
+   display schlaegt sonst das hidden-Attribut, und ein verstecktes
+   Element bleibt sichtbar. */
+[hidden]{display:none!important}
+html,body{margin:0;padding:0;height:100%}
+body{
+  background:var(--bg); color:var(--ink-2);
+  font-family:'Instrument Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  font-size:14px; line-height:1.55; -webkit-font-smoothing:antialiased;
+}
+.sora{font-family:'Sora','Instrument Sans',system-ui,sans-serif;font-weight:600;
+  letter-spacing:-0.02em;color:var(--ink)}
+.mono{font-family:'JetBrains Mono',ui-monospace,Consolas,monospace}
+.label{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;
+  letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-3)}
+
+/* Pflichtblock Regelblatt 8.1 */
+button:focus-visible, a:focus-visible, input:focus-visible,
+select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible{
+  outline:2px solid var(--accent); outline-offset:2px;
+}
+@media (prefers-reduced-motion:reduce){ *{transition:none!important; animation:none!important} }
+
+[data-noscroll]{scrollbar-width:none}
+[data-noscroll]::-webkit-scrollbar{width:0;height:0}
+
+/* ------------------------------------------------ Grundgeruest */
+.app{display:flex;height:100%;background:var(--app)}
+
+#seitenleiste{
+  width:248px;flex:0 0 248px;background:var(--chrome);
+  border-right:1px solid var(--line);display:flex;flex-direction:column;height:100%;
+}
+.marke{display:flex;align-items:center;gap:10px;padding:18px 16px 14px;width:100%;
+  border:0;background:transparent;font:inherit;cursor:pointer;text-align:left}
+.marke:hover .wortmarke{color:var(--accent)}
+/* #fff auf --accent ist die eine erlaubte Ausnahme (Regelblatt 1). */
+.marke .kachel{width:30px;height:30px;border-radius:8px;background:var(--accent);
+  display:grid;place-items:center;color:#fff;font-family:'Sora',sans-serif;
+  font-weight:600;font-size:15px;flex:0 0 30px}
+.navi{padding:0 8px 8px;border-bottom:1px solid var(--line)}
+.baum{flex:1;overflow-y:auto;padding:8px 8px 20px}
+.baum .gruppe{margin-top:12px}
+.knoten{display:flex;align-items:center;gap:6px;width:100%;min-height:34px;
+  padding:4px 8px;border:0;background:transparent;color:var(--ink-3);
+  font:inherit;font-size:11px;font-family:'JetBrains Mono',monospace;
+  letter-spacing:0.06em;text-transform:uppercase;cursor:pointer;text-align:left;
+  border-radius:8px}
+.knoten:hover{background:var(--hover);color:var(--ink-2)}
+.knoten .pfeil{transition:transform .15s;flex:0 0 10px}
+.knoten[aria-expanded="false"] .pfeil{transform:rotate(-90deg)}
+.blatt{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;
+  padding:6px 10px 6px 12px;border:0;border-left:3px solid transparent;
+  background:transparent;color:var(--ink-2);font:inherit;font-size:13.5px;
+  cursor:pointer;text-align:left;border-radius:0 8px 8px 0}
+.blatt:hover{background:var(--hover);color:var(--ink)}
+.blatt[aria-current="true"]{background:var(--accent-soft);color:var(--accent-ink);
+  border-left-color:var(--accent);font-weight:600}
+.leiste-fuss{border-top:1px solid var(--line);padding:8px}
+.leiste-fuss .blatt, .navi .blatt{border-radius:8px;padding-left:12px}
+
+#hauptteil{flex:1;min-width:0;display:flex;flex-direction:column;height:100%}
+header{height:76px;flex:0 0 76px;background:var(--chrome);
+  border-bottom:1px solid var(--line);display:flex;align-items:center;
+  gap:14px;padding:0 24px}
+#inhalt{flex:1;min-height:0;position:relative;background:var(--app)}
+#rahmen{width:100%;height:100%;border:0;display:block;background:var(--app)}
+
+/* ------------------------------------------------ Bausteine */
+.karte{padding:18px;border-radius:14px;background:var(--surface);
+  border:1px solid var(--line)}
+.karte h3{margin:0;font-family:'Sora',sans-serif;font-size:15px;font-weight:600;
+  color:var(--ink);letter-spacing:-0.01em}
+.karte .kontext{margin-top:2px;font-size:12px;color:var(--ink-3)}
+
+.knopf{display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  height:38px;min-width:44px;padding:0 15px;border-radius:10px;border:0;
+  background:var(--accent);color:#fff;font:inherit;font-weight:600;font-size:13px;
+  cursor:pointer}
+.knopf:hover{background:var(--accent-hover)}
+.knopf[disabled]{opacity:.5;cursor:not-allowed}
+.knopf.rahmen{background:transparent;color:var(--ink-2);border:1px solid var(--line)}
+.knopf.rahmen:hover{background:var(--hover);color:var(--ink)}
+.knopf.still{background:transparent;color:var(--ink-3);border:0}
+.knopf.still:hover{background:var(--hover);color:var(--ink)}
+
+.marke-badge{display:inline-block;padding:2px 7px;border-radius:5px;font-size:11px;
+  font-weight:600;background:var(--accent-soft);color:var(--accent-ink)}
+.marke-badge.warm{background:var(--warm-soft);color:var(--warm-ink)}
+.marke-badge.gut{background:var(--good-soft);color:var(--good)}
+
+input[type=text],input[type=search],input:not([type]),select,textarea{
+  width:100%;height:38px;padding:0 12px;border-radius:10px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  font:inherit;font-size:13.5px}
+textarea{height:auto;padding:10px 12px;min-height:76px;line-height:1.5}
+
+/* ------------------------------------------------ Suche */
+#suchfeld-huelle{position:relative;flex:1;max-width:460px}
+#suchfeld{padding-left:36px}
+#suchfeld-huelle .lupe{position:absolute;left:12px;top:50%;transform:translateY(-50%);
+  color:var(--ink-3);pointer-events:none;display:flex}
+#suchfeld-huelle kbd{position:absolute;right:10px;top:50%;transform:translateY(-50%);
+  font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink-3);
+  border:1px solid var(--line);border-radius:5px;padding:1px 5px;pointer-events:none}
+
+#treffer{position:absolute;z-index:40;top:calc(100% + 8px);left:0;right:0;
+  max-height:min(70vh,560px);overflow-y:auto;background:var(--surface);
+  border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);
+  padding:6px;display:none}
+#treffer[data-offen="1"]{display:block}
+.treffer-zeile{display:block;width:100%;text-align:left;border:0;background:transparent;
+  font:inherit;color:var(--ink-2);padding:10px 12px;border-radius:10px;cursor:pointer;
+  min-height:44px}
+.treffer-zeile:hover,.treffer-zeile[data-aktiv="1"]{background:var(--hover)}
+.treffer-zeile .kopf{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.treffer-zeile .titel{font-family:'Sora',sans-serif;font-weight:600;font-size:14px;
+  color:var(--ink)}
+.treffer-zeile .weg{font-size:11px;font-family:'JetBrains Mono',monospace;
+  color:var(--ink-3)}
+.treffer-zeile .aus{font-size:12.5px;color:var(--ink-3);margin-top:3px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;padding:0 2px}
+
+/* ------------------------------------------------ Startseite und Verwaltung */
+.flaeche{height:100%;overflow-y:auto;padding:28px 32px 60px}
+/* Regelblatt 6: sonst zieht sich auf breiten Schirmen alles auseinander. */
+.mitte{max-width:1280px;margin:0 auto}
+.raster{display:grid;gap:16px}
+.hero{border-radius:14px;padding:22px;background:var(--feature);color:var(--feature-ink)}
+.hero .zahl{font-family:'Sora',sans-serif;font-weight:600;font-size:36px;
+  letter-spacing:-0.02em;line-height:1.1}
+.tabelle{width:100%;border-collapse:collapse}
+.tabelle th{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.06em;
+  text-transform:uppercase;color:var(--ink-3);text-align:left;font-weight:400;
+  padding:8px 10px;border-bottom:1px solid var(--line)}
+.tabelle td{font-size:13px;color:var(--ink-2);padding:10px;
+  border-bottom:1px solid var(--line-soft)}
+.tabelle tr:hover td{background:var(--hover)}
+.meldung{border-radius:10px;padding:12px 14px;font-size:13px;margin-bottom:10px;
+  border:1px solid var(--line);background:var(--surface)}
+.meldung.fehler{border-color:var(--accent);background:var(--accent-soft);
+  color:var(--accent-ink)}
+.meldung.warn{border-color:var(--warm-ink);background:var(--warm-soft);color:var(--warm-ink)}
+.meldung.gut{border-color:var(--good);background:var(--good-soft);color:var(--good)}
+.ablage{border:2px dashed var(--line);border-radius:14px;padding:28px;text-align:center;
+  background:var(--surface)}
+.ablage[data-ueber="1"]{border-color:var(--accent);background:var(--accent-soft)}
+
+#einblendung{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);
+  z-index:90;background:var(--ink);color:var(--surface);padding:10px 16px;
+  border-radius:10px;font-size:13px;box-shadow:var(--shadow);display:none}
+#einblendung[data-offen="1"]{display:block}
+
+#menue-knopf{display:none}
+
+/* ------------------------------------------------ Handy */
+@media (max-width:860px){
+  #seitenleiste{position:fixed;z-index:60;left:0;top:0;bottom:0;
+    transform:translateX(-100%);transition:transform .18s;box-shadow:var(--shadow)}
+  body[data-menue="1"] #seitenleiste{transform:none}
+  #menue-knopf{display:inline-flex}
+  header{height:auto;flex:0 0 auto;padding:10px 16px;flex-wrap:wrap;
+    gap:8px;padding-top:max(10px,env(safe-area-inset-top))}
+  #suchfeld-huelle{max-width:none;flex:1 1 100%;order:3}
+  #suchfeld-huelle kbd{display:none}
+  .flaeche{padding:18px 20px calc(40px + env(safe-area-inset-bottom))}
+  .knopf{height:44px}
+  #kopftitel{font-size:16px}
+}
+@media (max-width:432px){
+  .marke .wortmarke{font-size:14px}
+  #treffer{position:fixed;left:8px;right:8px;top:auto}
+}
+</style>
+</head>
+<body data-theme="dark">
+
+<div class="app">
+
+  <!-- ------------------------------------------------ Seitenleiste -->
+  <aside id="seitenleiste" aria-label="Themen">
+    <button class="marke" id="logo" title="Zur Übersicht">
+      <div class="kachel" aria-hidden="true">W</div>
+      <div style="min-width:0;text-align:left">
+        <div class="sora wortmarke" style="font-size:14px;line-height:1.2">Wiki</div>
+        <div class="label" style="line-height:1.4">Wissenssammlung</div>
+      </div>
+    </button>
+    <nav class="navi" aria-label="Hauptnavigation">
+      <button class="blatt" id="start-knopf">Übersicht</button>
+      <button class="blatt" id="verwaltung-knopf" hidden>Verwaltung</button>
+    </nav>
+    <nav class="baum" id="baum" data-noscroll aria-label="Themenbaum"></nav>
+    <div class="leiste-fuss">
+      <button class="blatt" id="einstellungen-knopf">Einstellungen</button>
+    </div>
+  </aside>
+
+  <!-- ------------------------------------------------ Hauptteil -->
+  <div id="hauptteil">
+    <header>
+      <button class="knopf rahmen" id="menue-knopf" aria-label="Themen anzeigen"
+              aria-expanded="false">Themen</button>
+
+      <div style="min-width:0;flex:0 1 auto">
+        <div class="sora" id="kopftitel" style="font-size:20px;line-height:1.2">Übersicht</div>
+        <div class="label" id="kopfkontext">Wissenssammlung</div>
+      </div>
+
+      <div id="suchfeld-huelle">
+        <span class="lupe" aria-hidden="true">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        </span>
+        <label for="suchfeld" class="label" style="position:absolute;left:-9999px">Suche</label>
+        <input type="search" id="suchfeld" placeholder="Suchen …" autocomplete="off"
+               role="combobox" aria-expanded="false" aria-controls="treffer">
+        <kbd>/</kbd>
+        <div id="treffer" role="listbox" aria-label="Suchergebnisse"></div>
+      </div>
+
+      <div style="margin-left:auto">
+        <button class="knopf still" id="konto-knopf"
+                style="font-weight:600;color:var(--ink)">…</button>
+      </div>
+    </header>
+
+    <div id="vorschau-leiste" hidden
+         style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+                padding:10px 24px;background:var(--warm-soft);
+                border-bottom:1px solid var(--line)">
+      <span style="font-size:13px;font-weight:600;color:var(--warm-ink)">Vorschau</span>
+      <span style="font-size:12.5px;color:var(--warm-ink)" id="vorschau-text">
+        Noch nicht übernommen.</span>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="knopf rahmen" id="vorschau-zurueck">Zurück</button>
+        <button class="knopf" id="vorschau-uebernehmen">Übernehmen</button>
+      </div>
+    </div>
+
+    <main id="inhalt">
+      <iframe id="rahmen" title="Wiki-Seite" hidden
+              sandbox="allow-scripts allow-same-origin allow-popups allow-downloads"></iframe>
+      <div class="flaeche" id="flaeche" data-noscroll></div>
+    </main>
+  </div>
+</div>
+
+<div id="einblendung" role="status" aria-live="polite"></div>
+
+<script>
+/* ==================================================================
+   Prolo Wiki - Shell
+   Zustaendig fuer Baum, Suche, Navigation und Verwaltung.
+   Die Inhaltsseiten laufen im iframe und bringen ihr eigenes
+   Verhalten mit.
+   ================================================================== */
+const $ = (id) => document.getElementById(id);
+const ZUSTAND = {ich:null, baum:[], slug:null, treffer:[], aktiv:-1, seiten:{}};
+
+/* ---------------------------------------------------- Kleinkram */
+function einblenden(text, dauer=2600){
+  const e = $('einblendung'); e.textContent = text; e.dataset.offen = '1';
+  clearTimeout(e._t); e._t = setTimeout(()=>{ e.dataset.offen='0'; }, dauer);
+}
+function schuetzen(s){
+  return String(s??'').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function zahl(n){ return new Intl.NumberFormat('de-DE').format(n); }
+function bytes(b){
+  if(b >= 1048576) return new Intl.NumberFormat('de-DE',{maximumFractionDigits:1})
+    .format(b/1048576) + ' MB';
+  if(b >= 1024) return zahl(Math.round(b/1024)) + ' kB';
+  return zahl(b) + ' B';
+}
+function datum(s){
+  if(!s) return '';
+  const t = String(s).slice(0,10).split('-');
+  return t.length === 3 ? `${t[2]}.${t[1]}.${t[0]}` : s;
+}
+async function hole(pfad, einst){
+  const a = await fetch(pfad, Object.assign({credentials:'same-origin'}, einst||{}));
+  let d = null;
+  try { d = await a.json(); } catch(e) { d = null; }
+  if(!a.ok){
+    const m = (d && d.fehler) || 'Der Server hat nicht geantwortet. Bitte erneut versuchen.';
+    throw new Error(m);
+  }
+  return d;
+}
+
+/* ---------------------------------------------------- Thema
+   Drei Zustaende: System folgt prefers-color-scheme, Hell und Dunkel sind
+   fest. Die Wahl liegt in der Datenbank, damit sie auf jedem Geraet gilt;
+   localStorage ist nur der Zwischenspeicher fuer den ersten Bildaufbau. */
+const SYSTEM_DUNKEL = window.matchMedia
+  ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+
+function themaAnwenden(wahl){
+  ZUSTAND.thema = wahl || 'system';
+  const dunkel = ZUSTAND.thema === 'dunkel' ||
+    (ZUSTAND.thema === 'system' && (!SYSTEM_DUNKEL || SYSTEM_DUNKEL.matches));
+  document.body.dataset.theme = dunkel ? 'dark' : 'light';
+  try { localStorage.setItem('wiki-thema', ZUSTAND.thema); } catch(e){}
+  rahmenThema();
+}
+async function themaWaehlen(wahl){
+  themaAnwenden(wahl);
+  try { await hole('/api/einstellungen', {method:'POST',
+    body:JSON.stringify({thema: wahl})}); }
+  catch(e){ einblenden('Die Wahl konnte nicht gespeichert werden: ' + e.message); }
+}
+if(SYSTEM_DUNKEL && SYSTEM_DUNKEL.addEventListener)
+  SYSTEM_DUNKEL.addEventListener('change', () => {
+    if(ZUSTAND.thema === 'system') themaAnwenden('system');
+  });
+function rahmenThema(){
+  const f = $('rahmen');
+  if(f && f.contentWindow && !f.hidden){
+    try { f.contentWindow.postMessage(
+      {typ:'wiki-thema', thema:document.body.dataset.theme}, location.origin); } catch(e){}
+  }
+}
+
+
+/* ---------------------------------------------------- Baum */
+function baumZeichnen(){
+  const ziel = $('baum'); ziel.innerHTML = '';
+  const zustandAuf = JSON.parse(localStorage.getItem('wiki-auf') || '{}');
+
+  function knoten(k, tiefe, weg){
+    const huelle = document.createElement('div');
+    huelle.className = tiefe === 0 ? 'gruppe' : '';
+    const id = weg.join('/');
+    const offen = zustandAuf[id] !== false;
+
+    const kopf = document.createElement('button');
+    kopf.className = 'knoten';
+    kopf.style.paddingLeft = (8 + tiefe*10) + 'px';
+    kopf.setAttribute('aria-expanded', String(offen));
+    kopf.innerHTML = `<svg class="pfeil" width="10" height="10" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true">
+      <path d="M6 9l6 6 6-6"/></svg><span>${schuetzen(k.name)}</span>`;
+    huelle.appendChild(kopf);
+
+    const kinder = document.createElement('div');
+    kinder.hidden = !offen;
+    kopf.onclick = () => {
+      const neu = kinder.hidden;
+      kinder.hidden = !neu;
+      kopf.setAttribute('aria-expanded', String(neu));
+      zustandAuf[id] = neu;
+      localStorage.setItem('wiki-auf', JSON.stringify(zustandAuf));
+    };
+
+    (k.kinder||[]).forEach(x => kinder.appendChild(knoten(x, tiefe+1, weg.concat(x.name))));
+    (k.seiten||[]).forEach(s => {
+      ZUSTAND.seiten[s.slug] = s;
+      const b = document.createElement('button');
+      b.className = 'blatt';
+      b.style.paddingLeft = (14 + tiefe*10) + 'px';
+      b.dataset.slug = s.slug;
+      b.innerHTML = `<span style="flex:1;min-width:0">${schuetzen(s.titel)}</span>` +
+        (s.geschuetzt ? `<span class="marke-badge" title="Nur für bestimmte Gruppen">frei&shy;gabe</span>` : '');
+      b.onclick = () => oeffnen(s.slug);
+      kinder.appendChild(b);
+    });
+    huelle.appendChild(kinder);
+    return huelle;
+  }
+
+  if(!ZUSTAND.baum.length){
+    ziel.innerHTML = `<div style="padding:14px 10px;font-size:13px;color:var(--ink-3)">
+      Noch keine Seite eingespielt.</div>`;
+    return;
+  }
+  ZUSTAND.baum.forEach(k => ziel.appendChild(knoten(k, 0, [k.name])));
+  markieren();
+}
+function markieren(){
+  document.querySelectorAll('.baum .blatt').forEach(b =>
+    b.setAttribute('aria-current', String(b.dataset.slug === ZUSTAND.slug)));
+  const soll = {'start-knopf':'start', 'verwaltung-knopf':'verwaltung',
+                'einstellungen-knopf':'einstellungen'};
+  Object.keys(soll).forEach(id =>
+    $(id).setAttribute('aria-current', String(ZUSTAND.ansicht === soll[id])));
+}
+
+/* ---------------------------------------------------- Navigation */
+function wegSetzen(slug, anker, begriff){
+  let h = '#/' + (slug || '');
+  if(anker) h += '/' + anker;
+  if(begriff) h += '?q=' + encodeURIComponent(begriff);
+  if(location.hash !== h) history.pushState(null, '', h);
+}
+async function oeffnen(slug, anker, begriff, ohneWeg){
+  ZUSTAND.ansicht = 'seite';
+  if(!slug) return start();
+  $('vorschau-leiste').hidden = true;
+  let daten;
+  try { daten = await hole('/api/seite/' + encodeURIComponent(slug)); }
+  catch(e){ einblenden(e.message); return; }
+
+  ZUSTAND.slug = slug;
+  if(!ohneWeg) wegSetzen(slug, anker, begriff);
+  $('kopftitel').textContent = daten.titel;
+  $('kopfkontext').textContent = (daten.pfad||[]).join(' › ') +
+    (daten.stand ? '  ·  Stand ' + datum(daten.stand) : '');
+  document.title = daten.titel + ' — Prolo Wiki';
+
+  const f = $('rahmen');
+  $('flaeche').hidden = true;
+  f.hidden = false;
+  const ziel = '/seite/' + encodeURIComponent(slug) + '/' + (anker ? '#' + anker : '');
+  f._auftrag = {anker, begriff};
+  if(f.getAttribute('src') !== ziel){ f.setAttribute('src', ziel); }
+  else { springen(anker, begriff); }
+  markieren();
+  menueZu();
+}
+function springen(anker, begriff){
+  const f = $('rahmen');
+  try {
+    f.contentWindow.postMessage({typ:'wiki-springen', anker:anker||'', begriff:begriff||'',
+      thema:document.body.dataset.theme}, location.origin);
+  } catch(e){}
+}
+$('rahmen').addEventListener('load', () => {
+  const a = $('rahmen')._auftrag || {};
+  rahmenThema();
+  springen(a.anker, a.begriff);
+});
+window.addEventListener('message', (e) => {
+  if(e.origin !== location.origin || !e.data || typeof e.data !== 'object') return;
+  if(e.data.typ === 'wiki-bereit') springen(($('rahmen')._auftrag||{}).anker,
+                                            ($('rahmen')._auftrag||{}).begriff);
+  if(e.data.typ === 'wiki-oeffnen' && e.data.slug) oeffnen(e.data.slug, e.data.anker);
+});
+window.addEventListener('popstate', () => wegLesen(true));
+
+function wegLesen(ohneWeg){
+  const h = location.hash.replace(/^#\/?/, '');
+  if(!h) return start();
+  const [weg, frage] = h.split('?');
+  const teile = weg.split('/').filter(Boolean);
+  const q = new URLSearchParams(frage||'').get('q') || '';
+  if(!teile.length) return start();
+  if(teile[0] === 'einstellungen') return einstellungen();
+  if(teile[0] === 'verwaltung') return verwaltung();
+  oeffnen(teile[0], teile[1], q, ohneWeg);
+}
+
+/* ---------------------------------------------------- Suche */
+let suchZeit = null, letzteSuche = '';
+$('suchfeld').addEventListener('input', () => {
+  const q = $('suchfeld').value.trim();
+  clearTimeout(suchZeit);
+  if(q.length < 2){ trefferSchliessen(); return; }
+  suchZeit = setTimeout(() => suchen(q), 130);
+});
+$('suchfeld').addEventListener('keydown', (e) => {
+  const n = ZUSTAND.treffer.length;
+  if(e.key === 'ArrowDown' && n){ e.preventDefault(); aktivSetzen(Math.min(ZUSTAND.aktiv+1, n-1)); }
+  else if(e.key === 'ArrowUp' && n){ e.preventDefault(); aktivSetzen(Math.max(ZUSTAND.aktiv-1, 0)); }
+  else if(e.key === 'Enter' && ZUSTAND.aktiv >= 0){ e.preventDefault(); trefferWaehlen(ZUSTAND.aktiv); }
+  else if(e.key === 'Escape'){ trefferSchliessen(); $('suchfeld').blur(); }
+});
+document.addEventListener('keydown', (e) => {
+  if(e.key === '/' && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)){
+    e.preventDefault(); $('suchfeld').focus(); $('suchfeld').select();
+  }
+});
+document.addEventListener('click', (e) => {
+  if(!$('suchfeld-huelle').contains(e.target)) trefferSchliessen();
+});
+
+async function suchen(q){
+  letzteSuche = q;
+  let d;
+  try { d = await hole('/api/suche?q=' + encodeURIComponent(q)); }
+  catch(err){ einblenden(err.message); return; }
+  if(letzteSuche !== q) return;
+  ZUSTAND.treffer = d.treffer || [];
+  ZUSTAND.aktiv = ZUSTAND.treffer.length ? 0 : -1;
+  ZUSTAND.statt = d.statt || null;
+  trefferZeichnen(d.statt || q, d.dauer_ms, d.statt ? q : null);
+}
+function hervorheben(text, q){
+  const roh = schuetzen(text);
+  const worte = q.split(/\s+/).filter(w => w.length > 1)
+    .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if(!worte.length) return roh;
+  return roh.replace(new RegExp('(' + worte.join('|') + ')', 'gi'), '<mark>$1</mark>');
+}
+function trefferZeichnen(q, ms, statt){
+  const ziel = $('treffer');
+  const korrektur = statt
+    ? `<div style="padding:8px 12px;font-size:12.5px;color:var(--ink-3);
+         border-bottom:1px solid var(--line-soft)">Nichts zu
+         <span class="mono">${schuetzen(statt)}</span> — Treffer für
+         <strong style="color:var(--ink)">${schuetzen(q)}</strong></div>`
+    : '';
+  if(!ZUSTAND.treffer.length){
+    ziel.innerHTML = `<div style="padding:16px 14px;font-size:13px;color:var(--ink-3)">
+      Nichts gefunden zu <strong style="color:var(--ink)">${schuetzen(q)}</strong>.<br>
+      Versuch es mit einem kürzeren Wortteil.</div>`;
+  } else {
+    ziel.innerHTML = korrektur + ZUSTAND.treffer.map((t, i) => {
+      const wo = (t.pfad||[]).concat([t.seitentitel]).join(' › ');
+      const marke = t.art === 'anhang'
+        ? `<span class="marke-badge warm">${schuetzen(t.anhang)} S.&nbsp;${t.seitennr}</span>` : '';
+      return `<button class="treffer-zeile" role="option" data-i="${i}"
+        ${i === ZUSTAND.aktiv ? 'data-aktiv="1" aria-selected="true"' : 'aria-selected="false"'}>
+        <span class="kopf"><span class="titel">${hervorheben(t.titel, q)}</span>${marke}</span>
+        <span class="weg">${schuetzen(wo)}</span>
+        <span class="aus">${hervorheben(t.schnipsel, q)}</span>
+      </button>`;
+    }).join('') + `<div class="label" style="padding:8px 12px 4px">
+      ${zahl(ZUSTAND.treffer.length)} Treffer · ${String(ms).replace('.', ',')} ms</div>`;
+    ziel.querySelectorAll('.treffer-zeile').forEach(b =>
+      b.onclick = () => trefferWaehlen(+b.dataset.i));
+  }
+  ziel.dataset.offen = '1';
+  $('suchfeld').setAttribute('aria-expanded', 'true');
+}
+function aktivSetzen(i){
+  ZUSTAND.aktiv = i;
+  const ziel = $('treffer');
+  ziel.querySelectorAll('.treffer-zeile').forEach((b, j) => {
+    const an = (j === i);
+    b.dataset.aktiv = an ? '1' : '0';
+    b.setAttribute('aria-selected', String(an));
+    if(an) b.scrollIntoView({block:'nearest'});
+  });
+}
+function trefferWaehlen(i){
+  const t = ZUSTAND.treffer[i];
+  if(!t) return;
+  trefferSchliessen();
+  if(t.art === 'anhang'){
+    oeffnen(t.slug, '', letzteSuche);
+    einblenden(`Der Treffer steht in ${t.anhang}, Seite ${t.seitennr}.`);
+  } else {
+    oeffnen(t.slug, t.anker, letzteSuche);
+  }
+}
+function trefferSchliessen(){
+  $('treffer').dataset.offen = '0';
+  $('suchfeld').setAttribute('aria-expanded', 'false');
+  ZUSTAND.aktiv = -1;
+}
+
+/* ---------------------------------------------------- Startseite */
+async function start(){
+  ZUSTAND.ansicht = 'start'; ZUSTAND.slug = null;
+  $('vorschau-leiste').hidden = true;
+  history.replaceState(null, '', '#/');
+  $('rahmen').hidden = true; $('rahmen').removeAttribute('src');
+  $('flaeche').hidden = false;
+  $('kopftitel').textContent = 'Übersicht';
+  $('kopfkontext').textContent = 'Wissenssammlung';
+  document.title = 'Prolo Wiki';
+  markieren();
+
+  let d;
+  try { d = await hole('/api/baum'); } catch(e){ $('flaeche').innerHTML =
+    `<div class="meldung fehler">${schuetzen(e.message)}</div>`; return; }
+
+  const themen = d.baum.map(k => {
+    const n = zaehlen(k);
+    return `<button class="karte" data-thema="${schuetzen(k.name)}"
+      style="text-align:left;cursor:pointer;font:inherit">
+      <h3>${schuetzen(k.name)}</h3>
+      <div class="kontext">${zahl(n)} ${n === 1 ? 'Seite' : 'Seiten'}</div>
+    </button>`;
+  }).join('');
+
+  const zuletzt = (d.zuletzt||[]).map(z =>
+    `<button class="treffer-zeile" data-slug="${schuetzen(z.slug)}">
+       <span class="titel">${schuetzen(z.titel)}</span>
+       <span class="weg">${datum(z.gesehen)}</span></button>`).join('')
+    || `<div style="font-size:13px;color:var(--ink-3)">Noch nichts gelesen.</div>`;
+
+  const marken = (d.lesezeichen||[]).map(m =>
+    `<button class="treffer-zeile" data-slug="${schuetzen(m.slug)}"
+       data-anker="${schuetzen(m.anker)}">
+       <span class="titel">${schuetzen(m.titel || m.slug)}</span></button>`).join('')
+    || `<div style="font-size:13px;color:var(--ink-3)">Keine Merkzettel gesetzt.</div>`;
+
+  $('flaeche').innerHTML = `
+    <div class="raster mitte">
+      <div class="hero">
+        <div class="label" style="color:var(--feature-ink)">Wissenssammlung</div>
+        <div class="zahl">${zahl(d.anzahl)}</div>
+        <div style="font-size:13px;color:var(--feature-ink-2)">
+          ${d.anzahl === 1 ? 'Seite steht dir offen' : 'Seiten stehen dir offen'} ·
+          Tippe <span class="mono">/</span> für die Suche</div>
+      </div>
+      <div>
+        <div class="label" style="margin-bottom:8px">Themen</div>
+        <div class="raster" style="grid-template-columns:repeat(auto-fill,minmax(210px,1fr))">
+          ${themen || '<div class="karte"><h3>Noch leer</h3><div class="kontext">Spiel über die Verwaltung die erste Seite ein.</div></div>'}
+        </div>
+      </div>
+      <div class="raster" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
+        <div class="karte"><h3>Zuletzt gelesen</h3>
+          <div style="margin-top:10px">${zuletzt}</div></div>
+        <div class="karte"><h3>Merkzettel</h3>
+          <div style="margin-top:10px">${marken}</div></div>
+      </div>
+    </div>`;
+
+  $('flaeche').querySelectorAll('[data-slug]').forEach(b =>
+    b.onclick = () => oeffnen(b.dataset.slug, b.dataset.anker || ''));
+  $('flaeche').querySelectorAll('[data-thema]').forEach(b =>
+    b.onclick = () => { $('suchfeld').focus(); });
+}
+function zaehlen(k){
+  return (k.seiten||[]).length + (k.kinder||[]).reduce((s,x) => s + zaehlen(x), 0);
+}
+
+/* ---------------------------------------------------- Einstellungen
+   Aufbau nach Regelblatt 6a: Darstellung, Tool-Einstellungen, Konto. */
+async function einstellungen(){
+  $('vorschau-leiste').hidden = true;
+  ZUSTAND.ansicht = 'einstellungen'; ZUSTAND.slug = null;
+  markieren(); menueZu();
+  $('rahmen').hidden = true; $('rahmen').removeAttribute('src');
+  $('flaeche').hidden = false;
+  $('kopftitel').textContent = 'Einstellungen';
+  $('kopfkontext').textContent = 'Darstellung und Konto';
+  document.title = 'Einstellungen — Wiki';
+
+  const ich = ZUSTAND.ich || {};
+  const e = ZUSTAND.einst || {};
+  const seg = (name, wahl, werte) => `
+    <div role="group" aria-label="${name}" style="display:inline-flex;gap:2px;padding:3px;
+         border-radius:10px;background:var(--track)">
+      ${werte.map(([w, t]) => `
+        <button class="segment" data-thema="${w}" aria-pressed="${w === wahl}"
+          style="min-height:32px;padding:0 14px;border:0;border-radius:8px;font:inherit;
+                 font-size:13px;font-weight:600;cursor:pointer;
+                 background:${w === wahl ? 'var(--surface)' : 'transparent'};
+                 color:${w === wahl ? 'var(--ink)' : 'var(--ink-3)'}">${t}</button>`).join('')}
+    </div>`;
+
+  const schalter = (schluessel, titel, erklaerung, an) => `
+    <div style="display:flex;gap:14px;align-items:flex-start;padding:12px 0;
+                border-bottom:1px solid var(--line-soft)">
+      <div style="flex:1;min-width:0">
+        <label for="s-${schluessel}" style="font-size:14px;font-weight:600;color:var(--ink);
+               display:block;cursor:pointer">${titel}</label>
+        <div style="font-size:12.5px;color:var(--ink-3);margin-top:2px">${erklaerung}</div>
+      </div>
+      <button class="schalter" id="s-${schluessel}" data-schluessel="${schluessel}"
+        role="switch" aria-checked="${an}"
+        style="flex:0 0 auto;width:52px;height:30px;border-radius:15px;border:1px solid var(--line);
+               cursor:pointer;position:relative;
+               background:${an ? 'var(--accent)' : 'var(--track)'}">
+        <span aria-hidden="true" style="position:absolute;top:3px;left:${an ? '25px' : '3px'};
+              width:22px;height:22px;border-radius:11px;background:var(--surface);
+              transition:left .15s"></span>
+      </button>
+    </div>`;
+
+  $('flaeche').innerHTML = `
+    <div class="raster mitte" style="max-width:760px">
+
+      <div class="karte">
+        <h3>Darstellung</h3>
+        <div class="kontext">Gilt für dein Konto, auch auf anderen Geräten.</div>
+        <div style="margin-top:14px">
+          ${seg('Thema', e.thema || 'system',
+                [['system','System'],['hell','Hell'],['dunkel','Dunkel']])}
+        </div>
+        <div style="font-size:12.5px;color:var(--ink-3);margin-top:10px">
+          <strong style="color:var(--ink-2)">System</strong> folgt der Einstellung
+          deines Geräts und wechselt mit.
+        </div>
+      </div>
+
+      <div class="karte">
+        <h3>Wiki-Einstellungen</h3>
+        <div class="kontext">Wie sich die Suche und der Einstieg verhalten.</div>
+        <div style="margin-top:6px">
+          ${schalter('pdf_treffer', 'Treffer aus PDF-Anhängen zeigen',
+            'Die Suche durchsucht auch angehängte PDFs und nennt die Seitenzahl. ' +
+            'Abschalten, wenn dir nur die Wiki-Seiten selbst wichtig sind.',
+            (e.pdf_treffer || '1') === '1')}
+          ${schalter('start', 'Zuletzt gelesene Seite öffnen',
+            'Statt der Übersicht landest du beim Start direkt in der Seite, ' +
+            'die du zuletzt offen hattest.',
+            (e.start || 'uebersicht') === 'zuletzt')}
+        </div>
+      </div>
+
+      <div class="karte">
+        <h3>Konto</h3>
+        <div class="kontext">Name, E-Mail und Gruppen werden zentral in Authentik
+          verwaltet und lassen sich hier nicht ändern.</div>
+        <table class="tabelle" style="margin-top:12px">
+          <tbody>
+            <tr><td style="width:130px;color:var(--ink-3)">Name</td>
+                <td>${schuetzen(ich.name || '')}</td></tr>
+            <tr><td style="color:var(--ink-3)">Anmeldename</td>
+                <td class="mono">${schuetzen(ich.kennung || '')}</td></tr>
+            <tr><td style="color:var(--ink-3)">E-Mail</td>
+                <td>${schuetzen(ich.email || '—')}</td></tr>
+            <tr><td style="color:var(--ink-3)">Gruppen</td>
+                <td>${(ich.gruppen || []).length
+                  ? ich.gruppen.map(g => `<span class="marke-badge">${schuetzen(g)}</span>`).join(' ')
+                  : '<span style="color:var(--ink-3)">keine</span>'}</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top:16px">
+          <a class="knopf" href="/outpost.goauthentik.io/sign_out"
+             style="text-decoration:none">Abmelden / neu laden</a>
+          <div style="font-size:12.5px;color:var(--ink-3);margin-top:8px">
+            Beendet die Anmeldung und lädt die Seite neu. Danach kann ein anderes
+            Konto verwendet werden.
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  $('flaeche').querySelectorAll('[data-thema]').forEach(b => b.onclick = async () => {
+    await themaWaehlen(b.dataset.thema);
+    ZUSTAND.einst.thema = b.dataset.thema;
+    einstellungen();
+  });
+  $('flaeche').querySelectorAll('[data-schluessel]').forEach(b => b.onclick = async () => {
+    const k = b.dataset.schluessel;
+    const an = b.getAttribute('aria-checked') === 'true';
+    const wert = (k === 'start') ? (an ? 'uebersicht' : 'zuletzt') : (an ? '0' : '1');
+    b.disabled = true;
+    try {
+      const a = await hole('/api/einstellungen', {method:'POST',
+        body:JSON.stringify({[k]: wert})});
+      ZUSTAND.einst = a.einstellungen;
+      einblenden('Gespeichert.');
+      einstellungen();
+    } catch(err){ b.disabled = false; einblenden(err.message); }
+  });
+}
+
+/* ---------------------------------------------------- Verwaltung */
+async function verwaltung(){
+  ZUSTAND.ansicht = 'verwaltung'; ZUSTAND.slug = null; markieren(); menueZu();
+  $('vorschau-leiste').hidden = true;
+  $('rahmen').hidden = true; $('rahmen').removeAttribute('src');
+  $('flaeche').hidden = false;
+  $('kopftitel').textContent = 'Verwaltung';
+  $('kopfkontext').textContent = 'Seiten einspielen und freigeben';
+
+  let d;
+  try { d = await hole('/api/verwaltung'); }
+  catch(e){ $('flaeche').innerHTML = `<div class="meldung fehler">${schuetzen(e.message)}</div>`; return; }
+
+  ZUSTAND.pfade = d.pfade || [];
+  const zeilen = d.seiten.map(s => `<tr>
+    <td><button class="knopf still" style="height:auto;padding:0" data-slug="${schuetzen(s.slug)}"
+        >${schuetzen(s.titel)}</button>
+      <div class="label">${schuetzen(s.pfad.join(' › '))}</div></td>
+    <td class="mono">${schuetzen(s.slug)}</td>
+    <td class="mono" style="text-align:right">${bytes(s.groesse_b)}</td>
+    <td class="mono" style="text-align:right">${s.fassung}</td>
+    <td>${s.gruppen.length
+      ? s.gruppen.map(g => `<span class="marke-badge">${schuetzen(g)}</span>`).join(' ')
+      : '<span style="color:var(--ink-3)">alle</span>'}</td>
+    <td>${s.hinweise.length
+      ? `<span class="marke-badge warm">${s.hinweise.length} Hinweise</span>`
+      : '<span class="marke-badge gut">sauber</span>'}</td>
+    <td style="text-align:right;white-space:nowrap">
+      <button class="knopf rahmen" data-fassungen="${schuetzen(s.slug)}"
+        style="height:32px;padding:0 10px">Fassungen</button>
+      <button class="knopf rahmen" data-loeschen="${schuetzen(s.slug)}"
+        style="height:32px;padding:0 10px;margin-left:6px">Löschen</button></td>
+  </tr>`).join('');
+
+  $('flaeche').innerHTML = `
+    <div class="raster mitte">
+      <div class="karte">
+        <h3>Seite einspielen</h3>
+        <div class="kontext">HTML-Datei mit Meta-Block. Sie wird erst geprüft,
+          dann kannst du sie ansehen und übernehmen.</div>
+        <div class="ablage" id="ablage" style="margin-top:14px">
+          <div style="font-size:13px;color:var(--ink-3)">Datei hierher ziehen</div>
+          <label for="datei" class="knopf" style="margin-top:12px">Datei auswählen</label>
+          <input type="file" id="datei" accept=".html,text/html"
+                 style="position:absolute;left:-9999px">
+        </div>
+        <div id="bericht" style="margin-top:14px"></div>
+      </div>
+
+      <div class="karte">
+        <h3>Eingespielte Seiten</h3>
+        <div class="kontext">${zahl(d.seiten.length)} insgesamt</div>
+        <div style="overflow-x:auto;margin-top:12px">
+          <table class="tabelle"><thead><tr>
+            <th>Titel</th><th>Kennung</th><th style="text-align:right">Größe</th>
+            <th style="text-align:right">Fassung</th><th>Freigabe</th><th>Prüfung</th><th></th>
+          </tr></thead><tbody>${zeilen ||
+            '<tr><td colspan="7" style="color:var(--ink-3)">Noch nichts eingespielt.</td></tr>'}
+          </tbody></table>
+        </div>
+      </div>
+
+      <div class="karte">
+        <h3>Freigabe für einen Themenzweig</h3>
+        <div class="kontext">Gilt für alles darunter. Leer lassen hebt die
+          Einschränkung auf. Die Gruppen selbst legst du in Authentik an.</div>
+        <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+          <div style="flex:1 1 220px">
+            <label class="label" for="zweig-pfad">Pfad</label>
+            <input type="text" id="zweig-pfad" placeholder="Technik/Netzwerke">
+          </div>
+          <div style="flex:1 1 220px">
+            <label class="label" for="zweig-gruppen">Gruppen, mit Komma</label>
+            <input type="text" id="zweig-gruppen" placeholder="wiki-technik">
+          </div>
+          <button class="knopf" id="zweig-knopf" style="align-self:flex-end">Setzen</button>
+        </div>
+        <div style="margin-top:12px">${d.zweige.map(z =>
+          `<div style="font-size:13px;padding:6px 0;border-bottom:1px solid var(--line-soft)">
+            <span class="mono">${schuetzen(z.pfad)}</span> →
+            ${z.gruppen.map(g => `<span class="marke-badge">${schuetzen(g)}</span>`).join(' ')}
+          </div>`).join('') ||
+          '<div style="font-size:13px;color:var(--ink-3)">Keine Zweig-Freigaben gesetzt.</div>'}
+        </div>
+      </div>
+    </div>`;
+
+  $('flaeche').querySelectorAll('[data-slug]').forEach(b =>
+    b.onclick = () => oeffnen(b.dataset.slug));
+  $('flaeche').querySelectorAll('[data-fassungen]').forEach(b =>
+    b.onclick = () => fassungen(b.dataset.fassungen));
+  $('flaeche').querySelectorAll('[data-loeschen]').forEach(b => b.onclick = async () => {
+    const slug = b.dataset.loeschen;
+    if(!confirm(`Seite "${slug}" aus dem Wiki nehmen?\n\n` +
+      `Die Datei bleibt auf dem Server liegen und lässt sich von Hand ` +
+      `zurückholen. Aus Baum und Suche verschwindet sie sofort.`)) return;
+    try {
+      await hole('/api/loeschen', {method:'POST',
+        body:JSON.stringify({slug, bestaetigt:true})});
+      einblenden(`"${slug}" entfernt.`);
+      await baumLaden(); verwaltung();
+    } catch(e){ einblenden(e.message); }
+  });
+  $('zweig-knopf').onclick = async () => {
+    const pfad = $('zweig-pfad').value.trim();
+    const gruppen = $('zweig-gruppen').value.split(',').map(s => s.trim()).filter(Boolean);
+    if(!pfad){ einblenden('Bitte den Pfad des Themenzweigs angeben.'); return; }
+    try {
+      await hole('/api/zweig', {method:'POST', body:JSON.stringify({pfad, gruppen})});
+      einblenden('Freigabe gesetzt.'); verwaltung();
+    } catch(e){ einblenden(e.message); }
+  };
+
+  const ablage = $('ablage'), datei = $('datei');
+  ['dragenter','dragover'].forEach(t => ablage.addEventListener(t, e => {
+    e.preventDefault(); ablage.dataset.ueber = '1'; }));
+  ['dragleave','drop'].forEach(t => ablage.addEventListener(t, e => {
+    e.preventDefault(); ablage.dataset.ueber = '0'; }));
+  ablage.addEventListener('drop', e => {
+    if(e.dataTransfer.files.length) pruefen(e.dataTransfer.files[0]); });
+  datei.onchange = () => { if(datei.files.length) pruefen(datei.files[0]); };
+}
+
+let letzteDatei = null;
+function felderAlsFrage(){
+  const f = $('feld-pfad');
+  if(f){   // Bericht sichtbar - Werte frisch aus den Feldern
+    ZUSTAND.felder = {pfad:f.value, titel:$('feld-titel').value,
+                      slug:$('feld-slug').value, gruppen:$('feld-gruppen').value};
+  }
+  const w = ZUSTAND.felder;
+  if(!w) return '';
+  return '?' + new URLSearchParams(w).toString();
+}
+async function pruefen(d){
+  ZUSTAND.felder = null;
+  letzteDatei = d;
+  const ziel = $('bericht');
+  ziel.innerHTML = `<div class="meldung">Wird geprüft …</div>`;
+  let b;
+  try {
+    b = await hole('/api/pruefen', {method:'POST', body:d,
+      headers:{'Content-Type':'text/html; charset=utf-8'}});
+  } catch(e){
+    ziel.innerHTML = `<div class="meldung fehler">${schuetzen(e.message)}</div>`; return;
+  }
+  berichtZeichnen(b);
+}
+function berichtZeichnen(b){
+  const ziel = $('bericht');
+  const m = b.meta || {};
+  const teile = [];
+
+  if(b.fehler.length){
+    teile.push(`<div class="meldung fehler"><strong>Nicht übernehmbar</strong><ul
+      style="margin:6px 0 0 18px;padding:0">${b.fehler.map(f =>
+      `<li>${schuetzen(f)}</li>`).join('')}</ul></div>`);
+  } else {
+    const gespart = b.groesse_vorher_b - b.groesse_nachher_b;
+    teile.push(`<div class="meldung gut"><strong>${schuetzen(m.titel||'')}</strong>
+      — ${b.neu ? 'neue Seite' : 'ersetzt Fassung ' + (b.fassung-1)},
+      ${zahl(b.abschnitte)} Abschnitte, ${bytes(b.groesse_nachher_b)}
+      ${gespart > 1024 ? `(${bytes(gespart)} ausgelagert)` : ''}</div>`);
+  }
+  if(b.anhaenge && b.anhaenge.length){
+    teile.push(`<div class="meldung"><strong>Anhänge</strong><ul
+      style="margin:6px 0 0 18px;padding:0">${b.anhaenge.map(a =>
+      `<li><span class="mono">${schuetzen(a.name)}</span> · ${bytes(a.groesse_b)}</li>`)
+      .join('')}</ul></div>`);
+  }
+  if(b.warnungen.length){
+    teile.push(`<div class="meldung warn"><strong>${b.warnungen.length}
+      ${b.warnungen.length === 1 ? 'Hinweis' : 'Hinweise'}</strong><ul
+      style="margin:6px 0 0 18px;padding:0">${b.warnungen.map(w =>
+      `<li>${schuetzen(w)}</li>`).join('')}</ul></div>`);
+  }
+  if(!b.fehler.length){
+    const pfade = (ZUSTAND.pfade || []).map(p =>
+      `<option value="${schuetzen(p)}"></option>`).join('');
+    teile.push(`
+      <div class="raster" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+                                 margin-top:14px">
+        <div>
+          <label class="label" for="feld-pfad">Wohin im Themenbaum</label>
+          <input type="text" id="feld-pfad" list="pfadliste"
+                 value="${schuetzen((m.pfad||[]).join(' / '))}"
+                 placeholder="Technik / Netzwerke">
+          <datalist id="pfadliste">${pfade}</datalist>
+        </div>
+        <div>
+          <label class="label" for="feld-titel">Titel</label>
+          <input type="text" id="feld-titel" value="${schuetzen(m.titel||'')}">
+        </div>
+        <div>
+          <label class="label" for="feld-slug">Kennung</label>
+          <input type="text" id="feld-slug" value="${schuetzen(m.slug||'')}">
+        </div>
+        <div>
+          <label class="label" for="feld-gruppen">Freigabe, leer = alle</label>
+          <input type="text" id="feld-gruppen" value="${schuetzen((m.gruppen||[]).join(', '))}"
+                 placeholder="wiki-technik">
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--ink-3);margin-top:6px">
+        Ebenen mit Schrägstrich trennen. Was hier steht, gilt — auch wenn in
+        der Datei etwas anderes eingetragen ist.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+        <button class="knopf" id="uebernehmen-knopf">Übernehmen</button>
+        <button class="knopf rahmen" id="vorschau-knopf">Vorschau ansehen</button>
+      </div>`);
+  }
+  ziel.innerHTML = teile.join('');
+
+  const vk = $('vorschau-knopf');
+  if(vk) vk.onclick = () => {
+    $('flaeche').hidden = true; $('rahmen').hidden = false;
+    $('rahmen')._auftrag = {};
+    $('rahmen').setAttribute('src', '/vorschau/');
+    $('kopftitel').textContent = 'Vorschau';
+    $('kopfkontext').textContent = (m.titel || '') + ' — noch nicht übernommen';
+    $('vorschau-text').textContent =
+      `${m.titel || ''} · ${b.neu ? 'neue Seite' : 'ersetzt Fassung ' + (b.fassung - 1)}`;
+    $('vorschau-leiste').hidden = false;
+  };
+  const uk = $('uebernehmen-knopf');
+  if(uk) uk.onclick = async () => {
+    uk.disabled = true; uk.textContent = 'Wird übernommen …';
+    try {
+      const a = await hole('/api/import' + felderAlsFrage(), {method:'POST',
+        body:letzteDatei, headers:{'Content-Type':'text/html; charset=utf-8'}});
+      einblenden(a.geaendert && a.geaendert.length
+        ? `Übernommen als Fassung ${a.fassung} (${a.geaendert.join(', ')} angepasst).`
+        : `Übernommen als Fassung ${a.fassung}.`);
+      await baumLaden(); verwaltung();
+    } catch(e){
+      uk.disabled = false; uk.textContent = 'Übernehmen';
+      einblenden(e.message);
+    }
+  };
+}
+
+async function fassungen(slug){
+  let d;
+  try { d = await hole('/api/fassungen/' + encodeURIComponent(slug)); }
+  catch(e){ einblenden(e.message); return; }
+  const z = d.fassungen.map(f => `<tr>
+    <td class="mono">${f.nummer}</td><td>${datum(f.datum)}</td>
+    <td class="mono">${schuetzen(f.nutzer_id)}</td>
+    <td class="mono" style="text-align:right">${bytes(f.groesse_b)}</td>
+    <td style="text-align:right"><button class="knopf rahmen" data-zurueck="${f.nummer}"
+      style="height:32px;padding:0 10px">Zurück auf diese</button></td></tr>`).join('');
+  $('flaeche').innerHTML = `<div class="raster mitte" style="max-width:760px">
+    <div class="karte"><h3>Fassungen von ${schuetzen(slug)}</h3>
+      <div class="kontext">Aktuell ist Fassung ${d.aktuell}.</div>
+      <div style="overflow-x:auto;margin-top:12px"><table class="tabelle"><thead><tr>
+        <th>Nr.</th><th>Datum</th><th>Von</th><th style="text-align:right">Größe</th><th></th>
+      </tr></thead><tbody>${z ||
+        '<tr><td colspan="5" style="color:var(--ink-3)">Noch keine frühere Fassung.</td></tr>'}
+      </tbody></table></div>
+      <button class="knopf rahmen" id="zurueck-verwaltung" style="margin-top:14px">Zurück</button>
+    </div></div>`;
+  $('zurueck-verwaltung').onclick = verwaltung;
+  $('flaeche').querySelectorAll('[data-zurueck]').forEach(b => b.onclick = async () => {
+    if(!confirm(`Seite "${slug}" auf Fassung ${b.dataset.zurueck} zurücksetzen? ` +
+       `Die aktuelle Fassung wird vorher gesichert.`)) return;
+    try {
+      await hole('/api/zuruecksetzen', {method:'POST',
+        body:JSON.stringify({slug, nummer:+b.dataset.zurueck})});
+      einblenden('Zurückgesetzt.'); await baumLaden(); verwaltung();
+    } catch(e){ einblenden(e.message); }
+  });
+}
+
+$('vorschau-zurueck').onclick = () => verwaltung();
+$('vorschau-uebernehmen').onclick = async () => {
+  const k = $('vorschau-uebernehmen');
+  k.disabled = true; k.textContent = 'Wird übernommen …';
+  try {
+    const a = await hole('/api/import' + felderAlsFrage(), {method:'POST',
+      body:letzteDatei, headers:{'Content-Type':'text/html; charset=utf-8'}});
+    einblenden(`Übernommen als Fassung ${a.fassung}.`);
+    await baumLaden();
+    k.disabled = false; k.textContent = 'Übernehmen';
+    oeffnen(a.slug);
+  } catch(e){
+    k.disabled = false; k.textContent = 'Übernehmen';
+    einblenden(e.message);
+  }
+};
+
+/* ---------------------------------------------------- Menue am Handy */
+function menueAuf(){ document.body.dataset.menue = '1';
+  $('menue-knopf').setAttribute('aria-expanded','true'); }
+function menueZu(){ document.body.dataset.menue = '0';
+  $('menue-knopf').setAttribute('aria-expanded','false'); }
+$('menue-knopf').onclick = () =>
+  document.body.dataset.menue === '1' ? menueZu() : menueAuf();
+$('start-knopf').onclick = () => { history.pushState(null,'','#/'); start(); menueZu(); };
+$('logo').onclick = () => { history.pushState(null,'','#/'); start(); menueZu(); };
+$('verwaltung-knopf').onclick = () => {
+  history.pushState(null, '', '#/verwaltung'); verwaltung(); };
+$('einstellungen-knopf').onclick = () => {
+  history.pushState(null, '', '#/einstellungen'); einstellungen(); };
+$('konto-knopf').onclick = () => {
+  history.pushState(null, '', '#/einstellungen'); einstellungen(); };
+
+/* ---------------------------------------------------- Start */
+async function baumLaden(){
+  const d = await hole('/api/baum');
+  ZUSTAND.baum = d.baum || [];
+  // Die Anzahl gehoert in den Inhalt, nicht unter das Logo (Regelblatt 5).
+  ZUSTAND.anzahl = d.anzahl || 0;
+  baumZeichnen();
+}
+(async function los(){
+  try { themaAnwenden(localStorage.getItem('wiki-thema') || 'system'); }
+  catch(e){ themaAnwenden('system'); }
+  try {
+    ZUSTAND.ich = await hole('/api/ich');
+    ZUSTAND.einst = ZUSTAND.ich.einstellungen || {};
+    themaAnwenden(ZUSTAND.einst.thema || 'system');
+    $('konto-knopf').textContent = ZUSTAND.ich.name;
+    if(ZUSTAND.ich.ist_admin) $('verwaltung-knopf').hidden = false;
+    await baumLaden();
+    if(!location.hash.replace(/^#\/?/, '') && ZUSTAND.einst.start === 'zuletzt'){
+      const d = await hole('/api/baum');
+      if(d.zuletzt && d.zuletzt.length) return oeffnen(d.zuletzt[0].slug);
+    }
+    wegLesen(true);
+  } catch(e){
+    document.body.innerHTML = `<div style="max-width:460px;margin:16vh auto;padding:24px"
+      class="karte"><h3>Nicht angemeldet</h3>
+      <div class="kontext" style="margin-top:8px">${schuetzen(e.message)}</div>
+      <a class="knopf" href="/" style="margin-top:16px;text-decoration:none">Erneut versuchen</a>
+      </div>`;
+  }
+})();
+</script>
+</body>
+</html>

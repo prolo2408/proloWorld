@@ -3,9 +3,9 @@
 Diese Datei an Claude geben, wenn eine neue Prolo-Anwendung, ein neuer
 Screen oder ein Umbau ansteht. Sie ist verbindlich.
 
-Begleitdatei: `regeln-neue-tools.md` regelt Infrastruktur, Anmeldung,
-Sicherung und schützenswerte Daten. Diese hier regelt Aussehen, Qualität
-und Bedienung.
+Begleitdatei: `prolo-betriebsregeln.md` regelt Infrastruktur, Anmeldung,
+Sicherung, Aktualisierung und schützenswerte Daten. Diese hier regelt
+Aussehen, Qualität und Bedienung.
 
 Leitsatz: Funktionierender Code ist der Anfang, nicht das Ziel. Ein Tool
 ist fertig, wenn es auch dann noch etwas Vernünftiges tut, wenn etwas
@@ -25,6 +25,16 @@ schiefgeht — und wenn man es gerne benutzt.
   Fenster selbst, nicht für Karten.
 - Dunkelmodus ist der Standard, Hellmodus muss gleichwertig funktionieren.
 - Zahlen sind der Inhalt: groß, in Sora, mit Monospace für Rohwerte.
+
+**Lesbarkeit schlägt Palette.** Die Tokens sind der Normalfall, nicht der
+Selbstzweck. Wenn eine Kombination schlecht lesbar ist, wird sie geändert
+— nicht beibehalten, weil sie „regelkonform" ist. Reines Schwarz auf
+reinem Weiß (und umgekehrt) ist hart und ermüdet; deshalb liegen die
+Tokens bewusst nicht bei 0 und 1. Nie `#000` oder `#fff` direkt setzen,
+außer als Text auf `--accent`.
+
+Wer eine neue Farbe braucht: **neues Token mit klarer Bedeutung
+ergänzen**, keinen Einzelwert in die Komponente schreiben.
 
 ## 2. Farbtoken
 
@@ -101,6 +111,13 @@ eine.
 reicht nicht, es braucht Text oder ein Symbol dazu — sonst ist es für
 farbfehlsichtige Nutzer unlesbar.
 
+**Kontrast-Ausnahme:** Erreicht eine Token-Kombination die Mindestwerte
+aus Abschnitt 8 nicht, wird das nächsthellere bzw. -dunklere Token
+genommen. Beispiele, die häufig zu schwach sind: `--ink-3` auf
+`--accent-soft`, Monospace-Kleintext auf `--feature`. Dort `--ink-2` bzw.
+`--feature-ink` verwenden. Gibt es kein passendes Token, wird eines
+ergänzt.
+
 ## 3. Typografie
 
 - **Sora** 600: Überschriften, Kennzahlen, Beträge, Kartentitel.
@@ -127,6 +144,39 @@ unter 12 px, Touchziele mindestens 44 px.
   einzelner Elemente.
 
 ## 5. Bausteine
+
+**Tool-Logo (Pflicht, oben links)**
+
+Jedes Tool hat eine Marke oben links — schlicht, nicht illustrativ. Immer
+derselbe Aufbau, damit die Tools als Familie erkennbar sind:
+
+```html
+<div style="display:flex; align-items:center; gap:10px">
+  <div style="width:30px; height:30px; border-radius:8px; flex:0 0 30px;
+              background:var(--accent); color:#fff;
+              display:flex; align-items:center; justify-content:center;
+              font-family:'Sora',sans-serif; font-size:15px; font-weight:600">B</div>
+  <div style="min-width:0">
+    <div style="font-family:'Sora',sans-serif; font-size:14px; font-weight:600;
+                color:var(--ink); line-height:1.2">Bordbuch</div>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:10px;
+                letter-spacing:0.06em; text-transform:uppercase;
+                color:var(--ink-3); line-height:1.4">Fahrtenbuch</div>
+  </div>
+</div>
+```
+
+Regeln dazu:
+
+- Kachel 30 px, Radius 8, `--accent` als Fläche, ein Großbuchstabe in
+  `#fff`. Ein Buchstabe, keine Wortmarke in der Kachel.
+- Daneben der Toolname (Sora 14) und darunter eine kurze Einordnung in
+  Monospace-Versalien.
+- Die Unterzeile beschreibt **das Tool**, nicht den Zustand. „Fahrtenbuch"
+  ist richtig, „1 Seite" gehört in den Inhalt, nicht unter das Logo.
+- Keine Emojis, keine Icon-Bibliothek, keine Illustration. Wer mehr als
+  einen Buchstaben braucht, braucht ein einfacheres Logo.
+- Ein Klick auf das Logo führt immer zur Startseite des Tools.
 
 **Karte**
 ```html
@@ -168,27 +218,72 @@ schreiben. Keine Chart-Bibliothek-Optik, keine Gitternetzlinien.
 ## 6. Aufbau der Screens
 
 **Desktop (1440 × 900)**
-Sidebar 248 px (`--chrome`): Logo-Kachel 28 px + Wortmarke, Navigation mit
-44-px-Zeilen und 4-px-Aktivstrich, unten nur „Einstellungen".
+Sidebar 248 px (`--chrome`): oben das Tool-Logo aus Abschnitt 5,
+Navigation mit 44-px-Zeilen und 4-px-Aktivstrich, unten nur
+„Einstellungen".
 Header 76 px: links Titel + Kontextzeile, rechts Kontext-Auswahl (z. B.
-Fahrzeug), Zeitraum-Segment, Thema-Umschalter, Primärbutton.
+Fahrzeug), Zeitraum-Segment, Primärbutton, ganz rechts der Anzeigename
+als Verweis auf die Einstellungen.
 Inhalt: KPI-Reihe (4 Spalten), darunter Raster `1.55fr / 1fr` — links
 Diagramm und Tabelle, rechts schmale Karten.
 
+**Inhaltsbreite begrenzen.** Der Inhaltsbereich bekommt
+`max-width:1280px; margin:0 auto`. Ohne das zieht sich auf breiten
+Bildschirmen alles auseinander: Hero-Kacheln stehen fast leer da, Karten
+reißen Löcher, und der Blick muss quer über den Schirm wandern. Die
+Sidebar bleibt außerhalb dieser Begrenzung.
+
+**Keine halbleeren Reihen.** Wenn eine Rasterzeile nur ein oder zwei
+Elemente hat, wird die Spaltenzahl reduziert, statt die Lücke stehen zu
+lassen. Eine Kachel mit einer einzigen Zahl darf nicht über die volle
+Breite laufen.
+
 **Handy (390 × 844)**
-Statusleiste, Kopf mit Monatslabel + Titel + Kontextchip, Inhalt
-(Hero-Kennzahl in `--feature`, Diagramm, Liste), Primärbutton über der
-Tabbar, Tabbar mit 4 Einträgen und 3-px-Aktivstrich.
+Statusleiste, Kopf mit Tool-Logo (verkleinert) + Titel + Kontextchip,
+Inhalt (Hero-Kennzahl in `--feature`, Diagramm, Liste), Primärbutton über
+der Tabbar, Tabbar mit 4 Einträgen und 3-px-Aktivstrich. Der letzte
+Tabbar-Eintrag ist „Einstellungen".
 
 Kontextobjekte (Fahrzeug, Konto, Projekt) gehören in den Header bzw.
 Kopfbereich, nicht in die Sidebar-Fußzeile.
 
-**Anmeldung — überall gleich:** Rechts im Header (Desktop) bzw. im
-Kopfbereich (Handy) stehen der Anzeigename des angemeldeten Nutzers und
-der Abmelden-Knopf. Der Knopf zeigt auf
-`/outpost.goauthentik.io/sign_out` — ein lokales Löschen von Cookies
-reicht nicht, die Sitzung liegt bei Authentik. Gleiche Position in jedem
-Tool, damit man nicht suchen muss.
+## 6a. Einstellungsseite (Pflicht je Tool)
+
+Jedes Tool hat eine eigene Einstellungsseite unter `/einstellungen`. Sie
+ist der einzige Ort für Darstellung, Konto und tool-eigene Optionen — der
+Header bleibt dadurch frei für den eigentlichen Inhalt.
+
+Aufbau, immer in dieser Reihenfolge:
+
+**1. Darstellung**
+- Segment-Umschalter mit drei Zuständen: `System` / `Hell` / `Dunkel`.
+  `System` ist die Voreinstellung und folgt
+  `prefers-color-scheme`.
+- Die Wahl wird **pro Nutzer in der Datenbank des Tools** gespeichert,
+  nicht nur im Browser — sonst ist sie auf dem Handy wieder weg.
+- Umschaltung über `document.body.dataset.theme`, ohne Neuladen.
+
+**2. Tool-Einstellungen**
+- Alles Fachliche: Standardfahrzeug, Einheiten, Zusatzfunktionen,
+  Ansichtsoptionen.
+- Zusatzfunktionen als klar beschriftete Schalter, mit einer Zeile
+  Erklärung darunter. Ein Schalter ohne Erklärung ist ein Rätsel.
+
+**3. Freigaben** (nur wenn das Tool Daten teilen kann)
+- „Meine Freigaben" und „Für mich freigegeben", siehe Betriebsregeln.
+
+**4. Konto**
+- Anzeigename und E-Mail **nur zur Anzeige**, mit dem Hinweis, dass sie
+  zentral verwaltet werden.
+- Knopf **„Abmelden / neu laden"** mit der Erklärung darunter:
+  *„Beendet die Anmeldung und lädt die Seite neu. Danach kann ein anderes
+  Konto verwendet werden."*
+  Ziel ist `/outpost.goauthentik.io/sign_out`. Die doppelte Beschriftung
+  ist Absicht — es ist eine Weiterleitung, keine reine Abmeldung im Tool,
+  und der Nutzer soll nicht überrascht sein, wenn die Seite neu lädt.
+
+Im Header steht nur noch der Anzeigename, verlinkt auf diese Seite. Kein
+Theme-Umschalter und kein Abmelden-Knopf direkt in der Kopfzeile.
 
 ## 7. Sprache
 
@@ -304,19 +399,45 @@ Grenzfall (null, negativ, sehr groß), der Fall mit fehlenden Daten.
 ## 14. Was durchprobiert sein muss
 
 Ein Tool gilt erst als fertig, wenn diese Fälle **tatsächlich ausprobiert**
-wurden — nicht nur gedanklich:
+wurden — nicht nur gedanklich. Ein Screenshot der fertigen Ansicht ist
+Teil der Abnahme, nicht die Behauptung, es sehe gut aus.
 
-1. Leerer Zustand: erste Anmeldung, keine Daten. Sieht das gut aus oder
-   ist es eine leere Fläche?
-2. Ein Datensatz — und mehrere hundert. Wird es langsam?
-3. Ganz falsche Eingabe: Text im Zahlenfeld, negative Werte, Datum 1900.
-4. Doppelt schnell hintereinander auf „Speichern" geklickt.
-5. Seite mitten im Vorgang neu geladen.
-6. Abmelden und als anderer Nutzer anmelden — sieht man wirklich nur die
-   eigenen Daten?
-7. Am Handy im Hochformat, bei 360 px Breite.
-8. Mit der Tastatur durch die ganze Seite, ohne Maus.
-9. Hell- und Dunkelmodus, beide vollständig durchgesehen.
+### 14a. Oberfläche — gründlich durchsehen
+
+Jede Ansicht wird einzeln angeschaut, in **beiden Themen**, bei
+**drei Breiten** (360 px, 768 px, 1920 px):
+
+1. **Löcher im Layout.** Bleibt irgendwo eine große leere Fläche, weil
+   eine Rasterzeile nicht gefüllt ist? Dann Spaltenzahl anpassen.
+2. **Auseinandergezogene Inhalte.** Läuft eine Kachel mit wenig Inhalt
+   über die volle Breite? `max-width` prüfen (Abschnitt 6).
+3. **Überlauf.** Langer Text, langer Name, große Zahl (`1.284.500,55 €`)
+   — bricht etwas aus der Karte aus oder wird abgeschnitten?
+4. **Leere Zustände.** Jede Liste, jede Tabelle, jedes Diagramm ohne
+   Daten. Steht dort ein hilfreicher Satz oder nur Leere?
+5. **Ausrichtung.** Sind Zahlen in Spalten wirklich rechtsbündig und in
+   Monospace? Fluchten Kartenkanten untereinander?
+6. **Kontrast.** Jede Text-auf-Fläche-Kombination gegen die Werte aus
+   Abschnitt 8 prüfen, besonders Kleintext auf `--accent-soft` und
+   `--feature`.
+7. **Doppelte Scrollbalken**, abgeschnittene Ränder, Elemente unter der
+   Gestenleiste.
+8. **Beschriftungen.** Einheitliche Groß- und Kleinschreibung bei Badges
+   und Labels. Keine Abkürzung, die nur der Entwickler versteht.
+9. **Zoom 200 %** im Browser — bleibt alles bedienbar?
+
+### 14b. Verhalten
+
+10. Leerer Zustand: erste Anmeldung, keine Daten.
+11. Ein Datensatz — und mehrere hundert. Wird es langsam?
+12. Ganz falsche Eingabe: Text im Zahlenfeld, negative Werte, Datum 1900.
+13. Doppelt schnell hintereinander auf „Speichern" geklickt.
+14. Seite mitten im Vorgang neu geladen.
+15. Theme umschalten — bleibt die Wahl nach dem Neuladen erhalten?
+16. Abmelden und als anderer Nutzer anmelden — sieht man wirklich nur die
+    eigenen Daten?
+17. Mit der Tastatur durch die ganze Seite, ohne Maus. Ist die
+    Reihenfolge sinnvoll?
 
 ## 15. Datenverlust ist die einzige echte Katastrophe
 
@@ -354,20 +475,28 @@ gern" ausmachen:
 # TEIL IV — CHECKLISTE
 
 **Design**
-- [ ] Nur Token aus Abschnitt 2, kein einziger direkter Farbwert
+- [ ] Tool-Logo oben links nach dem Muster aus Abschnitt 5
+- [ ] Nur Token aus Abschnitt 2, kein `#000`/`#fff` außer auf `--accent`
 - [ ] Höchstens eine `--feature`-Fläche, ein Primärbutton pro Screen
 - [ ] Sora / Instrument Sans / JetBrains Mono korrekt eingesetzt
 - [ ] Karten ohne Schatten, Schatten nur am Fenster
-- [ ] Hell- und Dunkelmodus beide vollständig durchgesehen
+- [ ] Inhaltsbereich auf `max-width:1280px` begrenzt und zentriert
+- [ ] Keine halbleeren Rasterzeilen
 - [ ] Zahlen deutsch formatiert, Einheiten korrekt
-- [ ] Kopfbereich mit Nutzername und Abmelden-Knopf
+
+**Einstellungsseite**
+- [ ] Seite `/einstellungen` vorhanden, aus Navigation erreichbar
+- [ ] Theme-Umschalter System / Hell / Dunkel, pro Nutzer gespeichert
+- [ ] Tool-Optionen mit je einer Zeile Erklärung
+- [ ] Knopf „Abmelden / neu laden" mit Erklärung, Ziel `sign_out`
+- [ ] Im Header nur der Anzeigename als Verweis auf die Einstellungen
 
 **Bedienbarkeit**
 - [ ] Zustandsblock aus 8.1 vorhanden (Fokus, Bewegungsreduzierung)
 - [ ] Alles mit Tastatur erreichbar, Fokusrahmen sichtbar
 - [ ] Ab 360 px ohne seitliches Scrollen bedienbar
 - [ ] Touchziele mindestens 44 px
-- [ ] Kontrast geprüft (4.5:1 / 3:1)
+- [ ] Kontrast geprüft (4.5:1 / 3:1), auch auf `--feature`
 - [ ] Jede Aktion gibt sichtbare Rückmeldung
 
 **Robustheit**
@@ -376,7 +505,9 @@ gern" ausmachen:
 - [ ] Fachlogik hat Tests mit handgerechneten Werten
 - [ ] Geldbeträge nicht als Fließkommazahl
 - [ ] Löschen fragt nach
-- [ ] Die neun Fälle aus Abschnitt 14 tatsächlich durchprobiert
+- [ ] Die neun Punkte aus 14a **einzeln durchgesehen**, in beiden Themen
+      und bei drei Breiten
+- [ ] Die acht Punkte aus 14b tatsächlich ausprobiert
 
 **Spaß**
 - [ ] Häufigster Arbeitsablauf in möglichst wenigen Schritten

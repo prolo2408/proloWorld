@@ -60,12 +60,17 @@ Pflichtverhalten:
 
 Jedes Tool mit Oberfläche braucht:
 
-- einen sichtbaren **Abmelden**-Knopf, der auf
+- eine eigene **Einstellungsseite** unter `/einstellungen` (Aufbau siehe
+  `prolo-regelblatt.md`, Abschnitt 6a)
+- dort im Bereich „Konto" einen Knopf **„Abmelden / neu laden"**, der auf
   `/outpost.goauthentik.io/sign_out` zeigt
-- die Anzeige, wer gerade angemeldet ist
+- im Header den Anzeigenamen des angemeldeten Nutzers, verlinkt auf die
+  Einstellungsseite
 
 Ein lokales Löschen von Cookies reicht nicht — die Sitzung liegt bei
-Authentik. Ohne diesen Knopf kann niemand das Konto wechseln.
+Authentik. Ohne diesen Knopf kann niemand das Konto wechseln. Die
+doppelte Beschriftung ist Absicht: Es ist eine Weiterleitung, die Seite
+lädt dabei neu.
 
 ## 4. Datentrennung
 
@@ -641,8 +646,8 @@ Design- und Qualitätspunkte stehen in `prolo-regelblatt.md`.
 **Anmeldung**
 - [ ] Kein eigener Login, Header werden ausgewertet
 - [ ] Fehlender Username-Header führt zur Abweisung
-- [ ] Abmelden-Knopf vorhanden und auf `sign_out` zeigend
-- [ ] Angemeldeter Nutzer sichtbar
+- [ ] Einstellungsseite `/einstellungen` mit „Abmelden / neu laden"
+- [ ] Anzeigename im Header, verlinkt auf die Einstellungen
 - [ ] `nutzer_id` an allen personenbezogenen Datensätzen
 
 **Daten und Geheimnisse**
