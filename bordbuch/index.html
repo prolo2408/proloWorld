@@ -115,14 +115,25 @@
 
   header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap}
   .brand{display:flex;align-items:center;gap:11px;min-width:0}
-  .brand svg{width:32px;height:32px;flex:0 0 32px}
+  /* Kachel nach Regelblatt 5: 30 px, Radius 8, --accent als Flaeche, ein
+     Grossbuchstabe in #fff. Das #fff auf --accent ist hier ausdruecklich
+     erlaubt (Regelblatt 1: "Nie #000 oder #fff direkt setzen, ausser als Text
+     auf --accent"). Vorher waren es 32 px und eine Illustration. */
+  .brand{text-decoration:none;color:inherit}
+  .brand .kachel{width:30px;height:30px;flex:0 0 30px;border-radius:8px;
+    background:var(--accent);color:#fff;display:flex;align-items:center;
+    justify-content:center;font-family:var(--display);font-size:15px;font-weight:600}
+  .brand .unterzeile{font-family:var(--mono);font-size:10px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--dim);line-height:1.4}
+  .brand h1 #testmarke{font-size:11px;color:var(--accent);vertical-align:super;
+    font-family:var(--mono);margin-left:4px}
   .brand h1{font-size:21px;margin:0;letter-spacing:-.02em;font-weight:650;line-height:1.1}
-  /* Der Anzeigename ist ein Verweis auf die Einstellungen (B-16). max-width
-     ist weg: die Zustandsangabe steht jetzt rechts im Kopfbereich (B-17), hier
-     steht nur noch die Unterzeile des Tools. */
-  .brand .who{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
-    color:var(--muted);text-decoration:none;display:block;line-height:1.4}
-  .brand .who:hover{color:var(--text)}
+  /* Der Anzeigename ist ein Verweis auf die Einstellungen (B-16). Er steht
+     neben der Marke, nicht als deren Unterzeile - die beschreibt das Tool. */
+  .who{font-family:var(--mono);font-size:11px;letter-spacing:.06em;
+    color:var(--muted);text-decoration:none;align-self:center;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:34vw}
+  .who:hover{color:var(--text)}
   /* Zustandsangabe im Kopfbereich rechts - dorthin, wo Regelblatt 6 die
      Kontextangaben verortet. */
   .zustand{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--dim);
@@ -442,15 +453,26 @@ label>.hlp{margin-left:4px}
 <body data-theme="dark">
 <div class="wrap">
   <header class="no-print">
-    <div class="brand">
-      <svg viewBox="0 0 40 40" aria-hidden="true">
-        <rect x="7" y="12" width="26" height="20" rx="6" fill="none" stroke="var(--line)" stroke-width="2"/>
-        <path d="M14 12V7M26 12V7" stroke="var(--good)" stroke-width="2.4" stroke-linecap="round"/>
-        <path d="M21 17l-5 7h4l-1 6 6-8h-4l1-5z" fill="var(--accent)"/></svg>
-      <div><h1>Bordbuch<span id="testmarke" hidden style="font-size:11px;
-        color:var(--accent);vertical-align:super;font-family:var(--mono);
-        margin-left:4px">TEST</span></h1><a class="who" id="who" href="/einstellungen"></a></div>
-    </div>
+    <!-- Tool-Logo nach Regelblatt 5 (B-17). Vorher stand hier eine
+         Illustration - ein Auto mit Blitz -, die das Regelblatt ausdruecklich
+         verbietet: "Keine Emojis, keine Icon-Bibliothek, keine Illustration.
+         Wer mehr als einen Buchstaben braucht, braucht ein einfacheres Logo."
+         Der Zweck der Regel steht dort auch: "damit die Tools als Familie
+         erkennbar sind". Bordbuch und Wiki sahen nicht aus wie zwei Tools
+         derselben Werkstatt; das Wiki hielt das Muster bereits ein.
+
+         Ein Klick auf das Logo fuehrt immer zur Startseite des Tools - das
+         war vorher nicht umgesetzt. -->
+    <a class="brand" href="/" title="Zur Übersicht">
+      <div class="kachel" aria-hidden="true">B</div>
+      <div style="min-width:0">
+        <h1>Bordbuch<span id="testmarke" hidden>TEST</span></h1>
+        <!-- Die Unterzeile beschreibt das TOOL, nicht den Zustand
+             (Regelblatt 5: "'Fahrtenbuch' ist richtig, '1 Seite' gehoert in
+             den Inhalt"). Vorher stand hier "Angemeldet: … · sieht …". -->
+        <div class="unterzeile">Fahrtenbuch</div>
+      </div>
+    </a>
     <div class="headtools">
       <div class="carpick"><span class="lab">Auto</span><select id="carPick" aria-label="Auto wählen"></select></div>
       <div class="carpick hidden" id="profilWrap"><span class="lab">Profil</span><select id="profilPick" aria-label="Profil wählen"></select></div>
@@ -463,6 +485,9 @@ label>.hlp{margin-left:4px}
            Ziel: bis das JavaScript ihn nachtraeglich befuellte, war er
            fokussierbar und fuehrte ins Leere. -->
       <div class="zustand" id="zustand"></div>
+      <!-- Ganz rechts der Anzeigename als Verweis auf die Einstellungen -
+           die Reihenfolge gibt Regelblatt 6 vor. -->
+      <a class="who" id="who" href="/einstellungen"></a>
     </div>
   </header>
   <div class="navwrap no-print" id="navwrap"><nav id="tabs" role="tablist"></nav></div>
