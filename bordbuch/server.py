@@ -12,6 +12,7 @@ server.py und index.html zu ersetzen und den Dienst neu zu starten.
 import argparse
 import base64
 import contextlib
+import decimal
 import json
 import mimetypes
 import os
@@ -166,6 +167,17 @@ ADD_COLUMNS = [
     # Der Anmeldename von dort ist der Schluessel zum Profil.
     ("users", "authentik_user", "TEXT NOT NULL DEFAULT ''"),
     ("users", "email", "TEXT NOT NULL DEFAULT ''"),
+    # Geldbetraege als Cent-Ganzzahl (B-04). Regelblatt 13 und Betriebsregeln 6
+    # verlangen beides: keine Fliesskommazahl fuer Geld, und die Einheit im
+    # Namen. Die alten REAL-Spalten bleiben vorerst stehen und werden nur noch
+    # mitgeschrieben, nicht gelesen - sie sind der Rueckweg, solange noch
+    # jemand auf eine aeltere Fassung zurueckrollen koennte.
+    ("sessions", "cost_ct", "INTEGER NOT NULL DEFAULT 0"),
+    ("sessions", "net_ct", "INTEGER NOT NULL DEFAULT 0"),
+    ("sessions", "vat_ct", "INTEGER NOT NULL DEFAULT 0"),
+    ("sessions", "invoice_gross_ct", "INTEGER NOT NULL DEFAULT 0"),
+    ("fuelings", "cost_ct", "INTEGER NOT NULL DEFAULT 0"),
+    ("werkstatt", "cost_ct", "INTEGER NOT NULL DEFAULT 0"),
 ]
 ADD_TABLES = ["""
 /* Wer gibt wem Einblick in sein Profil. Bordbuch verwaltet keine Nutzer -
@@ -237,22 +249,34 @@ ADD_INDEXES = [
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_authentik"
     " ON users(authentik_user) WHERE authentik_user<>''",
 ]
-SCHEMA_VERSION = "5"
+SCHEMA_VERSION = "6"
 # Fassungsnummer der Anwendung, getrennt vom Datenstand oben. Wird von
 # --version, /api/version, install.sh und update.sh gelesen.
 VERSION = "2.5.2"
 
 SESSION_FIELDS = ["tx", "start", "finish", "sec", "kwh", "cost", "net", "vat", "station", "city", "zip",
                   "street", "rate", "partner", "entity", "invoice_no", "invoice_date", "invoice_gross",
-                  "src", "manual", "note", "odo"]
+                  "src", "manual", "note", "odo",
+                  # Cent-Ganzzahlen (B-04) - die eigentlichen Werte.
+                  "cost_ct", "net_ct", "vat_ct", "invoice_gross_ct"]
 JSON_TO_COL = {"id": "tx", "start": "start", "end": "finish", "sec": "sec", "kwh": "kwh", "cost": "cost",
                "net": "net", "vat": "vat", "station": "station", "city": "city", "zip": "zip",
                "street": "street", "rate": "rate", "partner": "partner", "entity": "entity",
                "invoiceNo": "invoice_no", "invoiceDate": "invoice_date", "invoiceGross": "invoice_gross", "odo": "odo",
-               "src": "src", "manual": "manual", "note": "note"}
+               "src": "src", "manual": "manual", "note": "note",
+               "costCt": "cost_ct", "netCt": "net_ct", "vatCt": "vat_ct",
+               "invoiceGrossCt": "invoice_gross_ct"}
 COL_TO_JSON = {v: k for k, v in JSON_TO_COL.items()}
-INT_COLS = {"sec", "manual"}
+INT_COLS = {"sec", "manual", "cost_ct", "net_ct", "vat_ct", "invoice_gross_ct"}
 REAL_COLS = {"kwh", "cost", "net", "vat", "invoice_gross", "odo"}
+# Welche Cent-Spalte zu welcher Altspalte gehoert (B-04). Gelesen wird nur die
+# Cent-Spalte; die Altspalte wird zum Rueckrollen mitgeschrieben.
+GELD_SPALTEN = {
+    "sessions": (("cost", "cost_ct"), ("net", "net_ct"), ("vat", "vat_ct"),
+                 ("invoice_gross", "invoice_gross_ct")),
+    "fuelings": (("cost", "cost_ct"),),
+    "werkstatt": (("cost", "cost_ct"),),
+}
 
 
 @contextlib.contextmanager
@@ -361,12 +385,22 @@ def init_db():
                    if spalten_von(con, t) and sp not in spalten_von(con, t)]
         alt = con.execute(
             "SELECT v FROM meta WHERE k='schema'").fetchone() if not fresh else None
+        # B-04: steht die Geldumstellung noch aus? Der Merker liegt in meta,
+        # die Tabelle gibt es bei einer alten Datenbank aber vielleicht noch
+        # nicht - darum vorsichtig fragen.
+        geld_offen = False
+        if not fresh and spalten_von(con, "meta"):
+            geld_offen = not con.execute(
+                "SELECT v FROM meta WHERE k='geld_in_ct'").fetchone()
         aenderungen = []
         if umbenennen:
             aenderungen.append("user_id wird zu nutzer_id in %s" % ", ".join(umbenennen))
         if fehlend:
             aenderungen.append("neue Spalten: %s"
                                % ", ".join("%s.%s" % ts for ts in fehlend))
+        if geld_offen:
+            aenderungen.append("Geldbetraege werden auf Cent-Ganzzahlen umgestellt "
+                               "(nicht umkehrbar)")
 
         # ---- Schritt 1 und 2: Hinweis und Kopie, vor der ersten Aenderung --
         # Bei einer neuen Datenbank ist das kein Update, sondern der Normalfall.
@@ -403,6 +437,10 @@ def init_db():
                         print("Datenbank ergaenzt: %s.%s" % (table, column))
             for sql in ADD_INDEXES:
                 con.execute(sql)
+            # Erst nachdem die Cent-Spalten da sind (B-04). In derselben
+            # Transaktion wie die Spalten: entweder beides oder nichts.
+            if geld_umstellen(con) and not fresh:
+                print("Datenbank: Geldbetraege sind jetzt Cent-Ganzzahlen.")
             con.execute("INSERT OR REPLACE INTO meta(k,v) VALUES('schema',?)",
                         (SCHEMA_VERSION,))
         if alt and alt["v"] != SCHEMA_VERSION:
@@ -417,16 +455,133 @@ def num(v, d=0.0):
         return d
 
 
+# ----------------------------------------------------------------------
+# Geld (B-04)
+#
+# Regelblatt 13 und Betriebsregeln 6, beide wortgleich: Geldbetraege niemals
+# als Fliesskommazahl. Der Grund ist nicht Kosmetik - drei Tankungen zu 0,10
+# EUR und eine zu 8,72 EUR ergaben als REAL summiert 9.020000000000001 statt
+# 9,02. Der Fehler ist systematisch, waechst mit der Datenmenge und faellt
+# niemandem auf, weil die Anzeige auf zwei Stellen rundet. Das Bordbuch ist
+# fuer Nachweise gegenueber Arbeitgeber und Finanzamt gedacht.
+#
+# Innerhalb des Servers ist ein Betrag darum immer eine Ganzzahl in Cent.
+# Euro gibt es nur an zwei Stellen: beim Einlesen einer Eingabe und beim
+# Anzeigen.
+# ----------------------------------------------------------------------
+
+def cent(v, d=None):
+    """Einen Betrag als Cent-Ganzzahl lesen.
+
+    Kein stiller Vorgabewert (Regelblatt 11, siehe B-05): ist der Wert nicht
+    lesbar, kommt None zurueck - nicht 0. Eine Null in der Kostenrechnung ist
+    schlimmer als eine Fehlermeldung, weil sie falsche Ergebnisse erzeugt, die
+    niemandem auffallen.
+
+    Gerundet wird kaufmaennisch (ROUND_HALF_UP), nicht wie in Python ueblich
+    zur geraden Zahl: 8,995 EUR sind 900 Cent, nicht 899.
+    """
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return d
+    try:
+        d_ = decimal.Decimal(str(v).replace(",", ".").strip())
+    except (decimal.InvalidOperation, ValueError, TypeError):
+        return None
+    if not d_.is_finite():
+        return None
+    try:
+        return int((d_ * 100).quantize(decimal.Decimal("1"),
+                                       rounding=decimal.ROUND_HALF_UP))
+    except (decimal.InvalidOperation, decimal.Overflow):
+        return None
+
+
+def netto_ct(brutto_ct, satz):
+    """Netto aus Brutto ableiten, ohne Fliesskomma.
+
+    satz ist der Mehrwertsteuersatz in Prozent (z. B. 19). Rueckgabe in Cent.
+    """
+    satz = decimal.Decimal(str(satz))
+    return int((decimal.Decimal(int(brutto_ct)) / (1 + satz / 100))
+               .quantize(decimal.Decimal("1"), rounding=decimal.ROUND_HALF_UP))
+
+
+def mwst_ct(brutto_ct, satz):
+    """Mehrwertsteuer als Differenz, nicht als eigene Rechnung.
+
+    So ist netto + mwst == brutto per Konstruktion garantiert und nicht per
+    Zufall. Vorher wurde net auf vier Stellen gerundet und vat als cost - net
+    gar nicht - dabei entstand eine Mehrwertsteuer mit 16 Nachkommastellen.
+    """
+    return int(brutto_ct) - netto_ct(brutto_ct, satz)
+
+
+def satz_aus_settings(user):
+    """Mehrwertsteuersatz aus dem Profil, mit 19 % als Rueckfall."""
+    try:
+        satz = float(json.loads(user["settings"] or "{}").get("vatRate"))
+    except (ValueError, TypeError):
+        return decimal.Decimal("19")
+    if not (0 <= satz < 50):
+        return decimal.Decimal("19")
+    return decimal.Decimal(str(satz))
+
+
+def cent_aus_sicherung(satz, ct_schluessel, euro_schluessel):
+    """Betrag aus einer Sicherung lesen (B-04).
+
+    Bevorzugt wird die Cent-Angabe. Eine Sicherung aus einer aelteren Fassung
+    kennt nur den Euro-Wert - dann wird von dort umgerechnet, sonst liefe ein
+    alter Stand auf Nullen ein. Regelblatt 15: Datenverlust ist die einzige
+    echte Katastrophe.
+    """
+    w = satz.get(ct_schluessel)
+    if w is not None:
+        ct = cent(w)
+        if ct is not None:
+            return ct
+    return cent(satz.get(euro_schluessel), 0) or 0
+
+
+def geld_umstellen(con):
+    """Einmalige Umrechnung der REAL-Betraege auf Cent-Ganzzahlen (B-04).
+
+    Idempotent ueber einen Merker in meta: ein zweiter Lauf tut nichts. Laeuft
+    innerhalb der Transaktion des Aufrufers (B-13).
+
+    ROUND vor CAST ist wesentlich - CAST allein schneidet ab, und 8,99 EUR
+    wuerden zu 898 Cent.
+    """
+    if con.execute("SELECT v FROM meta WHERE k='geld_in_ct'").fetchone():
+        return False
+    for tab, paare in GELD_SPALTEN.items():
+        for alt_sp, ct_sp in paare:
+            con.execute("UPDATE %s SET %s = CAST(ROUND(%s * 100) AS INTEGER)"
+                        % (tab, ct_sp, alt_sp))
+    con.execute("INSERT INTO meta(k,v) VALUES('geld_in_ct','1')")
+    return True
+
+
 def row_session(r):
     out = {"dbid": r["id"], "carId": r["car_id"]}
     for col in SESSION_FIELDS:
         out[COL_TO_JSON[col]] = r[col]
     out["manual"] = bool(r["manual"])
+    # Die Euro-Felder werden aus den Cent-Feldern abgeleitet, nicht aus der
+    # Altspalte gelesen (B-04 Schritt 5). So koennen die beiden Darstellungen
+    # nicht auseinanderlaufen, auch wenn eine alte Zeile noch einen
+    # abweichenden REAL-Wert traegt. Sie dienen nur der Anzeige - gerechnet
+    # wird in der Oberflaeche mit den Cent-Feldern.
+    for euro, ct in (("cost", "cost_ct"), ("net", "net_ct"), ("vat", "vat_ct"),
+                     ("invoiceGross", "invoice_gross_ct")):
+        out[euro] = r[ct] / 100.0
     return out
 
 
 def row_fuel(r):
-    return {"dbid": r["id"], "carId": r["car_id"], "ts": r["ts"], "liters": r["liters"], "cost": r["cost"],
+    return {"dbid": r["id"], "carId": r["car_id"], "ts": r["ts"], "liters": r["liters"],
+            # Cent ist der Wert, Euro nur die Anzeige (B-04).
+            "costCt": r["cost_ct"], "cost": r["cost_ct"] / 100.0,
             "odo": r["odo"], "full": bool(r["full"]), "station": r["station"], "note": r["note"],
             "receipt": r["receipt"]}
 
@@ -749,15 +904,16 @@ class App(BaseHTTPRequestHandler):
         for f in payload.get("fuelings") or []:
             if not valid_ts(f.get("ts")):
                 continue
-            key = (user["id"], f.get("ts"), round(num(f.get("cost")), 2), round(num(f.get("liters")), 3))
+            f_ct = cent_aus_sicherung(f, "cost_ct", "cost")
+            key = (user["id"], f.get("ts"), f_ct, round(num(f.get("liters")), 3))
             if con.execute("""SELECT 1 FROM fuelings WHERE nutzer_id=? AND ts=? AND
-                              ROUND(cost,2)=? AND ROUND(liters,3)=?""", key).fetchone():
+                              cost_ct=? AND ROUND(liters,3)=?""", key).fetchone():
                 fuel_dup += 1
                 continue
-            con.execute("""INSERT INTO fuelings(nutzer_id,car_id,ts,liters,cost,odo,full,station,note,receipt)
-                           VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            con.execute("""INSERT INTO fuelings(nutzer_id,car_id,ts,liters,cost,cost_ct,odo,full,station,note,receipt)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                         (user["id"], carmap.get(f.get("car_id")), f.get("ts"), num(f.get("liters")),
-                         num(f.get("cost")), num(f.get("odo")), 1 if f.get("full", 1) else 0,
+                         f_ct / 100.0, f_ct, num(f.get("odo")), 1 if f.get("full", 1) else 0,
                          str(f.get("station") or "")[:120], str(f.get("note") or "")[:200],
                          str(f.get("receipt") or "")[:80]))
             fuel_new += 1
@@ -790,16 +946,17 @@ class App(BaseHTTPRequestHandler):
             ts = valid_ts(w.get("ts"))
             if not ts:
                 continue
-            if con.execute("""SELECT 1 FROM werkstatt WHERE nutzer_id=? AND ts=? AND ROUND(cost,2)=?
+            w_ct = cent_aus_sicherung(w, "cost_ct", "cost")
+            if con.execute("""SELECT 1 FROM werkstatt WHERE nutzer_id=? AND ts=? AND cost_ct=?
                               AND art=?""",
-                           (user["id"], ts, round(num(w.get("cost")), 2),
+                           (user["id"], ts, w_ct,
                             str(w.get("art") or "")[:80])).fetchone():
                 werk_dup += 1
                 continue
-            con.execute("""INSERT INTO werkstatt(nutzer_id,car_id,ts,art,cost,odo,betrieb,note,receipt)
-                           VALUES(?,?,?,?,?,?,?,?,?)""",
+            con.execute("""INSERT INTO werkstatt(nutzer_id,car_id,ts,art,cost,cost_ct,odo,betrieb,note,receipt)
+                           VALUES(?,?,?,?,?,?,?,?,?,?)""",
                         (user["id"], carmap.get(w.get("car_id")), ts, str(w.get("art") or "")[:80],
-                         num(w.get("cost")), num(w.get("odo")), str(w.get("betrieb") or "")[:120],
+                         w_ct / 100.0, w_ct, num(w.get("odo")), str(w.get("betrieb") or "")[:120],
                          str(w.get("note") or "")[:200], str(w.get("receipt") or "")[:80]))
             werk_new += 1
         if payload.get("settings"):
@@ -898,10 +1055,15 @@ class App(BaseHTTPRequestHandler):
             beleg = self.save_receipt(data) or ""
         except ValueError as e:
             return self.send_json({"error": str(e)}, 400)
-        log_id = con.execute("""INSERT INTO werkstatt(nutzer_id,car_id,ts,art,cost,odo,betrieb,note,
-                                receipt,wart_id) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+        kosten_ct = cent(data.get("cost"), 0)        # Cent-Ganzzahl (B-04)
+        if kosten_ct is None:
+            return self.send_json(
+                {"error": "Der Betrag ist keine Zahl. Bitte nur Ziffern eingeben, "
+                          "zum Beispiel 129,00."}, 400)
+        log_id = con.execute("""INSERT INTO werkstatt(nutzer_id,car_id,ts,art,cost,cost_ct,odo,
+                                betrieb,note,receipt,wart_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                              (user["id"], row["car_id"], dat + "T12:00:00", row["art"],
-                              round(num(data.get("cost")), 2), km,
+                              kosten_ct / 100.0, kosten_ct, km,
                               str(data.get("betrieb") or "")[:120],
                               str(data.get("note") or "")[:200], beleg, row["id"])).lastrowid
         return self.send_json({"ok": True, "log": log_id})
@@ -921,16 +1083,21 @@ class App(BaseHTTPRequestHandler):
                                           if valid_dat(data.get("ts")) else "")
         if not ts:
             return self.send_json({"error": "Datum fehlt oder ist kein Datum"}, 400)
-        cost = round(num(data.get("cost")), 2)
+        cost_ct = cent(data.get("cost"), 0)          # Cent-Ganzzahl (B-04)
+        if cost_ct is None:
+            return self.send_json(
+                {"error": "Der Betrag ist keine Zahl. Bitte nur Ziffern eingeben, "
+                          "zum Beispiel 249,90."}, 400)
+        cost = cost_ct / 100.0                       # nur noch mitgeschrieben
         art = str(data.get("art") or "").strip()[:80]
-        if cost <= 0 and not art:
+        if cost_ct <= 0 and not art:
             return self.send_json({"error": "Bitte Betrag oder Art der Arbeit angeben"}, 400)
         try:
             beleg = self.save_receipt(data)
         except ValueError as e:
             return self.send_json({"error": str(e)}, 400)
         dbid = data.get("dbid")
-        werte = (car_id, ts, art, cost, max(0.0, num(data.get("odo"))),
+        werte = (car_id, ts, art, cost, cost_ct, max(0.0, num(data.get("odo"))),
                  str(data.get("betrieb") or "")[:120], str(data.get("note") or "")[:200],
                  int(num(data.get("wartId"))))
         if dbid:
@@ -940,14 +1107,14 @@ class App(BaseHTTPRequestHandler):
                 return self.send_json({"error": "Rechnung nicht gefunden"}, 404)
             if beleg and alt["receipt"]:
                 beleg_datei_weg(alt["receipt"])
-            con.execute("""UPDATE werkstatt SET car_id=?,ts=?,art=?,cost=?,odo=?,betrieb=?,note=?,
-                           wart_id=?,receipt=? WHERE id=? AND nutzer_id=?""",
+            con.execute("""UPDATE werkstatt SET car_id=?,ts=?,art=?,cost=?,cost_ct=?,odo=?,betrieb=?,
+                           note=?,wart_id=?,receipt=? WHERE id=? AND nutzer_id=?""",
                         werte + (beleg or alt["receipt"] or "", dbid, user["id"]))
             return self.send_json({"ok": True, "id": dbid})
         # save_receipt() gibt None zurueck, wenn keine Datei mitkam - die Spalte
         # ist aber NOT NULL, darum der leere Text.
-        neu = con.execute("""INSERT INTO werkstatt(nutzer_id,car_id,ts,art,cost,odo,betrieb,note,
-                             wart_id,receipt) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+        neu = con.execute("""INSERT INTO werkstatt(nutzer_id,car_id,ts,art,cost,cost_ct,odo,betrieb,
+                             note,wart_id,receipt) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                           (user["id"],) + werte + (beleg or "",)).lastrowid
         return self.send_json({"ok": True, "id": neu})
 
@@ -1122,8 +1289,10 @@ class App(BaseHTTPRequestHandler):
                                           faellig_dat AS faelligDat,notiz,aktiv
                                           FROM wartung WHERE nutzer_id=? ORDER BY id""",
                                        (user["id"],))],
-                                   "shop": [dict(r) for r in con.execute(
-                                       """SELECT id AS dbid,car_id AS carId,ts,art,cost,odo,betrieb,
+                                   # cost_ct ist der Wert, cost nur die Anzeige (B-04).
+                                   "shop": [dict(r, cost=r["costCt"] / 100.0) for r in con.execute(
+                                       """SELECT id AS dbid,car_id AS carId,ts,art,cost,
+                                          cost_ct AS costCt,odo,betrieb,
                                           note,receipt,wart_id AS wartId
                                           FROM werkstatt WHERE nutzer_id=? ORDER BY ts""",
                                        (user["id"],))],
@@ -1300,7 +1469,15 @@ class App(BaseHTTPRequestHandler):
             vals = [user["id"], car_id]
             for col in SESSION_FIELDS:
                 v = s.get(COL_TO_JSON[col])
-                if col in INT_COLS:
+                if col in ("cost_ct", "net_ct", "vat_ct", "invoice_gross_ct"):
+                    # Geld (B-04): bevorzugt die Cent-Angabe. Aeltere Dateien
+                    # kennen nur die Euro-Spalte - dann von dort umrechnen,
+                    # damit ein alter Export nicht auf Nullen einlaeuft.
+                    w = cent(v) if v is not None else None
+                    if w is None:
+                        w = cent(s.get(COL_TO_JSON[col[:-3]]), 0) or 0
+                    v = w
+                elif col in INT_COLS:
                     v = int(num(v))
                 elif col in REAL_COLS:
                     v = round(num(v), 4)
@@ -1322,20 +1499,26 @@ class App(BaseHTTPRequestHandler):
         start = valid_ts(data.get("start"))
         if not start:
             return self.send_json({"error": "Startzeit fehlt oder ist kein Datum"}, 400)
-        kwh, cost = round(num(data.get("kwh")), 4), round(num(data.get("cost")), 4)
+        kwh = round(num(data.get("kwh")), 4)
+        # Geld in Cent (B-04). cent() meldet Unlesbares mit None statt es
+        # still zu einer Null zu machen.
+        cost_ct = cent(data.get("cost"), 0)
+        if cost_ct is None:
+            return self.send_json(
+                {"error": "Der Betrag ist keine Zahl. Bitte nur Ziffern eingeben, "
+                          "zum Beispiel 12,34."}, 400)
         sec = int(num(data.get("sec")))
         station = (data.get("station") or "Zuhause")[:200]
         note = (data.get("note") or "")[:200]
         odo = round(num(data.get("odo")), 1)
         # Netto mit dem im Profil eingestellten Satz ableiten, nicht fest mit
         # 19 % (B3). Fehlt der Satz oder ist er unsinnig, gilt 19 %.
-        try:
-            satz = float(json.loads(user["settings"] or "{}").get("vatRate"))
-        except (ValueError, TypeError):
-            satz = 19.0
-        if not (0 <= satz < 50):
-            satz = 19.0
-        net = round(cost / (1 + satz / 100.0), 4)
+        satz = satz_aus_settings(user)
+        net_ct = netto_ct(cost_ct, satz)
+        vat_ct = cost_ct - net_ct          # Summe stimmt per Konstruktion
+        # Altspalten werden nur noch mitgeschrieben, nicht gelesen (B-04
+        # Schritt 5) - sie sind der Rueckweg auf eine aeltere Fassung.
+        cost, net, vat = cost_ct / 100.0, net_ct / 100.0, vat_ct / 100.0
         dbid = data.get("dbid")
         if dbid:
             # Auch importierte Ladungen duerfen korrigiert werden - eine falsch
@@ -1346,8 +1529,10 @@ class App(BaseHTTPRequestHandler):
             if not row:
                 return self.send_json({"error": "Ladung nicht gefunden"}, 404)
             cur = con.execute("""UPDATE sessions SET car_id=?,start=?,finish=?,sec=?,kwh=?,cost=?,net=?,
-                                 vat=?,station=?,note=?,odo=? WHERE id=? AND nutzer_id=?""",
-                              (car_id, start, finish, sec, kwh, cost, net, cost - net, station, note,
+                                 vat=?,cost_ct=?,net_ct=?,vat_ct=?,station=?,note=?,odo=?
+                                 WHERE id=? AND nutzer_id=?""",
+                              (car_id, start, finish, sec, kwh, cost, net, vat,
+                               cost_ct, net_ct, vat_ct, station, note,
                                odo, dbid, user["id"]))
             if not cur.rowcount:
                 return self.send_json({"error": "Ladung nicht gefunden"}, 404)
@@ -1359,9 +1544,10 @@ class App(BaseHTTPRequestHandler):
         tx = str(data.get("tx") or "").strip()[:200] or ("manual-" + uuid.uuid4().hex[:16])
         try:
             con.execute("""INSERT INTO sessions(nutzer_id,car_id,tx,start,finish,sec,kwh,cost,net,vat,
-                           station,manual,note,odo,src) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,'manuell')""",
-                        (user["id"], car_id, tx, start, start, sec, kwh, cost, net, cost - net, station,
-                         note, odo))
+                           cost_ct,net_ct,vat_ct,station,manual,note,odo,src)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,'manuell')""",
+                        (user["id"], car_id, tx, start, start, sec, kwh, cost, net, vat,
+                         cost_ct, net_ct, vat_ct, station, note, odo))
         except sqlite3.IntegrityError:
             return self.send_json({"error": "Diese Ladung ist schon erfasst"}, 409)
         return self.send_json({"ok": True, "tx": tx})
@@ -1409,13 +1595,18 @@ class App(BaseHTTPRequestHandler):
         ts = valid_ts(data.get("ts"))
         if not ts:
             return self.send_json({"error": "Datum fehlt oder ist kein Datum"}, 400)
-        cost = round(num(data.get("cost")), 2)
+        cost_ct = cent(data.get("cost"), 0)          # Cent-Ganzzahl (B-04)
+        if cost_ct is None:
+            return self.send_json(
+                {"error": "Der Betrag ist keine Zahl. Bitte nur Ziffern eingeben, "
+                          "zum Beispiel 80,50."}, 400)
+        cost = cost_ct / 100.0                       # nur noch mitgeschrieben
         liters = round(num(data.get("liters")), 3)
         odo = round(num(data.get("odo")), 1)
         full = 1 if data.get("full", True) else 0
         station = (data.get("station") or "")[:120]
         note = (data.get("note") or "")[:200]
-        if cost <= 0 and liters <= 0:
+        if cost_ct <= 0 and liters <= 0:
             return self.send_json({"error": "Bitte Betrag oder Liter angeben"}, 400)
         try:
             receipt = self.save_receipt(data)
@@ -1428,13 +1619,14 @@ class App(BaseHTTPRequestHandler):
             if not row:
                 return self.send_json({"error": "Tankung nicht gefunden"}, 404)
             keep = receipt or ("" if data.get("dropReceipt") else row["receipt"])
-            con.execute("""UPDATE fuelings SET car_id=?,ts=?,liters=?,cost=?,odo=?,full=?,station=?,
-                           note=?,receipt=? WHERE id=? AND nutzer_id=?""",
-                        (car_id, ts, liters, cost, odo, full, station, note, keep, dbid, user["id"]))
+            con.execute("""UPDATE fuelings SET car_id=?,ts=?,liters=?,cost=?,cost_ct=?,odo=?,full=?,
+                           station=?,note=?,receipt=? WHERE id=? AND nutzer_id=?""",
+                        (car_id, ts, liters, cost, cost_ct, odo, full, station, note, keep,
+                         dbid, user["id"]))
             return self.send_json({"ok": True, "id": dbid})
-        new = con.execute("""INSERT INTO fuelings(nutzer_id,car_id,ts,liters,cost,odo,full,station,note,receipt)
-                             VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                          (user["id"], car_id, ts, liters, cost, odo, full, station, note,
+        new = con.execute("""INSERT INTO fuelings(nutzer_id,car_id,ts,liters,cost,cost_ct,odo,full,
+                             station,note,receipt) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                          (user["id"], car_id, ts, liters, cost, cost_ct, odo, full, station, note,
                            receipt or "")).lastrowid
         return self.send_json({"ok": True, "id": new})
 

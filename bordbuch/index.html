@@ -495,6 +495,28 @@ let state={tab:'overview',carId:null,range:'all',metric:'cost',gran:'week',weekO
 
 /* ---------- Formate ---------- */
 const eur=n=>new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(isFinite(n)?n:0);
+/* Geld ist im Bordbuch eine Ganzzahl in Cent (B-04). Gerechnet und summiert
+   wird ausschliesslich in Cent - in Euro umgerechnet wird erst beim Anzeigen.
+   Drei Tankungen zu 0,10 EUR und eine zu 8,72 EUR ergaben als Fliesskomma
+   summiert 9.020000000000001 statt 9,02; der Fehler waechst mit der
+   Datenmenge und faellt niemandem auf, weil die Anzeige rundet. */
+/* Euro-Eingabe -> Cent. Zwei Feinheiten, die beide belegt sind:
+   - 8.995*100 ergibt in Fliesskomma 899.4999999999999, weil 8,995 sich nicht
+     exakt darstellen laesst. Math.round allein liefert dann 899 statt 900.
+     toPrecision(15) raeumt dieses Darstellungsrauschen weg, bevor gerundet
+     wird.
+   - Gerundet wird von der Null weg (wie ROUND_HALF_UP auf dem Server), nicht
+     zur naechsten geraden Zahl und nicht Richtung plus unendlich - sonst
+     wichen Oberflaeche und Server bei -8,995 voneinander ab. */
+const ct=v=>{const n=+v;if(!isFinite(n))return 0;
+  return (n<0?-1:1)*Math.round(+(Math.abs(n)*100).toPrecision(15));};
+/* Einen Cent-Wert sicher lesen. Bewusst kein |0: der bitweise Operator
+   schneidet auf 32 Bit ab und macht aus grossen Summen stillschweigend
+   falsche Zahlen. */
+const cz=v=>{const n=Math.round(+v);return Number.isFinite(n)?n:0;};
+const eurCt=c=>eur(cz(c)/100);                  /* Cent -> Anzeige in Euro */
+const ctZahl=c=>cz(c)/100;                      /* Cent -> Euro als Zahl */
+const summeCt=(l,f)=>l.reduce((a,x)=>a+cz(f?f(x):x),0);   /* exakte Summe */
 const num=(n,d=2)=>new Intl.NumberFormat('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d}).format(isFinite(n)?n:0);
 const dt=new Intl.DateTimeFormat('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'});
 const dtS=new Intl.DateTimeFormat('de-DE',{day:'2-digit',month:'2-digit'});
@@ -518,6 +540,10 @@ function daysInMonth(y,m){return new Date(y,m+1,0).getDate();}
 /* R8: Netto aus Brutto ableiten, mit dem eingestellten Satz. */
 function vatSatz(){const n=+settings.vatRate;return isFinite(n)&&n>=0&&n<50?n:19;}
 function nettoAus(brutto){return brutto/(1+vatSatz()/100);}
+/* Netto aus Brutto in Cent, kaufmaennisch gerundet (B-04). Die
+   Mehrwertsteuer entsteht danach als Differenz brutto-netto, damit
+   netto+mwst==brutto per Konstruktion stimmt und nicht per Zufall. */
+function nettoCtAus(bruttoCt){return Math.round(cz(bruttoCt)/(1+vatSatz()/100));}
 function median(a){if(!a.length)return 0;const s=a.slice().sort((x,y)=>x-y),i=s.length>>1;return s.length%2?s[i]:(s[i-1]+s[i])/2;}
 /* Kilometerstände: ohne Tausenderpunkt anzeigen und "20.000" richtig lesen */
 function plainInt(n){return isFinite(n)&&n?String(Math.round(n)):'';}
@@ -754,7 +780,10 @@ function mapChargeRows(rows,file,zusatz){
       city:g(ix.city),zip:g(ix.zip),street:g(ix.street),
       odo:isFinite(toInt(g(ix.odo)))?toInt(g(ix.odo)):0,
       rate:g(ix.rate),partner:g(ix.partner),entity:g(ix.entity),invoiceNo:g(ix.inv),
-      invoiceDate:g(ix.invd)?String(g(ix.invd)).slice(0,10):'',invoiceGross:cost,src:file||'',
+      invoiceDate:g(ix.invd)?String(g(ix.invd)).slice(0,10):'',invoiceGross:cost,
+      /* Cent-Felder mitgeben (B-04): der Server bevorzugt sie und rechnet
+         nur bei aelteren Dateien aus dem Euro-Wert zurueck. */
+      costCt:ct(cost),netCt:ct(net),vatCt:ct(cost)-ct(net),invoiceGrossCt:ct(cost),src:file||'',
       manual:false,note:(zusatz&&zusatz.note)||''});
   }
   return {rows:out,bad};
@@ -1070,14 +1099,20 @@ function chargeAll(){
   if(cCache)return cCache;
   const base=sessions.filter(s=>!state.carId||s.carId===state.carId).map(s=>{
     const d=new Date(s.start),pl=placeOf(s),kw=s.sec>60?s.kwh/(s.sec/3600):0;
-    let cost=s.cost,over=false;
-    if(pl==='home'&&settings.useHomePrice){cost=s.kwh*homePreisAm(s.start);over=true;}
+    /* Geld in Cent (B-04). Wird der Hauspreis angewandt, entsteht der Betrag
+       hier neu - dann wird er sofort auf Cent gerundet, damit er nicht als
+       Fliesskommazahl weiterlaeuft. */
+    let costCt=cz(s.costCt),over=false;
+    if(pl==='home'&&settings.useHomePrice){costCt=ct(s.kwh*homePreisAm(s.start));over=true;}
     /* Nur eine Abrechnung des Anbieters weist Netto aus. Bei selbst
        eingetragenen Ladungen rechnet der Server ebenfalls einen Netto-Wert -
        der ist aber genauso abgeleitet und darf nicht als ausgewiesen gelten. */
-    const ausgewiesen=!over&&!s.manual&&isFinite(s.net)&&s.net>0;
-    const net=ausgewiesen?s.net:nettoAus(cost);
-    return {...s,d,type:'charge',place:pl,kw,cost,rawCost:s.cost,over,net,vat:cost-net,
+    const ausgewiesen=!over&&!s.manual&&cz(s.netCt)>0;
+    const netCt=ausgewiesen?cz(s.netCt):nettoCtAus(costCt);
+    const cost=ctZahl(costCt);
+    return {...s,d,type:'charge',place:pl,kw,costCt,cost,rawCostCt:cz(s.costCt),
+      rawCost:ctZahl(s.costCt),over,netCt,net:ctZahl(netCt),
+      vatCt:costCt-netCt,vat:ctZahl(costCt-netCt),
       netAbgeleitet:!ausgewiesen,liters:0,
       ppk:s.kwh>0?cost/s.kwh:0,km:0,dkm:0,measured:0,carLabel:carName(s.carId)};
   }).sort((a,b)=>a.d-b.d);
@@ -1238,9 +1273,13 @@ function fuelAll(){
   if(fCache)return fCache;
   const base=fuelings.filter(f=>!state.carId||f.carId===state.carId).map(f=>{
     const d=new Date(f.ts);
-    return {...f,d,type:'fuel',kwh:0,sec:0,ppl:f.liters>0?f.cost/f.liters:0,
+    /* Geld in Cent (B-04); Euro nur zum Anzeigen und fuer Verhaeltnisse. */
+    const costCt=cz(f.costCt),netCt=nettoCtAus(costCt);
+    return {...f,d,type:'fuel',kwh:0,sec:0,costCt,cost:ctZahl(costCt),
+      ppl:f.liters>0?ctZahl(costCt)/f.liters:0,
       /* Tankbelege weisen keine Steuer aus - der Wert ist abgeleitet. */
-      net:nettoAus(f.cost),vat:f.cost-nettoAus(f.cost),netAbgeleitet:true,
+      netCt,net:ctZahl(netCt),vatCt:costCt-netCt,vat:ctZahl(costCt-netCt),
+      netAbgeleitet:true,
       carLabel:carName(f.carId),measured:0,dkm:0,km:0};
   }).sort((a,b)=>a.d-b.d);
   const byCar=new Map();
@@ -1344,9 +1383,14 @@ function kmVon(von,bis,fallbackListe){
 }
 function items(){if(iCache)return iCache;iCache=chargeAll().concat(fuelAll()).sort((a,b)=>a.d-b.d);return iCache;}
 function provider(s){return s.partner||s.entity||s.rate||'Ohne Angabe';}
-function sum(l){return l.reduce((a,x)=>({cost:a.cost+(x.cost||0),net:a.net+(x.net||0),vat:a.vat+(x.vat||0),
+/* Summiert eine Liste. Geldfelder laufen als Cent-Ganzzahl (B-04); cost, net
+   und vat werden daraus abgeleitet und sind nur zum Anzeigen und fuer
+   Verhaeltnisse gedacht (EUR/kWh). Wer weiterrechnet, nimmt costCt. */
+function sum(l){const a=l.reduce((a,x)=>({costCt:a.costCt+cz(x.costCt),netCt:a.netCt+cz(x.netCt),
+  vatCt:a.vatCt+cz(x.vatCt),
   kwh:a.kwh+(x.kwh||0),liters:a.liters+(x.liters||0),sec:a.sec+(x.sec||0),km:a.km+(x.km||0),n:a.n+1}),
-  {cost:0,net:0,vat:0,kwh:0,liters:0,sec:0,km:0,n:0});}
+  {costCt:0,netCt:0,vatCt:0,kwh:0,liters:0,sec:0,km:0,n:0});
+  return {...a,cost:ctZahl(a.costCt),net:ctZahl(a.netCt),vat:ctZahl(a.vatCt)};}
 function inRange(l){
   const n=new Date();
   if(state.range==='month')return l.filter(x=>x.d.getFullYear()===n.getFullYear()&&x.d.getMonth()===n.getMonth());
@@ -1474,17 +1518,19 @@ function tipOn(svg,el,html){
 }
 function buckets(gran){
   const list=items();if(!list.length)return[];
-  const blank=(key,start,week,year)=>({key,start,week,year,cost:0,kwh:0,liters:0,count:0,sec:0});
+  const blank=(key,start,week,year)=>({key,start,week,year,costCt:0,cost:0,kwh:0,liters:0,count:0,sec:0});
   const map=new Map(),out=[];
   if(gran==='week'){
     for(const s of list){const w=isoWeek(s.d);const b=map.get(w.key)||blank(w.key,w.start,w.week,w.year);
-      b.cost+=s.cost;b.kwh+=s.kwh||0;b.liters+=s.liters||0;b.sec+=s.sec||0;b.count++;map.set(w.key,b);}
+      b.costCt+=cz(s.costCt);b.cost=ctZahl(b.costCt);b.kwh+=s.kwh||0;b.liters+=s.liters||0;
+    b.sec+=s.sec||0;b.count++;map.set(w.key,b);}
     for(let d=weekStart(list[0].d);d<=weekStart(new Date());d=addWeeks(d,1)){
       const w=isoWeek(d);out.push(map.get(w.key)||blank(w.key,w.start,w.week,w.year));}
     return out.slice(-26);
   }
   for(const s of list){const k=monthKey(s.d);const b=map.get(k)||blank(k,new Date(s.d.getFullYear(),s.d.getMonth(),1));
-    b.cost+=s.cost;b.kwh+=s.kwh||0;b.liters+=s.liters||0;b.sec+=s.sec||0;b.count++;map.set(k,b);}
+    b.costCt+=cz(s.costCt);b.cost=ctZahl(b.costCt);b.kwh+=s.kwh||0;b.liters+=s.liters||0;
+    b.sec+=s.sec||0;b.count++;map.set(k,b);}
   const a=new Date(list[0].d.getFullYear(),list[0].d.getMonth(),1),n=new Date();
   for(let d=new Date(a);d<=n;d.setMonth(d.getMonth()+1))out.push(map.get(monthKey(d))||blank(monthKey(d),new Date(d)));
   return out.slice(-24);
@@ -1585,7 +1631,7 @@ function carStats(c){
   const ev=sessions.filter(s=>s.carId===c.id),fu=fuelings.filter(f=>f.carId===c.id);
   const evCost=ev.reduce((a,s)=>a+((settings.stationKind[s.station]==='home'&&settings.useHomePrice)?s.kwh*homePreisAm(s.start):s.cost),0);
   const kwh=ev.reduce((a,s)=>a+s.kwh,0),lit=fu.reduce((a,f)=>a+f.liters,0);
-  const fuCost=fu.reduce((a,f)=>a+f.cost,0);
+  const fuCostCt=summeCt(fu,f=>f.costCt),fuCost=ctZahl(fuCostCt);
   let p1=c.kwhPer100>0?c.kwhPer100:settings.kwhPer100,measE=0;
   /* Stromverbrauch aus den Ablesungen der Ladungen */
   const evOdo=mischAntrieb(c.kind)?[]:ev.filter(s=>s.odo>0).sort((a,b)=>new Date(a.start)-new Date(b.start));
@@ -1833,7 +1879,8 @@ function vChecks(){
   const K=KINDS[kind()];
   /* --- Ausgaben im Monatsvergleich --- */
   const monate=new Map();
-  for(const x of alle){const k=monthKey(x.d);monate.set(k,(monate.get(k)||0)+x.cost);}
+  /* Monatssummen in Cent (B-04) - hier entstehen die Jahreszahlen. */
+  for(const x of alle){const k=monthKey(x.d);monate.set(k,(monate.get(k)||0)+cz(x.costCt));}
   const keys=[...monate.keys()].sort();
   const werte=keys.map(k=>monate.get(k));
   const medM=median(werte.slice(0,-1).length?werte.slice(0,-1):werte);
@@ -1911,7 +1958,7 @@ function vChecks(){
     '<b>'+monthName(m.k)+'</b> mit '+eur(m.v)).join(', ')+' (üblich '+eur(medM)+').');
   if(K.charge){
     const ch=chargeAll(),unterwegs=ch.filter(s=>s.place==='public');
-    const mehr=unterwegs.reduce((a,s)=>a+(s.cost-s.kwh*homePreisAm(s.start)),0);
+    const mehr=ctZahl(unterwegs.reduce((a,s)=>a+(cz(s.costCt)-ct(s.kwh*homePreisAm(s.start))),0));
     if(mehr>5)punkte.push('Laden unterwegs kostet dich <b>'+eur(mehr)+'</b> mehr, als dieselbe Energie zuhause gekostet hätte.');
     const teuerste=ch.filter(s=>s.ppk>0).sort((a,b)=>b.ppk-a.ppk)[0];
     const guenstig=ch.filter(s=>s.ppk>0&&s.place==='public').sort((a,b)=>a.ppk-b.ppk)[0];
@@ -1923,10 +1970,12 @@ function vChecks(){
     const fu=fuelAll().filter(f=>f.ppl>0);
     if(fu.length>2){
       const st=new Map();
-      for(const f of fu){const b=st.get(f.station||'—')||{c:0,l:0,n:0};b.c+=f.cost;b.l+=f.liters;b.n++;st.set(f.station||'—',b);}
+      for(const f of fu){const b=st.get(f.station||'—')||{cCt:0,c:0,l:0,n:0};
+        b.cCt+=cz(f.costCt);b.c=ctZahl(b.cCt);b.l+=f.liters;b.n++;st.set(f.station||'—',b);}
       const r=[...st.entries()].map(([k,b])=>({k,p:b.c/b.l,l:b.l})).sort((a,b)=>a.p-b.p);
       if(r.length>1&&r[r.length-1].p>r[0].p*1.02){
-        const spar=fu.reduce((a,f)=>a+f.liters,0)*(fu.reduce((a,f)=>a+f.cost,0)/fu.reduce((a,f)=>a+f.liters,0)-r[0].p);
+        const litAlle=fu.reduce((a,f)=>a+f.liters,0);
+        const spar=litAlle*(ctZahl(summeCt(fu,f=>f.costCt))/litAlle-r[0].p);
         punkte.push('Immer bei <b>'+esc(r[0].k)+'</b> getankt ('+num(r[0].p,3)+' €/l) hätte '+eur(spar)+' gespart.');
       }
     }
@@ -2053,7 +2102,7 @@ function blockFuel(list){
   const ausreisser=fuelAll().filter(f=>f.odd).length;
   const st=new Map();
   for(const f of list)if(f.liters>0){const k=f.station||'Ohne Angabe';const b=st.get(k)||{c:0,l:0,n:0};
-    b.c+=f.cost;b.l+=f.liters;b.n++;st.set(k,b);}
+    b.cCt=cz(b.cCt)+cz(f.costCt);b.c=ctZahl(b.cCt);b.l+=f.liters;b.n++;st.set(k,b);}
   const ranked=[...st.entries()].map(([k,b])=>({k,ppl:b.c/b.l,n:b.n})).sort((a,b)=>a.ppl-b.ppl);
   return sect('<b>Sprit</b>',
     '<div class="kpis">'+
@@ -2474,8 +2523,9 @@ function paneWerkstatt(){
   const jahr=state.kostenJahr;
   const liste=werkstattListe(jahr);
   const alle=werkstattListe('alle');
-  const summe=liste.reduce((a,w)=>a+(+w.cost||0),0);
-  const summeAlle=alle.reduce((a,w)=>a+(+w.cost||0),0);
+  /* Summen in Cent (B-04), Euro erst beim Anzeigen. */
+  const summeCtW=summeCt(liste,w=>w.costCt),summe=ctZahl(summeCtW);
+  const summeAlleCt=summeCt(alle,w=>w.costCt),summeAlle=ctZahl(summeAlleCt);
   /* Strecke im gewaehlten Jahr - fuer die Kosten je 100 km */
   const km=(()=>{
     const a=items();
@@ -2488,12 +2538,13 @@ function paneWerkstatt(){
   /* Aufteilung nach Art der Arbeit */
   const arten=new Map();
   for(const w of liste){const k=(w.art||'Sonstiges').trim()||'Sonstiges';
-    const b=arten.get(k)||{c:0,n:0};b.c+=(+w.cost||0);b.n++;arten.set(k,b);}
+    const b=arten.get(k)||{cCt:0,c:0,n:0};b.cCt+=cz(w.costCt);b.c=ctZahl(b.cCt);b.n++;arten.set(k,b);}
   const sortiert=[...arten.entries()].sort((a,b)=>b[1].c-a[1].c);
   const maxArt=Math.max(0.01,...sortiert.map(x=>x[1].c));
   const jahresSummen=new Map();
+  /* Jahressummen in Cent (B-04) - das sind die Zahlen fuer den Nachweis. */
   for(const w of alle)jahresSummen.set(w.d.getFullYear(),
-    (jahresSummen.get(w.d.getFullYear())||0)+(+w.cost||0));
+    (jahresSummen.get(w.d.getFullYear())||0)+cz(w.costCt));
   const titel=jahr==='alle'?'alle Jahre':'Jahr '+jahr;
   const c=car();
 
@@ -2853,7 +2904,7 @@ function paneLogbuch(){
     '<p class="hint" style="margin:0">Alles, was am Fahrzeug gemacht wurde — nach Art gruppiert. '+
     'Jeder Erledigt-Vermerk landet hier automatisch.</p>')
   +gruppen.map(([art,liste])=>{
-    const summe=liste.reduce((a,w)=>a+(+w.cost||0),0);
+    const summe=ctZahl(summeCt(liste,w=>w.costCt));
     const abstand=(()=>{
       if(liste.length<2)return '';
       const j=liste.map(w=>w.d.getTime()).sort((a,b)=>a-b);
@@ -2922,7 +2973,8 @@ function reviewPanel(){
   if(p.type==='charge'){
     const known=new Set(sessions.map(s=>s.id));
     const neu=p.rows.filter(r=>!known.has(r.id)),dup=p.rows.length-neu.length;
-    const t=neu.reduce((a,r)=>({kwh:a.kwh+r.kwh,cost:a.cost+r.cost}),{kwh:0,cost:0});
+    const t=neu.reduce((a,r)=>({kwh:a.kwh+r.kwh,costCt:a.costCt+ct(r.cost)}),{kwh:0,costCt:0});
+    t.cost=ctZahl(t.costCt);
     return sect('Gefundene Ladungen prüfen',
       '<div class="kpis">'+kpi('a','Neu',String(neu.length),'werden übernommen')+
       kpi('','Schon vorhanden',String(dup),'werden übersprungen')+
@@ -2938,7 +2990,8 @@ function reviewPanel(){
       '<button class="ghost" data-act="entry" data-v="">Abbrechen</button></div>','accent');
   }
   if(p.type==='fuelCsv'){
-    const t=p.rows.reduce((a,r)=>({l:a.l+r.liters,c:a.c+r.cost}),{l:0,c:0});
+    const t=p.rows.reduce((a,r)=>({l:a.l+r.liters,cCt:a.cCt+ct(r.cost)}),{l:0,cCt:0});
+    t.c=ctZahl(t.cCt);
     return sect('Gefundene Tankungen prüfen',
       '<div class="kpis">'+kpi('a','Tankungen',String(p.rows.length),'werden übernommen')+
       kpi('p','Liter',num(t.l,1)+'<u>l</u>','')+kpi('','Kosten',eur(t.c),'')+'</div>'+
@@ -2993,14 +3046,16 @@ function vPrices(){
     const rf=inRange(chargeAll());
     const grp=fn=>{const m=new Map();
       for(const s of rf){const k=fn(s)||'—';const b=m.get(k)||{k,cost:0,kwh:0,sec:0,n:0};
-        b.cost+=s.cost;b.kwh+=s.kwh;b.sec+=s.sec;b.n++;m.set(k,b);}
+        b.costCt=cz(b.costCt)+cz(s.costCt);b.cost=ctZahl(b.costCt);
+        b.kwh+=s.kwh;b.sec+=s.sec;b.n++;m.set(k,b);}
       return [...m.values()].map(b=>({...b,ppk:b.kwh?b.cost/b.kwh:0}));};
     const prov=grp(provider).filter(b=>b.kwh>0).sort((a,b)=>b.ppk-a.ppk);
     const spots=grp(s=>s.station+(s.city?' · '+s.city:'')).sort((a,b)=>b.cost-a.cost).slice(0,8);
     const maxP=Math.max(.001,...prov.map(b=>b.ppk)),maxC=Math.max(.01,...spots.map(b=>b.cost));
     const CL=[[0,3.7,'Langsam AC (bis 3,7 kW)'],[3.7,11,'AC 11 kW'],[11,22,'AC 22 kW'],[22,50,'DC bis 50 kW'],[50,1e9,'Über 50 kW']];
     const cls=CL.map(([a,b,l])=>{const x=rf.filter(s=>s.kw>=a&&s.kw<b&&s.kwh>0);
-      return {l,n:x.length,kwh:x.reduce((q,s)=>q+s.kwh,0),cost:x.reduce((q,s)=>q+s.cost,0)};}).filter(c=>c.n);
+      const cCt=summeCt(x,s=>s.costCt);
+      return {l,n:x.length,kwh:x.reduce((q,s)=>q+s.kwh,0),costCt:cCt,cost:ctZahl(cCt)};}).filter(c=>c.n);
     const maxN=Math.max(1,...cls.map(c=>c.n));
     /* F3a — Preis je Anbieter, aber getrennt nach Ladeart.
        Ein gemeinsamer Mittelwert aus Wechselstrom zuhause (~0,30 €/kWh) und
@@ -3014,7 +3069,8 @@ function vPrices(){
       const teil=rf.filter(s=>s.kwh>0.5&&s.kw>=von&&s.kw<bis&&s.ppk>0);
       const m=new Map();
       for(const s of teil){const k=provider(s);const b=m.get(k)||{k,cost:0,kwh:0,n:0};
-        b.cost+=s.cost;b.kwh+=s.kwh;b.n++;m.set(k,b);}
+        b.costCt=cz(b.costCt)+cz(s.costCt);b.cost=ctZahl(b.costCt);
+        b.kwh+=s.kwh;b.n++;m.set(k,b);}
       const reihen=[...m.values()].filter(b=>b.n>=MIND_LADUNGEN)
         .map(b=>({...b,ppk:b.cost/b.kwh})).sort((a,b)=>b.ppk-a.ppk);
       return {titel,reihen,gesamt:teil.length,anbieter:m.size};
@@ -3072,7 +3128,8 @@ function vPrices(){
     const rf=inRange(fuelAll()).filter(f=>f.liters>0);
     const m=new Map();
     for(const f of rf){const k=f.station||'Ohne Angabe';const b=m.get(k)||{k,cost:0,liters:0,n:0};
-      b.cost+=f.cost;b.liters+=f.liters;b.n++;m.set(k,b);}
+      b.costCt=cz(b.costCt)+cz(f.costCt);b.cost=ctZahl(b.costCt);
+      b.liters+=f.liters;b.n++;m.set(k,b);}
     const st=[...m.values()].map(b=>({...b,ppl:b.liters?b.cost/b.liters:0})).sort((a,b)=>b.ppl-a.ppl);
     const maxP=Math.max(.001,...st.map(b=>b.ppl));
     out+=sect('Literpreis je Tankstelle <span style="color:var(--muted)">— '+rangeLabel()+'</span>',
@@ -3171,9 +3228,10 @@ function weekGrid(years){
   if(!state.gridYear||!years.includes(state.gridYear))state.gridYear=years[0];
   const y=state.gridYear,m=state.gridMetric;
   const map=new Map();
-  const hol=k=>map.get(k)||(map.set(k,{cost:0,kwh:0,liters:0,n:0,km:0}),map.get(k));
+  const hol=k=>map.get(k)||(map.set(k,{costCt:0,cost:0,kwh:0,liters:0,n:0,km:0}),map.get(k));
   for(const x of items()){const w=isoWeek(x.d);if(w.year!==y)continue;
-    const b=hol(w.week);b.cost+=x.cost;b.kwh+=x.kwh||0;b.liters+=x.liters||0;b.n++;}
+    const b=hol(w.week);b.costCt+=cz(x.costCt);b.cost=ctZahl(b.costCt);
+    b.kwh+=x.kwh||0;b.liters+=x.liters||0;b.n++;}
   for(const [tag,km] of kmPerDay()){
     const w=isoWeek(new Date(tag+'T12:00:00'));
     if(w.year===y)hol(w.week).km+=km;
@@ -3200,7 +3258,9 @@ function weekGrid(years){
       '"'+(v>0?' style="background:color-mix(in oklab,var(--accent) '+Math.round(a*100)+'%,transparent)"':'')+'>'+
       '<div class="k">KW '+k+'</div><div class="v">'+zeig(v)+'</div></div>');
   }
-  const g=[...map.values()].reduce((a,b)=>({cost:a.cost+b.cost,km:a.km+b.km,n:a.n+b.n}),{cost:0,km:0,n:0});
+  const g=[...map.values()].reduce((a,b)=>({costCt:a.costCt+cz(b.costCt),km:a.km+b.km,n:a.n+b.n}),
+    {costCt:0,km:0,n:0});
+  g.cost=ctZahl(g.costCt);
   const beste=wochen.map(k=>({k,v:wert(map.get(k))})).filter(x=>x.v>0).sort((a,b)=>b.v-a.v);
   return sect('Jede Woche in '+y,
     '<div class="weeks">'+zellen.join('')+'</div>'+
@@ -3232,7 +3292,8 @@ function fakten(){
   const messFu=fu.filter(x=>x.measured>0),messCh=ch.filter(x=>x.measured>0);
   /* Orte */
   const orte=new Map();
-  for(const x of all){const k=x.station||'ohne Angabe';const b=orte.get(k)||{n:0,c:0};b.n++;b.c+=x.cost;orte.set(k,b);}
+  for(const x of all){const k=x.station||'ohne Angabe';const b=orte.get(k)||{n:0,cCt:0,c:0};
+    b.n++;b.cCt+=cz(x.costCt);b.c=ctZahl(b.cCt);orte.set(k,b);}
   const topOrt=[...orte.entries()].sort((a,b)=>b[1].n-a[1].n)[0];
   /* Wochentage */
   const WD=['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'];
@@ -3495,8 +3556,13 @@ function vReport(){
   if(jahresbericht){
     const mm=new Map();
     for(const x of f){const k=monthKey(x.d);
-      if(!mm.has(k))mm.set(k,{n:0,kwh:0,liters:0,net:0,vat:0,cost:0});
-      const b=mm.get(k);b.n++;b.kwh+=x.kwh||0;b.liters+=x.liters||0;b.net+=x.net;b.vat+=x.vat;b.cost+=x.cost;}
+      if(!mm.has(k))mm.set(k,{n:0,kwh:0,liters:0,netCt:0,vatCt:0,costCt:0,net:0,vat:0,cost:0});
+      /* Netto, MwSt und Brutto in Cent summieren (B-04). Genau hier entstehen
+         die Zahlen, die im Nachweis gegenueber Arbeitgeber und Finanzamt
+         stehen - eine Abweichung um Cent-Betraege ist hier nicht Kosmetik. */
+      const b=mm.get(k);b.n++;b.kwh+=x.kwh||0;b.liters+=x.liters||0;
+      b.netCt+=cz(x.netCt);b.vatCt+=cz(x.vatCt);b.costCt+=cz(x.costCt);
+      b.net=ctZahl(b.netCt);b.vat=ctZahl(b.vatCt);b.cost=ctZahl(b.costCt);}
     const keys=[...mm.keys()].sort();
     uebersicht='<h4 style="margin:4px 0 8px;font-size:14px">Monatsübersicht</h4>'+
       '<div class="scroll"><table><thead><tr><th>Monat</th><th class="n">Anzahl</th>'+
@@ -3945,8 +4011,9 @@ function panePoints(){
   const map=new Map();
   for(const s of sessions){
     if(!s.station)continue;
-    const b=map.get(s.station)||{name:s.station,n:0,kwh:0,cost:0,letzte:null,adresse:'',autos:new Set()};
-    b.n++;b.kwh+=s.kwh||0;b.cost+=s.cost||0;
+    const b=map.get(s.station)||{name:s.station,n:0,kwh:0,costCt:0,cost:0,letzte:null,
+      adresse:'',autos:new Set()};
+    b.n++;b.kwh+=s.kwh||0;b.costCt=cz(b.costCt)+cz(s.costCt);b.cost=ctZahl(b.costCt);
     const d=new Date(s.start);
     if(!b.letzte||d>b.letzte)b.letzte=d;
     if(!b.adresse){
@@ -5925,7 +5992,7 @@ function exportCsv(month){
 function werkstattCsv(){
   const jahr=state.kostenJahr,liste=werkstattListe(jahr);
   if(!liste.length)return toast('Für diesen Zeitraum ist nichts erfasst.');
-  const c=car(),summe=liste.reduce((a,w)=>a+(+w.cost||0),0);
+  const c=car(),summe=ctZahl(summeCt(liste,w=>w.costCt));
   const kopf=['Datum','Art','Wo','Kilometerstand','Betrag_EUR','Aus_Wartungsplan','Beleg',
     'Notiz','Fahrzeug','Kennzeichen'];
   const zeilen=liste.slice().sort((a,b)=>a.d-b.d).map(w=>[dt.format(w.d),w.art||'Werkstatt',
@@ -5963,8 +6030,11 @@ function exportXls(){
   if(jahr){
     const mm=new Map();
     for(const x of f){const k=monthKey(x.d);
-      if(!mm.has(k))mm.set(k,{n:0,kwh:0,liters:0,net:0,vat:0,cost:0});
-      const b=mm.get(k);b.n++;b.kwh+=x.kwh||0;b.liters+=x.liters||0;b.net+=x.net;b.vat+=x.vat;b.cost+=x.cost;}
+      if(!mm.has(k))mm.set(k,{n:0,kwh:0,liters:0,netCt:0,vatCt:0,costCt:0,net:0,vat:0,cost:0});
+      const b=mm.get(k);b.n++;b.kwh+=x.kwh||0;b.liters+=x.liters||0;
+      b.netCt=cz(b.netCt)+cz(x.netCt);b.vatCt=cz(b.vatCt)+cz(x.vatCt);
+      b.costCt=cz(b.costCt)+cz(x.costCt);
+      b.net=ctZahl(b.netCt);b.vat=ctZahl(b.vatCt);b.cost=ctZahl(b.costCt);}
     monatsteil='<h4>Monatsübersicht</h4><table border="1"><thead><tr><th>Monat</th><th>Anzahl</th>'+
       '<th>kWh</th><th>Liter</th><th>Netto EUR</th><th>MwSt EUR</th><th>Brutto EUR</th></tr></thead><tbody>'+
       [...mm.keys()].sort().map(k=>{const b=mm.get(k);
@@ -6015,11 +6085,17 @@ function demoSeed(){
     const cost=+(kwh*ppk).toFixed(2),st=now-ago*D;
     return {dbid:++sid,nutzerId:1,carId,id:'DEMO'+sid,start:iso(st),end:iso(st+min*60000),sec:min*60,kwh,cost,
       odo:odo||0,
-      net:+(cost/1.19).toFixed(2),vat:+(cost-cost/1.19).toFixed(2),station,city,zip:'',street:'',rate:'TARIF',
-      partner,entity:'',invoiceNo:'MC/DE/2026/'+(2000+sid),invoiceDate:iso(st).slice(0,10),invoiceGross:cost,
+      /* Demo-Daten fuehren dieselben Cent-Felder wie der Server (B-04). */
+      costCt:ct(cost),netCt:Math.round(ct(cost)/1.19),
+      vatCt:ct(cost)-Math.round(ct(cost)/1.19),
+      net:ctZahl(Math.round(ct(cost)/1.19)),
+      vat:ctZahl(ct(cost)-Math.round(ct(cost)/1.19)),
+      station,city,zip:'',street:'',rate:'TARIF',
+      partner,entity:'',invoiceNo:'MC/DE/2026/'+(2000+sid),invoiceDate:iso(st).slice(0,10),
+      invoiceGross:cost,invoiceGrossCt:ct(cost),
       src:'Beispiel',manual:false,note:''};};
   const fu=(nutzerId,carId,ago,lit,ppl,odo,station)=>({dbid:++fid,nutzerId,carId,ts:iso(now-ago*D),liters:lit,
-    cost:+(lit*ppl).toFixed(2),odo,full:true,station,note:'',receipt:''});
+    cost:ctZahl(ct(lit*ppl)),costCt:ct(lit*ppl),odo,full:true,station,note:'',receipt:''});
   const heute=new Date();
   const inMon=n=>{const t=new Date(heute);t.setMonth(t.getMonth()+n);return t.toISOString().slice(0,10);};
   return {seq:{car:5,sess:0,fuel:0,wart:4,shop:9},
@@ -6239,7 +6315,8 @@ async function demoApi(path,body){
     /* Logbucheintrag wie beim echten Server: Kosten, Kilometerstand, Beleg. */
     const rec=body.receiptData?('data:application/octet-stream;base64,'+body.receiptData):'';
     d.shop.push({dbid:++d.seq.shop,nutzerId:uid,carId:w.carId,ts:dat+'T12:00:00',art:w.art,
-      cost:+body.cost||0,odo:+body.km||0,betrieb:body.betrieb||'',note:body.note||'',
+      cost:ctZahl(ct(body.cost)),costCt:ct(body.cost),
+      odo:+body.km||0,betrieb:body.betrieb||'',note:body.note||'',
       receipt:rec,wartId:w.dbid});
     return ok();
   }
@@ -6248,7 +6325,8 @@ async function demoApi(path,body){
   }
   if(path==='/api/shop/save'){
     const rec=body.receiptData?('data:application/octet-stream;base64,'+body.receiptData):null;
-    const werte={carId:body.carId,ts:body.ts,art:body.art||'',cost:+body.cost||0,
+    const werte={carId:body.carId,ts:body.ts,art:body.art||'',
+      cost:ctZahl(ct(body.cost)),costCt:ct(body.cost),
       odo:+body.odo||0,betrieb:body.betrieb||'',note:body.note||'',wartId:+body.wartId||0};
     if(body.dbid){
       const w=d.shop.find(x=>x.dbid===body.dbid&&x.nutzerId===uid);
@@ -6292,7 +6370,8 @@ async function demoApi(path,body){
     return ok({added,dup});
   }
   if(path==='/api/sessions/save'){
-    const cost=+body.cost||0,net=+(cost/1.19).toFixed(2);
+    const costCt=ct(body.cost),netCt=Math.round(costCt/1.19),vatCt=costCt-netCt;
+    const cost=ctZahl(costCt),net=ctZahl(netCt);
     if(!body.dbid&&body.tx&&d.sessions.some(x=>x.nutzerId===uid&&x.id===body.tx))
       throw new Error('Diese Ladung ist schon erfasst');
     if(body.dbid){
@@ -6301,13 +6380,15 @@ async function demoApi(path,body){
       const sec=+body.sec||0;
       Object.assign(x,{carId:body.carId,start:body.start,
         end:new Date(new Date(body.start).getTime()+sec*1000).toISOString(),
-        sec,kwh:+body.kwh||0,cost,net,vat:+(cost-net).toFixed(2),odo:+body.odo||0,
+        sec,kwh:+body.kwh||0,cost,net,vat:ctZahl(vatCt),
+        costCt,netCt,vatCt,odo:+body.odo||0,
         station:body.station||x.station});
       return ok({id:x.dbid});
     }
     d.sessions.push({dbid:++d.seq.sess,nutzerId:uid,carId:body.carId,
       id:body.tx||('manual-'+d.seq.sess),start:body.start,
-      end:body.start,sec:+body.sec||0,kwh:+body.kwh||0,cost,net,vat:+(cost-net).toFixed(2),
+      end:body.start,sec:+body.sec||0,kwh:+body.kwh||0,cost,net,vat:ctZahl(vatCt),
+      costCt,netCt,vatCt,invoiceGrossCt:costCt,
       odo:+body.odo||0,station:body.station||'Zuhause',city:'',zip:'',street:'',rate:'',partner:'',
       entity:'',invoiceNo:'',invoiceDate:'',invoiceGross:cost,src:'manuell',manual:true,note:''});
     return ok();
@@ -6322,12 +6403,14 @@ async function demoApi(path,body){
     if(body.dbid){
       const f=d.fuelings.find(x=>x.dbid===body.dbid&&x.nutzerId===uid);
       if(!f)throw new Error('Tankung nicht gefunden');
-      Object.assign(f,{carId:body.carId,ts:body.ts,liters:+body.liters||0,cost:+body.cost||0,odo:+body.odo||0,
+      Object.assign(f,{carId:body.carId,ts:body.ts,liters:+body.liters||0,
+        cost:ctZahl(ct(body.cost)),costCt:ct(body.cost),odo:+body.odo||0,
         full:body.full!==false,station:body.station||'',note:body.note||'',receipt:rec||f.receipt});
       return ok({id:f.dbid});
     }
     const id=++d.seq.fuel;
-    d.fuelings.push({dbid:id,nutzerId:uid,carId:body.carId,ts:body.ts,liters:+body.liters||0,cost:+body.cost||0,
+    d.fuelings.push({dbid:id,nutzerId:uid,carId:body.carId,ts:body.ts,liters:+body.liters||0,
+      cost:ctZahl(ct(body.cost)),costCt:ct(body.cost),
       odo:+body.odo||0,full:body.full!==false,station:body.station||'',note:body.note||'',receipt:rec||''});
     return ok({id});
   }
