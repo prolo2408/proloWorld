@@ -117,8 +117,17 @@
   .brand{display:flex;align-items:center;gap:11px;min-width:0}
   .brand svg{width:32px;height:32px;flex:0 0 32px}
   .brand h1{font-size:21px;margin:0;letter-spacing:-.02em;font-weight:650;line-height:1.1}
-  .brand .who{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46vw}
+  /* Der Anzeigename ist ein Verweis auf die Einstellungen (B-16). max-width
+     ist weg: die Zustandsangabe steht jetzt rechts im Kopfbereich (B-17), hier
+     steht nur noch die Unterzeile des Tools. */
+  .brand .who{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--muted);text-decoration:none;display:block;line-height:1.4}
+  .brand .who:hover{color:var(--text)}
+  /* Zustandsangabe im Kopfbereich rechts - dorthin, wo Regelblatt 6 die
+     Kontextangaben verortet. */
+  .zustand{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--dim);
+    align-self:center;max-width:40vw}
+  .zustand.hidden{display:none}
   .headtools{display:flex;gap:8px;align-items:center}
 
   button{font:inherit;cursor:pointer;border-radius:11px;border:1px solid var(--line);background:var(--panel);
@@ -440,14 +449,20 @@ label>.hlp{margin-left:4px}
         <path d="M21 17l-5 7h4l-1 6 6-8h-4l1-5z" fill="var(--accent)"/></svg>
       <div><h1>Bordbuch<span id="testmarke" hidden style="font-size:11px;
         color:var(--accent);vertical-align:super;font-family:var(--mono);
-        margin-left:4px">TEST</span></h1><div class="who" id="who"></div></div>
+        margin-left:4px">TEST</span></h1><a class="who" id="who" href="/einstellungen"></a></div>
     </div>
     <div class="headtools">
       <div class="carpick"><span class="lab">Auto</span><select id="carPick" aria-label="Auto wählen"></select></div>
       <div class="carpick hidden" id="profilWrap"><span class="lab">Profil</span><select id="profilPick" aria-label="Profil wählen"></select></div>
-      <button class="ghost sm" id="thema" data-act="thema" aria-pressed="false"
-        title="Zwischen hell und dunkel wechseln">Hell</button>
-      <a class="ghost sm hidden" id="abmelden" href="#">Abmelden</a>
+      <!-- Regelblatt 6a, letzter Absatz, woertlich: "Im Header steht nur noch
+           der Anzeigename, verlinkt auf diese Seite. Kein Theme-Umschalter und
+           kein Abmelden-Knopf direkt in der Kopfzeile." Beides stand genau
+           hier (B-16). Der Theme-Umschalter ist jetzt ein Segment in den
+           Einstellungen unter "Darstellung" (B-11), das Abmelden steht dort
+           unter "Konto". Der alte <a href="#"> war zudem ein Verweis ohne
+           Ziel: bis das JavaScript ihn nachtraeglich befuellte, war er
+           fokussierbar und fuehrte ins Leere. -->
+      <div class="zustand" id="zustand"></div>
     </div>
   </header>
   <div class="navwrap no-print" id="navwrap"><nav id="tabs" role="tablist"></nav></div>
@@ -4475,12 +4490,18 @@ function paneProfile(){
         '</p></div>' : '')+
     (eigen
       ? '<div class="formbar" style="margin:0">'+
-        (ich&&ich.abmelden?'<a class="ghost" href="'+esc(ich.abmelden)+'">Abmelden</a>':'')+
+        /* Beschriftung woertlich nach Regelblatt 6a (B-16). Die doppelte
+           Beschriftung ist Absicht - Betriebsregeln 3: "Es ist eine
+           Weiterleitung, die Seite lädt dabei neu." */
+        (ich&&ich.abmelden
+          ? '<a class="ghost" href="'+esc(ich.abmelden)+'">Abmelden / neu laden</a>' : '')+
         '<button class="ghost danger" data-act="profilReset">Profil zurücksetzen</button>'+
         (DEMO?'<button class="ghost danger" data-act="demoReset">Beispieldaten zurücksetzen</button>':'')+'</div>'+
-        '<p class="hint">Abmelden beendet die Sitzung bei der Anmeldung, die vor Bordbuch sitzt — '+
-        'danach kannst du dich als jemand anderes anmelden. Name, E-Mail und Passwort werden dort '+
-        'gepflegt, nicht hier.<br>Zurücksetzen leert alle Autos, Ladungen, Tankungen und Wartungen '+
+        /* Der erste Satz ist von Regelblatt 6a woertlich vorgeschrieben. */
+        '<p class="hint">Beendet die Anmeldung und lädt die Seite neu. Danach kann ein '+
+        'anderes Konto verwendet werden.<br>Name, E-Mail und Passwort werden bei der '+
+        'Anmeldung gepflegt, die vor Bordbuch sitzt — nicht hier.<br>'+
+        'Zurücksetzen leert alle Autos, Ladungen, Tankungen und Wartungen '+
         'dieses Profils. Das Profil selbst bleibt — wer du bist, legt die Anmeldung fest.</p>'
       : '<p class="hint">Du arbeitest gerade im freigegebenen Profil von '+esc(me.name)+'. '+
         'Wechseln kannst du oben rechts.</p>'));
@@ -5066,16 +5087,24 @@ function render(){
      Kontowechsel nicht, als wer man unterwegs ist. In einem freigegebenen
      Profil steht zusaetzlich, wessen Daten man sieht. */
   const fremd=ich&&me.id!==ich.id;
-  document.getElementById('who').textContent=
-    'Angemeldet: '+(ich?ich.name:'—')+(ich&&ich.anmeldung&&ich.anmeldung!==ich.name?' ('+ich.anmeldung+')':'')+
-    (fremd?' · sieht '+me.name+' — '+(darfSchreiben?'lesen und eintragen':'nur lesen'):'');
-  /* Abmelden beendet die Sitzung bei der Anmeldung davor - ein lokales Löschen
-     von Keksen brächte nichts, die Anmeldung würde sofort wieder bestätigen. */
-  const ab=document.getElementById('abmelden');
-  if(ab){
-    const ziel=ich&&ich.abmelden;
-    ab.classList.toggle('hidden',!ziel);
-    if(ziel)ab.setAttribute('href',ziel);
+  /* Die Unterzeile unter dem Namen beschreibt das TOOL, nicht den Zustand
+     (Regelblatt 5, B-17) - "FAHRTENBUCH" steht fest im Markup. Der
+     Anzeigename ist ein Verweis auf die Einstellungen, wie Regelblatt 6a es
+     verlangt. */
+  const wh=document.getElementById('who');
+  if(wh){
+    wh.textContent=ich?ich.name:'—';
+    wh.setAttribute('href','/einstellungen');
+    wh.setAttribute('title','Einstellungen und Konto');
+  }
+  /* Die Zustandsangabe gehoert in den Kopfbereich rechts, neben die
+     Kontext-Auswahl - dorthin, wo Regelblatt 6 die Kontextangaben verortet. */
+  const zu=document.getElementById('zustand');
+  if(zu){
+    zu.textContent=fremd
+      ? 'sieht '+me.name+' — '+(darfSchreiben?'lesen und eintragen':'nur lesen')
+      : '';
+    zu.classList.toggle('hidden',!fremd);
   }
   const pw=document.getElementById('profilWrap');
   /* Der Umschalter erscheint nur, wenn es wirklich etwas zu wechseln gibt. */
