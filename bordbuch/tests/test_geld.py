@@ -48,6 +48,29 @@ class CentEinlesen(unittest.TestCase):
         # Von Hand: 8,994 EUR -> 899 Cent.
         self.assertEqual(cent("8,994"), 899)
 
+    def test_rundung_von_der_null_weg_nicht_zur_geraden_zahl(self):
+        # Wichtig: dieser Fall trennt kaufmaennisches Runden (ROUND_HALF_UP)
+        # von Pythons Standard (ROUND_HALF_EVEN, "zur geraden Zahl").
+        #
+        # 8,995 EUR taugt dafuer NICHT: das sind genau 899,5 Cent, und weil
+        # 900 gerade ist, runden beide Verfahren auf 900. Die Gegenprobe hat
+        # diese Luecke aufgedeckt.
+        #
+        # Von Hand: 8,985 EUR = 898,5 Cent.
+        #   kaufmaennisch (von der Null weg) -> 899
+        #   zur geraden Zahl (898 ist gerade) -> 898
+        self.assertEqual(cent("8,985"), 899)
+        # Von Hand: 1,005 EUR = 100,5 Cent -> 101, nicht 100.
+        self.assertEqual(cent("1,005"), 101)
+        # Von Hand: 2,665 EUR = 266,5 Cent -> 267, nicht 266.
+        self.assertEqual(cent("2,665"), 267)
+
+    def test_negativ_rundet_von_der_null_weg(self):
+        # Von Hand: -8,985 EUR = -898,5 Cent -> -899.
+        # Richtung plus unendlich waeren es -898 - dann wichen Server und
+        # Oberflaeche bei Gutschriften voneinander ab.
+        self.assertEqual(cent("-8,985"), -899)
+
     def test_null(self):
         # Grenzfall null: eine ausdrueckliche Null ist ein gueltiger Betrag.
         self.assertEqual(cent("0"), 0)
