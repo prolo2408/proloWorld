@@ -743,6 +743,22 @@ def geld_umstellen(con):
     return True
 
 
+def gruppen_aus_kopf(roh):
+    """Gruppen aus X-Authentik-Groups lesen (B-30).
+
+    Authentik trennt die Gruppen mit einem Pipe ("foo|bar|baz"), nicht mit
+    Komma - das steht so im Wiki-Server dokumentiert, und das Bordbuch trennte
+    trotzdem nur an Komma. Damit war "a|bordbuch-admin|c" EINE Gruppe namens
+    "a|bordbuch-admin|c", ist_admin() schlug fehl und die Gesamtsicherung waere
+    fuer niemanden erreichbar gewesen.
+
+    Komma und Semikolon werden zusaetzlich angenommen, damit ein Wechsel der
+    Identitaetsinstanz nicht alles lahmlegt. Modulweite Funktion, damit sie
+    ohne HTTP pruefbar ist.
+    """
+    return {g.strip() for g in re.split(r"[|,;]", roh or "") if g.strip()}
+
+
 def mail_kurz(m):
     """a****e@beispiel.de - genug zum Unterscheiden, zu wenig zum Sammeln (B-06).
 
@@ -905,8 +921,7 @@ class App(BaseHTTPRequestHandler):
         return con.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
 
     def gruppen(self):
-        roh = self.headers.get("X-Authentik-Groups") or ""
-        return {g.strip() for g in roh.split(",") if g.strip()}
+        return gruppen_aus_kopf(self.headers.get("X-Authentik-Groups"))
 
     def ist_admin(self):
         return CFG.admin_gruppe in self.gruppen()
