@@ -481,7 +481,9 @@ const DEFAULTS={kwhPer100:18,fuelPer100:7,fuelPrice:1.75,homePrice:0.32,useHomeP
      ausgewiesen ist, wird es gesagt. */
   vatRate:19};
 
-let ich=null,profile=[],freigabenMeine=[],freigabenFuerMich=[],andere=[],darfSchreiben=true,
+/* Keine Liste aller Profile mehr (B-06) - gesucht wird gezielt ueber
+   /api/freigabe/suche. freiTreffer haelt nur das Ergebnis der letzten Suche. */
+let ich=null,profile=[],freigabenMeine=[],freigabenFuerMich=[],freiTreffer=[],darfSchreiben=true,
     me=null,cars=[],sessions=[],fuelings=[],service=[],shop=[],settings={...DEFAULTS};
 let cCache=null,fCache=null,iCache=null,sCache=null,dCache=null,filePickMode='csv';
 let state={tab:'overview',carId:null,range:'all',metric:'cost',gran:'week',weekOffset:0,
@@ -1055,7 +1057,7 @@ async function loadState(){
   /* Wer fragt, sagt die Identitaetsinstanz (ich). Gearbeitet wird im eigenen
      Profil oder in einem freigegebenen (me). */
   ich=st.ich||null;profile=st.profile||[];darfSchreiben=st.schreiben!==false;
-  freigabenMeine=st.freigabenMeine||[];freigabenFuerMich=st.freigabenFuerMich||[];andere=st.andere||[];
+  freigabenMeine=st.freigabenMeine||[];freigabenFuerMich=st.freigabenFuerMich||[];
   me=st.user||null;cars=st.cars||[];sessions=st.sessions||[];fuelings=st.fuelings||[];
   service=st.service||[];shop=st.shop||[];
   settings={...DEFAULTS,...(st.settings||{})};
@@ -4421,7 +4423,8 @@ function paneProfile(){
         'Wechseln kannst du oben rechts.</p>'));
   if(!eigen)return out;
   /* Meine Freigaben */
-  const wahl=andere.filter(u=>!freigabenMeine.some(f=>f.profil===u.id));
+  /* Nur Treffer anzeigen, die nicht schon freigegeben sind. */
+  const wahl=freiTreffer.filter(u=>!freigabenMeine.some(f=>f.profil===u.id));
   out+=sect('Meine Freigaben',
     (freigabenMeine.length
       ? '<div class="rows">'+freigabenMeine.map(f=>
@@ -4435,15 +4438,31 @@ function paneProfile(){
           '<button class="ghost sm danger" data-act="freigabeWeg" data-v="'+f.id+'">Zurücknehmen</button>'+
           '</div></div>').join('')+'</div>'
       : '<div class="empty">Du hast niemandem Einblick gegeben. Deine Daten sieht nur du.</div>')+
+    /* Suchfeld statt Liste aller Profile (B-06): eine vollstaendige
+       Personenliste hat in der Oberflaeche nichts zu suchen. Der haeufigste
+       Fall bleibt schnell - Namen antippen, Recht waehlen, freigeben. */
+    '<div class="formbar" style="margin-top:12px">'+
+      '<input id="freiSuche" type="search" placeholder="Name oder E-Mail — mindestens 3 Zeichen" '+
+        'autocomplete="off" value="'+esc(state.freiQ||'')+'" aria-label="Person suchen">'+
+      '<button class="ghost sm" data-act="freigabeSuche">Suchen</button></div>'+
+    (state.freiFehler?'<p class="hint" role="alert">'+esc(state.freiFehler)+'</p>':'')+
     (wahl.length
-      ? '<div class="formbar" style="margin-top:12px">'+
-        '<select id="freiWer">'+wahl.map(u=>'<option value="'+u.id+'">'+esc(u.name)+
-          (u.email?' — '+esc(u.email):'')+'</option>').join('')+'</select>'+
-        '<select id="freiRecht"><option value="lesen">darf nur lesen</option>'+
-        '<option value="schreiben">darf auch eintragen</option></select>'+
-        '<button class="primary sm" data-act="freigabeNeu">Freigeben</button></div>'
-      : '<p class="hint" style="margin-top:12px">Zur Auswahl stehen nur Personen, die sich schon einmal '+
-        'bei Bordbuch angemeldet haben. Wer das sein darf, legt die Anmeldung fest.</p>'));
+      ? '<div class="rows" style="margin-top:8px">'+wahl.map(u=>
+          '<div class="row"><div class="t"><span class="nm">'+esc(u.name)+'</span>'+
+          (u.email?' <span class="who">'+esc(u.email)+'</span>':'')+'</div>'+
+          '<div class="act">'+
+          '<button class="ghost sm" data-act="freigabeNeu" data-v="'+u.id+'|lesen">'+
+            'nur lesen</button>'+
+          '<button class="ghost sm" data-act="freigabeNeu" data-v="'+u.id+'|schreiben">'+
+            'auch eintragen</button>'+
+          '</div></div>').join('')+'</div>'
+      : (state.freiQ&&!state.freiFehler
+          ? '<div class="empty">Niemand gefunden. Zur Auswahl stehen nur Personen, die sich '+
+            'schon einmal bei Bordbuch angemeldet haben — wer das sein darf, legt die '+
+            'Anmeldung fest.</div>'
+          : '<p class="hint" style="margin-top:8px">Such die Person über Name oder '+
+            'E-Mail-Adresse. Die Adresse wird nur verkürzt angezeigt, damit man die '+
+            'richtige Person erkennt, ohne dass hier ein Verzeichnis entsteht.</p>')));
   /* Für mich freigegeben */
   out+=sect('Für mich freigegeben',
     freigabenFuerMich.length
@@ -5338,13 +5357,33 @@ async function handleClick(el){
     state.carId=null;state.tab='overview';state.entry=null;
     await loadState();render();toast('Profil zurückgesetzt.');
   }
+  else if(a==='freigabeSuche'){
+    /* Gezielt suchen statt alle Profile zu laden (B-06). */
+    const feld=document.getElementById('freiSuche');
+    const q=feld?feld.value.trim():'';
+    state.freiQ=q;state.freiFehler='';
+    if(q.length<3){state.freiTrefferLeer=true;freiTreffer=[];
+      state.freiFehler='Bitte mindestens 3 Zeichen eingeben.';render();return;}
+    try{
+      const a2=await api('/api/freigabe/suche?q='+encodeURIComponent(q));
+      freiTreffer=a2.treffer||[];
+      if(freiTreffer.length>=(a2.grenze||10))
+        state.freiFehler='Es werden nur die ersten '+(a2.grenze||10)+
+          ' Treffer gezeigt. Gib mehr Zeichen ein, wenn die richtige Person fehlt.';
+    }catch(e){freiTreffer=[];state.freiFehler=e.message;}
+    render();
+  }
   else if(a==='freigabeNeu'){
-    const wer=document.getElementById('freiWer'),recht=document.getElementById('freiRecht');
-    if(!wer||!wer.value)return toast('Bitte jemanden auswählen.');
-    const name=wer.options[wer.selectedIndex].text;
-    await api('/api/freigabe/save',{empfaenger:+wer.value,rechte:recht?recht.value:'lesen'});
+    const [pid,recht]=String(v).split('|');
+    const person=freiTreffer.find(u=>String(u.id)===String(pid));
+    if(!pid)return toast('Bitte jemanden auswählen.');
+    await api('/api/freigabe/save',{empfaenger:+pid,rechte:recht||'lesen'});
+    /* Nach dem Freigeben ist die Suche erledigt - das Feld raeumt sich auf,
+       damit keine Trefferliste stehen bleibt. */
+    state.freiQ='';state.freiFehler='';freiTreffer=[];
     await loadState();render();
-    toast(name+' sieht jetzt dein Profil'+((recht&&recht.value==='schreiben')?' und darf eintragen.':' (nur lesen).'));
+    toast((person?person.name:'Die Person')+' sieht jetzt dein Profil'+
+      (recht==='schreiben'?' und darf eintragen.':' (nur lesen).'));
   }
   else if(a==='freigabeRechte'){
     const [pid,recht]=String(v).split('|');
@@ -6198,10 +6237,24 @@ async function demoApi(path,body){
       user:{id:selbst.id,name:selbst.name},
       profile:[{id:selbst.id,name:selbst.name,rechte:'eigen'}].concat(
         fuerMich.map(f=>({id:f.profil,name:f.name,rechte:f.rechte}))),
+      /* Kein "andere" mehr (B-06) - gesucht wird ueber /api/freigabe/suche. */
       schreiben:true,freigabenMeine:meine,freigabenFuerMich:fuerMich,
-      andere:d.users.filter(u=>u.id!==uid).map(u=>({id:u.id,name:u.name,email:''})),
       cars:myCars(),sessions:mine(d.sessions),fuelings:mine(d.fuelings),
       service:mine(d.service||[]),shop:mine(d.shop||[]),settings:d.settings[uid]||{},schema:'demo'};
+  }
+  if(path.split('?')[0]==='/api/freigabe/suche'){
+    /* Wie der echte Endpunkt (B-06): mindestens drei Zeichen, hoechstens zehn
+       Treffer, E-Mail verkuerzt. */
+    const q=decodeURIComponent((path.split('q=')[1]||'')).trim();
+    if(q.length<3)throw new Error('Bitte mindestens 3 Zeichen eingeben - Name oder '+
+      'E-Mail-Adresse der Person, die du freigeben willst.');
+    const kurz=m=>{if(!m||m.indexOf('@')<0)return '';
+      const i=m.indexOf('@'),l=m.slice(0,i),w=m.slice(i);
+      return l.length<=2?'*'.repeat(l.length)+w:l[0]+'*'.repeat(l.length-2)+l[l.length-1]+w;};
+    const n=q.toLowerCase();
+    return {treffer:d.users.filter(u=>u.id!==uid&&
+        ((u.name||'').toLowerCase().includes(n)||(u.email||'').toLowerCase().includes(n)))
+      .slice(0,10).map(u=>({id:u.id,name:u.name,email:kurz(u.email||'')})),grenze:10};
   }
   /* --- Verwaltung im Testmodus ---
      Der Ersatz-Server liefert dasselbe Format wie der echte Server: eine

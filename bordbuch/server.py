@@ -743,6 +743,22 @@ def geld_umstellen(con):
     return True
 
 
+def mail_kurz(m):
+    """a****e@beispiel.de - genug zum Unterscheiden, zu wenig zum Sammeln (B-06).
+
+    Bei aehnlichen Anzeigenamen muss man die richtige Person treffen koennen.
+    Dafuer genuegt ein Umriss der Adresse; die vollstaendige Adresse ist ein
+    Personendatum und hat in einer Trefferliste nichts zu suchen.
+    """
+    m = str(m or "")
+    if "@" not in m:
+        return ""
+    lokal, _, wo = m.partition("@")
+    if len(lokal) <= 2:
+        return "*" * len(lokal) + "@" + wo
+    return lokal[0] + "*" * (len(lokal) - 2) + lokal[-1] + "@" + wo
+
+
 def row_session(r):
     out = {"dbid": r["id"], "carId": r["car_id"]}
     for col in SESSION_FIELDS:
@@ -980,9 +996,49 @@ class App(BaseHTTPRequestHandler):
                 return self.send_json(
                     {"error": "Dafuer fehlt die Gruppe '%s'." % CFG.admin_gruppe}, 403)
             return self.admin_export()
+        if path == "/api/freigabe/suche":
+            return self.freigabe_suche(urlparse(self.path).query)
         if path.startswith("/api/"):
             return self.send_json({"error": "unbekannter Endpunkt"}, 404)
         return self.static(path)
+
+    # Wie viele Treffer eine Suche hoechstens zurueckgibt. Klein genug, dass
+    # sich daraus kein Verzeichnis abschoepfen laesst, gross genug fuer den
+    # Alltag.
+    SUCHE_MAX = 10
+    SUCHE_MIN_ZEICHEN = 3
+
+    def freigabe_suche(self, query):
+        """Profile fuer den Freigabe-Dialog suchen (B-06).
+
+        Verlangt mindestens drei Zeichen, gibt hoechstens zehn Treffer und die
+        E-Mail nur verkuerzt. Damit bleibt der Dialog benutzbar, ohne dass sich
+        das Personenverzeichnis abgreifen laesst.
+        """
+        from urllib.parse import parse_qs
+        q = (parse_qs(query or "").get("q") or [""])[0].strip()[:60]
+        with db() as con:
+            ich = self.ich(con)
+            if not ich:
+                return self.send_json(
+                    {"error": "Nicht angemeldet. Bordbuch erwartet die Anmeldung "
+                              "ueber die vorgeschaltete Identitaetsinstanz."}, 401)
+            if len(q) < self.SUCHE_MIN_ZEICHEN:
+                return self.send_json(
+                    {"error": "Bitte mindestens %d Zeichen eingeben - Name oder "
+                              "E-Mail-Adresse der Person, die du freigeben willst."
+                              % self.SUCHE_MIN_ZEICHEN}, 400)
+            # LIKE mit ESCAPE, damit % und _ in der Eingabe keine Platzhalter
+            # sind - sonst waere "%" eine Suche nach allen.
+            muster = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            treffer = [{"id": r["id"], "name": r["name"], "email": mail_kurz(r["email"])}
+                       for r in con.execute(
+                           "SELECT id,name,email FROM users"
+                           " WHERE id<>? AND (name LIKE ? ESCAPE '\\'"
+                           "               OR email LIKE ? ESCAPE '\\')"
+                           " ORDER BY name LIMIT ?",
+                           (ich["id"], muster, muster, self.SUCHE_MAX))]
+            return self.send_json({"treffer": treffer, "grenze": self.SUCHE_MAX})
 
     def backup(self):
         """Vollstaendige Sicherung eines Profils als JSON."""
@@ -1478,14 +1534,14 @@ class App(BaseHTTPRequestHandler):
                             " JOIN users u ON u.id=f.eigentuemer_id"
                             " WHERE f.empfaenger_id=? AND f.ziel_typ='profil' ORDER BY u.name",
                             (ich["id"],))]
-            # Wem man ueberhaupt etwas freigeben kann: nur bereits angemeldete
-            # Profile, Bordbuch legt niemanden an.
-            # E-Mail mitgeben: bei aehnlichen Anzeigenamen trifft man sonst die
-            # falsche Person, und angelegt hat die Namen nicht Bordbuch.
-            andere = [{"id": r["id"], "name": r["name"], "email": r["email"]}
-                      for r in con.execute(
-                          "SELECT id,name,email FROM users WHERE id<>? ORDER BY name",
-                          (ich["id"],))]
+            # Hier stand bis B-06 eine vollstaendige Liste aller Profile samt
+            # E-Mail-Adresse - bei JEDEM Seitenaufbau, fuer JEDEN angemeldeten
+            # Nutzer, ohne jede Freigabe. Das ist eine Personendatenliste, die
+            # jeder abgreifen konnte, auch wer nur Zugriff auf das Bordbuch
+            # bekommen sollte und nicht auf das Personenverzeichnis.
+            # Gebraucht wird sie nur im Freigabe-Dialog - dafuer gibt es jetzt
+            # GET /api/freigabe/suche?q=..., das gezielt sucht und die Adresse
+            # verkuerzt ausgibt.
             cars = [{"id": r["id"], "name": r["name"], "kind": r["kind"], "kwhPer100": r["kwh_per_100"],
                      "lPer100": r["l_per_100"], "battery": r["battery"], "tank": r["tank"], "plate": r["plate"],
                      "active": bool(r["active"]), "note": r["note"]}
@@ -1511,7 +1567,6 @@ class App(BaseHTTPRequestHandler):
                                    "user": {"id": user["id"], "name": user["name"]},
                                    "profile": profile, "schreiben": darf_schreiben,
                                    "freigabenMeine": meine, "freigabenFuerMich": fuerMich,
-                                   "andere": andere,
                                    "cars": cars, "sessions": sess, "fuelings": fuel,
                                    "service": [dict(r) for r in con.execute(
                                        """SELECT id AS dbid,car_id AS carId,art,intervall_km AS intervallKm,

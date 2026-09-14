@@ -199,3 +199,32 @@ class PlusMonate(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MailVerkuerzen(unittest.TestCase):
+    """E-Mail-Verkuerzung fuer die Freigabesuche (B-06)."""
+
+    def test_normalfall(self):
+        # Von Hand: "alice.wonder" hat 12 Zeichen -> a + 10 Sterne + r.
+        self.assertEqual(server.mail_kurz("alice.wonder@beispiel.de"),
+                         "a**********r@beispiel.de")
+
+    def test_kurzer_teil_vor_dem_at(self):
+        # Grenzfall: bei zwei Zeichen oder weniger bleibt nichts uebrig, was
+        # man verkuerzen koennte - dann alles sternen.
+        self.assertEqual(server.mail_kurz("ab@beispiel.de"), "**@beispiel.de")
+        self.assertEqual(server.mail_kurz("a@beispiel.de"), "*@beispiel.de")
+
+    def test_drei_zeichen(self):
+        # Von Hand: "abc" -> a + 1 Stern + c.
+        self.assertEqual(server.mail_kurz("abc@beispiel.de"), "a*c@beispiel.de")
+
+    def test_ohne_at(self):
+        # Fall mit fehlenden Daten: kein @ heisst keine Adresse.
+        self.assertEqual(server.mail_kurz("Unsinn"), "")
+        self.assertEqual(server.mail_kurz(""), "")
+        self.assertEqual(server.mail_kurz(None), "")
+
+    def test_die_domain_bleibt_lesbar(self):
+        # Absicht: die Domain hilft beim Unterscheiden und ist kein Geheimnis.
+        self.assertTrue(server.mail_kurz("max.mustermann@firma.de").endswith("@firma.de"))
