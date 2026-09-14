@@ -12,6 +12,7 @@ server.py und index.html zu ersetzen und den Dienst neu zu starten.
 import argparse
 import base64
 import contextlib
+import datetime
 import decimal
 import json
 import mimetypes
@@ -54,16 +55,67 @@ NUR_EIGENTUEMER = {
 TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$")
 
 
+# Aeltere Fahrzeugdaten als 1990 gibt es in diesem Tool nicht - was davor
+# liegt, ist ein Tippfehler im Jahr.
+FRUEHESTES_JAHR = 1990
+
+
 def valid_dat(v):
     """Nur ein Tagesdatum wie 2027-03 oder 2027-03-15 durchlassen.
+
+    Prueft ausschliesslich die FORM, nicht den Bereich. Fuer den Bereich gibt
+    es valid_dat_vergangen() und valid_dat_zukunft() - siehe dort, warum es
+    zwei getrennte Funktionen sind und kein Schalter.
 
     Die HU wird oft nur mit Monat angegeben - dann wird der Erste ergaenzt,
     damit spaeter gerechnet werden kann.
     """
     s = str(v or "").strip()[:10]
     if re.match(r"^\d{4}-\d{2}$", s):
-        return s + "-01"
-    return s if re.match(r"^\d{4}-\d{2}-\d{2}$", s) else ""
+        s = s + "-01"
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", s):
+        return ""
+    # Auch die Form kann unmoeglich sein: 2026-02-31 passt auf das Muster.
+    try:
+        datetime.date.fromisoformat(s)
+    except ValueError:
+        return ""
+    return s
+
+
+def valid_dat_vergangen(v, zukunft_tage=1):
+    """Datum eines EREIGNISSES - darf nicht in der Zukunft liegen (B-05).
+
+    Ein Tag Zukunft ist erlaubt: Zeitzonen und eine falsch gestellte Uhr
+    sollen keine Eingabe verhindern. Eine Tankung im Jahr 2099 dagegen ist
+    ein Tippfehler.
+    """
+    s = valid_dat(v)
+    if not s:
+        return ""
+    d = datetime.date.fromisoformat(s)
+    if d > datetime.date.today() + datetime.timedelta(days=zukunft_tage):
+        return ""
+    if d.year < FRUEHESTES_JAHR:
+        return ""
+    return s
+
+
+def valid_dat_zukunft(v, jahre=50):
+    """Datum einer FAELLIGKEIT - darf in der Zukunft liegen (B-05).
+
+    Die HU im Maerz 2027 ist voellig richtig, ein Termin im Jahr 2400 nicht.
+    Bewusst eine eigene Funktion und kein Schalter an valid_dat_vergangen():
+    bei einem Schalter wird irgendwann die falsche Vorgabe benutzt, und dann
+    lehnt das Tool eine voellig richtige HU-Faelligkeit ab.
+    """
+    s = valid_dat(v)
+    if not s:
+        return ""
+    d = datetime.date.fromisoformat(s)
+    if d.year < FRUEHESTES_JAHR or d.year > datetime.date.today().year + jahre:
+        return ""
+    return s
 
 
 def plus_monate(datum, monate):
@@ -89,9 +141,25 @@ def beleg_datei_weg(name):
         pass
 
 
-def valid_ts(v):
+def valid_ts(v, zukunft_tage=1):
+    """Zeitstempel pruefen - Form UND Bereich (B-05).
+
+    Vorher wurde nur die Form geprueft, nie der Bereich: eine Tankung am
+    31.12.2099 wurde angenommen und als Erfolg gemeldet. Ein Tag Zukunft ist
+    erlaubt (Zeitzonen, falsch gestellte Uhr), mehr nicht.
+    """
     v = str(v or "").strip()[:40]
-    return v if TS_RE.match(v) else ""
+    if not TS_RE.match(v):
+        return ""
+    try:
+        d = datetime.date.fromisoformat(v[:10])
+    except ValueError:
+        return ""
+    if d > datetime.date.today() + datetime.timedelta(days=zukunft_tage):
+        return ""
+    if d.year < FRUEHESTES_JAHR:
+        return ""
+    return v
 
 
 RECEIPT_NAME = re.compile(r"^[0-9a-f]{32}\.(jpg|jpeg|png|webp|heic|pdf)$", re.I)
@@ -448,11 +516,124 @@ def init_db():
 
 
 def num(v, d=0.0):
+    """Eine Zahl mit Vorgabewert lesen.
+
+    Bleibt fuer die Stellen, an denen eine Null fachlich richtig ist (etwa ein
+    nicht angegebener Kilometerstand). Wo ein fehlender Wert ein Fehler ist,
+    gehoert pflicht_zahl() hin - siehe FEHLT und B-05.
+    """
     try:
         f = float(str(v).replace(",", ".")) if isinstance(v, str) else float(v)
         return f if f == f and abs(f) != float("inf") else d
     except (TypeError, ValueError):
         return d
+
+
+# ----------------------------------------------------------------------
+# Eingaben pruefen statt still ersetzen (B-05)
+#
+# Regelblatt 11, woertlich: "Keine stillen Vorgabewerte. Fehlt ein Wert, wird
+# das gemeldet - nicht durch eine Null ersetzt. Eine Null in der
+# Verbrauchsrechnung ist schlimmer als eine Fehlermeldung, weil sie falsche
+# Ergebnisse erzeugt, die niemandem auffallen."
+#
+# Belegt war: 40 Liter fuer "abc" Euro bei Kilometerstand 9 000 000 wurden
+# angenommen, gespeichert und als Erfolg gemeldet - in der Datenbank stand
+# cost 0.0. Neun Millionen Kilometer ist das Beispiel aus dem Regelblatt selbst.
+# ----------------------------------------------------------------------
+
+FEHLT = object()          # Kennzeichen: der Wert war nicht lesbar
+
+
+def zahl(v, d=FEHLT):
+    """Eine Zahl lesen. Ohne d kommt FEHLT zurueck, nicht 0 (Regelblatt 11)."""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return d
+    try:
+        f = float(str(v).replace(",", ".")) if isinstance(v, str) else float(v)
+    except (TypeError, ValueError):
+        return d
+    return f if f == f and abs(f) != float("inf") else d
+
+
+# Plausibilitaetsgrenzen. Bewusst weit gefasst: sie sollen Tippfehler fangen,
+# nicht Sonderfaelle verbieten. Wer eine Grenze aendert, aendert sie hier.
+GRENZEN = {
+    "odo_km":     (0, 2_000_000),     # 2 Mio km faehrt kein PKW
+    "liters_l":   (0, 300),           # groesster PKW-Tank unter 200 l
+    "kwh":        (0, 400),           # groesster PKW-Akku unter 250 kWh
+    "betrag_ct":  (0, 5_000_00),      # 5000 EUR je Einzelvorgang
+    "sec":        (0, 7 * 24 * 3600),  # eine Woche am Stueck laden
+    "km_frei":    (0, 2_000_000),     # Intervalle und Faelligkeiten
+    "monate":     (0, 600),           # 50 Jahre
+    "verbrauch_kwh100": (1, 100),
+    "verbrauch_l100":   (0.5, 60),
+    "akku_kwh":   (0, 250),
+    "tank_l":     (0, 200),
+}
+# Klartextnamen fuer die Fehlermeldung - "odo" sagt einem Nutzer nichts.
+FELD_NAMEN = {
+    "odo": "Der Kilometerstand", "liters": "Die Litermenge", "kwh": "Die Energiemenge",
+    "cost": "Der Betrag", "sec": "Die Ladedauer", "intervallKm": "Das Kilometer-Intervall",
+    "intervallMon": "Das Monats-Intervall", "letzteKm": "Der letzte Kilometerstand",
+    "faelligKm": "Die Faelligkeit in Kilometern", "km": "Der Kilometerstand",
+    "kwhPer100": "Der Verbrauch in kWh/100 km", "lPer100": "Der Verbrauch in l/100 km",
+    "battery": "Die Akkugroesse", "tank": "Die Tankgroesse",
+}
+
+
+def _zahl_text(w):
+    """Eine Zahl so schreiben, wie sie in der Meldung lesbar ist."""
+    return ("%d" % w) if float(w).is_integer() else ("%s" % w)
+
+
+def pflicht_zahl(data, feld, grenze, pflicht=True):
+    """Einen Zahlenwert lesen und pruefen.
+
+    Rueckgabe (wert, fehlertext). fehlertext ist None, wenn alles passt.
+    Die Meldung sagt, was zu tun ist (Regelblatt 7) - nicht nur, was kaputt ist.
+    """
+    name = FELD_NAMEN.get(feld, "Der Wert '%s'" % feld)
+    roh = data.get(feld)
+    # Fehlend und unlesbar sind zwei verschiedene Dinge. pflicht=False heisst
+    # "darf fehlen" - nicht "darf Unsinn sein". Wer etwas eintippt, bekommt
+    # immer eine Antwort darauf; sonst waere genau die stille Null zurueck,
+    # die dieser Befund abschafft.
+    if roh is None or (isinstance(roh, str) and not roh.strip()):
+        if not pflicht:
+            return None, None
+        return None, "%s fehlt. Bitte eintragen." % name
+    w = zahl(roh)
+    if w is FEHLT:
+        return None, ("%s ist keine Zahl (%r). Bitte nur Ziffern eingeben, "
+                      "Komma oder Punkt als Dezimaltrennzeichen."
+                      % (name, str(roh)[:30]))
+    lo, hi = GRENZEN[grenze]
+    if not (lo <= w <= hi):
+        return None, ("%s %s wirkt wie ein Tippfehler - plausibel ist %s bis %s. "
+                      "Bitte pruefen." % (name, _zahl_text(w), _zahl_text(lo), _zahl_text(hi)))
+    return w, None
+
+
+def pflicht_cent(data, feld, pflicht=True):
+    """Einen Geldbetrag als Cent lesen und pruefen (B-04 und B-05 zusammen)."""
+    name = FELD_NAMEN.get(feld, "Der Betrag '%s'" % feld)
+    roh = data.get(feld)
+    if roh is None or (isinstance(roh, str) and not roh.strip()):
+        if not pflicht:
+            return None, None
+        return None, "%s fehlt. Bitte eintragen." % name
+    ct = cent(roh)
+    if ct is None:
+        return None, ("%s ist keine Zahl (%r). Bitte nur Ziffern eingeben, "
+                      "zum Beispiel 12,34." % (name, str(roh)[:30]))
+    lo, hi = GRENZEN["betrag_ct"]
+    if not (lo <= ct <= hi):
+        return None, ("%s %s EUR wirkt wie ein Tippfehler - plausibel ist %s bis "
+                      "%s EUR je Vorgang. Bitte pruefen."
+                      % (name, _zahl_text(ct / 100.0), _zahl_text(lo / 100),
+                         _zahl_text(hi // 100)))
+    return ct, None
 
 
 # ----------------------------------------------------------------------
@@ -994,13 +1175,35 @@ class App(BaseHTTPRequestHandler):
         art = str(data.get("art") or "").strip()[:80]
         if not art:
             return self.send_json({"error": "Bitte angeben, um welche Wartung es geht"}, 400)
+        # Geprueft statt still ersetzt (B-05). Alle vier Zahlen sind freiwillig
+        # (0 = spielt keine Rolle), duerfen aber nicht unlesbar sein.
+        for feld, grenze in (("intervallKm", "km_frei"), ("intervallMon", "monate"),
+                             ("letzteKm", "odo_km"), ("faelligKm", "km_frei")):
+            _, fehler = pflicht_zahl(data, feld, grenze, pflicht=False)
+            if fehler:
+                return self.send_json({"error": fehler}, 400)
+        # letztesDat ist ein Ereignis (die letzte Wartung), faelligDat eine
+        # Faelligkeit (die HU im Maerz 2027) - darum zwei verschiedene
+        # Pruefungen. Mit einem Schalter wuerde hier irgendwann die falsche
+        # Vorgabe benutzt und eine richtige HU-Faelligkeit abgelehnt.
+        letztes = valid_dat_vergangen(data.get("letztesDat"))
+        if data.get("letztesDat") and not letztes:
+            return self.send_json(
+                {"error": "Das Datum der letzten Wartung liegt ausserhalb des "
+                          "plausiblen Bereichs (ab %d, nicht in der Zukunft). "
+                          "Bitte pruefen." % FRUEHESTES_JAHR}, 400)
+        faellig = valid_dat_zukunft(data.get("faelligDat"))
+        if data.get("faelligDat") and not faellig:
+            return self.send_json(
+                {"error": "Die Faelligkeit liegt ausserhalb des plausiblen "
+                          "Bereichs (hoechstens 50 Jahre voraus). Bitte pruefen."}, 400)
         werte = (car_id, art,
                  max(0.0, num(data.get("intervallKm"))),
                  max(0.0, num(data.get("intervallMon"))),
                  max(0.0, num(data.get("letzteKm"))),
-                 valid_dat(data.get("letztesDat")),
+                 letztes,
                  max(0.0, num(data.get("faelligKm"))),
-                 valid_dat(data.get("faelligDat")),
+                 faellig,
                  str(data.get("notiz") or "")[:200],
                  1 if data.get("aktiv", True) else 0)
         dbid = data.get("dbid")
@@ -1033,8 +1236,18 @@ class App(BaseHTTPRequestHandler):
                           (data.get("dbid"), user["id"])).fetchone()
         if not row:
             return self.send_json({"error": "Wartungseintrag nicht gefunden"}, 404)
-        km = max(0.0, num(data.get("km")))
-        dat = valid_dat(data.get("dat")) or __import__("datetime").date.today().isoformat()
+        km_w, fehler = pflicht_zahl(data, "km", "odo_km", pflicht=False)   # B-05
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        km = km_w or 0.0
+        # "Erledigt" ist ein Ereignis - also nicht in der Zukunft.
+        dat = valid_dat_vergangen(data.get("dat"))
+        if data.get("dat") and not dat:
+            return self.send_json(
+                {"error": "Das Datum der Erledigung liegt ausserhalb des plausiblen "
+                          "Bereichs (ab %d, nicht in der Zukunft). Bitte pruefen."
+                          % FRUEHESTES_JAHR}, 400)
+        dat = dat or datetime.date.today().isoformat()
         f_dat = row["faellig_dat"]
         if f_dat and row["intervall_mon"] > 0:
             f_dat = plus_monate(dat, row["intervall_mon"])
@@ -1055,11 +1268,10 @@ class App(BaseHTTPRequestHandler):
             beleg = self.save_receipt(data) or ""
         except ValueError as e:
             return self.send_json({"error": str(e)}, 400)
-        kosten_ct = cent(data.get("cost"), 0)        # Cent-Ganzzahl (B-04)
-        if kosten_ct is None:
-            return self.send_json(
-                {"error": "Der Betrag ist keine Zahl. Bitte nur Ziffern eingeben, "
-                          "zum Beispiel 129,00."}, 400)
+        kosten_ct, fehler = pflicht_cent(data, "cost", pflicht=False)   # B-04, B-05
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        kosten_ct = kosten_ct or 0
         log_id = con.execute("""INSERT INTO werkstatt(nutzer_id,car_id,ts,art,cost,cost_ct,odo,
                                 betrieb,note,receipt,wart_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                              (user["id"], row["car_id"], dat + "T12:00:00", row["art"],
@@ -1079,25 +1291,33 @@ class App(BaseHTTPRequestHandler):
         car_id, ok = self.own_car(con, user, data.get("carId"))
         if not ok:
             return self.send_json({"error": "Auto nicht gefunden"}, 400)
-        ts = valid_ts(data.get("ts")) or (valid_dat(data.get("ts")) + "T12:00:00"
-                                          if valid_dat(data.get("ts")) else "")
+        # Eine Werkstattrechnung ist ein Ereignis - also nicht in der Zukunft.
+        ts = valid_ts(data.get("ts")) or (valid_dat_vergangen(data.get("ts")) + "T12:00:00"
+                                          if valid_dat_vergangen(data.get("ts")) else "")
         if not ts:
-            return self.send_json({"error": "Datum fehlt oder ist kein Datum"}, 400)
-        cost_ct = cent(data.get("cost"), 0)          # Cent-Ganzzahl (B-04)
-        if cost_ct is None:
             return self.send_json(
-                {"error": "Der Betrag ist keine Zahl. Bitte nur Ziffern eingeben, "
-                          "zum Beispiel 249,90."}, 400)
+                {"error": "Das Datum fehlt oder liegt ausserhalb des plausiblen "
+                          "Bereichs (ab %d, hoechstens einen Tag in der Zukunft). "
+                          "Bitte pruefen." % FRUEHESTES_JAHR}, 400)
+        cost_ct, fehler = pflicht_cent(data, "cost", pflicht=False)   # B-05
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        odo_w, fehler = pflicht_zahl(data, "odo", "odo_km", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        cost_ct = cost_ct or 0
         cost = cost_ct / 100.0                       # nur noch mitgeschrieben
         art = str(data.get("art") or "").strip()[:80]
         if cost_ct <= 0 and not art:
-            return self.send_json({"error": "Bitte Betrag oder Art der Arbeit angeben"}, 400)
+            return self.send_json(
+                {"error": "Bitte den Betrag oder die Art der Arbeit angeben - sonst "
+                          "steht in der Liste nur ein Datum."}, 400)
         try:
             beleg = self.save_receipt(data)
         except ValueError as e:
             return self.send_json({"error": str(e)}, 400)
         dbid = data.get("dbid")
-        werte = (car_id, ts, art, cost, cost_ct, max(0.0, num(data.get("odo"))),
+        werte = (car_id, ts, art, cost, cost_ct, odo_w or 0.0,
                  str(data.get("betrieb") or "")[:120], str(data.get("note") or "")[:200],
                  int(num(data.get("wartId"))))
         if dbid:
@@ -1422,13 +1642,28 @@ class App(BaseHTTPRequestHandler):
     def car_save(self, con, user, data):
         kind = data.get("kind") if data.get("kind") in ("bev", "phev", "petrol", "diesel") else "bev"
         name = (data.get("name") or "").strip()[:60] or "Auto"
-        kwh = max(1.0, min(100.0, num(data.get("kwhPer100"), 18)))
-        lit = max(0.5, min(60.0, num(data.get("lPer100"), 7)))
+        # Geprueft statt stillschweigend in die Grenze gezwungen (B-05):
+        # wer 999 kWh/100 km eintippt, hat sich verschrieben und soll das
+        # erfahren, statt lautlos 100 gespeichert zu bekommen.
+        kwh_w, fehler = pflicht_zahl(data, "kwhPer100", "verbrauch_kwh100", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        lit_w, fehler = pflicht_zahl(data, "lPer100", "verbrauch_l100", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        akku_w, fehler = pflicht_zahl(data, "battery", "akku_kwh", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        tank_w, fehler = pflicht_zahl(data, "tank", "tank_l", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        kwh = kwh_w if kwh_w is not None else 18.0
+        lit = lit_w if lit_w is not None else 7.0
+        akku = akku_w or 0.0
+        tank = tank_w or 0.0
         active = 1 if data.get("active", True) else 0
         note = (data.get("note") or "")[:120]
         plate = (data.get("plate") or "")[:20]
-        akku = max(0.0, min(250.0, num(data.get("battery"))))
-        tank = max(0.0, min(200.0, num(data.get("tank"))))
         cid = data.get("id")
         if cid:
             if not con.execute("SELECT 1 FROM cars WHERE id=? AND nutzer_id=?", (cid, user["id"])).fetchone():
@@ -1462,10 +1697,38 @@ class App(BaseHTTPRequestHandler):
         cols = ",".join(["nutzer_id", "car_id"] + SESSION_FIELDS)
         ph = ",".join(["?"] * (len(SESSION_FIELDS) + 2))
         added = dup = 0
-        with bulk(con):
-          for s in rows:
-            if not s.get("id") or not valid_ts(s.get("start")):
+        # Ganz oder gar nicht (B-05 Schritt 6, Regelblatt 12): "Import von 200
+        # Zeilen, Zeile 137 ist kaputt: Die Datei wird entweder ganz uebernommen
+        # oder gar nicht - und es steht im Klartext da, welche Zeile das Problem
+        # war." Vorher wurden kaputte Zeilen mit continue stillschweigend
+        # uebersprungen; der Nutzer sah "erfolgreich" und merkte nie, dass ein
+        # Teil seiner Abrechnung fehlt.
+        #
+        # Zuerst alle Zeilen pruefen, ohne etwas zu schreiben. Erst wenn keine
+        # Zeile Fehler hat, wird geschrieben.
+        gepruefte, kaputte = [], []
+        for nr, s in enumerate(rows, start=1):
+            if not s.get("id"):
+                kaputte.append((nr, "ohne Kennung - die Spalte mit der "
+                                    "Vorgangsnummer fehlt oder ist leer"))
                 continue
+            if not valid_ts(s.get("start")):
+                kaputte.append((nr, "Startzeitpunkt %r ist kein plausibles Datum"
+                                % str(s.get(COL_TO_JSON["start"]) or "")[:30]))
+                continue
+            gepruefte.append(s)
+        if kaputte:
+            teil = "; ".join("Zeile %d: %s" % (nr, was) for nr, was in kaputte[:5])
+            mehr = ("  … und %d weitere" % (len(kaputte) - 5)) if len(kaputte) > 5 else ""
+            return self.send_json(
+                {"error": "Die Datei wurde NICHT uebernommen - %d von %d Zeilen "
+                          "haben Fehler. %s%s. Bitte die genannten Zeilen in der "
+                          "Datei berichtigen und erneut einlesen."
+                          % (len(kaputte), len(rows), teil, mehr),
+                 "zeilen": [nr for nr, _ in kaputte],
+                 "geprueft": len(rows), "uebernommen": 0}, 400)
+        with bulk(con):
+          for s in gepruefte:
             vals = [user["id"], car_id]
             for col in SESSION_FIELDS:
                 v = s.get(COL_TO_JSON[col])
@@ -1498,19 +1761,29 @@ class App(BaseHTTPRequestHandler):
             return self.send_json({"error": "Auto nicht gefunden"}, 400)
         start = valid_ts(data.get("start"))
         if not start:
-            return self.send_json({"error": "Startzeit fehlt oder ist kein Datum"}, 400)
-        kwh = round(num(data.get("kwh")), 4)
-        # Geld in Cent (B-04). cent() meldet Unlesbares mit None statt es
-        # still zu einer Null zu machen.
-        cost_ct = cent(data.get("cost"), 0)
-        if cost_ct is None:
             return self.send_json(
-                {"error": "Der Betrag ist keine Zahl. Bitte nur Ziffern eingeben, "
-                          "zum Beispiel 12,34."}, 400)
-        sec = int(num(data.get("sec")))
+                {"error": "Die Startzeit fehlt oder liegt ausserhalb des plausiblen "
+                          "Bereichs (ab %d, hoechstens einen Tag in der Zukunft). "
+                          "Bitte pruefen." % FRUEHESTES_JAHR}, 400)
+        # Geprueft statt still ersetzt (B-05).
+        kwh, fehler = pflicht_zahl(data, "kwh", "kwh", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        cost_ct, fehler = pflicht_cent(data, "cost", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        sec_w, fehler = pflicht_zahl(data, "sec", "sec", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        odo, fehler = pflicht_zahl(data, "odo", "odo_km", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        kwh = round(kwh or 0.0, 4)
+        cost_ct = cost_ct or 0
+        sec = int(sec_w or 0)
         station = (data.get("station") or "Zuhause")[:200]
         note = (data.get("note") or "")[:200]
-        odo = round(num(data.get("odo")), 1)
+        odo = round(odo or 0.0, 1)
         # Netto mit dem im Profil eingestellten Satz ableiten, nicht fest mit
         # 19 % (B3). Fehlt der Satz oder ist er unsinnig, gilt 19 %.
         satz = satz_aus_settings(user)
@@ -1594,20 +1867,32 @@ class App(BaseHTTPRequestHandler):
             return self.send_json({"error": "Auto nicht gefunden"}, 400)
         ts = valid_ts(data.get("ts"))
         if not ts:
-            return self.send_json({"error": "Datum fehlt oder ist kein Datum"}, 400)
-        cost_ct = cent(data.get("cost"), 0)          # Cent-Ganzzahl (B-04)
-        if cost_ct is None:
             return self.send_json(
-                {"error": "Der Betrag ist keine Zahl. Bitte nur Ziffern eingeben, "
-                          "zum Beispiel 80,50."}, 400)
+                {"error": "Das Datum fehlt oder liegt ausserhalb des plausiblen "
+                          "Bereichs (ab %d, hoechstens einen Tag in der Zukunft). "
+                          "Bitte pruefen." % FRUEHESTES_JAHR}, 400)
+        # Geprueft statt still ersetzt (B-05). Menge und Kilometerstand sind
+        # freiwillig - unlesbar duerfen sie aber nicht sein.
+        cost_ct, fehler = pflicht_cent(data, "cost", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        liters, fehler = pflicht_zahl(data, "liters", "liters_l", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        odo, fehler = pflicht_zahl(data, "odo", "odo_km", pflicht=False)
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
+        cost_ct = cost_ct or 0
         cost = cost_ct / 100.0                       # nur noch mitgeschrieben
-        liters = round(num(data.get("liters")), 3)
-        odo = round(num(data.get("odo")), 1)
+        liters = round(liters or 0.0, 3)
+        odo = round(odo or 0.0, 1)
         full = 1 if data.get("full", True) else 0
         station = (data.get("station") or "")[:120]
         note = (data.get("note") or "")[:200]
         if cost_ct <= 0 and liters <= 0:
-            return self.send_json({"error": "Bitte Betrag oder Liter angeben"}, 400)
+            return self.send_json(
+                {"error": "Bitte den Betrag oder die Litermenge angeben - ohne "
+                          "eines von beiden laesst sich nichts auswerten."}, 400)
         try:
             receipt = self.save_receipt(data)
         except ValueError as e:
