@@ -198,6 +198,30 @@ authentik/data/
 authentik/certs/
 ```
 
+Dazu, aus B-49 nachgetragen:
+
+```
+**/.env.*
+!**/.env.beispiel
+**/*.db-wal
+**/*.db-shm
+**/*.db-journal
+**/seiten/
+**/.vorschau/
+**/*.vor-stand-*
+```
+
+Die Zeile `!**/.env.beispiel` ist nötig, weil `**/.env.*` sonst die
+Beispieldatei mitfängt — und die soll ausdrücklich im Repository stehen.
+`**/*.vor-stand-*` fängt die Kopien, die eine Migration nach Abschnitt 19a
+anlegt.
+
+**Zusätzlich eine `.gitignore` je Tool.** Die Wurzeldatei allein trägt nicht:
+sie ist leicht zu übersehen, und ein Tool, das eine neue Art von Daten ablegt,
+bringt seine Regel am besten dort mit, wo die Daten entstehen. Vorbild ist
+`bordbuch/.gitignore`; `wiki/.gitignore` ist danach gebaut und um `seiten/`
+und `.vorschau/` ergänzt.
+
 Wer ein Tool anlegt, das eine neue Art von Daten ablegt, ergänzt die Regel
 **im selben Arbeitsschritt** — nicht später.
 
@@ -212,18 +236,31 @@ git diff --cached       # was wirklich hochgeht
 Taucht dort etwas aus Abschnitt 8 auf: **nicht committen**, erst die
 `.gitignore` korrigieren.
 
-Einmalig einrichten lohnt sich ein Vorab-Test:
+Dazu gibt es einen Vorab-Test. Er liegt **versioniert** unter
+`werkzeuge/pre-commit` (aus B-49) — vorher stand er nur in `.git/hooks/` und
+war damit bei jedem frischen Klon weg, ohne dass es jemandem auffiel.
 
 ```bash
-cat > /opt/stack/.git/hooks/pre-commit <<'EOF'
-#!/bin/bash
-if git diff --cached --name-only | grep -E '\.env$|acme\.json$|\.key$|\.pem$|\.db$'; then
-  echo "ABBRUCH: schuetzenswerte Datei im Commit (siehe oben)."
-  exit 1
-fi
-EOF
-chmod +x /opt/stack/.git/hooks/pre-commit
+cd /opt/stack
+ln -sf ../../werkzeuge/pre-commit .git/hooks/pre-commit
+ls -l .git/hooks/pre-commit          # haengt er?
 ```
+
+**Das muss nach jedem frischen Klon neu gesetzt werden.** `.git/hooks` wird von
+Git nicht mitversioniert; die Datei im Repository ist die Vorlage, der
+Symlink ist die Einrichtung.
+
+Zwei Dinge, über die man beim Schreiben eines solchen Hakens stolpert:
+
+- **`grep -PE` gibt es nicht.** grep lässt sich nicht beide Sprachen
+  gleichzeitig vorgeben und meldet „conflicting matchers specified" — der
+  Haken tut dann gar nichts und lässt die Datei durch. Das Muster braucht
+  `-P` allein, weil es mit `(?!beispiel)` eine PCRE-Eigenschaft benutzt.
+- **`--diff-filter=ACM`**, damit eine *gelöschte* `.env` den Commit nicht
+  blockiert.
+
+Ist eine Datei wirklich beabsichtigt, ist das eine bewusste Entscheidung:
+`git commit --no-verify`.
 
 Das ist ein Netz, kein Ersatz fürs Hinschauen.
 

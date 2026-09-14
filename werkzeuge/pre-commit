@@ -1,0 +1,30 @@
+#!/bin/bash
+# Netz gegen versehentliche Commits schuetzenswerter Dateien.
+#
+# Betriebsregeln 10 und 11. Die .gitignore ist die erste Sicherung, dieser
+# Haken die zweite - denn ignoriert wird nur, was nicht bereits verfolgt
+# wird, und "git add -f" umgeht die .gitignore ohnehin.
+#
+# Einrichten - nach JEDEM frischen Klon noetig, weil .git/hooks nicht
+# mitversioniert wird:
+#   ln -sf ../../werkzeuge/pre-commit .git/hooks/pre-commit
+#
+# Pruefen, ob er haengt:
+#   ls -l .git/hooks/pre-commit
+
+MUSTER='(^|/)\.env$|(^|/)\.env\.(?!beispiel)|(^|/)acme\.json$|\.key$|\.pem$|\.db$|\.db-wal$|\.db-shm$|\.sqlite$|\.sql$|\.dump$|/receipts/|/belege/|/daten/|/seiten/|\.vor-stand-'
+
+# Nur -P, nicht -PE: grep laesst sich nicht beide Sprachen gleichzeitig
+# vorgeben ("conflicting matchers specified") und tut dann gar nichts. Das
+# Muster braucht PCRE wegen des (?!beispiel).
+TREFFER=$(git diff --cached --name-only --diff-filter=ACM | grep -P "$MUSTER" || true)
+
+if [ -n "$TREFFER" ]; then
+  echo "ABBRUCH: schuetzenswerte Datei im Commit:" >&2
+  echo "$TREFFER" | sed 's/^/  /' >&2
+  echo >&2
+  echo "Erst die .gitignore korrigieren - Betriebsregeln Abschnitt 10 und 11." >&2
+  echo "Wenn die Datei wirklich hinein soll, ist das eine bewusste Entscheidung:" >&2
+  echo "  git commit --no-verify" >&2
+  exit 1
+fi
