@@ -515,18 +515,33 @@ class App(BaseHTTPRequestHandler):
             sys.stderr.write("%s %s\n" % (self.address_string(), fmt % args))
 
     def fremde_herkunft(self):
-        """True, wenn die Anfrage von einer fremden Seite ausgeloest wurde.
+        """True, wenn die Anfrage nicht von dieser Seite selbst stammt.
 
         Ohne diese Pruefung koennte eine beliebige Webseite im Browser eines
         Mitbewohners Profile anlegen oder loeschen - die Endpunkte dafuer
         brauchen naemlich keinen eigenen Kopf, der einen Preflight erzwingt.
+
+        "same-site" wird bewusst NICHT akzeptiert (B-03): alle Tools liegen
+        unter prolo.me, und eine Nachbar-Subdomain (Wiki, n8n) ist fuer
+        Bordbuch genauso fremd wie eine beliebige Seite im Netz. Das Wiki
+        liefert per Konstruktion fremdes HTML im eigenen Origin aus - eine
+        eingespielte Wiki-Seite ist also ausfuehrbarer Code auf
+        wiki.prolo.me und duerfte sonst hier hereinschreiben.
         """
-        if (self.headers.get("Sec-Fetch-Site") or "") in ("same-origin", "same-site", "none"):
-            return False
+        ziel = self.headers.get("Sec-Fetch-Site")
+        if ziel is not None:
+            return ziel != "same-origin"        # alles andere ist fremd
+        # Aeltere Browser ohne Sec-Fetch-Site: ueber Origin/Referer entscheiden.
         herkunft = self.headers.get("Origin") or self.headers.get("Referer") or ""
         if not herkunft:
-            return False          # Werkzeuge wie curl senden nichts - erlaubt
-        return ("//" + (self.headers.get("Host") or "")) not in herkunft
+            # Bisher galt hier "kein Origin = erlaubt", mit der Begruendung,
+            # curl schicke nichts. Genau diesen Zustand kann ein Angreifer
+            # aber erzeugen - darum jetzt umgekehrt: kein Nachweis = abweisen.
+            # Werkzeuge auf der Kommandozeile setzen kuenftig
+            #   -H "Origin: https://bordbuch.prolo.me"
+            # oder gleich -H "Sec-Fetch-Site: same-origin".
+            return True
+        return urlparse(herkunft).netloc != (self.headers.get("Host") or "")
 
     # ---------------- GET ----------------
     def do_GET(self):
@@ -1031,6 +1046,17 @@ class App(BaseHTTPRequestHandler):
     # ---------------- POST ----------------
     def do_POST(self):
         path = urlparse(self.path).path
+        # Der eigentliche Riegel gegen Formularangriffe (B-03): application/json
+        # ist KEINE CORS-simple-request. Der Browser erzwingt dafuer einen
+        # Preflight, und der scheitert, weil Bordbuch keine CORS-Kopfzeilen
+        # sendet. Ohne diese Pruefung genuegt ein gewoehnliches Formular mit
+        # enctype="text/plain" - dafuer braucht ein Angreifer nicht einmal
+        # JavaScript.
+        typ = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if typ != "application/json":
+            return self.send_json(
+                {"error": "Diese Schnittstelle nimmt nur application/json entgegen. "
+                          "Bitte den Kopf Content-Type: application/json setzen."}, 415)
         try:
             data = self.body_json()
         except Exception:

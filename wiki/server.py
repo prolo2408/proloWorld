@@ -1087,6 +1087,54 @@ class Handler(BaseHTTPRequestHandler):
 
     # -------------------------------------------------- Verteilung
 
+    def fremde_herkunft(self):
+        """True, wenn die Anfrage nicht von dieser Seite selbst stammt (B-03).
+
+        Das Wiki hatte bisher gar keine Herkunftspruefung: kein
+        Sec-Fetch-Site, kein Origin, kein Referer. Damit standen die
+        schreibenden Endpunkte jeder fremden Webseite offen, solange das
+        Opfer eine gueltige Authentik-Sitzung hatte.
+
+        "same-site" wird bewusst NICHT akzeptiert: alle Tools liegen unter
+        prolo.me, und eine Nachbar-Subdomain ist fuer das Wiki genauso fremd
+        wie eine beliebige Seite im Netz.
+        """
+        ziel = self.headers.get("Sec-Fetch-Site")
+        if ziel is not None:
+            return ziel != "same-origin"        # alles andere ist fremd
+        # Aeltere Browser ohne Sec-Fetch-Site: ueber Origin/Referer entscheiden.
+        herkunft = self.headers.get("Origin") or self.headers.get("Referer") or ""
+        if not herkunft:
+            return True                         # kein Nachweis = abweisen
+        return urlparse(herkunft).netloc != (self.headers.get("Host") or "")
+
+    # Welcher Content-Type je Endpunkt zulaessig ist (B-03).
+    #
+    # Der Sinn der Pruefung ist, CORS-"simple requests" auszuschliessen: nur
+    # text/plain, application/x-www-form-urlencoded und multipart/form-data
+    # darf ein gewoehnliches HTML-Formular ohne Preflight quer ueber Origins
+    # senden. Alles andere erzwingt einen Preflight, und der scheitert, weil
+    # das Wiki keine CORS-Kopfzeilen sendet.
+    #
+    # Darum wird hier nicht ueberall application/json verlangt: /api/pruefen
+    # und /api/import nehmen die Seite als Datei entgegen und schicken
+    # text/html. Das ist ebenfalls kein simple type und damit genauso dicht -
+    # eine Pflicht auf application/json haette diese beiden Wege nur
+    # zerstoert. Endpunkte, die hier nicht stehen, muessen JSON schicken.
+    POST_TYPEN = {
+        "pruefen": ("text/html",),
+        "import": ("text/html",),
+    }
+
+    def typ_pruefen(self, rest):
+        """Content-Type gegen POST_TYPEN pruefen. Wirft 415, wenn er nicht passt."""
+        erlaubt = self.POST_TYPEN.get(rest[0] if rest else "", ("application/json",))
+        typ = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if typ not in erlaubt:
+            raise Antwort(415, "Diese Schnittstelle nimmt nur %s entgegen. "
+                               "Bitte den Kopf Content-Type entsprechend setzen."
+                               % " oder ".join(erlaubt))
+
     def do_GET(self):
         schiefgegangen = False
         try:
@@ -1332,6 +1380,11 @@ class Handler(BaseHTTPRequestHandler):
         if teile[:1] != ["api"]:
             raise Antwort(404, "Unbekannter Aufruf.")
         rest = teile[1:]
+        # Herkunft und Content-Type vor allem anderen (B-03). Ausnahme: keine -
+        # auch /api/einstellungen braucht beides.
+        if self.fremde_herkunft():
+            raise Antwort(403, "Anfrage von fremder Seite abgelehnt.")
+        self.typ_pruefen(rest)
 
         if rest == ["pruefen"] or rest == ["import"]:
             n = self.admin()

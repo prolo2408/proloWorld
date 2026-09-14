@@ -351,7 +351,14 @@ function datum(s){
   return t.length === 3 ? `${t[2]}.${t[1]}.${t[0]}` : s;
 }
 async function hole(pfad, einst){
-  const a = await fetch(pfad, Object.assign({credentials:'same-origin'}, einst||{}));
+  /* Content-Type zentral setzen (B-03): der Server verlangt bei POST einen
+     Typ, der keine CORS-simple-request ist. Ohne eigenen Kopf wuerde der
+     Browser text/plain senden - und genau das ist der Typ, mit dem ein
+     fremdes Formular ohne Preflight hereinschreiben koennte. Wer einen
+     eigenen Typ mitgibt (Datei-Upload: text/html), behaelt ihn. */
+  const o = Object.assign({credentials:'same-origin'}, einst||{});
+  if(o.body && !o.headers) o.headers = {'Content-Type':'application/json'};
+  const a = await fetch(pfad, o);
   let d = null;
   try { d = await a.json(); } catch(e) { d = null; }
   if(!a.ok){
