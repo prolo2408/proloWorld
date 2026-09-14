@@ -96,12 +96,18 @@ mark.wiki-fund{background:var(--accent-soft);color:var(--accent-ink);border-radi
     if(erst && !anker) erst.scrollIntoView({block:'center'});
   }
   window.addEventListener('message', function(e){
-    if(e.origin !== location.origin || !e.data) return;
+    /* Die Seite laeuft in einem opaken Origin (Sandbox ohne
+       allow-same-origin). location.origin ist darum "null" und taugt nicht
+       als Vergleich - die Huelle sendet aus ihrem echten Origin. Geprueft
+       wird stattdessen, dass die Nachricht vom eigenen Elternfenster kommt. */
+    if(e.source !== window.parent || !e.data) return;
     if(e.data.typ === 'wiki-springen') springen(e.data.anker, e.data.begriff);
     if(e.data.thema) document.body.dataset.theme = e.data.thema;
   });
+  /* Zielorigin '*': aus einem opaken Origin heraus ist das der einzige Weg.
+     Die Nachricht enthaelt nichts Schuetzenswertes. */
   if(window.parent !== window)
-    window.parent.postMessage({typ:'wiki-bereit'}, location.origin);
+    window.parent.postMessage({typ:'wiki-bereit'}, '*');
 })();
 </script>
 </body>

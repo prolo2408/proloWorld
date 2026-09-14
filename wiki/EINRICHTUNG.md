@@ -154,11 +154,13 @@ auf der Seite statt an der Fundstelle. Der fertige Block steht in
 
 ```js
 window.addEventListener('message', function(e){
-  if(e.origin !== location.origin || !e.data) return;
+  /* Die Seite laeuft in einem opaken Origin - location.origin ist "null"
+     und taugt nicht als Vergleich. Geprueft wird das Elternfenster. */
+  if(e.source !== window.parent || !e.data) return;
   if(e.data.typ === 'wiki-springen') springen(e.data.anker, e.data.begriff);
   if(e.data.thema) document.body.dataset.theme = e.data.thema;
 });
-window.parent.postMessage({typ:'wiki-bereit'}, location.origin);
+window.parent.postMessage({typ:'wiki-bereit'}, '*');
 ```
 
 Seiten mit umgeschalteten Bereichen — so wie deine Netzwerk-Seite, wo

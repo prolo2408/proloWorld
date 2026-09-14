@@ -310,8 +310,15 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
     </div>
 
     <main id="inhalt">
+      <!-- KEIN allow-same-origin (B-03 Teil 4): zusammen mit allow-scripts
+           haette die Sandbox keine Wirkung, und eine eingespielte Seite
+           koennte die Wiki-API im Namen des Betrachters aufrufen und ueber
+           parent.document die Huelle manipulieren. Ohne allow-same-origin
+           laeuft die Seite in einem opaken Origin. Den Riegel setzt der
+           Server zusaetzlich per CSP-sandbox, damit er nicht an diesem
+           Attribut haengt. -->
       <iframe id="rahmen" title="Wiki-Seite" hidden
-              sandbox="allow-scripts allow-same-origin allow-popups allow-downloads"></iframe>
+              sandbox="allow-scripts allow-popups allow-downloads"></iframe>
       <div class="flaeche" id="flaeche" data-noscroll></div>
     </main>
   </div>
@@ -396,8 +403,11 @@ if(SYSTEM_DUNKEL && SYSTEM_DUNKEL.addEventListener)
 function rahmenThema(){
   const f = $('rahmen');
   if(f && f.contentWindow && !f.hidden){
+    /* Zielorigin '*': die Seite laeuft in einem opaken Origin (B-03 Teil 4)
+       und ist nur so adressierbar. Unkritisch, weil die Nachricht nichts
+       Schuetzenswertes enthaelt - nur den Namen des Themas. */
     try { f.contentWindow.postMessage(
-      {typ:'wiki-thema', thema:document.body.dataset.theme}, location.origin); } catch(e){}
+      {typ:'wiki-thema', thema:document.body.dataset.theme}, '*'); } catch(e){}
   }
 }
 
@@ -500,8 +510,10 @@ async function oeffnen(slug, anker, begriff, ohneWeg){
 function springen(anker, begriff){
   const f = $('rahmen');
   try {
+    /* Zielorigin '*', siehe rahmenThema(). Anker und Suchbegriff hat der
+       Betrachter selbst eingegeben - nichts, was die Seite nicht sehen darf. */
     f.contentWindow.postMessage({typ:'wiki-springen', anker:anker||'', begriff:begriff||'',
-      thema:document.body.dataset.theme}, location.origin);
+      thema:document.body.dataset.theme}, '*');
   } catch(e){}
 }
 $('rahmen').addEventListener('load', () => {
@@ -510,7 +522,14 @@ $('rahmen').addEventListener('load', () => {
   springen(a.anker, a.begriff);
 });
 window.addEventListener('message', (e) => {
-  if(e.origin !== location.origin || !e.data || typeof e.data !== 'object') return;
+  /* Die Seite laeuft in einem opaken Origin, ihr e.origin ist darum "null"
+     und taugt nicht mehr als Nachweis (B-03 Teil 4). Geprueft wird jetzt,
+     dass die Nachricht tatsaechlich aus unserem eigenen Rahmen kommt - das
+     ist der staerkere Test: ein fremdes Fenster kann sich nicht als
+     contentWindow dieses iframes ausgeben. */
+  const f = $('rahmen');
+  if(!f || !e.source || e.source !== f.contentWindow) return;
+  if(!e.data || typeof e.data !== 'object') return;
   if(e.data.typ === 'wiki-bereit') springen(($('rahmen')._auftrag||{}).anker,
                                             ($('rahmen')._auftrag||{}).begriff);
   if(e.data.typ === 'wiki-oeffnen' && e.data.slug) oeffnen(e.data.slug, e.data.anker);

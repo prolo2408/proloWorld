@@ -1334,8 +1334,9 @@ class Handler(BaseHTTPRequestHandler):
             an = db().execute("SELECT typ FROM anhang WHERE seite_id=? AND name=?",
                               (z["id"], name)).fetchone()
             return self.datei_senden(p, (an["typ"] if an else "application/octet-stream"))
+        # Eingespielter Inhalt, kein eigener Code: fremd=True (B-03 Teil 4).
         return self.datei_senden(os.path.join(ordner, "seite.html"),
-                                 "text/html; charset=utf-8", huelle=True)
+                                 "text/html; charset=utf-8", fremd=True)
 
     def vorschau_senden(self, teile):
         n = self.nutzer()
@@ -1349,15 +1350,52 @@ class Handler(BaseHTTPRequestHandler):
         if not os.path.exists(p):
             raise Antwort(404, "Keine Vorschau vorhanden.")
         typ = "text/html; charset=utf-8" if p.endswith(".html") else "application/octet-stream"
-        return self.datei_senden(p, typ, huelle=p.endswith(".html"))
+        # Die Vorschau zeigt genau den Inhalt, der eingespielt werden soll -
+        # also ebenfalls fremder Code (B-03 Teil 4).
+        return self.datei_senden(p, typ, fremd=p.endswith(".html"))
 
-    def datei_senden(self, pfad, typ, huelle=False, zwischenspeicher=False):
+    def datei_senden(self, pfad, typ, huelle=False, zwischenspeicher=False,
+                     fremd=False):
+        """Eine Datei ausliefern.
+
+        huelle=True  - die Anwendungshuelle (eigenes index.html). Vertrauter
+                       Code, darf die Wiki-API im eigenen Origin benutzen.
+        fremd=True   - eingespielter Seiteninhalt. Das ist Code aus fremder
+                       Quelle und bekommt darum eine ganz andere CSP (B-03
+                       Teil 4, B-07). Bisher bekamen beide dieselbe - das war
+                       die Ursache des Problems.
+        """
         if not os.path.exists(pfad):
             raise Antwort(404, "Datei nicht gefunden.")
         with open(pfad, "rb") as f:
             daten = f.read()
         extra = {}
-        if huelle:
+        if fremd:
+            # Eine eingespielte Seite ist ausfuehrbarer Code aus fremder
+            # Quelle. Ohne Isolierung koennte sie die gesamte Wiki-API im
+            # Namen des Betrachters aufrufen (einschliesslich /api/import und
+            # Loeschvorgaengen, sobald ein Admin sie ansieht) und ueber
+            # parent.document die Huelle manipulieren.
+            #
+            # "sandbox" OHNE allow-same-origin setzt den Origin des Dokuments
+            # auf "opaque": document.cookie, localStorage und parent.document
+            # sind damit unerreichbar, und jeder fetch() auf /api/... ist eine
+            # Anfrage ueber Origin-Grenzen, die ohne CORS-Kopfzeilen scheitert.
+            #
+            # allow-scripts bleibt drin, weil jede Wiki-Seite einen
+            # Pflichtteil hat, der auf die Huelle hoert (Ankersprung,
+            # Suchbegriff hervorheben, Thema uebernehmen). Wichtig: zusammen
+            # mit allow-same-origin waere die Sandbox aufgehoben - genau diese
+            # Kombination stand bisher im sandbox-Attribut des iframes und ist
+            # dort ebenfalls entfernt worden.
+            extra["Content-Security-Policy"] = (
+                "sandbox allow-scripts allow-popups allow-downloads; "
+                "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+                "font-src 'self'; object-src 'none'; frame-src 'none'; "
+                "connect-src 'none'; frame-ancestors 'self'; base-uri 'none'; "
+                "form-action 'none'")
+        elif huelle:
             # Inline-Stil und Inline-Skript sind noetig, weil die Seiten
             # eigenstaendig sind. Externe Quellen bleiben gesperrt.
             extra["Content-Security-Policy"] = (
