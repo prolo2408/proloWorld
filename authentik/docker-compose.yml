@@ -54,10 +54,24 @@ services:
       - "traefik.http.routers.authentik.tls.certresolver=letsencrypt"
       - "traefik.http.routers.authentik.service=authentik"
 
-      # Router 2: nur der Outpost-Pfad, aber auf allen Subdomains
-      - "traefik.http.routers.authentik-outpost.rule=HostRegexp(`^.+$$`) && PathPrefix(`/outpost.goauthentik.io/`)"
+      # Router 2: nur der Outpost-Pfad, aber auf allen Subdomains DES STACKS.
+      #
+      # Vorher stand hier HostRegexp(`^.+$$`) - das traf JEDEN Hostnamen, auch
+      # solche, die nicht zum Stack gehoeren (B-27). Wer einen eigenen Namen
+      # auf die Server-IP zeigen liess, erreichte ueber
+      # /outpost.goauthentik.io/ den Authentik-Outpost. Zusammen mit tls=true
+      # ohne certresolver wurde dabei das Standardzertifikat ausgeliefert:
+      # Besucher sahen eine Zertifikatswarnung und dahinter eine echte
+      # Anmeldeoberflaeche - eine brauchbare Grundlage fuer eine
+      # Taeuschungsseite.
+      #
+      # Die Absicht war richtig (der Outpost-Pfad muss auf allen Subdomains
+      # verfuegbar sein), nur zu weit gefasst. Traefik 3 benutzt Go-Regexp,
+      # darum der maskierte Punkt; im Compose verdoppelt sich das $.
+      - "traefik.http.routers.authentik-outpost.rule=HostRegexp(`^[a-z0-9-]+\\.prolo\\.me$$`) && PathPrefix(`/outpost.goauthentik.io/`)"
       - "traefik.http.routers.authentik-outpost.entrypoints=websecure"
-      - "traefik.http.routers.authentik-outpost.tls=true"
+      # certresolver statt nur tls=true: sonst kommt das Standardzertifikat.
+      - "traefik.http.routers.authentik-outpost.tls.certresolver=letsencrypt"
       - "traefik.http.routers.authentik-outpost.priority=1000"
       - "traefik.http.routers.authentik-outpost.service=authentik"
 
