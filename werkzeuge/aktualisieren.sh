@@ -92,6 +92,32 @@ tun() {
   "$@"
 }
 
+abbild_kennungen() {
+  # Die Kennungen (sha256) aller Abbilder dieses Tools, sortiert. Leer,
+  # wenn noch keines da ist - dann gilt es als "neu".
+  docker compose config --images 2>/dev/null | sort | while IFS= read -r a; do
+    [ -n "$a" ] && docker image inspect "$a" --format '{{.Id}}' 2>/dev/null || echo "fehlt:$a"
+  done
+}
+
+alle_laufen() {
+  # Laufen alle Dienste dieses Tools, und zwar mit dem AKTUELLEN Abbild?
+  # Nur dann darf ein Neustart entfallen.
+  local ids id
+  ids=$(docker compose ps -q 2>/dev/null) || return 1
+  [ -z "$ids" ] && return 1
+  for id in $ids; do
+    [ "$(docker inspect "$id" --format '{{.State.Running}}' 2>/dev/null)" = "true" ] || return 1
+  done
+  # Haengt ein Container noch an einem alten Abbild, meldet compose das.
+  if docker compose ps --format '{{.Service}}' 2>/dev/null | grep -q .; then
+    local veraltet
+    veraltet=$(docker compose ps 2>/dev/null | grep -ci "created\|exited" || true)
+    [ "$veraltet" -gt 0 ] && return 1
+  fi
+  return 0
+}
+
 # ----------------------------------------------------------------------
 # Ein Tool aktualisieren. Gibt 0 bei Erfolg, 1 bei Fehlschlag.
 # ----------------------------------------------------------------------
@@ -153,21 +179,51 @@ ein_tool() {
     melde "      zurueck ueber git (siehe Meldung am Ende)."
   fi
 
-  # --- Sicherung ------------------------------------------------------
-  # Sichtbar, nicht nach /dev/null: eine fehlgeschlagene Sicherung ist der
-  # Grund, JETZT abzubrechen, und nicht erst nach der Migration zu merken.
   cd "$ORDNER"
 
-  # --- Neue Fassung bereitstellen -------------------------------------
-  melde "[2/4] Neue Fassung wird bereitgestellt (TYP=$TYP) ..."
+  # --- Neue Fassung holen und vergleichen ------------------------------
+  # Erst nachsehen, OB es etwas Neues gibt. Vorher wurde jedes Tool bei
+  # jedem Lauf neu gestartet, auch wenn sich nichts geaendert hatte - das
+  # ist unnoetige Unterbrechung fuer nichts.
+  #
+  # Verglichen werden die Abbild-Kennungen vor und nach dem Holen bzw.
+  # Bauen. Das ist genauer als ein Blick auf die Versionsnummer: es faengt
+  # auch ein neu gebautes Abbild aus geaendertem Quellcode.
+  melde "[2/4] Sehe nach, ob es etwas Neues gibt (TYP=$TYP) ..."
+  local VORHER NACHHER
+  VORHER=$(abbild_kennungen)
   if [ "$TYP" = "build" ]; then
     tun docker compose build --pull
   else
     tun docker compose pull
   fi
+  NACHHER=$(abbild_kennungen)
 
-  melde "[3/4] Container werden neu gestartet ..."
-  tun docker compose up -d
+  local NEUSTART=1
+  if [ "$TROCKEN" -eq 0 ] && [ "$VORHER" = "$NACHHER" ] && alle_laufen; then
+    NEUSTART=0
+    melde "      Keine neue Fassung - die Abbilder sind unveraendert und alle"
+    melde "      Container laufen bereits damit."
+  elif [ "$TROCKEN" -eq 0 ] && [ "$VORHER" != "$NACHHER" ]; then
+    melde "      Neue Abbilder vorhanden."
+  fi
+
+  if [ "$NEUSTART" -eq 1 ]; then
+    melde "[3/4] Container werden neu gestartet ..."
+    tun docker compose up -d
+  else
+    melde "[3/4] Kein Neustart noetig."
+  fi
+
+  # Geprueft wird IMMER - auch wenn nichts neu gestartet wurde.
+  #
+  # Ein frueherer Entwurf sprang hier heraus und meldete "ist aktuell",
+  # sobald sich die Abbilder nicht geaendert hatten und die Container
+  # liefen. Die Gegenprobe hat das sofort aufgedeckt: ein Container kann
+  # laufen UND ungesund sein. "Laeuft" ist nicht "tut, was es soll" - genau
+  # der Unterschied, an dem N-05 haengt. Ohne Neustart zu pruefen kostet
+  # ein paar Sekunden und faengt einen Dienst, der seit dem letzten Lauf
+  # stillschweigend kaputtgegangen ist.
 
   # --- Pruefen --------------------------------------------------------
   melde "[4/4] Pruefe, hoechstens ${PRUEF_WARTEN}s ..."
@@ -175,8 +231,12 @@ ein_tool() {
 
   if pruefen "$TOOL" "$PRUEF_WARTEN" "$PRUEF_URL" "$HAUPT"; then
     melde ""
-    melde "FERTIG. $TOOL laeuft."
-    docker compose logs --tail 10
+    if [ "$NEUSTART" -eq 0 ]; then
+      melde "FERTIG. $TOOL ist aktuell und laeuft."
+    else
+      melde "FERTIG. $TOOL laeuft."
+      docker compose logs --tail 10
+    fi
     # Erst JETZT wird der Stand zum Rueckweg fuer das naechste Mal.
     cp "$ORDNER/docker-compose.yml" "$ORDNER/.stand-erfolgreich.yml"
     printf '%s\n' "$ABBILDER" > "$ORDNER/.letzte-fassung"
@@ -385,6 +445,79 @@ if [ "$TROCKEN" -eq 0 ] && [ "$(id -u)" -ne 0 ]; then
   melde ""
   melde "         sudo $0 $URSPRUNG"
   exit 1
+fi
+
+# ----------------------------------------------------------------------
+# Vorpruefung: Voraussetzungen klaeren, BEVOR die Sicherung laeuft.
+#
+# Der Anlass: backup.sh endet mit einem Fehler, wenn age fehlt oder der
+# Schluessel nicht da ist - und damit bricht die Aktualisierung ab, mit
+# einer Meldung, die man erst lesen und dann von Hand abarbeiten muss.
+# Was sich sicher selbst beheben laesst, wird hier behoben; alles andere
+# wird so genau benannt, dass ein einziger Befehl reicht.
+# ----------------------------------------------------------------------
+vorpruefung() {
+  local FEHLT=0
+  melde ""
+  melde "[Vorpruefung]"
+
+  if ! docker info >/dev/null 2>&1; then
+    melde "  FEHLER: docker antwortet nicht. Laeuft der Dienst?"
+    melde "          sudo systemctl status docker"
+    return 1
+  fi
+  melde "  docker             erreichbar"
+
+  # age: fehlt es, wird es nachinstalliert. Das ist der eine Fall, den das
+  # Skript selbst geradebiegen darf - ein Paket aus der Distribution, ohne
+  # Auswirkung auf laufende Dienste.
+  if command -v age >/dev/null 2>&1; then
+    melde "  age                vorhanden"
+  else
+    melde "  age                fehlt - wird nachinstalliert ..."
+    if apt-get install -y -qq age >/dev/null 2>&1 || \
+       { apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq age >/dev/null 2>&1; }; then
+      melde "                     erledigt ($(age --version 2>&1 | head -1))"
+    else
+      melde "  FEHLER: age liess sich nicht installieren."
+      melde "          Von Hand: sudo apt update && sudo apt install age"
+      FEHLT=1
+    fi
+  fi
+
+  # Der Schluessel laesst sich NICHT selbst erzeugen: der private Teil
+  # gehoert auf den Arbeitsrechner, nicht hierher (Betriebsregeln 15).
+  # Ein Skript, das ihn hier anlegt, macht die Verschluesselung wertlos.
+  local SCHL="$STACK/.backup-schluessel.pub"
+  if [ ! -f "$SCHL" ]; then
+    melde "  FEHLER: $SCHL fehlt."
+    melde "          Er kann hier NICHT erzeugt werden - der private Teil"
+    melde "          gehoert auf den Arbeitsrechner (Betriebsregeln 15)."
+    melde "          Dort:  age-keygen -o ~/.age/prolo.key"
+    melde "          Dann:  den age1...-Teil hierher in $SCHL"
+    FEHLT=1
+  elif [ ! -s "$SCHL" ]; then
+    melde "  FEHLER: $SCHL ist LEER."
+    melde "          Das passiert, wenn ein 'grep | tee' nichts gefunden hat."
+    melde "          Loeschen und den age1...-Teil neu eintragen."
+    FEHLT=1
+  elif ! grep -q '^age1' "$SCHL"; then
+    melde "  FEHLER: in $SCHL steht keine age1...-Zeile."
+    FEHLT=1
+  else
+    melde "  Sicherungsschluessel  vorhanden"
+  fi
+
+  [ "$FEHLT" -eq 0 ] || return 1
+  return 0
+}
+
+if [ "$TROCKEN" -eq 0 ] && [ "$OHNE_SICHERUNG" -eq 0 ]; then
+  if ! vorpruefung; then
+    melde ""
+    melde "ABBRUCH: die Voraussetzungen stimmen nicht. Nichts wurde angefasst."
+    exit 1
+  fi
 fi
 
 # ----------------------------------------------------------------------

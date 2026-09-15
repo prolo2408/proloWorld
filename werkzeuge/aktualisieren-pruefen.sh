@@ -49,7 +49,14 @@ case "$1 $2" in
   "compose ps")   echo "c1"; exit 0 ;;
   "compose logs") exit 0 ;;
   "compose pull"|"compose up"|"compose build") exit 0 ;;
+  "compose config") echo "probe:1.0.0"; exit 0 ;;
+  "info ")        exit "${DOCKER_INFO_EXIT:-0}" ;;
 esac
+[ "$1" = "info" ] && exit "${DOCKER_INFO_EXIT:-0}"
+if [ "$1" = "image" ]; then
+  # KENNUNG steuert, ob sich das Abbild "geaendert" hat.
+  echo "sha256:${KENNUNG:-alt}"; exit 0
+fi
 if [ "$1" = "inspect" ]; then
   FMT="${*: -1}"
   case "$LAGE" in
@@ -61,6 +68,11 @@ if [ "$1" = "inspect" ]; then
   esac
   case "$FMT" in
     *Name*)          echo "/probe" ;;
+    # .State.Running liefert true/false, NICHT den Text "running". Genau
+    # daran ist die Pruefung "unveraenderte Abbilder" zuerst gescheitert:
+    # die Attrappe antwortete "running", alle_laufen verglich mit "true"
+    # und kam nie zum Ergebnis "laeuft".
+    *State.Running*) [ "$ST" = "running" ] && echo true || echo false ;;
     *State.Status*)  echo "$ST" ;;
     *Health*)        echo "$GE" ;;
     *RestartCount*)  echo "$NS" ;;
@@ -77,6 +89,11 @@ chmod +x "$T/bin/docker"
 printf '#!/bin/bash\n[ "$1" = "-u" ] && echo "${UID_VORGABE:-0}" || exec /usr/bin/id "$@"\n' \
   > "$T/bin/id"
 chmod +x "$T/bin/id"
+
+# Fuer die Vorpruefung: age vorhanden, Schluessel gueltig.
+printf '#!/bin/bash\necho "age 1.2.1"\n' > "$T/bin/age"; chmod +x "$T/bin/age"
+echo "age1beispielbeispielbeispielbeispielbeispielbeispielbeispiel" \
+  > "$T/stack/.backup-schluessel.pub"
 
 lauf() { PATH="$T/bin:$PATH" LAGE="$1" "$T/stack/werkzeuge/aktualisieren.sh" probe 2>&1; }
 
@@ -207,6 +224,53 @@ case "$R" in
   *) E="nein ($R)" ;;
 esac
 pruefe "Abhaengigkeitsreihenfolge wird erzwungen" "ja" "$E"
+
+# 8. Vorpruefung: leerer Schluessel wird erkannt
+: > "$T/stack/.backup-schluessel.pub"
+A=$(lauf gesund)
+echo "$A" | grep -q 'ist LEER' && E=ja || E=nein
+pruefe "leerer Sicherungsschluessel wird erkannt" "ja" "$E"
+echo "$A" | grep -q 'Sicherung. laeuft' && E=ja || E=nein
+pruefe "und die Sicherung startet gar nicht erst" "nein" "$E"
+
+# 9. Vorpruefung: fehlender Schluessel, mit Anleitung statt Selbsterzeugung
+rm -f "$T/stack/.backup-schluessel.pub"
+A=$(lauf gesund)
+echo "$A" | grep -q 'age-keygen -o ~/.age/prolo.key' && E=ja || E=nein
+pruefe "fehlender Schluessel nennt den Weg auf dem Arbeitsrechner" "ja" "$E"
+echo "$A" | grep -q 'NICHT erzeugt werden' && E=ja || E=nein
+pruefe "und erzeugt ihn ausdruecklich NICHT selbst" "ja" "$E"
+echo "age1beispielbeispielbeispielbeispielbeispielbeispielbeispiel" \
+  > "$T/stack/.backup-schluessel.pub"
+
+# 10. Vorpruefung: docker nicht erreichbar
+A=$(PATH="$T/bin:$PATH" DOCKER_INFO_EXIT=1 LAGE=gesund \
+      "$T/stack/werkzeuge/aktualisieren.sh" probe 2>&1 || true)
+echo "$A" | grep -q 'docker antwortet nicht' && E=ja || E=nein
+pruefe "docker nicht erreichbar wird vorher erkannt" "ja" "$E"
+
+# 11. Unveraenderte Abbilder -> kein Neustart
+rm -f "$T/stack/probe/.stand-erfolgreich.yml"; fassung_setzen 1.0.0
+A=$(PATH="$T/bin:$PATH" KENNUNG=gleich LAGE=gesund \
+      "$T/stack/werkzeuge/aktualisieren.sh" probe 2>&1)
+echo "$A" | grep -q 'Keine neue Fassung' && E=ja || E=nein
+pruefe "unveraenderte Abbilder fuehren nicht zum Neustart" "ja" "$E"
+echo "$A" | grep -q 'FERTIG. probe ist aktuell' && E=ja || E=nein
+pruefe "und werden als 'aktuell' gemeldet" "ja" "$E"
+[ -f "$T/stack/probe/.stand-erfolgreich.yml" ] && E=ja || E=nein
+pruefe "der Rueckweg wird auch ohne Neustart gesetzt" "ja" "$E"
+
+# 12. Der Fall, der den ersten Entwurf entlarvt hat: nichts Neues, aber der
+#     Container ist krank. "Laeuft" darf nicht "ist in Ordnung" heissen.
+rm -f "$T/stack/probe/.stand-erfolgreich.yml"; fassung_setzen 1.0.0
+A=$(PATH="$T/bin:$PATH" KENNUNG=gleich LAGE=krank \
+      "$T/stack/werkzeuge/aktualisieren.sh" probe 2>&1 || true)
+echo "$A" | grep -q 'Kein Neustart noetig' && E=ja || E=nein
+pruefe "ohne neue Abbilder wird nicht neu gestartet" "ja" "$E"
+echo "$A" | grep -q 'FEHLER:' && E=ja || E=nein
+pruefe "aber ein kranker Container faellt trotzdem auf" "ja" "$E"
+echo "$A" | grep -q 'ist aktuell' && E=ja || E=nein
+pruefe "und wird NICHT als aktuell gemeldet" "nein" "$E"
 
 echo
 if [ "$FEHLER" -eq 0 ]; then
