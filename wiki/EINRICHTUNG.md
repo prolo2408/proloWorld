@@ -192,6 +192,20 @@ Verwaltung → Datei hineinziehen. Was dann passiert:
 Gleiche `slug` noch einmal einspielen heißt: Seite ersetzen. Neue `slug`
 heißt: neue Seite. Mehr Regeln gibt es nicht.
 
+## Fertige Seiten im Repository
+
+Unter `wiki/vorlagen/` liegen fertige Seiten, die nur noch eingespielt werden
+müssen:
+
+| Datei | Slug | Ort im Baum | Inhalt |
+|---|---|---|---|
+| `git-und-github.html` | `git-und-github` | Technik › Werkzeuge | Git von vorn: die vier Orte, die fünf Befehle des Alltags, Zweige und Pull Requests, der Weg vom Zweig auf den Server, die häufigen Fehler, Kurzreferenz |
+
+Einspielen wie jede andere Datei: Verwaltung → Datei hineinziehen. Auf dem
+Arbeitsrechner liegt sie unter `wiki/vorlagen/`, auf dem Server unter
+`/opt/stack/wiki/vorlagen/` — von dort herunterladen oder direkt aus dem
+Repository nehmen.
+
 ## Was noch fehlt
 
 - Der Skill, mit dem Claude Seiten nach diesem Schema erzeugt. Bis dahin

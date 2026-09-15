@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Git und GitHub</title>
+
+<script type="application/json" id="wiki-meta">
+{
+  "slug": "git-und-github",
+  "titel": "Git und GitHub",
+  "kurz": "Was Git ist, welche vier Orte es gibt, und die Befehle für den Alltag im Stack.",
+  "pfad": ["Technik", "Werkzeuge"],
+  "gruppen": [],
+  "stand": "2026-09-15",
+  "abschnitte": [
+    {
+      "anker": "wozu",
+      "titel": "Wozu Git gut ist",
+      "stichworte": ["Versionsverwaltung", "Historie", "Rückweg", "warum Git"],
+      "text": "Git beantwortet drei Fragen: Was habe ich geändert? Was lief vorher? Und wie komme ich dahin zurück? Ohne Git ist die Antwort auf die dritte Frage eine Kopie mit dem Namen index-alt-final-2.html. Für den Stack ist Git zusätzlich der Weg vom Arbeitsrechner auf den Server."
+    },
+    {
+      "anker": "vier-orte",
+      "titel": "Die vier Orte",
+      "stichworte": ["Arbeitsverzeichnis", "Staging", "Bereitstellung", "lokales Repository", "GitHub", "Fernkopie", "origin"],
+      "text": "Eine Datei wandert durch vier Orte: das Arbeitsverzeichnis auf der Platte, die Bereitstellung (staging), das lokale Repository und GitHub. Fast jedes Missverständnis mit Git kommt daher, dass man die Orte verwechselt. Wer auf GitHub etwas sieht, hat es noch nicht auf dem Server. Wer committet hat, hat noch nicht gepusht."
+    },
+    {
+      "anker": "alltag",
+      "titel": "Der Alltag",
+      "stichworte": ["status", "add", "commit", "push", "pull", "Befehle", "Reihenfolge"],
+      "text": "Fünf Befehle reichen für neunzig Prozent: git status zeigt den Stand, git add stellt bereit, git commit hält fest, git push lädt hoch, git pull holt. Die Reihenfolge ist immer dieselbe, und git status vor jedem Schritt beantwortet die Frage, wo man gerade steht."
+    },
+    {
+      "anker": "zweige",
+      "titel": "Zweige und Pull Requests",
+      "stichworte": ["branch", "Zweig", "main", "Pull Request", "merge", "mergen"],
+      "text": "Ein Zweig ist eine Nebenspur, auf der man arbeiten kann, ohne den Hauptstand main anzufassen. Ein Pull Request ist die Bitte, diese Nebenspur in main zu übernehmen. Erst nach dem Mergen steht die Änderung auf main - und nur was auf main steht, holt git pull origin main."
+    },
+    {
+      "anker": "server",
+      "titel": "Vom Zweig auf den Server",
+      "stichworte": ["Server", "deploy", "aktualisieren", "CACHED", "Already up to date"],
+      "text": "Zwischen gepusht und läuft liegen drei Schritte: mergen, auf dem Server pullen, aktualisieren. Fehlt einer, meldet alles Erfolg und nichts ändert sich. Already up to date heisst, der Pull hat nichts geholt. CACHED in der Bauausgabe heisst, die Datei war identisch - es wurde die alte Fassung neu gebaut."
+    },
+    {
+      "anker": "fehler",
+      "titel": "Was schiefgeht, und woran man es erkennt",
+      "stichworte": ["Fehler", "Geheimnisse", "Passwort", "gitignore", "zurücknehmen", "reset"],
+      "text": "Die drei häufigsten Fehler: gepusht aber nicht gemergt, gemergt aber auf dem Server nicht gepullt, und ein Geheimnis versehentlich mit committet. Für das Letzte gilt: einmal gepusht ist es draussen, dann hilft nur noch das Geheimnis ändern. Die gitignore verhindert das - aber nur bei Dateien, die noch nicht verfolgt werden."
+    },
+    {
+      "anker": "nachschlagen",
+      "titel": "Zum Nachschlagen",
+      "stichworte": ["Übersicht", "Tabelle", "Kurzreferenz", "log", "diff", "checkout"],
+      "text": "Eine Tabelle mit allen Befehlen, die im Stack vorkommen, samt der Frage, die jeder beantwortet. Dazu die Begriffe: Repository, Commit, Zweig, origin, HEAD, Merge."
+    }
+  ]
+}
+</script>
+
+<style>
+:root{
+  --bg:oklch(0.96 0.004 250); --surface:#fff; --line:oklch(0.92 0.004 250);
+  --line-soft:oklch(0.96 0.002 250); --hover:oklch(0.96 0.003 250);
+  --ink:oklch(0.2 0.01 250); --ink-2:oklch(0.3 0.01 250); --ink-3:oklch(0.52 0.01 250);
+  --accent:oklch(0.52 0.17 262); --accent-soft:oklch(0.94 0.02 262);
+  --accent-ink:oklch(0.38 0.13 262); --on-accent:oklch(0.99 0.002 250);
+  --good:oklch(0.45 0.14 158); --good-soft:oklch(0.97 0.01 158);
+  --warm-soft:oklch(0.94 0.01 60); --warm-ink:oklch(0.45 0.08 60);
+  --danger:oklch(0.52 0.18 25);
+}
+body[data-theme="dark"]{
+  --bg:oklch(0.2 0.012 258); --surface:oklch(0.235 0.013 258);
+  --line:oklch(0.31 0.014 258); --line-soft:oklch(0.27 0.012 258);
+  --hover:oklch(0.27 0.013 258);
+  --ink:oklch(0.96 0.004 250); --ink-2:oklch(0.87 0.006 250); --ink-3:oklch(0.69 0.01 250);
+  --accent:oklch(0.62 0.16 262); --accent-soft:oklch(0.33 0.06 262);
+  --accent-ink:oklch(0.85 0.09 262); --on-accent:oklch(0.16 0.012 258);
+  --good:oklch(0.8 0.14 158); --good-soft:oklch(0.29 0.05 158);
+  --warm-soft:oklch(0.33 0.05 60); --warm-ink:oklch(0.86 0.08 60);
+  --danger:oklch(0.7 0.16 25);
+}
+body{margin:0;background:var(--bg);color:var(--ink-2);
+  font-family:'Instrument Sans',system-ui,-apple-system,sans-serif;
+  font-size:14px;line-height:1.6;padding:28px 32px 60px}
+h2{font-family:'Sora','Instrument Sans',system-ui,sans-serif;font-size:20px;
+  color:var(--ink);letter-spacing:-0.02em;margin:0 0 4px;font-weight:600}
+h3{font-size:15px;color:var(--ink);margin:20px 0 6px;font-weight:600}
+.lead{color:var(--ink-3);margin:0 0 16px}
+section{max-width:760px;margin:0 0 26px;padding:18px;border-radius:14px;
+  background:var(--surface);border:1px solid var(--line)}
+code{font-family:'JetBrains Mono',ui-monospace,Consolas,monospace;font-size:12.5px;
+  background:var(--hover);border:1px solid var(--line-soft);border-radius:5px;
+  padding:1px 5px;
+  /* Sicherung fuer lange Namen im Text: passt einer nicht in die Zeile,
+     wird er umgebrochen statt aus dem Absatz herauszuragen. Solange er
+     passt, bleibt er zusammen - am jetzigen Inhalt aendert die Zeile nichts.
+     Kein box-decoration-break:clone: das gibt jedem Bruchstueck die volle
+     Polsterung, und die ragte bei 390 px um fuenf Pixel heraus. */
+  overflow-wrap:break-word}
+pre{font-family:'JetBrains Mono',ui-monospace,Consolas,monospace;font-size:12.5px;
+  background:var(--hover);border:1px solid var(--line-soft);border-radius:10px;
+  padding:12px 14px;overflow-x:auto;line-height:1.55}
+pre code{background:none;border:0;padding:0;font-size:inherit}
+.label{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;
+  letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-3)}
+.tabelle{overflow-x:auto;margin-top:8px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line-soft);
+  vertical-align:top}
+th{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;
+  letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-3);font-weight:500}
+td code{white-space:nowrap}
+.orte{display:grid;gap:10px;margin-top:10px}
+.ort{display:grid;grid-template-columns:26px 1fr;gap:12px;align-items:start;
+  padding:12px 14px;border-radius:12px;border:1px solid var(--line);
+  background:var(--bg)}
+.nr{width:26px;height:26px;border-radius:8px;background:var(--accent);
+  color:var(--on-accent);display:grid;place-items:center;font-weight:600;
+  font-size:13px;font-family:'Sora',sans-serif}
+.ort b{color:var(--ink);display:block;margin-bottom:2px}
+.pfeil{text-align:center;color:var(--ink-3);font-size:12px;margin:-4px 0}
+.merk{border-left:3px solid var(--accent);background:var(--accent-soft);
+  color:var(--accent-ink);padding:11px 14px;border-radius:0 10px 10px 0;
+  margin:14px 0}
+.warn{border-left:3px solid var(--warm-ink);background:var(--warm-soft);
+  color:var(--warm-ink);padding:11px 14px;border-radius:0 10px 10px 0;margin:14px 0}
+.gut{border-left:3px solid var(--good);background:var(--good-soft);
+  color:var(--good);padding:11px 14px;border-radius:0 10px 10px 0;margin:14px 0}
+.merk b,.warn b,.gut b{display:block;margin-bottom:3px}
+mark.wiki-fund{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){ *{transition:none!important;animation:none!important} }
+@media (max-width:432px){
+  body{padding:18px 18px 40px}
+  section{padding:15px}
+  .ort{grid-template-columns:22px 1fr;gap:10px}
+  table{font-size:12px}
+  th,td{padding:6px 5px}
+  /* Nur die Schritt-Tabelle wird sonst breiter als das Fenster (439 px
+     bei 390 px). Umgebrochen wird an Leerzeichen, nicht mitten im Wort -
+     ein an beliebiger Stelle zerschnittener Befehl waere schlechter zu
+     lesen als einer, der zwei Zeilen braucht. */
+  .schritte td code{white-space:normal;overflow-wrap:break-word}
+}
+</style>
+</head>
+<body data-theme="dark">
+<script>
+/* Das Thema kommt von der Huelle - aber erst per Nachricht, und die trifft
+   nach dem ersten Anstrich ein. Gemessen im Browser: beim Parsen stand
+   "dark", der erste gemalte Rahmen war dunkel, die Nachricht der Huelle kam
+   10 ms spaeter. Bei einem hell eingestellten Wiki blitzte also jedes Mal
+   kurz die dunkle Fassung auf. Diese Zeile setzt bis dahin die Einstellung
+   des Geraets; die Nachricht der Huelle hat danach wie gehabt das letzte
+   Wort. */
+document.body.dataset.theme =
+  (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+    ? 'dark' : 'light';
+</script>
+
+<section id="wozu">
+  <div class="label">Grundidee</div>
+  <h2>Wozu Git gut ist</h2>
+  <p class="lead">Git beantwortet drei Fragen.</p>
+  <p><b>Was habe ich geändert?</b> <b>Was lief vorher?</b> <b>Wie komme ich
+     dahin zurück?</b></p>
+  <p>Ohne Git ist die Antwort auf die dritte Frage eine Kopie mit dem Namen
+     <code>index-alt-final-2.html</code>. Mit Git ist sie ein Befehl.</p>
+  <p>Für den Stack kommt ein vierter Zweck dazu: Git ist der <b>Weg vom
+     Arbeitsrechner auf den Server</b>. Was unter <code>/opt/stack</code>
+     liegt, ist eine Kopie des Repositorys — und wird über Git aktuell
+     gehalten, nicht über Datei-Kopieren.</p>
+  <div class="merk">
+    <b>Der Unterschied zu GitHub</b>
+    Git ist das Programm auf dem Rechner. GitHub ist nur ein Ort im Netz, an
+    dem eine Kopie liegt. Git funktioniert ohne GitHub; GitHub ist praktisch,
+    weil mehrere Rechner dieselbe Kopie erreichen — dein Arbeitsrechner und
+    der Server.
+  </div>
+</section>
+
+<section id="vier-orte">
+  <div class="label">Das Modell, auf das es ankommt</div>
+  <h2>Die vier Orte</h2>
+  <p class="lead">Fast jedes Missverständnis mit Git kommt daher, dass man
+     diese vier Orte verwechselt.</p>
+
+  <div class="orte">
+    <div class="ort"><div class="nr">1</div><div>
+      <b>Arbeitsverzeichnis</b>
+      Die Dateien, die du bearbeitest. Was du im Editor siehst.
+    </div></div>
+    <div class="pfeil">↓ <code>git add</code></div>
+    <div class="ort"><div class="nr">2</div><div>
+      <b>Bereitstellung</b>
+      Ein Vorraum. Hier sammelst du, was in den nächsten Commit soll. Man kann
+      drei von fünf geänderten Dateien bereitstellen und die anderen zwei
+      später.
+    </div></div>
+    <div class="pfeil">↓ <code>git commit</code></div>
+    <div class="ort"><div class="nr">3</div><div>
+      <b>Lokales Repository</b>
+      Die Historie auf deinem Rechner. Ab hier ist die Änderung
+      festgehalten und wiederauffindbar — aber nur bei dir.
+    </div></div>
+    <div class="pfeil">↓ <code>git push</code>&nbsp;&nbsp;·&nbsp;&nbsp;↑ <code>git pull</code></div>
+    <div class="ort"><div class="nr">4</div><div>
+      <b>GitHub</b>
+      Die Kopie im Netz, in Befehlen <code>origin</code> genannt. Von hier
+      holt der Server.
+    </div></div>
+  </div>
+
+  <div class="warn">
+    <b>Die zwei Sätze, die alles erklären</b>
+    Wer <b>committet</b> hat, hat noch <b>nicht gepusht</b> — die Änderung
+    liegt nur auf seinem Rechner.<br>
+    Wer auf GitHub etwas <b>sieht</b>, hat es noch <b>nicht auf dem
+    Server</b> — dort muss erst geholt werden.
+  </div>
+</section>
+
+<section id="alltag">
+  <div class="label">Fünf Befehle</div>
+  <h2>Der Alltag</h2>
+  <p class="lead">Damit deckst du neunzig Prozent ab.</p>
+
+  <h3>Wo stehe ich?</h3>
+  <pre><code>git status</code></pre>
+  <p>Der wichtigste Befehl. Er sagt, auf welchem Zweig du bist, welche Dateien
+     geändert sind, was bereitgestellt ist und ob du gegenüber
+     <code>origin</code> vor- oder hinterherhängst. <b>Vor jedem anderen
+     Schritt einmal lesen.</b></p>
+
+  <h3>Änderung festhalten</h3>
+  <pre><code>git add .
+git commit -m "Kurz, was und warum"
+git push</code></pre>
+  <p><code>add .</code> stellt alles Geänderte bereit. <code>commit</code>
+     hält es fest. <code>push</code> lädt es zu GitHub.</p>
+  <p>Die Nachricht nach <code>-m</code> liest du selbst in einem halben Jahr
+     wieder. „Änderungen" hilft dir dann nicht; „Bordbuch: Seitenleiste statt
+     Reiterzeile" schon.</p>
+
+  <h3>Neuen Stand holen</h3>
+  <pre><code>git pull origin main</code></pre>
+  <p>Holt, was auf GitHub in <code>main</code> steht, und schreibt es in dein
+     Arbeitsverzeichnis. <b>Das ist der Befehl, der auf dem Server laufen
+     muss</b>, bevor du aktualisierst.</p>
+
+  <h3>Was hat sich geändert?</h3>
+  <pre><code>git diff              # noch nicht bereitgestellt
+git diff --staged     # bereitgestellt, noch nicht committet
+git log --oneline -10 # die letzten zehn Commits</code></pre>
+</section>
+
+<section id="zweige">
+  <div class="label">Nebenspuren</div>
+  <h2>Zweige und Pull Requests</h2>
+  <p class="lead">Ein Zweig ist eine Nebenspur, auf der man arbeiten kann,
+     ohne den Hauptstand anzufassen.</p>
+
+  <p>Der Hauptstand heisst <code>main</code>. Er soll immer lauffähig sein —
+     von dort holt der Server. Wer direkt auf <code>main</code> arbeitet, hat
+     jeden Halbfertigstand sofort dort stehen.</p>
+
+  <p>Darum: Arbeit passiert auf einem eigenen Zweig.</p>
+  <pre><code>git checkout -b mein-zweig   # neuen Zweig anlegen und hinwechseln
+git checkout main            # zurück auf den Hauptstand
+git branch                   # welche Zweige gibt es, wo bin ich?</code></pre>
+
+  <h3>Der Pull Request</h3>
+  <p>Ein <b>Pull Request</b> ist die Bitte: „Nimm meine Nebenspur in
+     <code>main</code> auf." Er wird auf GitHub angelegt, zeigt genau die
+     Unterschiede, und man kann ihn durchlesen, bevor man ihn annimmt.</p>
+  <p>Das Annehmen heisst <b>mergen</b> (zusammenführen). Erst danach steht die
+     Änderung auf <code>main</code>.</p>
+
+  <div class="warn">
+    <b>Der Fehler, der dreimal passiert ist</b>
+    Ein gepushter Zweig ist <b>nicht</b> auf <code>main</code>. Solange der
+    Pull Request nicht gemergt ist, holt <code>git pull origin main</code>
+    nichts davon — und meldet <code>Already up to date.</code> Das ist keine
+    Fehlermeldung, sondern die Wahrheit: auf <code>main</code> gab es wirklich
+    nichts Neues.
+  </div>
+</section>
+
+<section id="server">
+  <div class="label">Der Weg nach draussen</div>
+  <h2>Vom Zweig auf den Server</h2>
+  <p class="lead">Zwischen „gepusht" und „läuft" liegen drei Schritte. Fehlt
+     einer, meldet alles Erfolg und nichts ändert sich.</p>
+
+  <div class="tabelle schritte">
+    <table>
+      <thead><tr><th>Schritt</th><th>Wo</th><th>Was</th></tr></thead>
+      <tbody>
+        <tr><td>1. Mergen</td><td>GitHub</td>
+            <td>Pull Request annehmen. Erst danach steht es auf <code>main</code>.</td></tr>
+        <tr><td>2. Holen</td><td>Server</td>
+            <td><code>cd /opt/stack &amp;&amp; git pull origin main</code></td></tr>
+        <tr><td>3. Aktualisieren</td><td>Server</td>
+            <td><code>sudo prolo aktualisieren</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Zwei Meldungen, die man kennen muss</h3>
+  <p><code>Already up to date.</code> — der Pull hat <b>nichts</b> geholt.
+     Entweder ist wirklich nichts Neues da, oder es liegt auf einem Zweig, der
+     noch nicht gemergt wurde.</p>
+  <p><code>CACHED [3/5] COPY server.py index.html</code> — beim Bauen war die
+     Datei <b>byte-identisch</b> zum letzten Mal. Es wurde die alte Fassung
+     neu gebaut. Fast immer heisst das: Schritt 2 fehlt.</p>
+
+  <div class="gut">
+    <b>Dagegen gibt es jetzt eine Wache</b>
+    <code>prolo aktualisieren</code> prüft vor dem Bauen, ob der Stand unter
+    <code>/opt/stack</code> hinter <code>origin</code> liegt, und bricht mit
+    dem nötigen Befehl ab, statt eine alte Fassung neu zu bauen und Erfolg zu
+    melden.
+  </div>
+</section>
+
+<section id="fehler">
+  <div class="label">Fallgruben</div>
+  <h2>Was schiefgeht, und woran man es erkennt</h2>
+
+  <h3>Ein Geheimnis ist mitgegangen</h3>
+  <p>Das ist der einzige Fehler, der nicht zurückzunehmen ist. Einmal
+     gepusht, muss man davon ausgehen, dass es draussen ist —
+     <b>Zurücknehmen des Commits genügt nicht</b>, die Historie enthält es
+     weiter.</p>
+  <p>Der einzig verlässliche Weg: <b>das Geheimnis selbst ändern</b>. Passwort
+     neu setzen, Schlüssel neu erzeugen, Token widerrufen.</p>
+  <p>Verhindert wird das über <code>.gitignore</code> — eine Liste von Mustern,
+     die Git ignoriert. Aber Achtung:</p>
+  <div class="warn">
+    <b>.gitignore wirkt nicht auf bereits verfolgte Dateien</b>
+    Was schon einmal committet wurde, bleibt verfolgt, auch wenn das Muster
+    später dazukommt. Herausnehmen geht mit
+    <code>git rm --cached &lt;datei&gt;</code> — der Inhalt bleibt dabei auf
+    der Platte.
+  </div>
+
+  <h3>Ich habe Mist gebaut, aber noch nicht committet</h3>
+  <pre><code>git checkout -- datei.txt   # eine Datei zurücksetzen
+git restore datei.txt       # dasselbe, neuere Schreibweise</code></pre>
+  <p>Beides <b>verwirft</b> deine Änderungen an der Datei. Das ist nicht
+     rückholbar — vorher <code>git diff</code> lesen.</p>
+
+  <h3>Der letzte Commit war falsch</h3>
+  <pre><code>git reset --soft HEAD~1   # Commit weg, Änderungen bleiben bereitgestellt
+git reset --hard HEAD~1   # Commit UND Änderungen weg</code></pre>
+  <div class="warn">
+    <b>--hard verwirft Arbeit</b>
+    Es löscht die Änderungen wirklich. Und: was schon gepusht war, ist auf
+    GitHub weiterhin da. Solche Befehle gehören nicht in einen Zweig, auf dem
+    andere arbeiten.
+  </div>
+
+  <h3>Es hängt und will eine Nachricht</h3>
+  <p>Öffnet sich ein Texteditor im Terminal (meist <code>nano</code> oder
+     <code>vim</code>), will Git eine Commit-Nachricht.</p>
+  <p>In <b>nano</b>: Text tippen, dann <code>Strg+O</code>, <code>Enter</code>,
+     <code>Strg+X</code>.<br>
+     In <b>vim</b>: <code>i</code> drücken, tippen, dann <code>Esc</code> und
+     <code>:wq</code> und <code>Enter</code>.</p>
+</section>
+
+<section id="nachschlagen">
+  <div class="label">Kurzreferenz</div>
+  <h2>Zum Nachschlagen</h2>
+
+  <h3>Befehle</h3>
+  <div class="tabelle">
+    <table>
+      <thead><tr><th>Befehl</th><th>Beantwortet die Frage</th></tr></thead>
+      <tbody>
+        <tr><td><code>git status</code></td><td>Wo stehe ich?</td></tr>
+        <tr><td><code>git diff</code></td><td>Was habe ich geändert?</td></tr>
+        <tr><td><code>git add .</code></td><td>Alles für den nächsten Commit bereitstellen</td></tr>
+        <tr><td><code>git commit -m "…"</code></td><td>Bereitgestelltes festhalten</td></tr>
+        <tr><td><code>git push</code></td><td>Zu GitHub laden</td></tr>
+        <tr><td><code>git pull origin main</code></td><td>Neuen Stand holen</td></tr>
+        <tr><td><code>git log --oneline -10</code></td><td>Was ist zuletzt passiert?</td></tr>
+        <tr><td><code>git branch</code></td><td>Welche Zweige, wo bin ich?</td></tr>
+        <tr><td><code>git checkout -b name</code></td><td>Neuen Zweig anlegen</td></tr>
+        <tr><td><code>git checkout main</code></td><td>Auf den Hauptstand wechseln</td></tr>
+        <tr><td><code>git restore datei</code></td><td>Änderung verwerfen</td></tr>
+        <tr><td><code>git rm --cached datei</code></td><td>Aus der Verfolgung nehmen, Datei behalten</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Begriffe</h3>
+  <div class="tabelle">
+    <table>
+      <thead><tr><th>Wort</th><th>Bedeutet</th></tr></thead>
+      <tbody>
+        <tr><td>Repository</td><td>Der Ordner samt seiner ganzen Historie. Kurz: Repo.</td></tr>
+        <tr><td>Commit</td><td>Ein festgehaltener Stand, mit Datum, Autor und Nachricht.</td></tr>
+        <tr><td>Zweig / branch</td><td>Eine Nebenspur der Historie. Der Hauptstand heisst <code>main</code>.</td></tr>
+        <tr><td><code>origin</code></td><td>Der Kurzname für die Kopie auf GitHub.</td></tr>
+        <tr><td><code>HEAD</code></td><td>Der Stand, auf dem du gerade stehst. <code>HEAD~1</code> ist einer davor.</td></tr>
+        <tr><td>Merge</td><td>Zwei Zweige zusammenführen.</td></tr>
+        <tr><td>Pull Request</td><td>Die Bitte auf GitHub, einen Zweig in <code>main</code> aufzunehmen.</td></tr>
+        <tr><td>Konflikt</td><td>Beide Seiten haben dieselbe Zeile geändert. Git fragt, welche gilt.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="merk">
+    <b>Wenn du nur eine Sache mitnimmst</b>
+    <code>git status</code> vor jedem Schritt. Er sagt dir, an welchem der
+    vier Orte deine Änderung gerade liegt — und damit, welcher Befehl als
+    nächster fehlt.
+  </div>
+</section>
+
+<script>
+/* Pflichtteil jeder Wiki-Seite: auf die Shell hoeren. */
+(function(){
+  function springen(anker, begriff){
+    if(anker){
+      var el = document.getElementById(anker);
+      if(el) el.scrollIntoView({block:'start'});
+    }
+    document.querySelectorAll('mark.wiki-fund').forEach(function(m){
+      m.replaceWith(document.createTextNode(m.textContent));
+    });
+    if(!begriff || begriff.length < 2) return;
+    var worte = begriff.split(/\s+/).filter(function(w){ return w.length > 1; });
+    if(!worte.length) return;
+    var re = new RegExp('(' + worte.map(function(w){
+      return w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|') + ')', 'gi');
+    var lauf = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    var knoten = [], n;
+    while((n = lauf.nextNode())) if(re.test(n.nodeValue)) knoten.push(n);
+    knoten.forEach(function(k){
+      var h = document.createElement('span');
+      h.innerHTML = k.nodeValue.replace(/[&<>]/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; })
+        .replace(re, '<mark class="wiki-fund">$1</mark>');
+      k.replaceWith(h);
+    });
+    var erst = document.querySelector('mark.wiki-fund');
+    if(erst && !anker) erst.scrollIntoView({block:'center'});
+  }
+  window.addEventListener('message', function(e){
+    /* Die Seite laeuft in einem opaken Origin (Sandbox ohne
+       allow-same-origin). location.origin ist darum "null" und taugt nicht
+       als Vergleich - die Huelle sendet aus ihrem echten Origin. Geprueft
+       wird stattdessen, dass die Nachricht vom eigenen Elternfenster kommt. */
+    if(e.source !== window.parent || !e.data) return;
+    if(e.data.typ === 'wiki-springen') springen(e.data.anker, e.data.begriff);
+    if(e.data.thema) document.body.dataset.theme = e.data.thema;
+  });
+  /* Zielorigin '*': aus einem opaken Origin heraus ist das der einzige Weg.
+     Die Nachricht enthaelt nichts Schuetzenswertes. */
+  if(window.parent !== window)
+    window.parent.postMessage({typ:'wiki-bereit'}, '*');
+})();
+</script>
+</body>
+</html>
