@@ -93,6 +93,45 @@ Verbindlich in jeder `docker-compose.yml`:
 - Netzwerk `proxy` (extern), zusätzlich `internal` für Datenbanken.
 - Datenbanken und Hilfsdienste hängen **nur** im Netz `internal`.
 - `restart: unless-stopped`
+- **Speicher-, Prozess- und Rechtegrenzen sind Pflicht** (aus B-29). Kein
+  Container hatte sie, mit drei Folgen: ein Speicherleck in einem Tool brachte
+  den **ganzen** Server in den OOM-Killer statt nur sich selbst; die Container
+  liefen mit dem vollen Standardsatz an Linux-Fähigkeiten, obwohl keiner davon
+  welche braucht; und ohne `no-new-privileges` ermöglicht eine Datei mit
+  gesetztem setuid-Bit im Abbild eine Rechteausweitung.
+
+  ```yaml
+      mem_limit: 512m          # bordbuch, wiki: 512m · n8n: 2g · authentik: 1g
+      pids_limit: 256
+      security_opt:
+        - no-new-privileges:true
+      cap_drop:
+        - ALL
+  ```
+
+  Zwei Dienste brauchen einzelne Fähigkeiten zurück, und zwar nur diese:
+  **Traefik** `NET_BIND_SERVICE` (80 und 443 sind privilegierte Ports — ohne
+  die Fähigkeit startet es nicht), **PostgreSQL** `CHOWN`, `SETUID`, `SETGID`,
+  `FOWNER`, `DAC_OVERRIDE` (es legt beim Start seinen Datenordner an und
+  wechselt dabei auf den unprivilegierten Nutzer).
+
+  `read_only: true` zusätzlich, wo das Programmverzeichnis nicht beschrieben
+  wird — beim **Bordbuch** möglich (es schreibt nur in Volumes), beim **Wiki
+  nicht**: `pdftotext` legt Zwischendateien ab und der Vorschauordner
+  `/seiten/.vorschau` wird zur Laufzeit gefüllt. Dazu dann `tmpfs` für `/tmp`
+  und `PYTHONDONTWRITEBYTECODE=1` im Dockerfile, sonst versucht Python bei
+  jedem Start erfolglos, `__pycache__` neben `server.py` zu schreiben.
+
+- **Pfade ohne Anmeldung** kann ein Tool auch **selbst** bereitstellen, nicht
+  nur als zweiter Router ohne Middleware (aus B-44). Das Wiki macht es so:
+  `/gesundheit` und `/api/version` antworten ohne Anmeldekopf, alles andere
+  nicht. Das ist fachlich richtig — `aktualisieren.sh` und die
+  Gesundheitsprüfung erreichen den Dienst intern am Traefik vorbei und hätten
+  über die Middleware gar keinen Weg. Beide Varianten sind erlaubt; welche ein
+  Tool benutzt, gehört in den `HINWEIS` seiner `sicherung.conf`, damit man es
+  bei einer Prüfung nicht suchen muss. Ein solcher Pfad darf **nichts
+  Schützenswertes** ausgeben: „ok" und eine Fassungsnummer, mehr nicht.
+
 - **Feste Versionsnummer beim Image, niemals `latest`.** Datenbank-
   migrationen bei Hauptversionen sind nicht umkehrbar.
 - Persistente Daten liegen in benannten Volumes, nicht im Container.
@@ -125,6 +164,49 @@ in der `sicherung.conf` unter `HINWEIS=` zu vermerken.
 - Geldbeträge niemals als Fließkommazahl.
 - Keine Steuersätze, Preise oder Wirkungsgrade fest im Code — die gehören
   in Konfiguration mit Gültigkeitsdatum.
+
+### 6a. Verbindliche Benennungskonvention
+
+Aus B-30. Bis dahin stand die Regel nur halb da, und das Ergebnis war ein
+Schema, in dem in **einer Zeile** beides nebeneinander steht:
+
+```sql
+nutzer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE
+```
+
+Deutsche Spalte, englische Tabelle. Über das Schema hinweg: `wartung`,
+`werkstatt`, `freigaben` gegen `users`, `cars`, `sessions`, `fuelings`;
+`art`, `notiz`, `betrieb` gegen `cost`, `odo`, `liters`, `note`. In manchen
+Tabellen stehen `note` **und** `notiz` nebeneinander, je nachdem wann sie
+entstanden sind.
+
+Verbindlich ab jetzt:
+
+1. **Tabellen und Spalten mit fachlicher Bedeutung: deutsch, ohne Umlaute.**
+   `nutzer`, `fahrzeug`, `ladevorgang`, `tankvorgang`, `wartung`, `werkstatt`,
+   `freigabe`.
+2. **Jede Größe mit Einheit im Namen** — steht oben schon und wurde nur
+   teilweise befolgt: `menge_l`, `energie_kwh`, `betrag_ct`, `stand_km`,
+   `dauer_s`. `betrag_ct` ist mit B-04 der erste Fall, der es einhält.
+3. **Schlüssel einheitlich `<tabelle>_id`:** `nutzer_id`, `fahrzeug_id`.
+4. **`nutzer_id` bedeutet überall dasselbe.** Heute nicht: im Bordbuch ist es
+   ein `INTEGER` auf `users(id)`, im Wiki ein `TEXT` mit dem
+   Authentik-Anmeldenamen. **Festgelegt: überall der Anmeldename als `TEXT`.**
+   Damit braucht das Bordbuch auf Dauer keine eigene Nutzertabelle, was §4
+   entgegenkommt („Es gibt **keine** Oberfläche, in der ein Nutzer andere
+   Nutzer anlegt"). Das Wiki hält es bereits so.
+5. **Die JSON-Schnittstelle folgt dem Schema**, keine eigene Schreibweise.
+   Die Tabelle `JSON_TO_COL` im Bordbuch ist heute eine Übersetzungsschicht,
+   die es bei einheitlicher Benennung nicht bräuchte.
+
+**Umsetzung: nicht in einem Zug.** Neue Felder folgen ab sofort der
+Konvention; bestehende werden bei der nächsten ohnehin nötigen Migration
+mitgezogen. Der Umbau von `users`/`nutzer_id` im Bordbuch ist ein eigener
+Arbeitsschritt mit Datenmigration und gehört nach dem Dreischritt aus
+Abschnitt 19a behandelt — er ist **nicht** Teil von B-30.
+
+Was aus B-30 **sofort** erledigt wurde, weil es ein echter Fehler mit Wirkung
+war: das Trennzeichen der Gruppen (Pipe, Komma, Semikolon).
 
 ## 7. Ein neues Tool einhängen — Ablauf
 
@@ -626,6 +708,17 @@ echo "[1/5] Sicherung laeuft ..."
 echo "      erledigt."
 
 ALT=$(grep -E '^\s*image:' "$ORDNER/docker-compose.yml" | head -1 | sed 's/.*image:\s*//' | tr -d '"')
+# Ohne image:-Zeile gibt es keinen Rueckweg (B-23). Lieber gar nicht
+# aktualisieren als ohne Rueckweg: bis dahin blieb ALT leer,
+# .letzte-fassung enthielt nichts, und das Zurueckrollen unten haette
+# stillschweigend ins Nichts gegriffen.
+if [ -z "$ALT" ]; then
+  echo "ABBRUCH: in $ORDNER/docker-compose.yml fehlt eine image:-Zeile."
+  echo "         Ohne sie gibt es keinen Rueckweg (Betriebsregeln 5)."
+  echo "         Auch bei einem eigenen Dockerfile gehoert sie dazu -"
+  echo "         'build: .' UND 'image: <tool>:<fassung>'."
+  exit 1
+fi
 echo "$ALT" > "$ORDNER/.letzte-fassung"
 echo "[2/5] Bisherige Fassung: $ALT"
 
@@ -785,6 +878,10 @@ Design- und Qualitätspunkte stehen in `prolo-regelblatt.md`.
 - [ ] DNS-Eintrag gesetzt, kein verwaister AAAA-Record
 - [ ] `docker-compose.yml` ohne `ports:`, im Netz `proxy`
 - [ ] Feste Versionsnummer beim Image, kein `latest`
+- [ ] `mem_limit`, `pids_limit`, `no-new-privileges` und `cap_drop: ALL` gesetzt
+      (B-29) — und nur die Fähigkeiten zurückgegeben, die der Dienst wirklich
+      braucht
+- [ ] `read_only: true` geprüft: möglich oder mit Begründung nicht
 - [ ] Traefik-Labels inklusive `authentik@file`
 - [ ] Anwendung in Authentik angelegt **und dem Outpost zugewiesen**
 - [ ] Von außen aufgerufen, Anmelde-Weiterleitung geprüft

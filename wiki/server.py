@@ -29,6 +29,13 @@ from urllib.parse import unquote, urlparse, parse_qs
 
 # ---------------------------------------------------------------- Konfiguration
 
+# Fassungsnummer der Anwendung (B-23). Ohne sie liess sich am laufenden
+# System nicht feststellen, welche Fassung des Wikis arbeitet - das Bordbuch
+# hatte VERSION, --version und /api/version, das Wiki gar nichts. Gelesen von
+# --version, /api/version und der image:-Zeile im docker-compose.yml; die
+# drei muessen zusammenpassen.
+VERSION = "1.0.0"
+
 DATEN = os.environ.get("WIKI_DATEN", "/daten")
 SEITEN = os.environ.get("WIKI_SEITEN", "/seiten")
 PORT = int(os.environ.get("WIKI_PORT", "8080"))
@@ -210,6 +217,8 @@ def db_freigeben(fehlgeschlagen=False):
     except Exception:
         pass
     _lokal.db = None
+    # Der Zweig-Zwischenspeicher gehoert zur Anfrage und geht mit ihr (B-47).
+    _lokal.zweige = None
 
 
 def datenbank_anlegen():
@@ -295,15 +304,29 @@ def nutzer_aus_kopf(kopf):
     return n
 
 
+def zweig_tabelle():
+    """Alle Zweig-Freigaben, EINMAL je Anfrage gelesen (B-47).
+
+    Vorher fragte zweig_gruppen() je Aufruf und je Pfadebene die Datenbank.
+    sichtbare_seiten() ruft das fuer JEDE Seite auf - bei 500 Seiten mit drei
+    Ebenen waren das 1500 Abfragen fuer eine einzige Antwort. Der
+    Zwischenspeicher haengt an der Verbindung und wird mit ihr freigegeben,
+    ist also nie aelter als die laufende Anfrage.
+    """
+    t = getattr(_lokal, "zweige", None)
+    if t is None:
+        t = {z["pfad"]: set(json.loads(z["gruppen_json"] or "[]"))
+             for z in db().execute("SELECT pfad,gruppen_json FROM zweig")}
+        _lokal.zweige = t
+    return t
+
+
 def zweig_gruppen(pfad_liste):
     """Geerbte Gruppen aller Ebenen oberhalb der Seite."""
+    t = zweig_tabelle()
     noetig = set()
-    v = db()
     for i in range(1, len(pfad_liste) + 1):
-        p = "/".join(pfad_liste[:i])
-        z = v.execute("SELECT gruppen_json FROM zweig WHERE pfad=?", (p,)).fetchone()
-        if z:
-            noetig |= set(json.loads(z["gruppen_json"]))
+        noetig |= t.get("/".join(pfad_liste[:i]), set())
     return noetig
 
 
@@ -1272,6 +1295,11 @@ class Handler(BaseHTTPRequestHandler):
 
         # Ohne Anmeldung erreichbar: nur die Lebendpruefung fuer
         # aktualisieren.sh, die intern am Traefik vorbei aufgerufen wird.
+        # Fassung abfragen - ohne Anmeldung, wie die Lebendpruefung, damit
+        # aktualisieren.sh und die Gesundheitspruefung herankommen (B-23).
+        if teile == ["api", "version"]:
+            return self.json_senden({"version": VERSION})
+
         if teile == ["gesundheit"]:
             return self.senden(200, "ok\n", "text/plain; charset=utf-8")
 
@@ -1566,6 +1594,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_senden({"ok": True, "fassung": neu})
 
         if rest == ["zweig"]:
+            # Nach dem Schreiben ist der Zwischenspeicher ueberholt (B-47).
+            _lokal.zweige = None
             self.admin()
             daten = json.loads(self.koerper_lesen() or b"{}")
             pfad = (daten.get("pfad") or "").strip("/")
@@ -1615,6 +1645,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    # --version gibt nur die Fassung aus und aendert nichts (wie im Bordbuch,
+    # B-13): der Aufruf kommt von Skripten und darf keine Nebenwirkung haben.
+    if "--version" in sys.argv:
+        print(VERSION)
+        return
     datenbank_anlegen()
     os.makedirs(VORSCHAU_ORDNER, exist_ok=True)
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)

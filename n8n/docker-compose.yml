@@ -2,6 +2,20 @@ services:
   n8n:
     image: docker.n8n.io/n8nio/n8n:1.121.0
     container_name: n8n
+    # Grenzen nach Betriebsregeln 5 (B-29). Vorher hatte KEIN Container
+    # mem_limit, pids_limit, cap_drop oder security_opt. Folgen: ein
+    # Speicherleck in einem Tool brachte den GANZEN Server in den OOM-Killer,
+    # nicht nur sich selbst; die Container liefen mit dem vollen
+    # Standardsatz an Linux-Faehigkeiten, obwohl keiner davon welche
+    # braucht; und ohne no-new-privileges ermoeglicht eine Datei mit
+    # gesetztem setuid-Bit im Abbild eine Rechteausweitung.
+    # n8n fuehrt beliebige Ablaeufe aus und braucht mehr Luft.
+    mem_limit: 2g
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     restart: unless-stopped
     environment:
       N8N_HOST: n8n.prolo.me

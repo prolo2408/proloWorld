@@ -10,6 +10,25 @@ services:
     build: .
     image: bordbuch:2.5.2          # feste Fassung, nie latest
     container_name: bordbuch
+    # Grenzen nach Betriebsregeln 5 (B-29). Vorher hatte KEIN Container
+    # mem_limit, pids_limit, cap_drop oder security_opt. Folgen: ein
+    # Speicherleck in einem Tool brachte den GANZEN Server in den OOM-Killer,
+    # nicht nur sich selbst; die Container liefen mit dem vollen
+    # Standardsatz an Linux-Faehigkeiten, obwohl keiner davon welche
+    # braucht; und ohne no-new-privileges ermoeglicht eine Datei mit
+    # gesetztem setuid-Bit im Abbild eine Rechteausweitung.
+    mem_limit: 512m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # read_only ist hier moeglich, weil Bordbuch ausschliesslich in die
+    # Volumes /daten und /belege schreibt. /tmp braucht es trotzdem: die
+    # Standardbibliothek legt dort Zwischendateien ab.
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
     restart: unless-stopped
 
     environment:

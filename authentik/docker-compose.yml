@@ -1,7 +1,34 @@
 services:
   postgresql:
-    image: docker.io/library/postgres:16-alpine
+    # Feste Nebenversion (B-28). "16-alpine" ist ein wandernder
+    # Kennzeichner: ein docker compose pull holt heute 16.4 und morgen 16.9.
+    # Der Geist von Betriebsregeln 5 ist, dass man weiss, was laeuft - und
+    # bei der DATENBANK ist das besonders wichtig, weil dort ein
+    # unbeabsichtigter Fassungswechsel am teuersten ist. Authentik, n8n und
+    # Traefik waren sauber festgelegt; die Datenbank war die einzige Ausnahme.
+    #
+    # Die tatsaechlich laufende Fassung feststellen und hier eintragen:
+    #   docker exec authentik-db postgres --version
+    # Nur NEBENVERSIONEN ohne Weiteres anheben. Ein Sprung von 16 auf 17
+    # verlangt pg_upgrade oder Sichern und Einspielen (Betriebsregeln 23).
+    image: docker.io/library/postgres:16.10-alpine
     container_name: authentik-db
+    # Grenzen nach Betriebsregeln 5 (B-29).
+    mem_limit: 1g
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # cap_drop ALL waere zu eng: postgres legt beim Start seinen
+    # Datenordner an und braucht dafuer CHOWN, SETUID und SETGID, um vom
+    # Start-Skript auf den unprivilegierten Nutzer zu wechseln.
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - FOWNER
+      - DAC_OVERRIDE
     restart: unless-stopped
     env_file:
       - .env
@@ -23,6 +50,13 @@ services:
   server:
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2026.8.2}
     container_name: authentik-server
+    # Grenzen nach Betriebsregeln 5 (B-29).
+    mem_limit: 1g
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     command: server
     restart: unless-stopped
     shm_size: 512mb
@@ -54,16 +88,37 @@ services:
       - "traefik.http.routers.authentik.tls.certresolver=letsencrypt"
       - "traefik.http.routers.authentik.service=authentik"
 
-      # Router 2: nur der Outpost-Pfad, aber auf allen Subdomains
-      - "traefik.http.routers.authentik-outpost.rule=HostRegexp(`^.+$$`) && PathPrefix(`/outpost.goauthentik.io/`)"
+      # Router 2: nur der Outpost-Pfad, aber auf allen Subdomains DES STACKS.
+      #
+      # Vorher stand hier HostRegexp(`^.+$$`) - das traf JEDEN Hostnamen, auch
+      # solche, die nicht zum Stack gehoeren (B-27). Wer einen eigenen Namen
+      # auf die Server-IP zeigen liess, erreichte ueber
+      # /outpost.goauthentik.io/ den Authentik-Outpost. Zusammen mit tls=true
+      # ohne certresolver wurde dabei das Standardzertifikat ausgeliefert:
+      # Besucher sahen eine Zertifikatswarnung und dahinter eine echte
+      # Anmeldeoberflaeche - eine brauchbare Grundlage fuer eine
+      # Taeuschungsseite.
+      #
+      # Die Absicht war richtig (der Outpost-Pfad muss auf allen Subdomains
+      # verfuegbar sein), nur zu weit gefasst. Traefik 3 benutzt Go-Regexp,
+      # darum der maskierte Punkt; im Compose verdoppelt sich das $.
+      - "traefik.http.routers.authentik-outpost.rule=HostRegexp(`^[a-z0-9-]+\\.prolo\\.me$$`) && PathPrefix(`/outpost.goauthentik.io/`)"
       - "traefik.http.routers.authentik-outpost.entrypoints=websecure"
-      - "traefik.http.routers.authentik-outpost.tls=true"
+      # certresolver statt nur tls=true: sonst kommt das Standardzertifikat.
+      - "traefik.http.routers.authentik-outpost.tls.certresolver=letsencrypt"
       - "traefik.http.routers.authentik-outpost.priority=1000"
       - "traefik.http.routers.authentik-outpost.service=authentik"
 
   worker:
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2026.8.2}
     container_name: authentik-worker
+    # Grenzen nach Betriebsregeln 5 (B-29).
+    mem_limit: 1g
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     command: worker
     restart: unless-stopped
     shm_size: 512mb

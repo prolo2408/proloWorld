@@ -1,0 +1,48 @@
+# /opt/stack/traefik/dynamic/sicherheit.yml
+#
+# Sicherheitskopfzeilen und TLS-Vorgaben (B-26). Vorher setzte weder Traefik
+# noch ein Tool Strict-Transport-Security, Referrer-Policy oder
+# Permissions-Policy, und es gab keine TLS-Mindestfassung - damit liess
+# Traefik auch TLS 1.0 und 1.1 zu.
+#
+# Eingebunden wird das in traefik.yml am websecure-Eingang, damit es fuer
+# alle Router gilt.
+
+http:
+  middlewares:
+    sicherheitskopf:
+      headers:
+        # Ohne HSTS ist bei jedem ERSTaufruf ein Abfangen ueber HTTP
+        # moeglich, obwohl auf HTTPS umgeleitet wird.
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        # preload erst setzen, wenn ALLE Subdomains sicher laufen - der
+        # Eintrag in die Preload-Liste ist nur schwer rueckgaengig zu machen.
+        stsPreload: false
+        contentTypeNosniff: true
+        browserXssFilter: false          # veraltet, die CSP leistet das
+        referrerPolicy: "strict-origin-when-cross-origin"
+        customResponseHeaders:
+          Permissions-Policy: "geolocation=(), camera=(), microphone=(), payment=(), usb=()"
+          # Traefik verraet sonst seine Fassung an jeden Aufrufer.
+          Server: ""
+          X-Powered-By: ""
+
+tls:
+  options:
+    streng:
+      minVersion: VersionTLS12
+      # sniStrict: eine Anfrage ohne passenden Servernamen bekommt KEIN
+      # Standardzertifikat mehr. Zusammen mit B-27 ist damit der Weg zu
+      # einer Taeuschungsseite auf einem fremden Hostnamen zu.
+      sniStrict: true
+      cipherSuites:
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305
+      curvePreferences:
+        - CurveP256
+        - X25519

@@ -11,6 +11,7 @@ server.py und index.html zu ersetzen und den Dienst neu zu starten.
 """
 import argparse
 import base64
+import binascii
 import contextlib
 import datetime
 import decimal
@@ -35,9 +36,6 @@ DB_LOCK = threading.Lock()
 RECEIPT_DIR = os.path.join(HERE, "receipts")
 
 
-def daten_dir():
-    """Verzeichnis der Datenbank - dort leben auch Belege und Sicherungen."""
-    return os.path.dirname(os.path.abspath(CFG.db)) or HERE
 # Was der Server ueberhaupt herausgeben darf - der Rest des Verzeichnisses
 # (Datenbank, Quelltext, Sicherungen) bleibt unerreichbar.
 PUBLIC_FILES = {"index.html", "favicon.ico"}
@@ -178,6 +176,103 @@ MAX_BODY = 14 * 1024 * 1024
 RECEIPT_TYPES = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
                  "webp": "image/webp", "heic": "image/heic", "pdf": "application/pdf"}
 MAX_RECEIPT = 8 * 1024 * 1024
+
+# Typerkennung aus dem INHALT, nicht aus dem Namen (B-21).
+#
+# Geprueft wurde vorher allein die Dateiendung im Namen, den der Client
+# mitschickt - der Inhalt wurde nie angesehen. Eine HTML-Datei als "x.jpg"
+# hochgeladen landete als .jpg im Ablageort und wurde mit Content-Type
+# image/jpeg ausgeliefert. Dass nosniff die Ausfuehrung verhinderte, war
+# Glueck und kein Entwurf; der Ablageort wurde damit zum Dateispeicher fuer
+# beliebige Inhalte, und der Nutzer merkte erst beim Ansehen, dass sein
+# Beleg kein Bild ist.
+MAGISCHE_BYTES = (
+    (b"\xff\xd8\xff", "jpg"),
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"%PDF-", "pdf"),
+)
+
+
+def beleg_name_pruefen(v):
+    """Einen Belegnamen aus einer Sicherung annehmen oder verwerfen (B-21).
+
+    Beim Einspielen wurde das Feld ungeprueft uebernommen. Die Oberflaeche
+    verzweigte darauf und baute bei einem Wert, der mit "data:" beginnt,
+    einen data:-Verweis in die Seite - ein manipulierter Sicherungsstand
+    konnte damit beliebige Inhalte in die Oberflaeche bringen. Moderne
+    Browser verhindern die oberste Navigation zu data:, aber der Zweig
+    gehoert weg, und hier ist die Stelle, an der er nicht entsteht.
+
+    Was nicht auf einen von uns selbst erzeugten Dateinamen passt, wird
+    verworfen - die Zeile bleibt, nur ohne Beleg.
+    """
+    name = str(v or "")[:80]
+    return name if RECEIPT_NAME.match(name) else ""
+
+
+def typ_aus_inhalt(blob):
+    """Dateityp am Inhalt erkennen. None, wenn es keiner der erlaubten ist."""
+    if blob[:4] == b"RIFF" and blob[8:12] == b"WEBP":
+        return "webp"
+    # HEIC und Verwandte: der Typ steht im ftyp-Kasten ab Byte 4.
+    if blob[4:8] == b"ftyp" and blob[8:12] in (
+            b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1", b"heim", b"heis"):
+        return "heic"
+    for kennung, typ in MAGISCHE_BYTES:
+        if blob.startswith(kennung):
+            return typ
+    return None
+
+
+# Erlaubte Einstellungsschluessel (B-22). Vollstaendig aus den DEFAULTS in
+# index.html uebernommen, plus homePrices - das ist der Preisverlauf, der
+# dort benutzt aber nicht vorbelegt wird. Wer eine Einstellung hinzufuegt,
+# ergaenzt sie HIER mit, sonst weist der Server sie ab. Das ist Absicht: so
+# faellt ein Tippfehler sofort auf, statt still in der Datenbank zu landen.
+ERLAUBTE_EINSTELLUNGEN = {
+    "thema",            # Darstellung: system / hell / dunkel (B-11)
+    "vatRate",          # Mehrwertsteuersatz in Prozent
+    "kwhPer100", "fuelPer100",      # Verbrauchsvorgaben
+    "fuelPrice", "homePrice", "homePrices", "useHomePrice",
+    "kwhSatz", "satzJahr", "satzQuelle",
+    "stationKind",      # Ladepunkt -> home/public
+    "invoiceExpect",    # je Anbieter: Abrechnung erwartet?
+    "ack",              # weggeklickte Auffaelligkeiten
+    "ppkMax", "pplMax", "minKw", "longHours",   # Plausibilitaetsschwellen
+    "onboarded",
+}
+# 64 KB reichen fuer sehr viele Ladepunkte und einen langen Preisverlauf.
+MAX_EINSTELLUNGEN_B = 64 * 1024
+# Hoechstzahl Zeilen je Import-Aufruf (B-20). Die Oberflaeche stapelt in
+# Bloecken dieser Groesse, damit ein grosser Import die Sperre nicht
+# minutenlang haelt.
+MAX_IMPORT_ZEILEN = 5000
+
+
+# Hoechstzahl Platzhalter je Abfrage (B-39). Eine IN-Liste mit beliebig
+# vielen Platzhaltern laeuft irgendwann gegen SQLITE_MAX_VARIABLE_NUMBER -
+# je nach Uebersetzung 999, 32766 oder mehr. Statt sich auf die jeweilige
+# Umgebung zu verlassen, wird in Bloecken gearbeitet: 500 ist klein genug
+# fuer jede Uebersetzung und gross genug, dass es nicht auffaellt.
+BLOCK = 500
+
+
+def in_bloecken(werte, groesse=BLOCK):
+    """Eine Liste in Bloecke zerlegen."""
+    for i in range(0, len(werte), groesse):
+        yield werte[i:i + groesse]
+
+
+class RumpfZuGross(Exception):
+    """Der Rumpf ueberschreitet MAX_BODY (B-37) - fuehrt zu 413."""
+
+    def __init__(self, groesse=0):
+        Exception.__init__(self, "Rumpf zu gross")
+        self.groesse = groesse
+
+
+class LaengeFehlt(Exception):
+    """Die Anfrage hat keine brauchbare Content-Length (B-38) - fuehrt zu 411."""
 
 BASE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(
@@ -872,7 +967,20 @@ class App(BaseHTTPRequestHandler):
     timeout = 30
 
     # ---------------- Helfer ----------------
+    # Wird waehrend eines schreibenden Aufrufs auf True gesetzt (B-20): dann
+    # merkt sich send_json() die Antwort, statt sie zu senden. Gesendet wird
+    # erst, nachdem die Sperre freigegeben ist.
+    _sammeln = False
+    _antwort = None
+
     def send_json(self, obj, code=200):
+        if self._sammeln:
+            # Nur die ERSTE Antwort zaehlt - die Handler benutzen durchgaengig
+            # "return self.send_json(...)", eine zweite kann es also nicht
+            # geben. Falls doch, waere die erste die richtige.
+            if self._antwort is None:
+                self._antwort = (obj, code)
+            return
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -883,18 +991,51 @@ class App(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def body_json(self):
-        n = int(self.headers.get("Content-Length") or 0)
-        if n <= 0:
+        """Den Rumpf als JSON lesen.
+
+        Wirft eigene Ausnahmen, damit do_POST() die Faelle unterscheiden kann
+        (B-37, B-38). Vorher flog fuer alles ein ValueError, und do_POST fing
+        pauschal alles ab und meldete "Die Anfrage war keine gueltige
+        JSON-Nachricht." - bei einem zu grossen Rumpf war das schlicht falsch
+        und schickte den Nutzer auf die Suche nach einem Tippfehler, den es
+        nicht gab.
+        """
+        roh = self.headers.get("Content-Length")
+        if roh is None:
+            # Ohne Content-Length landete n bei 0 und damit bei einem LEEREN
+            # Objekt - der Aufruf lief durch, als haette jemand {} geschickt
+            # (B-38). Bei einer Anfrage mit chunked transfer-encoding ist das
+            # der Normalfall und fuehrte zu voellig unverstaendlichem
+            # Verhalten: gespeichert wurde nichts, gemeldet auch nichts.
+            raise LaengeFehlt()
+        try:
+            n = int(roh)
+        except (TypeError, ValueError):
+            raise LaengeFehlt()
+        if n < 0:
+            raise LaengeFehlt()
+        if n == 0:
             return {}
         if n > MAX_BODY:
-            raise ValueError("Anfrage zu gross (Grenze: %d MB)" % (MAX_BODY // 1024 // 1024))
+            raise RumpfZuGross(n)
         return json.loads(self.rfile.read(n).decode("utf-8"))
 
-    def ich(self, con):
+    def ich(self, con, anlegen=False):
         """Wer fragt? Kommt ausschliesslich aus dem Kopf, den der Proxy setzt.
+
         Bordbuch legt niemanden an und prueft kein Passwort - das macht die
-        vorgeschaltete Identitaetsinstanz. Ist der Name unbekannt, entsteht
-        beim ersten Aufruf ein Profil dafuer (Just-in-Time)."""
+        vorgeschaltete Identitaetsinstanz.
+
+        anlegen=False (Vorgabe): ist der Name unbekannt, kommt None zurueck.
+        anlegen=True: dann entsteht das Profil.
+
+        Vorher legte JEDER Aufruf das Profil an, auch ein GET (B-42). Eine
+        GET-Anfrage sollte nichts schreiben - /api/state tat es, und schon
+        ein versehentlicher Aufruf mit einem fremden Anmeldenamen hinterliess
+        eine Profilzeile. Angelegt wird jetzt beim ersten SCHREIBENDEN
+        Zugriff; die Oberflaeche stoesst ihn beim ersten Start ausdruecklich
+        ueber /api/anmelden an.
+        """
         # Kopfnamen sind laut HTTP unabhaengig von Gross- und Kleinschreibung;
         # Traefik schickt sie als X-Authentik-Username.
         name = (self.headers.get("X-Authentik-Username") or "").strip()[:60]
@@ -904,6 +1045,8 @@ class App(BaseHTTPRequestHandler):
         # Der volle Anzeigename kommt eigens mit; ohne ihn bleibt der Anmeldename.
         voll = (self.headers.get("X-Authentik-Name") or "").strip()[:60]
         row = con.execute("SELECT * FROM users WHERE authentik_user=?", (name,)).fetchone()
+        if not row and not anlegen:
+            return None
         if row:
             # Anzeigedaten nachziehen, falls sie sich in der Identitaetsinstanz
             # geaendert haben. Ist der Anzeigename dort schon vergeben, bleibt
@@ -936,11 +1079,11 @@ class App(BaseHTTPRequestHandler):
     def ist_admin(self):
         return CFG.admin_gruppe in self.gruppen()
 
-    def profil(self, con):
+    def profil(self, con, anlegen=False):
         """(ich, arbeitsprofil, darf_schreiben). Ohne Kopf gibt es nichts.
         Das Arbeitsprofil ist das eigene - oder ein fremdes, fuer das eine
-        Freigabe vorliegt."""
-        ich = self.ich(con)
+        Freigabe vorliegt. anlegen siehe ich() (B-42)."""
+        ich = self.ich(con, anlegen)
         if not ich:
             return None, None, False
         pid = self.headers.get("X-Bordbuch-Profil")
@@ -1177,7 +1320,7 @@ class App(BaseHTTPRequestHandler):
                         (user["id"], carmap.get(f.get("car_id")), f.get("ts"), num(f.get("liters")),
                          f_ct / 100.0, f_ct, num(f.get("odo")), 1 if f.get("full", 1) else 0,
                          str(f.get("station") or "")[:120], str(f.get("note") or "")[:200],
-                         str(f.get("receipt") or "")[:80]))
+                         beleg_name_pruefen(f.get("receipt"))))
             fuel_new += 1
 
         # Wartungsplan und Werkstattrechnungen. Beide haengen am Auto, darum
@@ -1219,7 +1362,7 @@ class App(BaseHTTPRequestHandler):
                            VALUES(?,?,?,?,?,?,?,?,?,?)""",
                         (user["id"], carmap.get(w.get("car_id")), ts, str(w.get("art") or "")[:80],
                          w_ct / 100.0, w_ct, num(w.get("odo")), str(w.get("betrieb") or "")[:120],
-                         str(w.get("note") or "")[:200], str(w.get("receipt") or "")[:80]))
+                         str(w.get("note") or "")[:200], beleg_name_pruefen(w.get("receipt"))))
             werk_new += 1
         if payload.get("settings"):
             if mode == "replace":
@@ -1484,8 +1627,6 @@ class App(BaseHTTPRequestHandler):
                                    "profile": profile})
 
     def admin_import(self, con, user, data):
-        if not self.ist_admin():
-            return self.send_json({"error": "Dafuer fehlt die Gruppe '%s'." % CFG.admin_gruppe}, 403)
         """Eine Gesamtsicherung einspielen.
 
         mode="replace" loescht ALLE Profile und baut die Datenbank neu auf,
@@ -1493,6 +1634,12 @@ class App(BaseHTTPRequestHandler):
         gefunden, unbekannte neu angelegt. Alles in einer Transaktion - bricht
         etwas ab, bleibt die Datenbank wie vorher.
         """
+        # Die Berechtigungspruefung stand bis B-35 VOR diesem Text. Damit war
+        # die Zeichenkette kein Docstring mehr, sondern eine wirkungslose
+        # Anweisung mitten in der Funktion: help(), __doc__ und jedes
+        # Werkzeug, das Docstrings liest, sahen nichts.
+        if not self.ist_admin():
+            return self.send_json({"error": "Dafuer fehlt die Gruppe '%s'." % CFG.admin_gruppe}, 403)
         payload = data.get("data") or {}
         profile = payload.get("profile")
         if not isinstance(profile, list) or not profile:
@@ -1533,8 +1680,15 @@ class App(BaseHTTPRequestHandler):
 
     def state(self):
         with db() as con:
-            ich, user, darf_schreiben = self.profil(con)
+            ich, user, darf_schreiben = self.profil(con)      # kein Anlegen (B-42)
             if not ich:
+                # Zwei verschiedene Faelle sauber trennen: gar kein Kopf
+                # (nicht angemeldet) oder ein Kopf ohne Profil (erster
+                # Besuch). Im zweiten Fall ist das kein Fehler - die
+                # Oberflaeche legt das Profil dann ueber POST /api/anmelden
+                # an, statt dass ein GET es stillschweigend tut.
+                if (self.headers.get("X-Authentik-Username") or "").strip():
+                    return self.send_json({"neu": True, "schema": SCHEMA_VERSION})
                 return self.send_json(
                     {"error": "Nicht angemeldet. Bordbuch erwartet die Anmeldung "
                               "ueber die vorgeschaltete Identitaetsinstanz."}, 401)
@@ -1625,6 +1779,20 @@ class App(BaseHTTPRequestHandler):
                           "Bitte den Kopf Content-Type: application/json setzen."}, 415)
         try:
             data = self.body_json()
+        except RumpfZuGross as e:
+            # 413, nicht 400 (B-37): die Meldung kam bisher nie an, weil der
+            # ValueError im Sammelfang landete.
+            return self.send_json(
+                {"error": "Die Anfrage ist zu gross (%d MB, Grenze %d MB). Bei "
+                          "einem Beleg hilft ein kleineres Foto; bei einem "
+                          "Import teilt die Oberflaeche die Datei selbst auf."
+                          % (e.groesse // 1024 // 1024, MAX_BODY // 1024 // 1024)}, 413)
+        except LaengeFehlt:
+            # 411, nicht ein leeres Objekt (B-38).
+            return self.send_json(
+                {"error": "Der Anfrage fehlt die Angabe Content-Length. "
+                          "Bordbuch nimmt keine Anfragen mit unbekannter "
+                          "Laenge entgegen (kein chunked transfer-encoding)."}, 411)
         except Exception:
             return self.send_json({"error": "Die Anfrage war keine gueltige JSON-Nachricht."}, 400)
         if not isinstance(data, dict):
@@ -1633,9 +1801,61 @@ class App(BaseHTTPRequestHandler):
             return self.send_json({"error": "Die Anfrage muss ein JSON-Objekt sein."}, 400)
         if self.fremde_herkunft():
             return self.send_json({"error": "Anfrage von fremder Seite abgelehnt"}, 403)
+        # Antwort erst NACH der Sperre senden (B-20).
+        #
+        # send_json() schreibt in den Socket. Das geschah bisher INNERHALB des
+        # with-Blocks, also unter der globalen Sperre. Bei einem langsamen oder
+        # haengenden Client - Handy im Funkloch, eingeschlafene Verbindung -
+        # blockiert dieses Schreiben, bis der Zeitablauf von 30 Sekunden
+        # greift. In dieser Zeit stand JEDER schreibende Zugriff ALLER Nutzer:
+        # ein einzelnes Geraet mit schlechter Verbindung legte die
+        # Schreibfunktion des ganzen Tools lahm.
+        #
+        # Der Bericht schlaegt vor, alle Handler auf Rueckgabewerte
+        # umzustellen. Das waeren 107 Aufrufstellen, und jede einzelne koennte
+        # dabei kaputtgehen. Derselbe Gewinn entsteht, wenn send_json() die
+        # Antwort waehrend der Sperre nur EINSAMMELT und der Versand danach
+        # passiert - ohne eine einzige Handler-Aenderung. Die Eigenschaft, auf
+        # die es ankommt, ist identisch: kein Socket-Schreiben unter der Sperre.
+        self._sammeln = True
+        self._antwort = None
         try:
+            # Der gesperrte Teil steckt in einer eigenen Methode. Die Handler
+            # benutzen durchgaengig "return self.send_json(...)" - stuende der
+            # Block hier, verliesse ein solches return do_POST vollstaendig
+            # und uebersprang den Versand unten. In einer eigenen Methode
+            # beendet es nur diese.
+            self._post_unter_sperre(path, data)
+        except sqlite3.Error as e:
+            sys.stderr.write("Datenbankfehler bei %s: %s\n" % (path, e))
+            self.send_json({"error": "Datenbankfehler. Bitte im Log nachsehen."}, 500)
+        except Exception as e:
+            # Nichts darf den Verbindungs-Thread ungebremst verlassen, sonst
+            # bekommt der Browser eine abgeschnittene Antwort statt einer Meldung.
+            sys.stderr.write("Unerwarteter Fehler bei %s: %r\n" % (path, e))
+            self.send_json({"error": "Unerwarteter Fehler. Bitte im Log nachsehen."}, 500)
+        finally:
+            # Ab hier ist die Sperre in jedem Fall frei - auch wenn oben eine
+            # Ausnahme geflogen ist.
+            self._sammeln = False
+        if self._antwort is None:
+            sys.stderr.write("Kein Ergebnis bei %s\n" % path)
+            return self.send_json({"error": "Unerwarteter Fehler. Bitte im Log nachsehen."}, 500)
+        obj, code = self._antwort
+        self._antwort = None
+        return self.send_json(obj, code)
+
+    def _post_unter_sperre(self, path, data):
+        """Der Teil, der die Datenbank anfasst. Laeuft unter DB_LOCK.
+
+        Antworten werden hier nur eingesammelt (siehe send_json und B-20);
+        gesendet wird sie von do_POST, nachdem die Sperre frei ist.
+        """
+        if True:
             with DB_LOCK, db() as con:
-                ich, user, darf_schreiben = self.profil(con)
+                # anlegen=True: ein POST IST der erste schreibende Zugriff,
+                # hier darf das Profil entstehen (B-42).
+                ich, user, darf_schreiben = self.profil(con, anlegen=True)
                 if not ich:
                     return self.send_json(
                         {"error": "Nicht angemeldet. Bordbuch erwartet die Anmeldung "
@@ -1650,6 +1870,11 @@ class App(BaseHTTPRequestHandler):
                     return self.send_json(
                         {"error": "Du darfst in diesem Profil nur lesen."}, 403)
                 routes = {
+                    # Ausdruecklicher Anmeldeweg (B-42): legt das Profil an,
+                    # falls es noch keines gibt, und gibt sonst nur zurueck,
+                    # dass alles steht. Die Anlage selbst hat schon
+                    # profil(anlegen=True) oben erledigt.
+                    "/api/anmelden": self.anmelden,
                     "/api/users/reset": self.user_reset,
                     "/api/freigabe/save": self.freigabe_save,
                     "/api/freigabe/delete": self.freigabe_delete,
@@ -1676,16 +1901,17 @@ class App(BaseHTTPRequestHandler):
                 if not fn:
                     return self.send_json({"error": "unbekannter Endpunkt"}, 404)
                 return fn(con, user, data)
-        except sqlite3.Error as e:
-            sys.stderr.write("Datenbankfehler bei %s: %s\n" % (path, e))
-            return self.send_json({"error": "Datenbankfehler. Bitte im Log nachsehen."}, 500)
-        except Exception as e:
-            # Nichts darf den Verbindungs-Thread ungebremst verlassen, sonst
-            # bekommt der Browser eine abgeschnittene Antwort statt einer Meldung.
-            sys.stderr.write("Unerwarteter Fehler bei %s: %r\n" % (path, e))
-            return self.send_json({"error": "Unerwarteter Fehler. Bitte im Log nachsehen."}, 500)
 
     # ---------------- Profile ----------------
+    def anmelden(self, con, user, data):
+        """Das eigene Profil bereitstellen (B-42).
+
+        Angelegt wurde es bereits von profil(anlegen=True); hier wird nur
+        bestaetigt. Bewusst ein POST: das Anlegen ist ein Schreibvorgang und
+        gehoert nicht in ein GET.
+        """
+        return self.send_json({"ok": True, "id": user["id"], "name": user["name"]})
+
     def user_reset(self, con, user, data):
         """Das eigene Profil leeren. Geloescht wird das Profil NICHT - es gehoert
         zur Identitaetsinstanz und wuerde beim naechsten Aufruf ohnehin neu
@@ -1728,8 +1954,39 @@ class App(BaseHTTPRequestHandler):
         return self.send_json({"ok": True, "geloescht": cur.rowcount})
 
     def settings_save(self, con, user, data):
-        con.execute("UPDATE users SET settings=? WHERE id=?",
-                    (json.dumps(data.get("settings") or {}), user["id"]))
+        """Einstellungen speichern - mit Erlaubnisliste und Groessengrenze (B-22).
+
+        Vorher wurde ungeprueft entgegengenommen, was kam: keine Pruefung auf
+        Groesse, Struktur oder Schluesselnamen. Ein Feld mit zwei Millionen
+        Zeichen ging anstandslos durch, und je Aufruf waren bis zu 14 MB
+        moeglich (MAX_BODY). Da /api/state die Einstellungen bei JEDEM
+        Seitenaufbau vollstaendig mitliefert, machte das die Anwendung
+        unbenutzbar - fuer den Nutzer selbst und ueber die Datenbankgroesse
+        auch fuer andere. Ein Nutzer konnte das Volume vollschreiben.
+
+        Die feste Liste erlaubter Schluessel ist hier besser als eine reine
+        Groessenpruefung: sie faengt auch Tippfehler in der Oberflaeche, die
+        sonst still in der Datenbank landen und nie wieder gelesen werden.
+        """
+        roh = data.get("settings")
+        if not isinstance(roh, dict):
+            return self.send_json(
+                {"error": "Die Einstellungen muessen ein Objekt sein."}, 400)
+        unbekannt = set(roh) - ERLAUBTE_EINSTELLUNGEN
+        if unbekannt:
+            return self.send_json(
+                {"error": "Unbekannte Einstellung: %s. Bekannt sind: %s."
+                          % (", ".join(sorted(unbekannt)[:5]),
+                             ", ".join(sorted(ERLAUBTE_EINSTELLUNGEN)))}, 400)
+        text = json.dumps(roh, ensure_ascii=False)
+        if len(text.encode("utf-8")) > MAX_EINSTELLUNGEN_B:
+            return self.send_json(
+                {"error": "Die Einstellungen sind zu umfangreich (%d KB, Grenze "
+                          "%d KB). Meist steckt dahinter eine sehr lange Liste "
+                          "von Ladepunkten oder Preisen."
+                          % (len(text.encode("utf-8")) // 1024,
+                             MAX_EINSTELLUNGEN_B // 1024)}, 400)
+        con.execute("UPDATE users SET settings=? WHERE id=?", (text, user["id"]))
         return self.send_json({"ok": True})
 
     # ---------------- Autos ----------------
@@ -1785,6 +2042,15 @@ class App(BaseHTTPRequestHandler):
         return self.send_json({"ok": True, "geloescht": cur.rowcount})
 
     def own_car(self, con, user, car_id):
+        """(car_id, ok). Ohne Fahrzeugangabe ist der Vorgang erlaubt (B-43).
+
+        Das bleibt bewusst so: einen Beleg abzulehnen, nur weil das Auto
+        fehlt, waere Datenverlust - und es gibt Faelle, in denen er wirklich
+        zu keinem Fahrzeug gehoert. Bis B-43 verschwanden diese Vorgaenge
+        aber lautlos aus jeder Auswertung, weil die Oberflaeche ueberall nach
+        dem gewaehlten Auto filtert. Sie stehen jetzt unter
+        "Auffaelligkeiten" und lassen sich von dort einem Auto zuordnen.
+        """
         if car_id in (None, ""):
             return None, True
         ok = con.execute("SELECT 1 FROM cars WHERE id=? AND nutzer_id=?", (car_id, user["id"])).fetchone()
@@ -1796,6 +2062,18 @@ class App(BaseHTTPRequestHandler):
         if not ok:
             return self.send_json({"error": "Auto nicht gefunden"}, 400)
         rows = data.get("rows") or []
+        # Obergrenze je Aufruf (B-20). Ein grosser Import hielt die Sperre fuer
+        # die gesamte Dauer - begrenzt war er nur durch MAX_BODY mit 14 MB, also
+        # durch Zehntausende Zeilen. Die Oberflaeche stapelt jetzt: sie schickt
+        # in Bloecken, und zwischen den Bloecken kommen andere Nutzer dran.
+        if len(rows) > MAX_IMPORT_ZEILEN:
+            return self.send_json(
+                {"error": "Es lassen sich hoechstens %d Zeilen auf einmal "
+                          "einlesen (angekommen sind %d). Die Oberflaeche "
+                          "teilt groessere Dateien selbst auf - kommt diese "
+                          "Meldung trotzdem, bitte die Datei teilen."
+                          % (MAX_IMPORT_ZEILEN, len(rows)),
+                 "grenze": MAX_IMPORT_ZEILEN}, 413)
         cols = ",".join(["nutzer_id", "car_id"] + SESSION_FIELDS)
         ph = ",".join(["?"] * (len(SESSION_FIELDS) + 2))
         added = dup = 0
@@ -1898,11 +2176,17 @@ class App(BaseHTTPRequestHandler):
         if dbid:
             # Auch importierte Ladungen duerfen korrigiert werden - eine falsch
             # abgerechnete Ladung soll man geradebiegen koennen.
-            finish = start
-            row = con.execute("SELECT start FROM sessions WHERE id=? AND nutzer_id=?",
+            row = con.execute("SELECT start,finish FROM sessions WHERE id=? AND nutzer_id=?",
                               (dbid, user["id"])).fetchone()
             if not row:
                 return self.send_json({"error": "Ladung nicht gefunden"}, 404)
+            # Ein vorhandenes Ende BEHALTEN (B-40). Vorher wurde finish hart
+            # auf start gesetzt: bei einer importierten Ladung mit echter
+            # Endzeit ging diese Angabe verloren, sobald jemand einen
+            # Tippfehler im Betrag korrigierte. Regelblatt 15 - stille
+            # Datenverluste sind das Schlimmste, was ein Tool tun kann.
+            mitgeschickt = valid_ts(data.get("finish") or data.get("end"))
+            finish = mitgeschickt or row["finish"] or start
             cur = con.execute("""UPDATE sessions SET car_id=?,start=?,finish=?,sec=?,kwh=?,cost=?,net=?,
                                  vat=?,cost_ct=?,net_ct=?,vat_ct=?,station=?,note=?,odo=?
                                  WHERE id=? AND nutzer_id=?""",
@@ -1934,8 +2218,13 @@ class App(BaseHTTPRequestHandler):
         ids = [int(i) for i in (data.get("ids") or []) if str(i).isdigit()]
         if not ids:
             return self.send_json({"ok": True, "changed": 0})
-        q = "UPDATE sessions SET car_id=? WHERE nutzer_id=? AND id IN (%s)" % ",".join("?" * len(ids))
-        return self.send_json({"ok": True, "changed": con.execute(q, [car_id, user["id"]] + ids).rowcount})
+        # In Bloecken (B-39) - siehe in_bloecken().
+        geaendert = 0
+        for teil in in_bloecken(ids):
+            q = ("UPDATE sessions SET car_id=? WHERE nutzer_id=? AND id IN (%s)"
+                 % ",".join("?" * len(teil)))
+            geaendert += con.execute(q, [car_id, user["id"]] + teil).rowcount
+        return self.send_json({"ok": True, "changed": geaendert})
 
     def sessions_delete(self, con, user, data):
         if data.get("all"):
@@ -1944,21 +2233,49 @@ class App(BaseHTTPRequestHandler):
         ids = [int(i) for i in (data.get("ids") or []) if str(i).isdigit()]
         if not ids:
             return self.send_json({"ok": True, "deleted": 0})
-        q = "DELETE FROM sessions WHERE nutzer_id=? AND id IN (%s)" % ",".join("?" * len(ids))
-        return self.send_json({"ok": True, "deleted": con.execute(q, [user["id"]] + ids).rowcount})
+        # In Bloecken (B-39). Die Loeschungen laufen in EINER Transaktion,
+        # damit nicht die Haelfte verschwindet, wenn es dazwischen klemmt.
+        weg = 0
+        with bulk(con):
+            for teil in in_bloecken(ids):
+                q = ("DELETE FROM sessions WHERE nutzer_id=? AND id IN (%s)"
+                     % ",".join("?" * len(teil)))
+                weg += con.execute(q, [user["id"]] + teil).rowcount
+        return self.send_json({"ok": True, "deleted": weg})
 
     # ---------------- Tankungen ----------------
     def save_receipt(self, data):
+        """Einen Beleg ablegen. Der INHALT entscheidet ueber den Typ (B-21)."""
         raw = data.get("receiptData")
         if not raw:
             return None
-        ext = re.sub(r"[^a-z0-9]", "", (data.get("receiptName") or "").rsplit(".", 1)[-1].lower())[:5]
-        if ext not in RECEIPT_TYPES:
-            raise ValueError("Belegformat nicht erlaubt (JPG, PNG, WEBP, HEIC oder PDF)")
-        blob = base64.b64decode(raw.split(",", 1)[-1], validate=False)
+        roh = raw.split(",", 1)[-1]
+        # Groesse VOR dem Dekodieren pruefen. Vorher wurde erst dekodiert und
+        # dann gemessen - bei 14 MB Rumpf also erst einmal alles in den
+        # Speicher geholt. Base64 ist rund ein Drittel groesser als die
+        # Nutzlast.
+        if len(roh) > MAX_RECEIPT * 4 // 3 + 64:
+            raise ValueError("Der Beleg ist groesser als %d MB. Bitte kleiner "
+                             "fotografieren oder als PDF speichern."
+                             % (MAX_RECEIPT // 1024 // 1024))
+        try:
+            blob = base64.b64decode(roh, validate=True)
+        except (ValueError, binascii.Error):
+            raise ValueError("Die Belegdatei kam beschaedigt an. Bitte noch "
+                             "einmal hochladen.")
         if len(blob) > MAX_RECEIPT:
-            raise ValueError("Beleg ist groesser als 8 MB")
-        name = uuid.uuid4().hex + "." + ext
+            raise ValueError("Der Beleg ist groesser als %d MB."
+                             % (MAX_RECEIPT // 1024 // 1024))
+        if not blob:
+            raise ValueError("Die Belegdatei ist leer.")
+        # Die vom Client genannte Endung wird VERWORFEN und die erkannte
+        # benutzt. Ein echtes PNG als "foto.jpg" wird damit angenommen und
+        # richtig als .png abgelegt.
+        erkannt = typ_aus_inhalt(blob)
+        if erkannt is None:
+            raise ValueError("Diese Datei ist kein Bild und kein PDF. "
+                             "Erlaubt sind JPG, PNG, WEBP, HEIC und PDF.")
+        name = uuid.uuid4().hex + "." + erkannt
         with open(os.path.join(RECEIPT_DIR, name), "wb") as fh:
             fh.write(blob)
         return name
@@ -2107,6 +2424,21 @@ class App(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "SAMEORIGIN")
+        if rel.startswith("receipts/"):
+            # Belege sind fremde Dateien und bekommen darum eine eigene,
+            # sehr enge CSP (B-21). Vorher wurde eine CSP nur fuer
+            # index.html gesetzt; nosniff allein verhinderte zwar die
+            # Ausfuehrung, aber der Entwurf verliess sich darauf.
+            self.send_header("Content-Security-Policy",
+                             "default-src 'none'; sandbox; base-uri 'none'")
+            endung = os.path.splitext(rel)[1].lstrip(".").lower()
+            # PDF als Anhang, nicht inline: eine PDF-Datei wuerde sonst im
+            # PDF-Betrachter des Browsers geoeffnet, und PDFs koennen
+            # Skripte und Weiterleitungen enthalten. Bilder bleiben inline -
+            # sie sollen ja angesehen werden.
+            art = "attachment" if endung == "pdf" else "inline"
+            self.send_header("Content-Disposition",
+                             '%s; filename="beleg.%s"' % (art, endung or "dat"))
         if rel == "index.html":
             # Alles liegt in der einen Datei - externe Quellen braucht es nicht.
             # 'unsafe-inline' ist noetig, weil CSS und JS bewusst eingebettet sind.

@@ -1,7 +1,37 @@
+# Pflichtliste, Betriebsregeln Abschnitt 10
 **/.env
+**/.env.*
+# Die Beispieldatei soll ausdruecklich im Repository stehen - ohne diese
+# Ausnahme wuerde sie von **/.env.* mitgefangen.
+!**/.env.beispiel
 **/acme.json
+**/*.key
+**/*.pem
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/*.db-journal
+**/*.sqlite
+**/*.sql
+**/*.dump
+**/receipts/
+**/belege/
+**/daten/
+**/seiten/
+**/backups/
 authentik/data/
 authentik/certs/
-*.sql
-*.dump
-backups/
+
+# Aus dem laufenden Betrieb
+**/__pycache__/
+**/.sicherung-*/
+**/.letzte-fassung
+**/.vorschau/
+*.tar.gz
+*.tar.gz.age
+# Kopien, die eine Migration vor dem Umbau anlegt (Betriebsregeln 19a)
+**/*.vor-stand-*
+
+# Traefik-Zugriffsprotokolle - Zugriffsdaten, gehoeren nicht ins Git (B-26)
+traefik/log/*.log
+traefik/log/*.log.*
