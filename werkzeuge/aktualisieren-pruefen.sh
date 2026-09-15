@@ -272,6 +272,48 @@ pruefe "aber ein kranker Container faellt trotzdem auf" "ja" "$E"
 echo "$A" | grep -q 'ist aktuell' && E=ja || E=nein
 pruefe "und wird NICHT als aktuell gemeldet" "nein" "$E"
 
+# 15. Ein Quellstand hinter origin muss auffallen, BEVOR gebaut wird.
+#     Sonst baut man die alte Fassung neu, docker meldet CACHED, und am Ende
+#     steht FERTIG - obwohl sich nichts geaendert hat.
+GIT_T="$T/gitstack"
+if command -v git >/dev/null 2>&1; then
+  rm -rf "$GIT_T" "$T/fern"
+  # Ein "fernes" Repo mit einem Commit mehr als der Arbeitsstand.
+  mkdir -p "$T/fern" && git -C "$T/fern" init -q
+  git -C "$T/fern" config user.email t@t; git -C "$T/fern" config user.name t
+  echo eins > "$T/fern/datei"; git -C "$T/fern" add -A
+  git -C "$T/fern" commit -q -m eins
+  git clone -q "$T/fern" "$GIT_T"
+  echo zwei > "$T/fern/datei"; git -C "$T/fern" add -A
+  git -C "$T/fern" commit -q -m zwei
+
+  mkdir -p "$GIT_T/werkzeuge" "$GIT_T/probe"
+  cp "$SKRIPT_UNTER_TEST" "$GIT_T/werkzeuge/"
+  printf '#!/bin/bash\nexit 0\n' > "$GIT_T/backup.sh"; chmod +x "$GIT_T/backup.sh"
+  printf 'services:\n  probe:\n    image: probe:1.0.0\n' > "$GIT_T/probe/docker-compose.yml"
+  printf 'TYP="build"\nPRUEF_URL=""\nPRUEF_WARTEN=4\n' > "$GIT_T/probe/aktualisierung.conf"
+  echo "age1beispiel" > "$GIT_T/.backup-schluessel.pub"
+
+  A=$(PATH="$T/bin:$PATH" LAGE=gesund "$GIT_T/werkzeuge/aktualisieren.sh" probe 2>&1 || true)
+  echo "$A" | grep -q "HINTER origin/" && E=ja || E=nein
+  pruefe "veralteter Quellstand wird erkannt" "ja" "$E"
+  echo "$A" | grep -q "git pull origin" && E=ja || E=nein
+  pruefe "und der Befehl zum Holen steht dabei" "ja" "$E"
+  echo "$A" | grep -q "\[1/4\]" && E=ja || E=nein
+  pruefe "es wird NICHT gebaut, bevor geholt wurde" "nein" "$E"
+
+  A=$(PATH="$T/bin:$PATH" LAGE=gesund "$GIT_T/werkzeuge/aktualisieren.sh" --ohne-holen probe 2>&1 || true)
+  echo "$A" | grep -q "\[1/4\]" && E=ja || E=nein
+  pruefe "--ohne-holen baut den Stand auf der Platte trotzdem" "ja" "$E"
+
+  git -C "$GIT_T" pull -q origin master 2>/dev/null || git -C "$GIT_T" pull -q origin main 2>/dev/null || true
+  A=$(PATH="$T/bin:$PATH" LAGE=gesund "$GIT_T/werkzeuge/aktualisieren.sh" probe 2>&1 || true)
+  echo "$A" | grep -q "Quellstand         aktuell" && E=ja || E=nein
+  pruefe "nach dem Holen gilt der Stand als aktuell" "ja" "$E"
+else
+  echo "uebersprungen  Quellstand-Pruefung (git fehlt)"
+fi
+
 echo
 if [ "$FEHLER" -eq 0 ]; then
   echo "Alles gruen."
