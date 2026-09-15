@@ -1194,7 +1194,15 @@ async function api(path,body){
   return j;
 }
 async function loadState(){
-  const st=await api('/api/state');
+  let st=await api('/api/state');
+  /* Erster Besuch: der Server kennt den Anmeldenamen, hat aber noch kein
+     Profil dafuer (B-42). Frueher legte schon das GET auf /api/state eines
+     an - eine lesende Anfrage sollte aber nichts schreiben. Jetzt stossen
+     wir die Anlage ausdruecklich an und holen den Zustand danach erneut. */
+  if(st&&st.neu){
+    await api('/api/anmelden',{});
+    st=await api('/api/state');
+  }
   /* Wer fragt, sagt die Identitaetsinstanz (ich). Gearbeitet wird im eigenen
      Profil oder in einem freigegebenen (me). */
   ich=st.ich||null;profile=st.profile||[];darfSchreiben=st.schreiben!==false;
@@ -1868,6 +1876,23 @@ function checkList(){
     if(isAck(x,f)&&!state.ackShow)continue;
     add(DATEN.has(f.t)?'daten':(GELD.has(f.t)?'geld':'daten'),f.t,f.w,x,0,isAck(x,f));
   }
+  /* Eintraege ohne Fahrzeug sichtbar machen (B-43).
+     own_car() laesst Vorgaenge ohne Fahrzeugangabe zu - das ist richtig, denn
+     sie wegzuwerfen waere Datenverlust. Sie tauchen aber in KEINER
+     Fahrzeugauswertung auf, weil dort nach state.carId gefiltert wird, und
+     verschwanden damit lautlos aus allen Summen. Jetzt stehen sie hier. */
+  if(cars.length){
+    const ohne=[...sessions,...fuelings,...shop].filter(x=>!x.carId);
+    if(ohne.length){
+      const summeCtOhne=summeCt(ohne,x=>x.costCt);
+      add('daten','Ohne Fahrzeug',
+        ohne.length+' Eintr'+(ohne.length===1?'ag gehört':'äge gehören')+' zu keinem Auto'+
+        (summeCtOhne?' ('+eurCt(summeCtOhne)+')':'')+
+        '. Sie erscheinen in keiner Fahrzeugauswertung. Öffne den Eintrag und '+
+        'wähle ein Auto — oder lass ihn so, wenn er zu keinem gehört.',
+        null,ctZahl(summeCtOhne));
+    }
+  }
   return [...gruppen.values()].sort((a,b)=>
     (a.rang==='geld'?0:1)-(b.rang==='geld'?0:1)||b.zeilen.length-a.zeilen.length);
 }
@@ -1877,7 +1902,10 @@ function checkCount(){
      Wartungen. Sonst zeigt das Abzeichen weniger an, als drinsteht. */
   return items().filter(x=>visFlags(x).length).length
     +verbrauchsHinweise().length
-    +wartungHinweise().filter(w=>w.stufe!=='fern').length;
+    +wartungHinweise().filter(w=>w.stufe!=='fern').length
+    /* B-43: Eintraege ohne Fahrzeug zaehlen mit, sonst zeigt das Abzeichen
+       weniger an, als im Reiter steht. */
+    +((cars.length&&[...sessions,...fuelings,...shop].some(x=>!x.carId))?1:0);
 }
 
 /* =====================================================================

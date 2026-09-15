@@ -1020,11 +1020,22 @@ class App(BaseHTTPRequestHandler):
             raise RumpfZuGross(n)
         return json.loads(self.rfile.read(n).decode("utf-8"))
 
-    def ich(self, con):
+    def ich(self, con, anlegen=False):
         """Wer fragt? Kommt ausschliesslich aus dem Kopf, den der Proxy setzt.
+
         Bordbuch legt niemanden an und prueft kein Passwort - das macht die
-        vorgeschaltete Identitaetsinstanz. Ist der Name unbekannt, entsteht
-        beim ersten Aufruf ein Profil dafuer (Just-in-Time)."""
+        vorgeschaltete Identitaetsinstanz.
+
+        anlegen=False (Vorgabe): ist der Name unbekannt, kommt None zurueck.
+        anlegen=True: dann entsteht das Profil.
+
+        Vorher legte JEDER Aufruf das Profil an, auch ein GET (B-42). Eine
+        GET-Anfrage sollte nichts schreiben - /api/state tat es, und schon
+        ein versehentlicher Aufruf mit einem fremden Anmeldenamen hinterliess
+        eine Profilzeile. Angelegt wird jetzt beim ersten SCHREIBENDEN
+        Zugriff; die Oberflaeche stoesst ihn beim ersten Start ausdruecklich
+        ueber /api/anmelden an.
+        """
         # Kopfnamen sind laut HTTP unabhaengig von Gross- und Kleinschreibung;
         # Traefik schickt sie als X-Authentik-Username.
         name = (self.headers.get("X-Authentik-Username") or "").strip()[:60]
@@ -1034,6 +1045,8 @@ class App(BaseHTTPRequestHandler):
         # Der volle Anzeigename kommt eigens mit; ohne ihn bleibt der Anmeldename.
         voll = (self.headers.get("X-Authentik-Name") or "").strip()[:60]
         row = con.execute("SELECT * FROM users WHERE authentik_user=?", (name,)).fetchone()
+        if not row and not anlegen:
+            return None
         if row:
             # Anzeigedaten nachziehen, falls sie sich in der Identitaetsinstanz
             # geaendert haben. Ist der Anzeigename dort schon vergeben, bleibt
@@ -1066,11 +1079,11 @@ class App(BaseHTTPRequestHandler):
     def ist_admin(self):
         return CFG.admin_gruppe in self.gruppen()
 
-    def profil(self, con):
+    def profil(self, con, anlegen=False):
         """(ich, arbeitsprofil, darf_schreiben). Ohne Kopf gibt es nichts.
         Das Arbeitsprofil ist das eigene - oder ein fremdes, fuer das eine
-        Freigabe vorliegt."""
-        ich = self.ich(con)
+        Freigabe vorliegt. anlegen siehe ich() (B-42)."""
+        ich = self.ich(con, anlegen)
         if not ich:
             return None, None, False
         pid = self.headers.get("X-Bordbuch-Profil")
@@ -1667,8 +1680,15 @@ class App(BaseHTTPRequestHandler):
 
     def state(self):
         with db() as con:
-            ich, user, darf_schreiben = self.profil(con)
+            ich, user, darf_schreiben = self.profil(con)      # kein Anlegen (B-42)
             if not ich:
+                # Zwei verschiedene Faelle sauber trennen: gar kein Kopf
+                # (nicht angemeldet) oder ein Kopf ohne Profil (erster
+                # Besuch). Im zweiten Fall ist das kein Fehler - die
+                # Oberflaeche legt das Profil dann ueber POST /api/anmelden
+                # an, statt dass ein GET es stillschweigend tut.
+                if (self.headers.get("X-Authentik-Username") or "").strip():
+                    return self.send_json({"neu": True, "schema": SCHEMA_VERSION})
                 return self.send_json(
                     {"error": "Nicht angemeldet. Bordbuch erwartet die Anmeldung "
                               "ueber die vorgeschaltete Identitaetsinstanz."}, 401)
@@ -1833,7 +1853,9 @@ class App(BaseHTTPRequestHandler):
         """
         if True:
             with DB_LOCK, db() as con:
-                ich, user, darf_schreiben = self.profil(con)
+                # anlegen=True: ein POST IST der erste schreibende Zugriff,
+                # hier darf das Profil entstehen (B-42).
+                ich, user, darf_schreiben = self.profil(con, anlegen=True)
                 if not ich:
                     return self.send_json(
                         {"error": "Nicht angemeldet. Bordbuch erwartet die Anmeldung "
@@ -1848,6 +1870,11 @@ class App(BaseHTTPRequestHandler):
                     return self.send_json(
                         {"error": "Du darfst in diesem Profil nur lesen."}, 403)
                 routes = {
+                    # Ausdruecklicher Anmeldeweg (B-42): legt das Profil an,
+                    # falls es noch keines gibt, und gibt sonst nur zurueck,
+                    # dass alles steht. Die Anlage selbst hat schon
+                    # profil(anlegen=True) oben erledigt.
+                    "/api/anmelden": self.anmelden,
                     "/api/users/reset": self.user_reset,
                     "/api/freigabe/save": self.freigabe_save,
                     "/api/freigabe/delete": self.freigabe_delete,
@@ -1876,6 +1903,15 @@ class App(BaseHTTPRequestHandler):
                 return fn(con, user, data)
 
     # ---------------- Profile ----------------
+    def anmelden(self, con, user, data):
+        """Das eigene Profil bereitstellen (B-42).
+
+        Angelegt wurde es bereits von profil(anlegen=True); hier wird nur
+        bestaetigt. Bewusst ein POST: das Anlegen ist ein Schreibvorgang und
+        gehoert nicht in ein GET.
+        """
+        return self.send_json({"ok": True, "id": user["id"], "name": user["name"]})
+
     def user_reset(self, con, user, data):
         """Das eigene Profil leeren. Geloescht wird das Profil NICHT - es gehoert
         zur Identitaetsinstanz und wuerde beim naechsten Aufruf ohnehin neu
@@ -2006,6 +2042,15 @@ class App(BaseHTTPRequestHandler):
         return self.send_json({"ok": True, "geloescht": cur.rowcount})
 
     def own_car(self, con, user, car_id):
+        """(car_id, ok). Ohne Fahrzeugangabe ist der Vorgang erlaubt (B-43).
+
+        Das bleibt bewusst so: einen Beleg abzulehnen, nur weil das Auto
+        fehlt, waere Datenverlust - und es gibt Faelle, in denen er wirklich
+        zu keinem Fahrzeug gehoert. Bis B-43 verschwanden diese Vorgaenge
+        aber lautlos aus jeder Auswertung, weil die Oberflaeche ueberall nach
+        dem gewaehlten Auto filtert. Sie stehen jetzt unter
+        "Auffaelligkeiten" und lassen sich von dort einem Auto zuordnen.
+        """
         if car_id in (None, ""):
             return None, True
         ok = con.execute("SELECT 1 FROM cars WHERE id=? AND nutzer_id=?", (car_id, user["id"])).fetchone()
