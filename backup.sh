@@ -75,15 +75,35 @@ for KONF in /opt/stack/*/sicherung.conf; do
   for EINTRAG in ${SQLITE:-}; do
     BEHAELTER="${EINTRAG%%:*}"; PFAD="${EINTRAG#*:}"
     NAME=$(basename "$PFAD")
-    if docker exec "$BEHAELTER" python3 -c "
+    # Die Kopie wird im Container erzeugt und direkt nach stdout gestreamt.
+    #
+    # Vorher lief das ueber "docker cp" aus /tmp heraus. Das ist am
+    # 15.09.2026 gebrochen, nachdem Bordbuch mit read_only: true und
+    # tmpfs /tmp neu gebaut worden war (B-29):
+    #   Error response from daemon: Could not find the file
+    #   /tmp/bordbuch.db.sicherung in container bordbuch
+    # Der Umweg ueber das Dateisystem des Containers ist dafuer gar nicht
+    # noetig - cat genuegt, und damit ist es egal, ob /tmp ein tmpfs, ein
+    # Volume oder read_only ist.
+    #
+    # WICHTIG: alles in EINEM sh -c. Ein zweiter docker exec waere ein
+    # eigener Prozess; bei einem tmpfs pro exec waere die Datei dort weg.
+    if docker exec "$BEHAELTER" sh -c '
+set -e
+python3 - "$1" "$2" <<"PY"
 import sqlite3, sys
-q = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True)
+q = sqlite3.connect("file:" + sys.argv[1] + "?mode=ro", uri=True)
 z = sqlite3.connect(sys.argv[2])
-q.backup(z); z.close(); q.close()" "$PFAD" "/tmp/$NAME.sicherung"; then
-      docker cp "$BEHAELTER:/tmp/$NAME.sicherung" "$ZIEL/$TOOL/$NAME"
-      docker exec "$BEHAELTER" rm -f "/tmp/$NAME.sicherung"
+q.backup(z); z.close(); q.close()
+PY
+cat "$2"
+rm -f "$2"
+' _ "$PFAD" "/tmp/$NAME.sicherung" > "$ZIEL/$TOOL/$NAME" 2>/dev/null \
+       && [ -s "$ZIEL/$TOOL/$NAME" ]; then
+      echo "  Datenbank gesichert: $NAME ($(stat -c%s "$ZIEL/$TOOL/$NAME") Bytes)"
     else
       echo "  WARNUNG: SQLite-Sicherung von $PFAD fehlgeschlagen" >&2
+      rm -f "$ZIEL/$TOOL/$NAME"        # keine halbe Datei liegen lassen
       FEHLER=1
     fi
   done
