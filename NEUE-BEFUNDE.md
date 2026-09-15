@@ -234,8 +234,94 @@ Betriebsregeln als Grenze benannt.
 
 ---
 
+## N-06 — Jede Wiki-Seite blitzt beim Öffnen dunkel auf
+
+**Stufe:** niedrig
+**Datei:** `wiki/test-seite.html`, `wiki/EINRICHTUNG.md` (Pflichtteil 2)
+**Gefunden bei:** Anlegen der Seite `git-und-github`
+
+Die Vorlage setzt `<body data-theme="dark">` fest. Das Thema kommt erst per
+Nachricht von der Hülle — und die trifft **nach** dem ersten Anstrich ein. Im
+Browser gemessen (Sonde im iframe, Zeitmessung ab Parse-Ende):
+
+```
+beim Parsen: dark | erster Anstrich: {"thema":"dark","ms":10} | Nachricht nach 10 ms
+```
+
+Bei einem hell eingestellten Wiki sieht man also jedes Mal kurz die dunkle
+Fassung. Auf dem Handy ist das Fenster größer: dort fiel der Anstrich im
+Bildschirmfoto noch dunkel aus, während der Kopf der Hülle schon hell war.
+
+**In der neuen Seite behoben** — drei Zeilen direkt hinter `<body>`, die bis
+zur Nachricht die Einstellung des Geräts übernehmen:
+
+```js
+document.body.dataset.theme =
+  (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+    ? 'dark' : 'light';
+```
+
+Danach: `beim Parsen: light | erster Anstrich: {"thema":"light","ms":10}`.
+
+**Offen:** `test-seite.html` und der Vorlagenblock in `EINRICHTUNG.md` haben
+die Zeilen nicht. Wer die Vorlage kopiert, kopiert den Blitzer mit. Beides
+sind fremde Dateien aus dem Bericht — darum hier notiert und nicht
+mitgeändert.
+
+**Prüfen:** Seite im iframe laden und im Elternfenster mitschreiben, welches
+Thema beim ersten `requestAnimationFrame` gilt.
+
+---
+
+## N-07 — Die Suchhervorhebung markiert auch Skriptkommentare
+
+**Stufe:** niedrig
+**Datei:** `wiki/test-seite.html`, `wiki/EINRICHTUNG.md` (Pflichtteil 2)
+**Gefunden bei:** Anlegen der Seite `git-und-github`
+
+`springen()` läuft mit einem `TreeWalker` über `document.body` und filtert nur
+auf `NodeFilter.SHOW_TEXT`. Ein `<script>` im Body ist aber ebenfalls ein
+Element mit Textknoten — also werden Treffer in **Kommentaren und Code**
+markiert. Gemessen an der neuen Seite und an der Vorlage selbst:
+
+```
+Wort "Nachricht":  11 Marken, davon 7 im Skript, erste Marke im Skript
+Wort "Huelle":      6 Marken, davon 6 im Skript
+test-seite.html, Wort "Pflichtteil": 3 Marken, davon 3 im Skript
+```
+
+Die Folge ist nicht kosmetisch: Für einen Treffer **ohne** Anker springt
+`springen()` zur ersten Marke. Liegt die in einem Skript, hat sie kein
+Layout — `scrollIntoView` tut nichts, gemessen `window.scrollY: 0`. Der
+Nutzer landet oben auf der Seite statt an der echten Fundstelle, obwohl es
+sie gibt.
+
+**Offen.** Die Zeile
+
+```js
+var lauf = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+```
+
+bräuchte einen `acceptNode`, der `SCRIPT` und `STYLE` überspringt. Das ist
+eine Änderung am Pflichtteil, den laut `EINRICHTUNG.md` jede Seite
+unverändert übernimmt — die gehört also an die Vorlage und nicht in eine
+einzelne Seite. Die neue Seite trägt den Block darum wortgleich weiter.
+
+**Prüfen:** Der Seite `{typ:'wiki-springen', anker:'', begriff:'Nachricht'}`
+schicken und `document.querySelectorAll('mark.wiki-fund')` daraufhin
+durchzählen, wie viele in einem `script` stecken.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
 sichtbar war — und der einzige, den keine Prüfung hier gefunden hätte,
 weil er erst mit echten Dateirechten auf einem echten Server entsteht.
+
+`N-06` und `N-07` stecken in der Seitenvorlage, die jede künftige Wiki-Seite
+kopiert. `N-06` ist in der neuen Seite `git-und-github` behoben, in der
+Vorlage nicht; `N-07` ist offen, weil die Zeile in den Pflichtteil gehört und
+nicht in eine einzelne Seite. Beide zeigen dasselbe Muster wie `N-05`: der
+Import meldet „keine Fehler", weil er Meta-Block, Farben und Anker prüft —
+nicht, ob die Seite im Browser tut, was sie soll.
