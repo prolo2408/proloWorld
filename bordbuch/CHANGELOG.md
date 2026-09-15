@@ -10,6 +10,83 @@ erste = etwas Bestehendes bricht.
 
 ---
 
+## 2.5.3 — 2026-09-15
+
+### Behoben (Geld)
+- **Eingelesene Beträge standen hundertfach in der Datenbank.** Eine Ladung
+  für 14,21 € wurde zu 1.421,00 €, eine für 9,84 € zu 984,00 €. Betroffen war
+  jeder Import einer Lade- oder Tankliste (CSV, XLSX, JSON) — die Oberfläche
+  schickt den Betrag in Cent, und der Server rechnete ihn ein zweites Mal von
+  Euro in Cent um.
+- **Das Einspielen einer Sicherung machte dasselbe.** Eine Tankung für
+  74,12 € kam als 7.412,00 € zurück. Das war der schlimmere der beiden Fälle,
+  weil eine Sicherung genau dann eingespielt wird, wenn man sich auf sie
+  verlassen muss. Von Hand erfasste Vorgänge waren nie betroffen.
+
+  Beides lag an derselben Verwechslung zweier Funktionen: `cent()` bekommt
+  Euro und multipliziert mit 100. Wer damit eine Zahl liest, die schon in Cent
+  steht, bekommt den hundertfachen Betrag. Dafür gibt es jetzt `ct_lesen()`,
+  und die zwei Stellen benutzen sie.
+
+### Neu: Betragsprüfung für bestehende Datenbanken
+Der Fehler ist behoben, aber bereits gespeicherte Zeilen bleiben falsch. Zwei
+Schalter am Server:
+
+    python3 server.py --db <datei> --betraege-pruefen     # nur nachsehen
+    python3 server.py --db <datei> --betraege-richten      # berichtigen
+
+Geprüft wird auf zwei Wegen. **Sicher** ist der Fall, wenn die zwei
+Geldspalten einer Zeile sich um genau Faktor 100 widersprechen — das kann
+nicht richtig sein. **Verdächtig** ist eine Zeile, deren Stückpreis nur mit
+Faktor 100 erklärbar ist: 7.412,00 € für 42,8 Liter sind 173 € je Liter.
+Diese zweite Gruppe entsteht beim Einspielen einer Sicherung, wo beide
+Spalten verdorben wurden, und wird nur mit `--auch-unplausible` mitgeändert —
+ein Indiz ist kein Beweis. Werkstattrechnungen bleiben außen vor, dort fehlt
+die Menge zum Vergleich.
+
+`--betraege-pruefen` ändert nichts und sagt, was es tun würde. Vor dem
+Berichtigen eine Sicherung ziehen (Einstellungen › Daten, oder
+`sudo prolo sicherung`).
+
+Auf dem Server, wo Bordbuch im Container läuft:
+
+    sudo docker exec bordbuch python3 server.py --db /daten/bordbuch.db --betraege-pruefen
+    sudo docker exec bordbuch python3 server.py --db /daten/bordbuch.db --betraege-richten
+
+Das geht auch bei `read_only: true`, weil `/daten` ein Volume ist. Wer schon
+einmal eine Lade- oder Tankliste eingelesen oder eine Sicherung eingespielt
+hat, sollte einmal nachsehen.
+
+### Behoben (Einrichtung)
+- **Der Einrichtungs-Assistent konnte drei von vier Antriebsarten nicht
+  anlegen.** „Auto anlegen" meldete einen Tippfehler in einem Feld, das der
+  Assistent für diese Antriebsart gar nicht anzeigt — und weil ohne Auto kein
+  Weg am Assistenten vorbeiführt, saß ein neuer Benutzer fest. Nur der
+  Plug-in-Hybrid ging durch.
+- **Scheitert das Anlegen, bleibt die Meldung jetzt stehen** — im Assistenten,
+  mit dem Hinweis, dass die Eingaben erhalten sind. Vorher verschwand sie nach
+  knapp vier Sekunden.
+- **Kein erzwungener Assistent in einem fremden Profil** und keiner ohne
+  Schreibrecht.
+- **Der Ladeort „Zuhause" gilt jetzt als Heim-Ladepunkt**, sobald im
+  Assistenten ein Heimstrompreis eingetragen wird. Vorher zählten Heimladungen
+  als „unterwegs", wurden mit dem Anbieterpreis gerechnet, und die Übersicht
+  schrieb Sätze wie „Unterwegs hat dich -1,04 € mehr gekostet".
+- **„-1,04 € mehr gekostet" gibt es nicht mehr.** Das Vorzeichen steht jetzt
+  in den Worten: mehr, weniger, oder „genauso teuer".
+
+### Geprüft
+- Alle vier Antriebsarten im Browser durch den Assistenten, je mit frischem
+  Anmeldenamen.
+- Import einer Lade- und einer Tankliste als CSV über das echte Dateifeld,
+  Doppelerkennung, Übernahme; Sicherung schreiben, Profil leeren, Sicherung
+  einspielen und die Beträge vergleichen.
+- 122 Server-Tests (`tests/alle.sh`), darunter 21 neue für die Cent-Rechnung
+  und den Importweg. Die Zähne der Tests sind mit sieben Mutationen
+  nachgewiesen.
+
+---
+
 ## 2.5.2 — 2026-09-13
 
 ### Behoben (Sicherheit)

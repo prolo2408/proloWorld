@@ -163,6 +163,20 @@ window.addEventListener('message', function(e){
 window.parent.postMessage({typ:'wiki-bereit'}, '*');
 ```
 
+Zwei Dinge daran sind leicht zu übersehen und stecken darum fertig in
+`test-seite.html` (Befunde N-06 und N-07):
+
+- **Das Thema gilt ab der ersten Zeile.** Die Nachricht der Hülle kommt
+  erst nach dem ersten Anstrich — gemessen 10 ms danach. Wer nur
+  `<body data-theme="dark">` schreibt, lässt bei hellem Wiki jedes Mal
+  kurz die dunkle Fassung aufblitzen. Darum setzt der Block das Thema
+  zuerst selbst aus `prefers-color-scheme`.
+- **Der Textdurchlauf lässt `script` und `style` aus.** Ein `TreeWalker`
+  mit `SHOW_TEXT` läuft auch durch Skriptkommentare. Eine Marke darin hat
+  kein Layout, `scrollIntoView` tut dann nichts, und der Suchtreffer landet
+  oben auf der Seite statt an der Fundstelle. Der `acceptNode` im Block
+  verhindert das.
+
 Seiten mit umgeschalteten Bereichen — so wie deine Netzwerk-Seite, wo
 alle Abschnitte `display:none` sind — müssen in `springen()` zusätzlich
 den richtigen Bereich öffnen, bevor sie scrollen.
@@ -172,6 +186,74 @@ den richtigen Bereich öffnen, bevor sie scrollen.
 Farben nur über die Tokens aus Regelblatt Abschnitt 2, dazu der
 Pflichtblock aus 8.1 (`focus-visible`, `prefers-reduced-motion`). Der
 Import prüft beides und meldet, was fehlt.
+
+---
+
+# Was die Hülle beim Lesen anbietet
+
+- **Merken** im Kopf legt die Seite auf die Übersicht. Nochmal drücken nimmt
+  sie wieder weg.
+- **Auf dieser Seite** — die Leiste unter dem Kopf — springt zu einem
+  Abschnitt, ohne die Seite neu zu laden. Sie erscheint ab zwei Abschnitten;
+  die Anker kommen aus dem Meta-Block.
+- **Bearbeiten** öffnet den Editor (nur für Verwalter).
+
+---
+
+# Seiten im Wiki selbst schreiben
+
+Für alles, was keine eigene Gestaltung braucht, gibt es den **Editor** —
+kein HTML, keine Datei, kein Editor auf dem Rechner:
+
+**Neue Seite** in der Seitenleiste, oder bei einer offenen Seite
+**Bearbeiten** im Kopf. Beides gibt es nur für Verwalter, weil Speichern
+dieselbe Berechtigung braucht wie Einspielen.
+
+Eingetragen werden Titel, Kennung, Ort im Themenbaum und die Abschnitte.
+Kennung und Anker schlägt der Editor aus dem Titel vor, solange man sie
+nicht selbst anfasst.
+
+## Die Auszeichnung
+
+Absichtlich klein — die Liste im Editor unter *Wie schreibe ich hier?* ist
+vollständig:
+
+| Eingabe | Ergebnis |
+|---|---|
+| Leerzeile | neuer Absatz |
+| `## Titel` | Zwischentitel |
+| `- Punkt` | Aufzählung |
+| `1. Punkt` | nummerierte Liste |
+| `**fett**` | hervorgehoben |
+| `` `Befehl` `` | Code im Text |
+| ` ``` ` … ` ``` ` | Codeblock |
+| `> Text` | blauer Merkkasten |
+| `!> Text` | gelber Warnkasten |
+| `?> Text` | grüner Kasten |
+| `\| A \| B \|` | Tabelle, zweite Zeile `\|---\|---\|` |
+| `[[kennung]]` | Verweis auf eine andere Wiki-Seite |
+
+Getippter Text wird immer zuerst geschützt: Wer `<script>` schreibt, sieht
+`<script>` auf der Seite stehen. Ein Verweis wird ein Knopf, der die Hülle
+bittet, die Seite zu öffnen — kein `href`, weil eine Seite im Rahmen nicht
+selbst navigieren darf.
+
+## Was der Editor erzeugt
+
+Eine gewöhnliche Wiki-Seite. Sie geht durch dieselbe Prüfung wie eine
+eingespielte Datei (*Prüfen und ansehen* legt die Vorschau an, *Speichern*
+übernimmt), bekommt Fassungen und Rücksprung, und lässt sich über
+*Als HTML-Datei laden* auch herausnehmen und woanders einspielen.
+
+Die getippte Quelle steht im Meta-Block je Abschnitt unter `markup`. Nur
+deshalb lässt sich eine Seite später wieder aufklappen und weiterschreiben.
+Unter `text` steht wie gehabt der Suchstoff — dort ohne Auszeichnung.
+
+Eine Seite, die **nicht** aus dem Editor kommt, lässt sich trotzdem öffnen.
+Der Editor sagt dann deutlich, dass Speichern die eigene Gestaltung durch
+die Standardgestaltung ersetzt; Text und Abschnitte bleiben, eigenes HTML
+und eigene Skripte nicht. Die alte Fassung bleibt über *Fassungen*
+erreichbar.
 
 ---
 
@@ -209,6 +291,9 @@ Repository nehmen.
 ## Was noch fehlt
 
 - Der Skill, mit dem Claude Seiten nach diesem Schema erzeugt. Bis dahin
-  reicht es, `test-seite.html` und diesen Abschnitt mitzugeben.
+  reicht es, `test-seite.html` und diesen Abschnitt mitzugeben. Für Seiten
+  von Hand ist der Editor der kürzere Weg.
+- Anhänge (Bilder, PDFs) kann der Editor noch nicht aufnehmen. Wer sie
+  braucht, spielt eine Datei ein.
 - Die Netzwerk-Seite selbst: Tokens, Zustandsblock und das Nachladen des
   Kompendiums über `data-wiki-anhang` statt aus dem eingebetteten Block.

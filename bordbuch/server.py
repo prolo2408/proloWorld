@@ -425,7 +425,7 @@ ADD_INDEXES = [
 SCHEMA_VERSION = "6"
 # Fassungsnummer der Anwendung, getrennt vom Datenstand oben. Wird von
 # --version und /api/version gelesen.
-VERSION = "2.5.2"
+VERSION = "2.5.3"
 
 SESSION_FIELDS = ["tx", "start", "finish", "sec", "kwh", "cost", "net", "vat", "station", "city", "zip",
                   "street", "rate", "partner", "entity", "invoice_no", "invoice_date", "invoice_gross",
@@ -676,6 +676,14 @@ GRENZEN = {
     "akku_kwh":   (0, 250),
     "tank_l":     (0, 200),
 }
+# Welche Antriebsart welche Verbrauchsgroesse ueberhaupt hat. Steht hier
+# neben den Grenzen, weil beides zusammen gelesen werden muss: eine Groesse,
+# die es bei dieser Art nicht gibt, wird auch nicht auf Plausibilitaet
+# geprueft (N-08). Dieselbe Aufteilung wie KINDS.charge / KINDS.fuel in
+# index.html.
+LAEDT = {"bev", "phev"}       # hat einen Verbrauch in kWh/100 km
+TANKT = {"phev", "petrol", "diesel"}   # hat einen Verbrauch in l/100 km
+
 # Klartextnamen fuer die Fehlermeldung - "odo" sagt einem Nutzer nichts.
 FELD_NAMEN = {
     "odo": "Der Kilometerstand", "liters": "Die Litermenge", "kwh": "Die Energiemenge",
@@ -741,6 +749,36 @@ def pflicht_cent(data, feld, pflicht=True):
     return ct, None
 
 
+def verbrauchswerte(kind, data):
+    """Verbrauchsangaben einlesen, passend zur Antriebsart (N-08).
+
+    Rueckgabe: (kwh_pro_100, liter_pro_100, fehler). Geprueft wird nur die
+    Groesse, die es bei dieser Art ueberhaupt gibt - fuer die andere steht 0,
+    und das ist die Aussage "gibt es hier nicht".
+
+    Der Befund dahinter: die Oberflaeche schickt fuer die nicht passende
+    Groesse eine 0. pflicht_zahl(..., pflicht=False) laesst ein Feld fehlen,
+    prueft eine eingetragene 0 aber gegen die Plausibilitaetsgrenze - und die
+    liegt bei 0,5 (l/100 km) bzw. 1 (kWh/100 km). Damit liessen sich bev,
+    petrol und diesel gar nicht anlegen, mit einer Meldung ueber ein Feld,
+    das der Assistent fuer diese Art nicht anzeigt.
+    """
+    kwh = lit = None
+    if kind in LAEDT:
+        kwh, fehler = pflicht_zahl(data, "kwhPer100", "verbrauch_kwh100",
+                                   pflicht=False)
+        if fehler:
+            return None, None, fehler
+    if kind in TANKT:
+        lit, fehler = pflicht_zahl(data, "lPer100", "verbrauch_l100",
+                                   pflicht=False)
+        if fehler:
+            return None, None, fehler
+    return (kwh if kwh is not None else (18.0 if kind in LAEDT else 0.0),
+            lit if lit is not None else (7.0 if kind in TANKT else 0.0),
+            None)
+
+
 def pflicht_text(data, feld, grenze, meldung):
     """Ein Pflicht-Textfeld lesen (N-02).
 
@@ -804,6 +842,35 @@ def cent(v, d=None):
         return None
 
 
+def ct_lesen(v, d=None):
+    """Eine Angabe, die SCHON in Cent ist, als Cent lesen (N-10).
+
+    Der Unterschied zu cent(): cent() bekommt Euro und multipliziert mit 100.
+    Wer damit eine Cent-Angabe liest, bekommt den hundertfachen Betrag - und
+    genau das ist an zwei Stellen passiert, beim Import von Ladelisten und
+    beim Einspielen einer Sicherung. 14,21 EUR wurden zu 1421,00 EUR, eine
+    Tankung fuer 74,12 EUR zu 7412,00 EUR.
+
+    Kein stiller Vorgabewert (Regelblatt 11): ist der Wert nicht lesbar, kommt
+    None zurueck, damit der Aufrufer auf die Euro-Spalte ausweichen kann.
+    """
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return d
+    try:
+        d_ = decimal.Decimal(str(v).replace(",", ".").strip())
+    except (decimal.InvalidOperation, ValueError, TypeError):
+        return None
+    if not d_.is_finite():
+        return None
+    try:
+        # Bruchteile eines Cents gibt es nicht - kaufmaennisch runden, wie in
+        # cent(), damit 1420,5 zu 1421 wird und nicht zu 1420.
+        return int(d_.quantize(decimal.Decimal("1"),
+                               rounding=decimal.ROUND_HALF_UP))
+    except (decimal.InvalidOperation, decimal.Overflow):
+        return None
+
+
 def netto_ct(brutto_ct, satz):
     """Netto aus Brutto ableiten, ohne Fliesskomma.
 
@@ -845,10 +912,138 @@ def cent_aus_sicherung(satz, ct_schluessel, euro_schluessel):
     """
     w = satz.get(ct_schluessel)
     if w is not None:
-        ct = cent(w)
+        # ct_lesen, nicht cent (N-10): der Wert steht schon in Cent. Mit
+        # cent() wurde er ein zweites Mal mit 100 multipliziert - eine
+        # Tankung fuer 74,12 EUR kam als 7412,00 EUR zurueck.
+        ct = ct_lesen(w)
         if ct is not None:
             return ct
     return cent(satz.get(euro_schluessel), 0) or 0
+
+
+def import_zeile_werte(s):
+    """Eine Importzeile in die Werte fuer SESSION_FIELDS uebersetzen (N-10).
+
+    Eigene Funktion, damit genau dieser Weg pruefbar ist: hier ist der
+    hundertfache Betrag entstanden, und eine Mutation an dieser Stelle muss
+    einen Test rot machen.
+
+    Geld: bevorzugt wird die Cent-Angabe der Oberflaeche (costCt) - SIE IST
+    SCHON CENT und wird mit ct_lesen gelesen, nicht mit cent(). Aeltere
+    Dateien kennen nur die Euro-Spalte; von dort wird umgerechnet, damit ein
+    alter Export nicht auf Nullen einlaeuft.
+    """
+    werte = []
+    for col in SESSION_FIELDS:
+        v = s.get(COL_TO_JSON[col])
+        if col in ("cost_ct", "net_ct", "vat_ct", "invoice_gross_ct"):
+            w = ct_lesen(v) if v is not None else None
+            if w is None:
+                w = cent(s.get(COL_TO_JSON[col[:-3]]), 0) or 0
+            v = w
+        elif col in INT_COLS:
+            v = int(num(v))
+        elif col in REAL_COLS:
+            v = round(num(v), 4)
+        else:
+            v = "" if v is None else str(v)[:200]
+        werte.append(v)
+    return werte
+
+
+def hundertfache_betraege(con):
+    """Zeilen finden, in denen die Cent-Spalte hundertfach zu hoch steht (N-10).
+
+    Erkennungsmerkmal ist der Widerspruch zwischen den zwei Spalten: die
+    Cent-Spalte ist EXAKT das Hundertfache dessen, was die Euro-Altspalte
+    sagt. So eine Zeile kann nicht richtig sein - die beiden sollen dasselbe
+    bedeuten. Ein ehrlicher Betrag von 1421,00 EUR hat cost=1421.0 und
+    cost_ct=142100, und 142100 ist nicht das Hundertfache von 142100.
+
+    Rueckgabe: Liste (tabelle, spalte_euro, spalte_ct, anzahl, beispiele).
+    Es wird nichts geaendert.
+    """
+    aus = []
+    for tab, paare in GELD_SPALTEN.items():
+        for euro, ct in paare:
+            zeilen = con.execute(
+                "SELECT id, %s AS euro, %s AS ct FROM %s "
+                "WHERE %s > 0 AND %s = CAST(ROUND(%s * 100) AS INTEGER) * 100"
+                % (euro, ct, tab, euro, ct, euro)).fetchall()
+            if zeilen:
+                aus.append((tab, euro, ct, len(zeilen),
+                            [(z["id"], z["euro"], z["ct"]) for z in zeilen[:3]]))
+    return aus
+
+
+# Ab welchem Stueckpreis ein Betrag nicht mehr von dieser Welt ist. Zum
+# Vergleich: die Oberflaeche warnt ab 0,85 EUR/kWh und 2,10 EUR/l. Zehn Euro
+# je Einheit ist also weit jenseits jedes echten Preises - und wenn derselbe
+# Betrag durch hundert geteilt wieder im plausiblen Bereich landet, ist der
+# Fall klar.
+UNPLAUSIBEL_CT = 1000        # 10,00 EUR je kWh oder Liter
+WIEDER_PLAUSIBEL_CT = 400    #  4,00 EUR je kWh oder Liter
+
+
+def unplausible_betraege(con):
+    """Zeilen finden, bei denen der Stueckpreis nur mit Faktor 100 erklaerbar ist.
+
+    Das ist die zweite Spur zu N-10. Beim Einspielen einer Sicherung wurden
+    BEIDE Spalten verdorben - die Cent-Spalte und die Euro-Altspalte -, weil
+    die Altspalte aus der falschen Cent-Zahl abgeleitet wurde. Der
+    Widerspruch zwischen den Spalten fehlt dort also, und es bleibt nur der
+    Stueckpreis: 7412,00 EUR fuer 42,8 Liter sind 173 EUR je Liter.
+
+    Das ist ein Indiz, kein Beweis - darum wird es getrennt gemeldet und nur
+    auf ausdruecklichen Wunsch berichtigt. Bei Werkstattrechnungen gibt es
+    keine Menge zum Vergleich; die bleiben hier aussen vor und stehen im
+    Bericht als solche.
+    """
+    aus = []
+    for tab, menge, einheit in (("sessions", "kwh", "kWh"),
+                                ("fuelings", "liters", "l")):
+        zeilen = con.execute(
+            "SELECT id, %s AS menge, cost_ct AS ct FROM %s "
+            "WHERE %s > 0 AND cost_ct > 0 "
+            "  AND cost_ct * 1.0 / %s > ? "
+            "  AND (cost_ct / 100.0) / %s <= ?"
+            % (menge, tab, menge, menge, menge),
+            (UNPLAUSIBEL_CT, WIEDER_PLAUSIBEL_CT)).fetchall()
+        if zeilen:
+            aus.append((tab, einheit, len(zeilen),
+                        [(z["id"], z["menge"], z["ct"]) for z in zeilen[:3]]))
+    return aus
+
+
+def betraege_richten(con, auch_unplausible=False):
+    """Die in hundertfache_betraege() gefundenen Zeilen berichtigen (N-10).
+
+    Gesetzt wird die Cent-Spalte auf den Wert, den die Euro-Altspalte sagt -
+    das ist der Betrag, der in der Datei stand. Laeuft in der Transaktion des
+    Aufrufers. Rueckgabe: Liste (tabelle, spalte, anzahl).
+    """
+    aus = []
+    for tab, euro, ct, anzahl, _ in hundertfache_betraege(con):
+        cur = con.execute(
+            "UPDATE %s SET %s = CAST(ROUND(%s * 100) AS INTEGER) "
+            "WHERE %s > 0 AND %s = CAST(ROUND(%s * 100) AS INTEGER) * 100"
+            % (tab, ct, euro, euro, ct, euro))
+        aus.append((tab, ct, cur.rowcount))
+    if not auch_unplausible:
+        return aus
+    for tab, einheit, anzahl, _ in unplausible_betraege(con):
+        menge = "kwh" if tab == "sessions" else "liters"
+        # Beide Spalten zurechtruecken - hier war auch die Altspalte falsch.
+        cur = con.execute(
+            "UPDATE %s SET cost_ct = CAST(ROUND(cost_ct / 100.0) AS INTEGER), "
+            "              cost = ROUND(cost / 100.0, 2) "
+            "WHERE %s > 0 AND cost_ct > 0 "
+            "  AND cost_ct * 1.0 / %s > ? "
+            "  AND (cost_ct / 100.0) / %s <= ?"
+            % (tab, menge, menge, menge),
+            (UNPLAUSIBEL_CT, WIEDER_PLAUSIBEL_CT))
+        aus.append((tab, "cost_ct (Stueckpreis)", cur.rowcount))
+    return aus
 
 
 def geld_umstellen(con):
@@ -2036,10 +2231,17 @@ class App(BaseHTTPRequestHandler):
         # Geprueft statt stillschweigend in die Grenze gezwungen (B-05):
         # wer 999 kWh/100 km eintippt, hat sich verschrieben und soll das
         # erfahren, statt lautlos 100 gespeichert zu bekommen.
-        kwh_w, fehler = pflicht_zahl(data, "kwhPer100", "verbrauch_kwh100", pflicht=False)
-        if fehler:
-            return self.send_json({"error": fehler}, 400)
-        lit_w, fehler = pflicht_zahl(data, "lPer100", "verbrauch_l100", pflicht=False)
+        #
+        # ABER: geprueft wird nur, was zur Antriebsart gehoert (N-08). Ein
+        # Elektroauto hat keinen Verbrauch in l/100 km, ein Benziner keinen
+        # in kWh/100 km - die Oberflaeche schickt fuer die nicht passende
+        # Groesse eine 0, und die lag unter der Plausibilitaetsgrenze (0,5
+        # bzw. 1). Ergebnis: bev, petrol und diesel liessen sich ueberhaupt
+        # nicht anlegen, mit einer Meldung ueber ein Feld, das der
+        # Assistent fuer diese Art gar nicht anzeigt. Weil der Assistent
+        # erst weiterlaesst, wenn ein Auto steht, sass ein neuer Benutzer
+        # damit fest.
+        kwh, lit, fehler = verbrauchswerte(kind, data)
         if fehler:
             return self.send_json({"error": fehler}, 400)
         akku_w, fehler = pflicht_zahl(data, "battery", "akku_kwh", pflicht=False)
@@ -2048,8 +2250,6 @@ class App(BaseHTTPRequestHandler):
         tank_w, fehler = pflicht_zahl(data, "tank", "tank_l", pflicht=False)
         if fehler:
             return self.send_json({"error": fehler}, 400)
-        kwh = kwh_w if kwh_w is not None else 18.0
-        lit = lit_w if lit_w is not None else 7.0
         akku = akku_w or 0.0
         tank = tank_w or 0.0
         active = 1 if data.get("active", True) else 0
@@ -2149,24 +2349,9 @@ class App(BaseHTTPRequestHandler):
                  "geprueft": len(rows), "uebernommen": 0}, 400)
         with bulk(con):
           for s in gepruefte:
-            vals = [user["id"], car_id]
-            for col in SESSION_FIELDS:
-                v = s.get(COL_TO_JSON[col])
-                if col in ("cost_ct", "net_ct", "vat_ct", "invoice_gross_ct"):
-                    # Geld (B-04): bevorzugt die Cent-Angabe. Aeltere Dateien
-                    # kennen nur die Euro-Spalte - dann von dort umrechnen,
-                    # damit ein alter Export nicht auf Nullen einlaeuft.
-                    w = cent(v) if v is not None else None
-                    if w is None:
-                        w = cent(s.get(COL_TO_JSON[col[:-3]]), 0) or 0
-                    v = w
-                elif col in INT_COLS:
-                    v = int(num(v))
-                elif col in REAL_COLS:
-                    v = round(num(v), 4)
-                else:
-                    v = "" if v is None else str(v)[:200]
-                vals.append(v)
+            # Die Umrechnung steckt in import_zeile_werte() - dort ist sie
+            # einzeln pruefbar (N-10).
+            vals = [user["id"], car_id] + import_zeile_werte(s)
             try:
                 con.execute("INSERT INTO sessions(%s) VALUES(%s)" % (cols, ph), vals)
                 added += 1
@@ -2534,6 +2719,21 @@ def main():
     # nimmt --migrieren.
     p.add_argument("--migrieren", action="store_true",
                    help="Datenbank auf den aktuellen Stand bringen und beenden")
+    # N-10: Zwei Wege haben Betraege hundertfach gespeichert (Import von
+    # Ladelisten und Einspielen einer Sicherung). Der Fehler ist behoben,
+    # aber bereits gespeicherte Zeilen bleiben falsch. Gemeldet wird von
+    # --betraege-pruefen, geaendert nur von --betraege-richten - und das
+    # sagt vorher, dass eine Sicherung dazugehoert (Regelblatt 15).
+    p.add_argument("--betraege-pruefen", action="store_true",
+                   help="Nach hundertfach gespeicherten Betraegen suchen und "
+                        "beenden. Aendert nichts.")
+    p.add_argument("--betraege-richten", action="store_true",
+                   help="Hundertfach gespeicherte Betraege berichtigen und "
+                        "beenden. Vorher sichern.")
+    p.add_argument("--auch-unplausible", action="store_true",
+                   help="Zusammen mit --betraege-richten auch die Zeilen "
+                        "berichtigen, bei denen nur der Stueckpreis den "
+                        "Faktor 100 verraet (Indiz, kein Beweis).")
     global CFG, RECEIPT_DIR
     CFG = p.parse_args()
     # Belege dorthin, wo auch die Datenbank liegt (siehe oben). Ein eigener Ort
@@ -2546,6 +2746,55 @@ def main():
     init_db()
     if CFG.migrieren:
         print("Datenbank ist auf Stand %s." % SCHEMA_VERSION)
+        return
+    if CFG.betraege_pruefen or CFG.betraege_richten:
+        with db() as con:
+            sicher = hundertfache_betraege(con)
+            indiz = unplausible_betraege(con)
+            if not sicher and not indiz:
+                print("Keine hundertfach gespeicherten Betraege gefunden.")
+                return
+            if sicher:
+                print("SICHER hundertfach (die zwei Geldspalten widersprechen "
+                      "sich um genau Faktor 100): %d Zeile(n)\n"
+                      % sum(f[3] for f in sicher))
+                for tab, euro, ct, anzahl, bsp in sicher:
+                    print("  %-10s %-18s %4d Zeile(n)" % (tab, ct, anzahl))
+                    for zid, e, c in bsp:
+                        print("      id %-5s steht als %10.2f EUR, richtig waere %8.2f EUR"
+                              % (zid, c / 100.0, e))
+            if indiz:
+                print("\nVERDAECHTIG (nur der Stueckpreis verraet es - beim "
+                      "Einspielen einer Sicherung\nwurden beide Geldspalten "
+                      "verdorben): %d Zeile(n)\n" % sum(f[2] for f in indiz))
+                for tab, einheit, anzahl, bsp in indiz:
+                    print("  %-10s %4d Zeile(n)" % (tab, anzahl))
+                    for zid, menge, c in bsp:
+                        je = (c / 100.0) / menge if menge else 0
+                        print("      id %-5s %10.2f EUR fuer %.3f %s = %.2f EUR/%s"
+                              % (zid, c / 100.0, menge, einheit, je, einheit))
+                print("  Werkstattrechnungen stehen hier nicht: dort gibt es "
+                      "keine Menge zum Vergleich.")
+            if not CFG.betraege_richten:
+                print("\nGeaendert wurde nichts. Zum Berichtigen:")
+                print("  1. Sicherung ziehen - Einstellungen > Daten > Sicherung,")
+                print("     oder auf dem Server: sudo prolo sicherung")
+                print("  2. python3 server.py --db %s --betraege-richten" % CFG.db)
+                if indiz:
+                    print("     Die verdaechtigen Zeilen kommen nur mit "
+                          "--auch-unplausible mit.")
+                return
+            geaendert = betraege_richten(con, CFG.auch_unplausible)
+            print("\nBerichtigt:")
+            for tab, spalte, anzahl in geaendert:
+                print("  %-10s %-24s %4d Zeile(n)" % (tab, spalte, anzahl))
+            rest_s = hundertfache_betraege(con)
+            rest_i = unplausible_betraege(con)
+            print("\nNachgesehen: %d sicher, %d verdaechtig noch offen."
+                  % (sum(r[3] for r in rest_s), sum(r[2] for r in rest_i)))
+            if rest_i and not CFG.auch_unplausible:
+                print("Die verdaechtigen bleiben absichtlich stehen - mit "
+                      "--auch-unplausible werden sie mitgenommen.")
         return
     if CFG.verknuepfe:
         if "=" not in CFG.verknuepfe:

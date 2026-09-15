@@ -304,9 +304,38 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
   .knopf{height:44px}
   #kopftitel{font-size:16px}
 }
+/* ---------- Abschnittsleiste einer Seite ----------
+   Lange Seiten (die Git-Anleitung hat sieben Abschnitte) waren nur mit
+   Scrollen zu ueberblicken. Die Anker stehen im Meta-Block, der Sprung
+   laeuft ueber denselben Weg wie ein Suchtreffer. */
+#abschnittsleiste{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;
+  padding:8px 24px;background:var(--surface);
+  border-bottom:1px solid var(--line)}
+#abschnittsleiste::-webkit-scrollbar{display:none}
+#abschnittsleiste[hidden]{display:none}
+#abschnittsleiste button{flex:0 0 auto;height:28px;padding:0 11px;
+  border-radius:999px;border:1px solid var(--line);background:var(--bg);
+  color:var(--ink-2);font:inherit;font-size:12.5px;cursor:pointer;
+  white-space:nowrap}
+#abschnittsleiste button:hover{background:var(--hover);color:var(--ink)}
+#abschnittsleiste .wo{align-self:center;margin-right:4px;flex:0 0 auto}
+
+/* ---------- Seiten-Editor ---------- */
+.ed-abschnitt{background:var(--surface);border:1px solid var(--line);
+  border-radius:14px;padding:16px}
+.ed-kopf{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.ed-zeile{display:flex;gap:10px;flex-wrap:wrap}
+.ed-klein{height:30px;padding:0 9px;font-size:13px;line-height:1}
+.flaeche textarea{width:100%;box-sizing:border-box;
+  font-family:'JetBrains Mono',ui-monospace,Consolas,monospace;
+  font-size:13px;line-height:1.6;padding:10px 12px;border-radius:10px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  resize:vertical}
+.flaeche textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 @media (max-width:432px){
   .marke .wortmarke{font-size:14px}
   #treffer{position:fixed;left:8px;right:8px;top:auto}
+  .ed-abschnitt{padding:13px}
 }
 </style>
 </head>
@@ -325,6 +354,7 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
     </button>
     <nav class="navi" aria-label="Hauptnavigation">
       <button class="blatt" id="start-knopf">Übersicht</button>
+      <button class="blatt" id="neu-knopf" hidden>Neue Seite</button>
       <button class="blatt" id="verwaltung-knopf" hidden>Verwaltung</button>
     </nav>
     <nav class="baum" id="baum" data-noscroll aria-label="Themenbaum"></nav>
@@ -338,6 +368,8 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
     <header>
       <button class="knopf rahmen" id="menue-knopf" aria-label="Themen anzeigen"
               aria-expanded="false">Themen</button>
+      <button class="knopf rahmen" id="merken-knopf" hidden>Merken</button>
+      <button class="knopf rahmen" id="bearbeiten-knopf" hidden>Bearbeiten</button>
 
       <div style="min-width:0;flex:0 1 auto">
         <div class="sora" id="kopftitel" style="font-size:20px;line-height:1.2">Übersicht</div>
@@ -361,6 +393,8 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
                 style="font-weight:600;color:var(--ink)">…</button>
       </div>
     </header>
+
+    <nav id="abschnittsleiste" hidden aria-label="Abschnitte dieser Seite"></nav>
 
     <div id="vorschau-leiste" hidden
          style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;
@@ -536,7 +570,7 @@ function markieren(){
   document.querySelectorAll('.baum .blatt').forEach(b =>
     b.setAttribute('aria-current', String(b.dataset.slug === ZUSTAND.slug)));
   const soll = {'start-knopf':'start', 'verwaltung-knopf':'verwaltung',
-                'einstellungen-knopf':'einstellungen'};
+                'neu-knopf':'editor', 'einstellungen-knopf':'einstellungen'};
   Object.keys(soll).forEach(id =>
     $(id).setAttribute('aria-current', String(ZUSTAND.ansicht === soll[id])));
 }
@@ -551,6 +585,8 @@ function wegSetzen(slug, anker, begriff){
 async function oeffnen(slug, anker, begriff, ohneWeg){
   ZUSTAND.ansicht = 'seite';
   if(!slug) return start();
+  bearbeitenKnopf(slug);
+  merkenKnopf(slug);
   $('vorschau-leiste').hidden = true;
   let daten;
   try { daten = await hole('/api/seite/' + encodeURIComponent(slug)); }
@@ -561,6 +597,7 @@ async function oeffnen(slug, anker, begriff, ohneWeg){
   $('kopftitel').textContent = daten.titel;
   $('kopfkontext').textContent = (daten.pfad||[]).join(' › ') +
     (daten.stand ? '  ·  Stand ' + datum(daten.stand) : '');
+  abschnittsleiste(slug, daten.abschnitte);
   document.title = daten.titel + ' — Prolo Wiki';
 
   const f = $('rahmen');
@@ -611,6 +648,8 @@ function wegLesen(ohneWeg){
   if(!teile.length) return start();
   if(teile[0] === 'einstellungen') return einstellungen();
   if(teile[0] === 'verwaltung') return verwaltung();
+  if(teile[0] === 'neu') return editor(null);
+  if(teile[0] === 'bearbeiten' && teile[1]) return editor(teile[1]);
   oeffnen(teile[0], teile[1], q, ohneWeg);
 }
 
@@ -716,6 +755,9 @@ function trefferSchliessen(){
 
 /* ---------------------------------------------------- Startseite */
 async function start(){
+  bearbeitenKnopf(null);
+  merkenKnopf(null);
+  abschnittsleiste(null);
   ZUSTAND.ansicht = 'start'; ZUSTAND.slug = null;
   $('vorschau-leiste').hidden = true;
   history.replaceState(null, '', '#/');
@@ -786,6 +828,9 @@ function zaehlen(k){
 /* ---------------------------------------------------- Einstellungen
    Aufbau nach Regelblatt 6a: Darstellung, Tool-Einstellungen, Konto. */
 async function einstellungen(){
+  bearbeitenKnopf(null);
+  merkenKnopf(null);
+  abschnittsleiste(null);
   $('vorschau-leiste').hidden = true;
   ZUSTAND.ansicht = 'einstellungen'; ZUSTAND.slug = null;
   markieren(); menueZu();
@@ -910,6 +955,9 @@ async function einstellungen(){
 /* ---------------------------------------------------- Verwaltung */
 async function verwaltung(){
   ZUSTAND.ansicht = 'verwaltung'; ZUSTAND.slug = null; markieren(); menueZu();
+  bearbeitenKnopf(null);
+  merkenKnopf(null);
+  abschnittsleiste(null);
   $('vorschau-leiste').hidden = true;
   $('rahmen').hidden = true; $('rahmen').removeAttribute('src');
   $('flaeche').hidden = false;
@@ -935,8 +983,10 @@ async function verwaltung(){
       ? `<span class="marke-badge warm">${s.hinweise.length} Hinweise</span>`
       : '<span class="marke-badge gut">sauber</span>'}</td>
     <td style="text-align:right;white-space:nowrap">
+      <button class="knopf rahmen" data-bearbeiten="${schuetzen(s.slug)}"
+        style="height:32px;padding:0 10px">Bearbeiten</button>
       <button class="knopf rahmen" data-fassungen="${schuetzen(s.slug)}"
-        style="height:32px;padding:0 10px">Fassungen</button>
+        style="height:32px;padding:0 10px;margin-left:6px">Fassungen</button>
       <button class="knopf rahmen gefahr" data-loeschen="${schuetzen(s.slug)}"
         style="height:32px;padding:0 10px;margin-left:6px">Löschen</button></td>
   </tr>`).join('');
@@ -944,9 +994,17 @@ async function verwaltung(){
   $('flaeche').innerHTML = `
     <div class="raster mitte">
       <div class="karte">
+        <h3>Seite schreiben</h3>
+        <div class="kontext">Im Editor, ohne HTML. Titel, Abschnitte, Text —
+          der Rest entsteht von selbst.</div>
+        <button class="knopf" id="ed-neu-knopf" style="margin-top:12px">Neue Seite
+          anlegen</button>
+      </div>
+
+      <div class="karte">
         <h3>Seite einspielen</h3>
-        <div class="kontext">HTML-Datei mit Meta-Block. Sie wird erst geprüft,
-          dann kannst du sie ansehen und übernehmen.</div>
+        <div class="kontext">Fertige HTML-Datei mit Meta-Block. Sie wird erst
+          geprüft, dann kannst du sie ansehen und übernehmen.</div>
         <div class="ablage" id="ablage" style="margin-top:14px">
           <div style="font-size:13px;color:var(--ink-3)">Datei hierher ziehen</div>
           <label for="datei" class="knopf" style="margin-top:12px">Datei auswählen</label>
@@ -998,6 +1056,13 @@ async function verwaltung(){
     b.onclick = () => oeffnen(b.dataset.slug));
   $('flaeche').querySelectorAll('[data-fassungen]').forEach(b =>
     b.onclick = () => fassungen(b.dataset.fassungen));
+  $('flaeche').querySelectorAll('[data-bearbeiten]').forEach(b =>
+    b.onclick = () => {
+      history.pushState(null, '', '#/bearbeiten/' + b.dataset.bearbeiten);
+      editor(b.dataset.bearbeiten);
+    });
+  $('ed-neu-knopf').onclick = () => {
+    history.pushState(null, '', '#/neu'); editor(null); };
   $('flaeche').querySelectorAll('[data-loeschen]').forEach(b => b.onclick = async () => {
     const slug = b.dataset.loeschen;
     if(!confirm(`Seite "${slug}" aus dem Wiki nehmen?\n\n` +
@@ -1197,7 +1262,13 @@ async function fassungen(slug){
   });
 }
 
-$('vorschau-zurueck').onclick = () => verwaltung();
+$('vorschau-zurueck').onclick = () => {
+  /* Wer aus dem Editor in die Vorschau gegangen ist, will zurueck in den
+     Editor - nicht in die Verwaltung, wo sein Text nicht steht. */
+  const z = ZUSTAND.vorschauZurueck;
+  ZUSTAND.vorschauZurueck = null;
+  return z ? z() : verwaltung();
+};
 $('vorschau-uebernehmen').onclick = async () => {
   const k = $('vorschau-uebernehmen');
   k.disabled = true; k.textContent = 'Wird übernommen …';
@@ -1225,10 +1296,782 @@ $('start-knopf').onclick = () => { history.pushState(null,'','#/'); start(); men
 $('logo').onclick = () => { history.pushState(null,'','#/'); start(); menueZu(); };
 $('verwaltung-knopf').onclick = () => {
   history.pushState(null, '', '#/verwaltung'); verwaltung(); };
+$('neu-knopf').onclick = () => {
+  history.pushState(null, '', '#/neu'); editor(null); };
 $('einstellungen-knopf').onclick = () => {
   history.pushState(null, '', '#/einstellungen'); einstellungen(); };
 $('konto-knopf').onclick = () => {
   history.pushState(null, '', '#/einstellungen'); einstellungen(); };
+
+/* ==================================================================
+   Seiten-Editor
+   Eine Seite ohne HTML-Kenntnisse anlegen und aendern.
+
+   Der Editor schreibt kein neues Format, er ERZEUGT eine gewoehnliche
+   Wiki-Seite: Meta-Block, Abschnitte mit id, Tokenblock, Pflichtteil. Sie
+   laeuft danach durch dieselbe Strecke wie eine eingespielte Datei
+   (/api/pruefen, /vorschau/, /api/import) und bekommt Fassungen und
+   Ruecksprung wie jede andere.
+
+   Die Quelle, die hier getippt wird, steht im Meta-Block je Abschnitt unter
+   "markup". Darum laesst sich eine so erzeugte Seite spaeter wieder
+   aufklappen und weiterschreiben. Der reine Text ohne Auszeichnung steht wie
+   gehabt unter "text" - das ist der Suchstoff, und dort haben Sternchen und
+   Zaeune nichts zu suchen.
+   ================================================================== */
+
+const EDITOR_WERKZEUG = 'editor-1';
+/* Platzhalter fuer Code-Stuecke waehrend der Umwandlung. Ein Zeichen, das in
+   getipptem Text nicht vorkommt, aber druckbar ist. */
+const ED_HALT = '☃';
+
+function edEscape(s){
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+function edInline(s){
+  /* Erst schuetzen, dann Auszeichnung einsetzen: so kann getippter Text
+     niemals zu Markup werden. */
+  let t = edEscape(s);
+  /* Code zuerst - innerhalb von Zaeunen gilt keine weitere Auszeichnung. */
+  const code = [];
+  t = t.replace(/`([^`]+)`/g, (_, c) => {
+    code.push(c); return ED_HALT + (code.length - 1) + ED_HALT; });
+  t = t.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  /* Verweis auf eine andere Wiki-Seite: [[kennung]] oder [[kennung|Text]].
+     Kein href - eine Seite im Rahmen darf nicht selbst navigieren. Der Knopf
+     bittet die Huelle, die Seite zu oeffnen (wiki-oeffnen). */
+  t = t.replace(/\[\[([a-z0-9-]+)(?:\|([^\]]+))?\]\]/g, (_, slug, text) =>
+    '<button type="button" class="verweis" data-slug="' + slug + '">' +
+    (text || slug) + '</button>');
+  t = t.replace(new RegExp(ED_HALT + '(\\d+)' + ED_HALT, 'g'),
+                (_, i) => '<code>' + code[+i] + '</code>');
+  return t;
+}
+function edBloecke(text){
+  const zeilen = String(text || '').replace(/\r\n?/g, '\n').split('\n');
+  const aus = [];
+  let i = 0;
+  const istTabelle = z => /^\s*\|.*\|\s*$/.test(z);
+  const sonderfall = z => /^(```|##\s|!>|\?>|>|\s*[-*]\s|\s*\d+[.)]\s)/.test(z) || istTabelle(z);
+  while(i < zeilen.length){
+    const z = zeilen[i];
+    if(!z.trim()){ i++; continue; }
+    if(/^```/.test(z.trim())){
+      const inhalt = [];
+      i++;
+      while(i < zeilen.length && !/^```/.test(zeilen[i].trim())){ inhalt.push(zeilen[i]); i++; }
+      i++;
+      aus.push('<pre><code>' + edEscape(inhalt.join('\n')) + '</code></pre>');
+      continue;
+    }
+    if(/^##\s+/.test(z)){
+      aus.push('<h3>' + edInline(z.replace(/^##\s+/, '')) + '</h3>'); i++; continue;
+    }
+    const kasten = z.match(/^(!>|\?>|>)\s?(.*)$/);
+    if(kasten){
+      const zeichen = kasten[1];
+      const klasse = zeichen === '!>' ? 'warn' : (zeichen === '?>' ? 'gut' : 'merk');
+      const roh = new RegExp('^' + zeichen.replace(/[!?]/g, '\\$&') + '\\s?');
+      const teil = [kasten[2]];
+      i++;
+      while(i < zeilen.length && roh.test(zeilen[i])){
+        teil.push(zeilen[i].replace(roh, '')); i++;
+      }
+      let kopf = '', rest = teil;
+      const m = (teil[0] || '').match(/^\*\*(.+)\*\*\s*$/);
+      if(m){ kopf = '<b>' + edInline(m[1]) + '</b>'; rest = teil.slice(1); }
+      aus.push('<div class="' + klasse + '">' + kopf +
+               edInline(rest.join(' ').trim()) + '</div>');
+      continue;
+    }
+    if(istTabelle(z)){
+      const roh = [];
+      while(i < zeilen.length && istTabelle(zeilen[i])){ roh.push(zeilen[i]); i++; }
+      const zellen = r => r.trim().replace(/^\||\|$/g, '').split('|').map(s => s.trim());
+      const trenn = r => /^[\s|:-]+$/.test(r);
+      const kopf = zellen(roh[0]);
+      const rest = roh.slice(trenn(roh[1] || '') ? 2 : 1);
+      aus.push('<div class="tabelle"><table><thead><tr>' +
+        kopf.map(c => '<th>' + edInline(c) + '</th>').join('') +
+        '</tr></thead><tbody>' +
+        rest.map(r => '<tr>' + zellen(r).map(c => '<td>' + edInline(c) + '</td>').join('') +
+                      '</tr>').join('') +
+        '</tbody></table></div>');
+      continue;
+    }
+    if(/^\s*[-*]\s+/.test(z)){
+      const p = [];
+      while(i < zeilen.length && /^\s*[-*]\s+/.test(zeilen[i])){
+        p.push('<li>' + edInline(zeilen[i].replace(/^\s*[-*]\s+/, '')) + '</li>'); i++;
+      }
+      aus.push('<ul>' + p.join('') + '</ul>');
+      continue;
+    }
+    if(/^\s*\d+[.)]\s+/.test(z)){
+      const p = [];
+      while(i < zeilen.length && /^\s*\d+[.)]\s+/.test(zeilen[i])){
+        p.push('<li>' + edInline(zeilen[i].replace(/^\s*\d+[.)]\s+/, '')) + '</li>'); i++;
+      }
+      aus.push('<ol>' + p.join('') + '</ol>');
+      continue;
+    }
+    const p = [];
+    while(i < zeilen.length && zeilen[i].trim() && !sonderfall(zeilen[i])){
+      p.push(zeilen[i].trim()); i++;
+    }
+    aus.push('<p>' + edInline(p.join(' ')) + '</p>');
+  }
+  return aus.join('\n      ');
+}
+function edNurText(text){
+  /* Suchstoff: Auszeichnung weg, Inhalt bleibt. Ohne das stehen Sternchen
+     und Zaeune im Suchtext und stoeren die Treffer. */
+  return String(text || '')
+    .replace(/```/g, ' ')
+    /* Trennzeile einer Tabelle (|---|---|) ist kein Inhalt. */
+    .replace(/^\s*\|[\s|:-]+\|\s*$/gm, ' ')
+    .replace(/^\s*(##|!>|\?>|>|[-*]|\d+[.)])\s+/gm, '')
+    .replace(/\[\[([a-z0-9-]+)(?:\|([^\]]+))?\]\]/g, (_, s, t) => t || s)
+    .replace(/[*`|<>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function edSlug(s){
+  return String(s || '').toLowerCase()
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+}
+
+
+/* ---------------------------------------------------- Vorlage der Seite
+   Ein Stil fuer alle Seiten aus dem Editor. Farben ausschliesslich als
+   Tokens in :root und body[data-theme] - die Importpruefung verlangt genau
+   das, und so sieht jede Seite aus wie das Wiki. */
+const ED_STIL = [
+':root{',
+'  --bg:oklch(0.96 0.004 250); --surface:#fff; --line:oklch(0.92 0.004 250);',
+'  --line-soft:oklch(0.96 0.002 250); --hover:oklch(0.96 0.003 250);',
+'  --ink:oklch(0.2 0.01 250); --ink-2:oklch(0.3 0.01 250); --ink-3:oklch(0.52 0.01 250);',
+'  --accent:oklch(0.52 0.17 262); --accent-soft:oklch(0.94 0.02 262);',
+'  --accent-ink:oklch(0.38 0.13 262); --on-accent:oklch(0.99 0.002 250);',
+'  --good:oklch(0.45 0.14 158); --good-soft:oklch(0.97 0.01 158);',
+'  --warm-soft:oklch(0.94 0.01 60); --warm-ink:oklch(0.45 0.08 60);',
+'}',
+'body[data-theme="dark"]{',
+'  --bg:oklch(0.2 0.012 258); --surface:oklch(0.235 0.013 258);',
+'  --line:oklch(0.31 0.014 258); --line-soft:oklch(0.27 0.012 258);',
+'  --hover:oklch(0.27 0.013 258);',
+'  --ink:oklch(0.96 0.004 250); --ink-2:oklch(0.87 0.006 250); --ink-3:oklch(0.69 0.01 250);',
+'  --accent:oklch(0.62 0.16 262); --accent-soft:oklch(0.33 0.06 262);',
+'  --accent-ink:oklch(0.85 0.09 262); --on-accent:oklch(0.16 0.012 258);',
+'  --good:oklch(0.8 0.14 158); --good-soft:oklch(0.29 0.05 158);',
+'  --warm-soft:oklch(0.33 0.05 60); --warm-ink:oklch(0.86 0.08 60);',
+'}',
+"body{margin:0;background:var(--bg);color:var(--ink-2);",
+"  font-family:'Instrument Sans',system-ui,-apple-system,sans-serif;",
+'  font-size:14px;line-height:1.6;padding:28px 32px 60px}',
+"h2{font-family:'Sora','Instrument Sans',system-ui,sans-serif;font-size:20px;",
+'  color:var(--ink);letter-spacing:-0.02em;margin:0 0 10px;font-weight:600}',
+'h3{font-size:15px;color:var(--ink);margin:20px 0 6px;font-weight:600}',
+'p{margin:0 0 12px}',
+'ul,ol{margin:0 0 12px;padding-left:22px}',
+'li{margin:3px 0}',
+'section{max-width:760px;margin:0 0 26px;padding:18px;border-radius:14px;',
+'  background:var(--surface);border:1px solid var(--line)}',
+"code{font-family:'JetBrains Mono',ui-monospace,Consolas,monospace;font-size:12.5px;",
+'  background:var(--hover);border:1px solid var(--line-soft);border-radius:5px;',
+'  padding:1px 5px;overflow-wrap:break-word}',
+"pre{font-family:'JetBrains Mono',ui-monospace,Consolas,monospace;font-size:12.5px;",
+'  background:var(--hover);border:1px solid var(--line-soft);border-radius:10px;',
+'  padding:12px 14px;overflow-x:auto;line-height:1.55}',
+'pre code{background:none;border:0;padding:0;font-size:inherit}',
+'.tabelle{overflow-x:auto;margin:0 0 14px}',
+'table{border-collapse:collapse;width:100%;font-size:13px}',
+'th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line-soft);',
+'  vertical-align:top}',
+"th{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;",
+'  letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-3);font-weight:500}',
+'.merk,.warn,.gut{padding:11px 14px;border-radius:0 10px 10px 0;margin:14px 0;',
+'  border-left:3px solid var(--accent)}',
+'.merk{background:var(--accent-soft);color:var(--accent-ink)}',
+'.warn{border-left-color:var(--warm-ink);background:var(--warm-soft);color:var(--warm-ink)}',
+'.gut{border-left-color:var(--good);background:var(--good-soft);color:var(--good)}',
+'.merk b,.warn b,.gut b{display:block;margin-bottom:3px}',
+'.verweis{font:inherit;color:var(--accent-ink);background:var(--accent-soft);',
+'  border:1px solid var(--accent);border-radius:6px;padding:0 6px;cursor:pointer}',
+'mark.wiki-fund{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px}',
+':focus-visible{outline:2px solid var(--accent);outline-offset:2px}',
+'@media (prefers-reduced-motion:reduce){ *{transition:none!important;animation:none!important} }',
+'@media (max-width:432px){',
+'  body{padding:18px 18px 40px}',
+'  section{padding:15px}',
+'  table{font-size:12px}',
+'  th,td{padding:6px 5px}',
+'}'
+].join('\n');
+
+/* Der Pflichtteil aus EINRICHTUNG.md, mit den beiden Korrekturen aus N-06
+   und N-07: das Thema gilt ab dem ersten Anstrich, und der Textdurchlauf
+   laesst script und style aus. Dazu die Verweise auf andere Wiki-Seiten:
+   die Seite navigiert nicht selbst, sie bittet die Huelle. */
+const ED_PFLICHTTEIL = [
+'<' + 'script>',
+'/* Pflichtteil jeder Wiki-Seite: auf die Huelle hoeren. */',
+'(function(){',
+'  /* Bis die Nachricht der Huelle kommt, gilt die Einstellung des Geraets -',
+'     sonst blitzt bei hellem Wiki kurz die dunkle Fassung auf. */',
+'  document.body.dataset.theme =',
+"    (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)",
+"      ? 'dark' : 'light';",
+'  function springen(anker, begriff){',
+'    if(anker){',
+'      var el = document.getElementById(anker);',
+"      if(el) el.scrollIntoView({block:'start'});",
+'    }',
+"    document.querySelectorAll('mark.wiki-fund').forEach(function(m){",
+'      m.replaceWith(document.createTextNode(m.textContent));',
+'    });',
+'    if(!begriff || begriff.length < 2) return;',
+'    var worte = begriff.split(/\\s+/).filter(function(w){ return w.length > 1; });',
+'    if(!worte.length) return;',
+"    var re = new RegExp('(' + worte.map(function(w){",
+"      return w.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'); }).join('|') + ')', 'gi');",
+'    /* script und style ueberspringen: deren Text ist kein Inhalt, und eine',
+'       Marke darin hat kein Layout - scrollIntoView tut dann nichts und der',
+'       Sprung landet oben auf der Seite statt an der Fundstelle. */',
+'    var lauf = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {',
+'      acceptNode: function(k){',
+'        var e = k.parentElement;',
+'        while(e){',
+"          if(e.tagName === 'SCRIPT' || e.tagName === 'STYLE')",
+'            return NodeFilter.FILTER_REJECT;',
+'          e = e.parentElement;',
+'        }',
+'        return NodeFilter.FILTER_ACCEPT;',
+'      }});',
+'    var knoten = [], n;',
+'    while((n = lauf.nextNode())) if(re.test(n.nodeValue)) knoten.push(n);',
+'    knoten.forEach(function(k){',
+"      var h = document.createElement('span');",
+'      h.innerHTML = k.nodeValue.replace(/[&<>]/g, function(c){',
+"        return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; })",
+'        .replace(re, \'<mark class="wiki-fund">$1</mark>\');',
+'      k.replaceWith(h);',
+'    });',
+"    var erst = document.querySelector('mark.wiki-fund');",
+"    if(erst && !anker) erst.scrollIntoView({block:'center'});",
+'  }',
+"  window.addEventListener('message', function(e){",
+'    /* Die Seite laeuft in einem opaken Origin (Sandbox ohne',
+'       allow-same-origin). location.origin ist darum "null" und taugt nicht',
+'       als Vergleich - geprueft wird, dass die Nachricht vom eigenen',
+'       Elternfenster kommt. */',
+'    if(e.source !== window.parent || !e.data) return;',
+"    if(e.data.typ === 'wiki-springen') springen(e.data.anker, e.data.begriff);",
+'    if(e.data.thema) document.body.dataset.theme = e.data.thema;',
+'  });',
+'  /* Verweis auf eine andere Wiki-Seite. */',
+"  document.addEventListener('click', function(e){",
+"    var b = e.target.closest ? e.target.closest('button.verweis[data-slug]') : null;",
+'    if(!b) return;',
+'    if(window.parent !== window)',
+"      window.parent.postMessage({typ:'wiki-oeffnen', slug:b.dataset.slug}, '*');",
+'  });',
+'  if(window.parent !== window)',
+"    window.parent.postMessage({typ:'wiki-bereit'}, '*');",
+'})();',
+'<' + '/script>'
+].join('\n');
+
+function edListe(s){
+  return String(s || '').split(',').map(x => x.trim()).filter(Boolean);
+}
+function edPfadListe(s){
+  return String(s || '').split(/[/›>]/).map(x => x.trim()).filter(Boolean);
+}
+function edSeiteBauen(e){
+  const heute = new Date().toISOString().slice(0, 10);
+  const absch = (e.abschnitte || []).map(a => ({
+    anker: String(a.anker || '').trim(),
+    titel: String(a.titel || '').trim(),
+    stichworte: edListe(a.stichworte),
+    text: edNurText(a.markup),
+    markup: String(a.markup || '')
+  }));
+  const meta = {
+    slug: String(e.slug || '').trim(),
+    titel: String(e.titel || '').trim(),
+    kurz: String(e.kurz || '').trim(),
+    pfad: edPfadListe(e.pfad),
+    gruppen: edListe(e.gruppen),
+    stand: e.stand || heute,
+    werkzeug: EDITOR_WERKZEUG,
+    abschnitte: absch
+  };
+  const koerper = absch.map(a =>
+    '<section id="' + edEscape(a.anker) + '">\n      <h2>' + edEscape(a.titel) +
+    '</h2>\n      ' + edBloecke(a.markup) + '\n    </section>').join('\n\n    ');
+  return [
+    '<!DOCTYPE html>',
+    '<html lang="de">',
+    '<head>',
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    '<title>' + edEscape(meta.titel) + '</title>',
+    '',
+    '<' + 'script type="application/json" id="wiki-meta">',
+    JSON.stringify(meta, null, 2),
+    '<' + '/script>',
+    '',
+    '<style>',
+    ED_STIL,
+    '</style>',
+    '</head>',
+    '<body data-theme="dark">',
+    '',
+    '    ' + koerper,
+    '',
+    ED_PFLICHTTEIL,
+    '</body>',
+    '</html>',
+    ''
+  ].join('\n');
+}
+
+
+/* ---------------------------------------------------- Editor-Ansicht */
+const ED_HILFE = [
+  ['Leerzeile', 'neuer Absatz'],
+  ['## Titel', 'Zwischentitel im Abschnitt'],
+  ['- Punkt', 'Aufzählung (auch <code>*</code>)'],
+  ['1. Punkt', 'nummerierte Liste'],
+  ['**fett**', 'hervorgehoben'],
+  ['`Befehl`', 'Code im Text'],
+  ['``` … ```', 'Codeblock über mehrere Zeilen'],
+  ['&gt; Text', 'blauer Merkkasten'],
+  ['!&gt; Text', 'gelber Warnkasten'],
+  ['?&gt; Text', 'grüner Kasten „gut zu wissen"'],
+  ['| A | B |', 'Tabelle, zweite Zeile <code>|---|---|</code>'],
+  ['[[kennung]]', 'Verweis auf eine andere Wiki-Seite']
+];
+
+function edLeer(){
+  return {neu:true, slug:'', titel:'', kurz:'', pfad:'', gruppen:'', stand:'',
+          quelle:null, abschnitte:[{anker:'', titel:'', stichworte:'', markup:''}],
+          slugGetippt:false};
+}
+function edFelderLesen(){
+  const e = ZUSTAND.editor;
+  if(!e) return;
+  const w = (id) => { const f = $(id); return f ? f.value : undefined; };
+  ['titel','slug','kurz','pfad','gruppen'].forEach(k => {
+    const v = w('ed-' + k); if(v !== undefined) e[k] = v; });
+  e.abschnitte.forEach((a, i) => {
+    ['titel','anker','stichworte','markup'].forEach(k => {
+      const v = w('ed-a-' + k + '-' + i); if(v !== undefined) a[k] = v; });
+  });
+}
+function abschnittsleiste(slug, abschnitte){
+  const n = $('abschnittsleiste');
+  if(!n) return;
+  const liste = (abschnitte || []).filter(a => a.anker && a.titel);
+  /* Unter zwei Abschnitten bringt die Leiste nichts und nimmt nur Platz. */
+  if(!slug || liste.length < 2){ n.hidden = true; n.innerHTML = ''; return; }
+  n.innerHTML = '<span class="label wo">Auf dieser Seite</span>' +
+    liste.map(a => `<button type="button" data-anker="${schuetzen(a.anker)}"
+      >${schuetzen(a.titel)}</button>`).join('');
+  n.hidden = false;
+  n.querySelectorAll('[data-anker]').forEach(b => b.onclick = () => {
+    /* Kein Neuladen des Rahmens - dieselbe Nachricht wie beim Suchtreffer. */
+    wegSetzen(slug, b.dataset.anker);
+    $('rahmen')._auftrag = {anker:b.dataset.anker};
+    springen(b.dataset.anker, '');
+  });
+}
+function istGemerkt(slug){
+  return (ZUSTAND.marken || []).some(m => m.slug === slug && !m.anker);
+}
+function merkenKnopf(slug){
+  /* Der Server kann Merkzettel und die Uebersicht zeigt sie an - nur setzen
+     konnte sie niemand, weil es keinen Knopf dafuer gab. Hier ist er. */
+  const k = $('merken-knopf');
+  if(!k) return;
+  k.hidden = !slug;
+  if(!slug) return;
+  const drin = istGemerkt(slug);
+  k.textContent = drin ? 'Gemerkt' : 'Merken';
+  k.setAttribute('aria-pressed', String(drin));
+  k.title = drin ? 'Von der Übersicht nehmen' : 'Auf der Übersicht merken';
+  k.onclick = async () => {
+    const titel = $('kopftitel').textContent || slug;
+    k.disabled = true;
+    try {
+      await hole('/api/lesezeichen', {method:'POST', body:JSON.stringify(
+        drin ? {slug, anker:'', entfernen:true} : {slug, anker:'', titel})});
+      await baumLaden();
+      einblenden(drin ? 'Merkzettel entfernt.'
+                      : 'Gemerkt — steht jetzt auf der Übersicht.');
+    } catch(e){ einblenden(e.message); }
+    k.disabled = false;
+    merkenKnopf(slug);
+  };
+}
+function bearbeitenKnopf(slug){
+  /* Nur beim Lesen einer Seite und nur fuer Verwalter: schreiben darf, wer
+     einspielen darf (/api/import verlangt Verwalterrecht). */
+  const k = $('bearbeiten-knopf');
+  if(!k) return;
+  const darf = !!(slug && ZUSTAND.ich && ZUSTAND.ich.ist_admin);
+  k.hidden = !darf;
+  k.onclick = darf ? () => {
+    history.pushState(null, '', '#/bearbeiten/' + slug);
+    editor(slug);
+  } : null;
+}
+async function editor(slug){
+  ZUSTAND.ansicht = 'editor'; ZUSTAND.slug = slug || null;
+  bearbeitenKnopf(null);
+  merkenKnopf(null);
+  abschnittsleiste(null);
+  $('vorschau-leiste').hidden = true;
+  $('rahmen').hidden = true; $('rahmen').removeAttribute('src');
+  $('flaeche').hidden = false;
+  menueZu(); markieren();
+  if(!slug){
+    ZUSTAND.editor = edLeer();
+    return editorZeichnen();
+  }
+  $('flaeche').innerHTML = '<div class="meldung">Seite wird geladen …</div>';
+  let roh;
+  try {
+    /* Die gespeicherte Seite selbst holen - dort steht im Meta-Block auch
+       die Quelle, mit der der Editor sie erzeugt hat. */
+    const a = await fetch('/seite/' + encodeURIComponent(slug) + '/',
+                          {credentials:'same-origin'});
+    if(!a.ok) throw new Error('Die Seite ließ sich nicht laden (' + a.status + ').');
+    roh = await a.text();
+  } catch(err){
+    $('flaeche').innerHTML = '<div class="meldung fehler">' +
+      schuetzen(err.message) + '</div>';
+    return;
+  }
+  let meta = null;
+  const m = roh.match(/<script[^>]+id=["']wiki-meta["'][^>]*>([\s\S]*?)<\/script>/i);
+  if(m){ try { meta = JSON.parse(m[1]); } catch(e){ meta = null; } }
+  if(!meta){
+    $('flaeche').innerHTML = '<div class="meldung fehler">In dieser Seite ist ' +
+      'kein lesbarer Meta-Block. Sie lässt sich nur als Datei ersetzen.</div>';
+    return;
+  }
+  ZUSTAND.editor = {
+    neu:false, slug: meta.slug || slug, titel: meta.titel || '',
+    kurz: meta.kurz || '', pfad: (meta.pfad || []).join(' / '),
+    gruppen: (meta.gruppen || []).join(', '), stand: '',
+    quelle: meta.werkzeug === EDITOR_WERKZEUG ? 'editor' : 'fremd',
+    slugGetippt: true,
+    abschnitte: (meta.abschnitte || []).map(a => ({
+      anker: a.anker || '', titel: a.titel || '',
+      stichworte: (a.stichworte || []).join(', '),
+      /* markup gibt es nur bei Seiten aus dem Editor. Sonst dient der
+         Suchtext als Anfang - besser als ein leeres Feld, und die Warnung
+         darüber sagt, was dabei verloren geht. */
+      markup: a.markup !== undefined ? a.markup : (a.text || '')
+    }))
+  };
+  if(!ZUSTAND.editor.abschnitte.length)
+    ZUSTAND.editor.abschnitte = [{anker:'', titel:'', stichworte:'', markup:''}];
+  editorZeichnen();
+}
+function editorZeichnen(){
+  const e = ZUSTAND.editor;
+  if(!e) return verwaltung();
+  $('rahmen').hidden = true; $('flaeche').hidden = false;
+  $('vorschau-leiste').hidden = true;
+  $('kopftitel').textContent = e.neu ? 'Neue Seite' : 'Seite bearbeiten';
+  $('kopfkontext').textContent = e.titel || 'noch kein Titel';
+  const pfade = (ZUSTAND.pfade || []).map(p =>
+    `<option value="${schuetzen(p)}"></option>`).join('');
+  const warnFremd = e.quelle === 'fremd' ? `
+    <div class="meldung warn"><strong>Diese Seite kommt nicht aus dem Editor</strong>
+      <div style="margin-top:4px">Ihr Aufbau ist von Hand gemacht. Wenn du hier
+      speicherst, wird sie durch die Standardgestaltung des Editors ersetzt —
+      Text und Abschnitte bleiben, eigenes HTML und eigene Skripte nicht.
+      Die alte Fassung bleibt über <em>Fassungen</em> erreichbar.</div></div>` : '';
+
+  const abschnitte = e.abschnitte.map((a, i) => `
+    <div class="ed-abschnitt">
+      <div class="ed-kopf">
+        <span class="label">Abschnitt ${i + 1}</span>
+        <div style="margin-left:auto;display:flex;gap:6px">
+          <button class="knopf rahmen ed-klein" data-ed="hoch" data-i="${i}"
+            ${i === 0 ? 'disabled' : ''} title="nach oben">↑</button>
+          <button class="knopf rahmen ed-klein" data-ed="runter" data-i="${i}"
+            ${i === e.abschnitte.length - 1 ? 'disabled' : ''} title="nach unten">↓</button>
+          <button class="knopf rahmen gefahr ed-klein" data-ed="weg" data-i="${i}"
+            ${e.abschnitte.length < 2 ? 'disabled' : ''} title="entfernen">✕</button>
+        </div>
+      </div>
+      <div class="ed-zeile">
+        <div style="flex:2 1 260px">
+          <label class="label" for="ed-a-titel-${i}">Titel des Abschnitts</label>
+          <input type="text" id="ed-a-titel-${i}" data-ed-feld="titel" data-i="${i}"
+                 value="${schuetzen(a.titel)}" placeholder="z. B. Wozu das gut ist">
+        </div>
+        <div style="flex:1 1 160px">
+          <label class="label" for="ed-a-anker-${i}">Anker</label>
+          <input type="text" id="ed-a-anker-${i}" value="${schuetzen(a.anker)}"
+                 class="mono" placeholder="wird aus dem Titel gebildet">
+        </div>
+      </div>
+      <div style="margin-top:10px">
+        <label class="label" for="ed-a-stichworte-${i}">Stichworte für die Suche, mit Komma</label>
+        <input type="text" id="ed-a-stichworte-${i}" value="${schuetzen(a.stichworte)}"
+               placeholder="freiwillig">
+      </div>
+      <div style="margin-top:10px">
+        <label class="label" for="ed-a-markup-${i}">Text</label>
+        <textarea id="ed-a-markup-${i}" rows="10" spellcheck="true"
+          placeholder="Einfach schreiben. Leerzeile = neuer Absatz.">${schuetzen(a.markup)}</textarea>
+      </div>
+    </div>`).join('');
+
+  $('flaeche').innerHTML = `
+    <div class="raster mitte">
+      ${warnFremd}
+      <div class="karte">
+        <h3>${e.neu ? 'Neue Seite' : 'Seite bearbeiten'}</h3>
+        <div class="kontext">Der Editor erzeugt eine gewöhnliche Wiki-Seite und
+          schickt sie durch dieselbe Prüfung wie eine eingespielte Datei.</div>
+        <div class="ed-zeile" style="margin-top:14px">
+          <div style="flex:2 1 260px">
+            <label class="label" for="ed-titel">Titel</label>
+            <input type="text" id="ed-titel" value="${schuetzen(e.titel)}"
+                   placeholder="z. B. Drucker einrichten">
+          </div>
+          <div style="flex:1 1 200px">
+            <label class="label" for="ed-slug">Kennung (Adresse)</label>
+            <input type="text" id="ed-slug" class="mono" value="${schuetzen(e.slug)}"
+                   placeholder="drucker-einrichten">
+          </div>
+        </div>
+        <div class="ed-zeile" style="margin-top:10px">
+          <div style="flex:1 1 240px">
+            <label class="label" for="ed-pfad">Wohin im Themenbaum</label>
+            <input type="text" id="ed-pfad" list="ed-pfadliste" value="${schuetzen(e.pfad)}"
+                   placeholder="Technik / Netzwerke">
+            <datalist id="ed-pfadliste">${pfade}</datalist>
+          </div>
+          <div style="flex:1 1 200px">
+            <label class="label" for="ed-gruppen">Freigabe, leer = alle</label>
+            <input type="text" id="ed-gruppen" value="${schuetzen(e.gruppen)}"
+                   placeholder="wiki-technik">
+          </div>
+        </div>
+        <div style="margin-top:10px">
+          <label class="label" for="ed-kurz">Ein Satz, worum es geht</label>
+          <input type="text" id="ed-kurz" value="${schuetzen(e.kurz)}"
+                 placeholder="Steht in der Übersicht und in den Suchtreffern">
+        </div>
+      </div>
+
+      ${abschnitte}
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="knopf rahmen" data-ed="neu">Abschnitt hinzufügen</button>
+      </div>
+
+      <details class="karte">
+        <summary style="cursor:pointer;font-weight:600">Wie schreibe ich hier?</summary>
+        <div style="overflow-x:auto;margin-top:12px">
+          <table class="tabelle"><thead><tr><th>Eingabe</th><th>Ergebnis</th></tr></thead>
+          <tbody>${ED_HILFE.map(([a, b]) =>
+            `<tr><td class="mono">${a}</td><td>${b}</td></tr>`).join('')}</tbody></table>
+        </div>
+        <div style="font-size:12.5px;color:var(--ink-3);margin-top:10px">
+          Mehr gibt es nicht — und das ist Absicht. Wer HTML schreiben will,
+          spielt weiter eine Datei ein; beides führt zur selben Seite.
+        </div>
+      </details>
+
+      <div class="karte">
+        <div id="ed-bericht"></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px">
+          <button class="knopf" data-ed="speichern">Speichern</button>
+          <button class="knopf rahmen" data-ed="vorschau">Prüfen und ansehen</button>
+          <button class="knopf rahmen" data-ed="datei">Als HTML-Datei laden</button>
+          <button class="knopf still" data-ed="abbrechen">Abbrechen</button>
+        </div>
+      </div>
+    </div>`;
+
+  /* Kennung und Anker schlagen sich selbst vor, solange niemand sie angefasst
+     hat. Sonst tippt man einen Titel und muss zweimal dasselbe schreiben. */
+  $('ed-slug').addEventListener('input', () => { ZUSTAND.editor.slugGetippt = true; });
+  $('ed-titel').addEventListener('input', () => {
+    const t = $('ed-titel').value;
+    $('kopfkontext').textContent = t || 'noch kein Titel';
+    if(!ZUSTAND.editor.slugGetippt) $('ed-slug').value = edSlug(t);
+  });
+  e.abschnitte.forEach((a, i) => {
+    const ti = $('ed-a-titel-' + i), an = $('ed-a-anker-' + i);
+    if(!ti || !an) return;
+    an.addEventListener('input', () => { an.dataset.getippt = '1'; });
+    ti.addEventListener('input', () => {
+      if(an.dataset.getippt !== '1' && !a.ankerFest) an.value = edSlug(ti.value);
+    });
+    if(a.anker) an.dataset.getippt = '1';
+  });
+
+  $('flaeche').querySelectorAll('[data-ed]').forEach(b => b.onclick = () => edTun(b.dataset.ed, +b.dataset.i));
+}
+function edTun(was, i){
+  edFelderLesen();
+  const e = ZUSTAND.editor;
+  if(was === 'neu'){
+    e.abschnitte.push({anker:'', titel:'', stichworte:'', markup:''});
+    editorZeichnen();
+    const f = $('ed-a-titel-' + (e.abschnitte.length - 1));
+    if(f) f.focus();
+    return;
+  }
+  if(was === 'weg'){
+    if(e.abschnitte.length < 2) return einblenden('Ein Abschnitt muss bleiben.');
+    const a = e.abschnitte[i];
+    if((a.titel || a.markup) &&
+       !confirm('Abschnitt „' + (a.titel || 'ohne Titel') + '" entfernen?')) return;
+    e.abschnitte.splice(i, 1);
+    return editorZeichnen();
+  }
+  if(was === 'hoch' && i > 0){
+    e.abschnitte.splice(i - 1, 0, e.abschnitte.splice(i, 1)[0]);
+    return editorZeichnen();
+  }
+  if(was === 'runter' && i < e.abschnitte.length - 1){
+    e.abschnitte.splice(i + 1, 0, e.abschnitte.splice(i, 1)[0]);
+    return editorZeichnen();
+  }
+  if(was === 'abbrechen'){
+    if(!confirm('Bearbeiten abbrechen? Was hier steht, ist dann weg.')) return;
+    ZUSTAND.editor = null;
+    history.pushState(null, '', '#/verwaltung');
+    return verwaltung();
+  }
+  if(was === 'datei') return edDatei();
+  if(was === 'vorschau') return edVorschau();
+  if(was === 'speichern') return edSpeichern();
+}
+function edPruefbar(){
+  /* Was der Editor selbst schon weiß - bevor der Server es sagt. Die
+     Serverprüfung bleibt die Wahrheit, aber für Tippfehler ist der Weg über
+     das Netz unnötig lang. */
+  edFelderLesen();
+  const e = ZUSTAND.editor, m = [];
+  if(!String(e.titel || '').trim()) m.push('Der Seite fehlt der Titel.');
+  const slug = String(e.slug || '').trim();
+  if(!slug) m.push('Der Seite fehlt die Kennung.');
+  else if(!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug))
+    m.push('Die Kennung „' + slug + '" ist nicht erlaubt: nur Kleinbuchstaben, ' +
+           'Ziffern und Bindestriche.');
+  if(!edPfadListe(e.pfad).length) m.push('Der Pfad im Themenbaum fehlt.');
+  const anker = new Set();
+  e.abschnitte.forEach((a, i) => {
+    const t = String(a.titel || '').trim();
+    if(!t) m.push('Abschnitt ' + (i + 1) + ' hat keinen Titel.');
+    let k = String(a.anker || '').trim() || edSlug(t);
+    if(!k) m.push('Abschnitt ' + (i + 1) + ' hat keinen Anker.');
+    else {
+      if(anker.has(k)) m.push('Der Anker „' + k + '" kommt zweimal vor.');
+      anker.add(k);
+      a.anker = k;
+    }
+    if(!String(a.markup || '').trim())
+      m.push('Abschnitt „' + (t || (i + 1)) + '" hat keinen Text.');
+  });
+  return m;
+}
+function edBerichtZeigen(html){
+  const z = $('ed-bericht');
+  if(z) z.innerHTML = html;
+}
+async function edSenden(weg){
+  const html = edSeiteBauen(ZUSTAND.editor);
+  letzteDatei = new Blob([html], {type:'text/html'});
+  ZUSTAND.felder = null;
+  return hole(weg, {method:'POST', body: letzteDatei,
+                    headers:{'Content-Type':'text/html; charset=utf-8'}});
+}
+async function edVorschau(){
+  const m = edPruefbar();
+  if(m.length) return edBerichtZeigen('<div class="meldung fehler"><strong>' +
+    'Das fehlt noch</strong><ul style="margin:6px 0 0 18px;padding:0">' +
+    m.map(x => '<li>' + schuetzen(x) + '</li>').join('') + '</ul></div>');
+  edBerichtZeigen('<div class="meldung">Wird geprüft …</div>');
+  let b;
+  try { b = await edSenden('/api/pruefen'); }
+  catch(err){ return edBerichtZeigen('<div class="meldung fehler">' +
+    schuetzen(err.message) + '</div>'); }
+  const teile = [];
+  if(b.fehler.length) teile.push('<div class="meldung fehler"><strong>' +
+    'Nicht übernehmbar</strong><ul style="margin:6px 0 0 18px;padding:0">' +
+    b.fehler.map(f => '<li>' + schuetzen(f) + '</li>').join('') + '</ul></div>');
+  else teile.push('<div class="meldung gut"><strong>Geprüft</strong> — ' +
+    zahl(b.abschnitte) + ' Abschnitte, ' + bytes(b.groesse_nachher_b) +
+    (b.neu ? ', neue Seite' : ', ersetzt Fassung ' + (b.fassung - 1)) + '.</div>');
+  if(b.warnungen.length) teile.push('<div class="meldung warn"><strong>' +
+    b.warnungen.length + (b.warnungen.length === 1 ? ' Hinweis' : ' Hinweise') +
+    '</strong><ul style="margin:6px 0 0 18px;padding:0">' +
+    b.warnungen.map(w => '<li>' + schuetzen(w) + '</li>').join('') + '</ul></div>');
+  edBerichtZeigen(teile.join(''));
+  if(b.fehler.length) return;
+  /* Die Vorschau liegt jetzt auf dem Server - dieselbe Strecke wie beim
+     Einspielen einer Datei. Zurück führt in den Editor, nicht in die
+     Verwaltung. */
+  ZUSTAND.vorschauZurueck = () => editorZeichnen();
+  $('flaeche').hidden = true;
+  $('rahmen').hidden = false;
+  $('rahmen')._auftrag = {};
+  $('rahmen').setAttribute('src', '/vorschau/');
+  $('kopftitel').textContent = 'Vorschau';
+  $('kopfkontext').textContent = (ZUSTAND.editor.titel || '') + ' — noch nicht gespeichert';
+  $('vorschau-text').textContent = (ZUSTAND.editor.titel || '') +
+    (b.neu ? ' · neue Seite' : ' · ersetzt Fassung ' + (b.fassung - 1));
+  $('vorschau-leiste').hidden = false;
+}
+async function edSpeichern(){
+  const m = edPruefbar();
+  if(m.length) return edBerichtZeigen('<div class="meldung fehler"><strong>' +
+    'Das fehlt noch</strong><ul style="margin:6px 0 0 18px;padding:0">' +
+    m.map(x => '<li>' + schuetzen(x) + '</li>').join('') + '</ul></div>');
+  edBerichtZeigen('<div class="meldung">Wird gespeichert …</div>');
+  let a;
+  try { a = await edSenden('/api/import'); }
+  catch(err){
+    return edBerichtZeigen('<div class="meldung fehler"><strong>' +
+      'Nicht gespeichert</strong><div style="margin-top:4px">' +
+      schuetzen(err.message) + '</div><div style="margin-top:6px;font-size:12.5px">' +
+      'Alles, was du geschrieben hast, steht noch in den Feldern.</div></div>');
+  }
+  ZUSTAND.editor = null;
+  await baumLaden();
+  einblenden('Gespeichert als Fassung ' + a.fassung + '.');
+  history.pushState(null, '', '#/' + a.slug);
+  oeffnen(a.slug);
+}
+function edDatei(){
+  const m = edPruefbar();
+  if(m.length) return edBerichtZeigen('<div class="meldung fehler"><strong>' +
+    'Das fehlt noch</strong><ul style="margin:6px 0 0 18px;padding:0">' +
+    m.map(x => '<li>' + schuetzen(x) + '</li>').join('') + '</ul></div>');
+  const html = edSeiteBauen(ZUSTAND.editor);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([html], {type:'text/html'}));
+  a.download = (ZUSTAND.editor.slug || 'seite') + '.html';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  einblenden('Datei erzeugt. Sie lässt sich genauso wieder einspielen.');
+}
 
 /* ---------------------------------------------------- Start */
 async function baumLaden(){
@@ -1236,7 +2079,11 @@ async function baumLaden(){
   ZUSTAND.baum = d.baum || [];
   // Die Anzahl gehoert in den Inhalt, nicht unter das Logo (Regelblatt 5).
   ZUSTAND.anzahl = d.anzahl || 0;
+  /* Die Merkzettel kommen aus derselben Antwort - der Knopf im Kopf muss
+     wissen, ob die offene Seite schon gemerkt ist. */
+  ZUSTAND.marken = d.lesezeichen || [];
   baumZeichnen();
+  if(ZUSTAND.ansicht === 'seite') merkenKnopf(ZUSTAND.slug);
 }
 (async function los(){
   try { themaAnwenden(localStorage.getItem('wiki-thema') || 'system'); }
@@ -1246,7 +2093,10 @@ async function baumLaden(){
     ZUSTAND.einst = ZUSTAND.ich.einstellungen || {};
     themaAnwenden(ZUSTAND.einst.thema || 'system');
     $('konto-knopf').textContent = ZUSTAND.ich.name;
-    if(ZUSTAND.ich.ist_admin) $('verwaltung-knopf').hidden = false;
+    if(ZUSTAND.ich.ist_admin){
+      $('verwaltung-knopf').hidden = false;
+      $('neu-knopf').hidden = false;
+    }
     await baumLaden();
     if(!location.hash.replace(/^#\/?/, '') && ZUSTAND.einst.start === 'zuletzt'){
       const d = await hole('/api/baum');

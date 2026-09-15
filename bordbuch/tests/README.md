@@ -23,6 +23,8 @@ Oder beides zusammen:
 | `test_eingaben.py` | Zahlen, Plausibilitätsgrenzen, Datumsbereiche, `plus_monate` | B-05 |
 | `test_trennung.py` | Mandantentrennung, Freigabemodell, Gruppentrennzeichen | B-12, B-30 |
 | `test_geld_oberflaeche.mjs` | Cent-Rechnung der Oberfläche, `sum()` | B-04 |
+| `test_antriebsarten.py` | Verbrauchsangaben passend zur Antriebsart | N-08 |
+| `test_geld_cent.py` | `ct_lesen` gegen `cent`, Importweg, Sicherung, Betragsprüfung | N-10 |
 
 ## Die zwei Regeln, die hier gelten
 
@@ -60,6 +62,31 @@ die erste Fassung hätte den Fließkomma-Fehler nicht gefunden, weil die
 geprüften Beträge zufällig übereinstimmten. Erst ein Wert, bei dem
 `brutto/1,20` genau auf `,5` endet (3 Cent bei 20 %), trennt die beiden
 Rundungsarten.
+
+## Zweite Gegenprobe: die Cent-Rechnung (N-10)
+
+Für `test_geld_cent.py` wurden sieben Mutationen eingebaut, jede hat
+mindestens einen Test rot gemacht:
+
+| Mutation | Ergebnis |
+|---|---|
+| `ct_lesen` rechnet wieder mit 100 | 5 Tests rot |
+| Sicherung nimmt wieder `cent()` | 1 Test rot |
+| Import nimmt wieder `cent()` | 1 Test rot |
+| `ct_lesen` schluckt Unlesbares als Null | 1 Test rot |
+| Prüfung findet den Spaltenwiderspruch nicht mehr | 2 Tests rot |
+| Unplausibles wird auch ohne Wunsch geändert | 1 Test rot |
+| Stückpreis-Grenze auf einen echten Preis gesenkt | 2 Tests rot |
+
+Auch hier hat die Probe eine echte Lücke gezeigt: „Import nimmt wieder
+`cent()`" blieb beim ersten Lauf **unentdeckt**, weil die Umrechnung tief in
+einem Handler steckte und kein Test sie erreichte. Sie steht jetzt in
+`import_zeile_werte()` und ist abgedeckt.
+
+Eine achte Mutation wurde verworfen statt gezählt: Werkstattrechnungen in die
+Stückpreis-Prüfung aufzunehmen ändert nichts Beobachtbares, weil dort die
+„Menge" der Betrag selbst wäre und das Verhältnis damit immer bei 100 liegt.
+Eine Mutation, die nichts ändert, kann kein Test finden — das ist keine Lücke.
 
 ## Noch nicht abgedeckt
 
