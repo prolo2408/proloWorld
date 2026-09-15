@@ -263,10 +263,10 @@ document.body.dataset.theme =
 
 Danach: `beim Parsen: light | erster Anstrich: {"thema":"light","ms":10}`.
 
-**Offen:** `test-seite.html` und der Vorlagenblock in `EINRICHTUNG.md` haben
-die Zeilen nicht. Wer die Vorlage kopiert, kopiert den Blitzer mit. Beides
-sind fremde Dateien aus dem Bericht — darum hier notiert und nicht
-mitgeändert.
+**Behoben, auch in der Vorlage.** `test-seite.html` und der Block in
+`EINRICHTUNG.md` haben die Zeilen jetzt ebenfalls, samt Begründung. Der
+Editor erzeugt sie in jede neue Seite. `wiki/tests/test_seiten.py` prüft für
+jede mitgelieferte Seite, dass `prefers-color-scheme` darin vorkommt.
 
 **Prüfen:** Seite im iframe laden und im Elternfenster mitschreiben, welches
 Thema beim ersten `requestAnimationFrame` gilt.
@@ -296,16 +296,36 @@ Layout — `scrollIntoView` tut nichts, gemessen `window.scrollY: 0`. Der
 Nutzer landet oben auf der Seite statt an der echten Fundstelle, obwohl es
 sie gibt.
 
-**Offen.** Die Zeile
+**Behoben.** Der `TreeWalker` bekommt ein `acceptNode`, das `SCRIPT` und
+`STYLE` zurückweist:
 
 ```js
-var lauf = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+var lauf = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+  acceptNode: function(k){
+    var e = k.parentElement;
+    while(e){
+      if(e.tagName === 'SCRIPT' || e.tagName === 'STYLE')
+        return NodeFilter.FILTER_REJECT;
+      e = e.parentElement;
+    }
+    return NodeFilter.FILTER_ACCEPT;
+  }});
 ```
 
-bräuchte einen `acceptNode`, der `SCRIPT` und `STYLE` überspringt. Das ist
-eine Änderung am Pflichtteil, den laut `EINRICHTUNG.md` jede Seite
-unverändert übernimmt — die gehört also an die Vorlage und nicht in eine
-einzelne Seite. Die neue Seite trägt den Block darum wortgleich weiter.
+Geändert in `test-seite.html`, in `wiki/vorlagen/git-und-github.html` und im
+Vorlagenblock von `EINRICHTUNG.md`; der Editor erzeugt die korrigierte
+Fassung. Im Browser nachgemessen, vorher und nachher, mit demselben Wort:
+
+```
+vorher   "Nachricht":  11 Marken, davon 7 im Skript, erste im Skript, scrollY 0
+nachher  "Nachricht":   4 Marken, davon 0 im Skript, scrollY 1885
+vorher   test-seite.html "Pflichtteil": 3 Marken, alle im Skript
+nachher  test-seite.html "Pflichtteil": 0 Marken
+```
+
+Gegenprobe, damit die Korrektur nicht einfach die Hervorhebung abschaltet:
+Ein Wort aus dem sichtbaren Text wird weiter markiert und angesprungen
+(`Subnetzmaske`: 2 Marken; `gitignore`: 2 Marken, scrollY 4603).
 
 **Prüfen:** Der Seite `{typ:'wiki-springen', anker:'', begriff:'Nachricht'}`
 schicken und `document.querySelectorAll('mark.wiki-fund')` daraufhin
@@ -463,9 +483,11 @@ Seiten für sich richtig sind: die Oberfläche schickt eine ehrliche 0, der
 Server prüft ehrlich auf Plausibilität. Sichtbar wurde er erst dadurch, dass
 jemand den Assistenten wirklich zu Ende geklickt hat.
 
-`N-06` und `N-07` stecken in der Seitenvorlage, die jede künftige Wiki-Seite
-kopiert. `N-06` ist in der neuen Seite `git-und-github` behoben, in der
-Vorlage nicht; `N-07` ist offen, weil die Zeile in den Pflichtteil gehört und
-nicht in eine einzelne Seite. Beide zeigen dasselbe Muster wie `N-05`: der
-Import meldet „keine Fehler", weil er Meta-Block, Farben und Anker prüft —
-nicht, ob die Seite im Browser tut, was sie soll.
+`N-06` und `N-07` steckten in der Seitenvorlage, die jede künftige Wiki-Seite
+kopiert; beide sind jetzt an der Quelle behoben — in `test-seite.html`, im
+Vorlagenblock von `EINRICHTUNG.md` und im Editor, der neue Seiten erzeugt.
+Beide zeigen dasselbe Muster wie `N-05`: der Import meldet „keine Fehler",
+weil er Meta-Block, Farben und Anker prüft — nicht, ob die Seite im Browser
+tut, was sie soll. Dagegen steht jetzt `wiki/tests/test_seiten.py`: es prüft
+die mitgelieferten Seiten mit derselben Funktion, die beim Einspielen läuft,
+und verlangt den korrigierten Pflichtteil.

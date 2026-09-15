@@ -69,6 +69,12 @@ mark.wiki-fund{background:var(--accent-soft);color:var(--accent-ink);border-radi
 <script>
 /* Pflichtteil jeder Wiki-Seite: auf die Shell hoeren. */
 (function(){
+  /* Bis die Nachricht der Huelle kommt, gilt die Einstellung des Geraets -
+     sonst blitzt bei einem hellen Wiki einmal die dunkle Fassung auf (N-06).
+     Die Nachricht der Huelle hat danach wie gehabt das letzte Wort. */
+  document.body.dataset.theme =
+    (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+      ? 'dark' : 'light';
   function springen(anker, begriff){
     if(anker){
       var el = document.getElementById(anker);
@@ -82,7 +88,19 @@ mark.wiki-fund{background:var(--accent-soft);color:var(--accent-ink);border-radi
     if(!worte.length) return;
     var re = new RegExp('(' + worte.map(function(w){
       return w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|') + ')', 'gi');
-    var lauf = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    /* script und style ueberspringen (N-07): deren Text ist kein Inhalt, und
+       eine Marke darin hat kein Layout - scrollIntoView tut dann nichts und
+       der Sprung landet oben auf der Seite statt an der Fundstelle. */
+    var lauf = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode: function(k){
+        var e = k.parentElement;
+        while(e){
+          if(e.tagName === 'SCRIPT' || e.tagName === 'STYLE')
+            return NodeFilter.FILTER_REJECT;
+          e = e.parentElement;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }});
     var knoten = [], n;
     while((n = lauf.nextNode())) if(re.test(n.nodeValue)) knoten.push(n);
     knoten.forEach(function(k){
