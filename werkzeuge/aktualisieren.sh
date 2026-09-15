@@ -65,6 +65,16 @@ OHNE_SICHERUNG=0
 # Hilfsmittel
 # ----------------------------------------------------------------------
 melde()  { printf '%s\n' "$*"; }
+
+eingerueckt() {
+  # Mehrzeiliges einruecken. printf '  %s\n' "$mehrzeilig" rueckt NUR die
+  # erste Zeile ein, unquotiert zerfaellt es an Leerzeichen - beides schon
+  # passiert. Darum zeilenweise.
+  local zeile
+  while IFS= read -r zeile; do
+    [ -n "$zeile" ] && printf '        %s\n' "$zeile"
+  done <<< "$1"
+}
 abschnitt() { printf '\n=== %s ===\n' "$*"; }
 
 tools_finden() {
@@ -109,9 +119,16 @@ ein_tool() {
   # --- Rueckweg sichern, BEVOR etwas passiert --------------------------
   # Die image-Zeilen dienen nur der Anzeige und dem Protokoll. Der echte
   # Rueckweg ist die Kopie der Datei: die stimmt auch bei mehreren Diensten.
+  # Der Kommentar HINTER dem Abbild muss weg, sonst zerfaellt "image: x:1
+  # # feste Fassung" in sechs Woerter. Und die Ausgabe laeuft ueber eine
+  # Schleife statt ueber printf mit unquotiertem $ABBILDER - sonst trennt die
+  # Shell erneut an Leerzeichen.
   local ABBILDER
   ABBILDER=$(grep -E '^[[:space:]]*image:' "$ORDNER/docker-compose.yml" \
-             | sed 's/^[[:space:]]*image:[[:space:]]*//' | tr -d '"' || true)
+             | sed -e 's/^[[:space:]]*image:[[:space:]]*//' \
+                   -e 's/[[:space:]]*#.*$//' \
+                   -e 's/[[:space:]]*$//' \
+             | tr -d '"' || true)
   if [ -z "$ABBILDER" ]; then
     melde "ABBRUCH: in $ORDNER/docker-compose.yml fehlt eine image:-Zeile."
     melde "         Ohne sie gibt es keinen Rueckweg (Betriebsregeln 5, B-23)."
@@ -119,17 +136,17 @@ ein_tool() {
     melde "         'build: .' UND 'image: <tool>:<fassung>'."
     return 1
   fi
-  melde "[1/5] Eingetragene Fassung:"
-  printf '        %s\n' $ABBILDER
+  melde "[1/4] Eingetragene Fassung:"
+  eingerueckt "$ABBILDER"
 
   # Der Rueckweg ist der Stand des letzten ERFOLGREICHEN Laufs - nicht der
   # Stand von jetzt. Siehe Punkt 5 im Kopf.
   local RUECKWEG="$ORDNER/.stand-erfolgreich.yml"
   if [ -f "$RUECKWEG" ]; then
     melde "      Rueckweg vorhanden (letzter erfolgreicher Lauf):"
-    grep -E '^[[:space:]]*image:' "$RUECKWEG" \
-      | sed 's/^[[:space:]]*image:[[:space:]]*//' | tr -d '"' \
-      | sed 's/^/        /'
+    eingerueckt "$(grep -E '^[[:space:]]*image:' "$RUECKWEG" \
+      | sed -e 's/^[[:space:]]*image:[[:space:]]*//' -e 's/[[:space:]]*#.*$//' \
+      | tr -d '"')"
   else
     melde "      KEIN Rueckweg: dieses Tool wurde mit diesem Skript noch nie"
     melde "      erfolgreich aktualisiert. Geht es schief, fuehrt der Weg"
@@ -139,54 +156,21 @@ ein_tool() {
   # --- Sicherung ------------------------------------------------------
   # Sichtbar, nicht nach /dev/null: eine fehlgeschlagene Sicherung ist der
   # Grund, JETZT abzubrechen, und nicht erst nach der Migration zu merken.
-  melde "[2/5] Sicherung laeuft ..."
-  if [ "$OHNE_SICHERUNG" -eq 1 ]; then
-    melde "      UEBERSPRUNGEN (--ohne-sicherung)."
-    melde "      Das ist die Ausnahme, nicht der Normalfall. B-04 hat gezeigt,"
-    melde "      dass eine Migration nicht umkehrbar sein kann."
-  elif [ ! -x "$SICHERUNG" ]; then
-    melde "ABBRUCH: $SICHERUNG fehlt oder ist nicht ausfuehrbar."
-    return 1
-  elif ! tun "$SICHERUNG"; then
-    # Wichtige Unterscheidung: backup.sh endet auch dann mit 1, wenn die
-    # Sicherung zwar GESCHRIEBEN wurde, aber unverschluesselt blieb (kein
-    # age-Schluessel, age nicht installiert). Die Daten sind dann gesichert,
-    # nur nicht verschluesselt. Ein Abbruch ist hier richtig - sonst
-    # verschwindet der Hinweis -, aber der Grund muss dastehen, sonst sucht
-    # man ihn an der falschen Stelle.
-    melde "ABBRUCH: die Sicherung endete mit einem Fehler."
-    melde "         Ohne belegte Sicherung wird nicht aktualisiert."
-    melde ""
-    melde "         Haeufigster Grund ist NICHT ein Datenverlust, sondern ein"
-    melde "         fehlender age-Schluessel: dann liegt die Sicherung zwar da,"
-    melde "         aber im Klartext, und backup.sh meldet das als Fehler."
-    melde "         Pruefen:"
-    melde "           ls -la /opt/backups/ | tail -5"
-    melde "           ls -la /opt/stack/.backup-schluessel.pub"
-    melde "           command -v age || echo 'age fehlt: apt install age'"
-    melde ""
-    melde "         Ist der Grund geklaert und die Sicherung nachweislich da:"
-    melde "           $(basename "$0") --ohne-sicherung $TOOL"
-    return 1
-  else
-    melde "      erledigt."
-  fi
-
   cd "$ORDNER"
 
   # --- Neue Fassung bereitstellen -------------------------------------
-  melde "[3/5] Neue Fassung wird bereitgestellt (TYP=$TYP) ..."
+  melde "[2/4] Neue Fassung wird bereitgestellt (TYP=$TYP) ..."
   if [ "$TYP" = "build" ]; then
     tun docker compose build --pull
   else
     tun docker compose pull
   fi
 
-  melde "[4/5] Container werden neu gestartet ..."
+  melde "[3/4] Container werden neu gestartet ..."
   tun docker compose up -d
 
   # --- Pruefen --------------------------------------------------------
-  melde "[5/5] Pruefe, hoechstens ${PRUEF_WARTEN}s ..."
+  melde "[4/4] Pruefe, hoechstens ${PRUEF_WARTEN}s ..."
   if [ "$TROCKEN" -eq 1 ]; then melde "      [trocken] uebersprungen"; return 0; fi
 
   if pruefen "$TOOL" "$PRUEF_WARTEN" "$PRUEF_URL" "$HAUPT"; then
@@ -302,8 +286,9 @@ zurueckrollen() {
 
   cp "$RUECKWEG" "$ORDNER/docker-compose.yml"
   melde "docker-compose.yml auf den letzten erfolgreichen Stand zurueck:"
-  grep -E '^[[:space:]]*image:' "$ORDNER/docker-compose.yml" \
-    | sed 's/^[[:space:]]*image:[[:space:]]*//' | tr -d '"' | sed 's/^/        /'
+  eingerueckt "$(grep -E '^[[:space:]]*image:' "$ORDNER/docker-compose.yml" \
+    | sed -e 's/^[[:space:]]*image:[[:space:]]*//' -e 's/[[:space:]]*#.*$//' \
+    | tr -d '"')"
 
   if [ "$TYP" = "build" ]; then
     # Bei eigenem Code steckt die Fassung im Quellcode, nicht in der
@@ -344,6 +329,10 @@ verwendung() {
   done
 }
 
+# Die urspruenglichen Argumente merken, um sie in Meldungen vorschlagen zu
+# koennen ("sudo ... --ohne-sicherung <dieselben Tools>").
+URSPRUNG="$*"
+
 ZIELE=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -377,6 +366,71 @@ ZIELE=("${sortiert[@]}")
 
 melde "Tools in dieser Reihenfolge: ${ZIELE[*]}"
 [ "$TROCKEN" -eq 1 ] && melde "(Trockenlauf - es wird nichts geaendert)"
+
+# ----------------------------------------------------------------------
+# Rechte pruefen, BEVOR irgendetwas laeuft.
+#
+# Ohne root scheitert alles Wesentliche - docker, /opt/backups, die
+# Sicherung -, aber jeweils erst mittendrin und mit einer Meldung, die nach
+# einem ganz anderen Problem aussieht ("permission denied while trying to
+# connect to the docker API"). Lieber vorher einmal klar.
+# ----------------------------------------------------------------------
+if [ "$TROCKEN" -eq 0 ] && [ "$(id -u)" -ne 0 ]; then
+  melde ""
+  melde "ABBRUCH: das Skript braucht root."
+  melde "         docker, /opt/backups und backup.sh sind sonst nicht"
+  melde "         erreichbar - der Lauf wuerde mittendrin scheitern, mit"
+  melde "         Meldungen, die nach einem anderen Problem aussehen"
+  melde "         (\"permission denied ... docker API\")."
+  melde ""
+  melde "         sudo $0 $URSPRUNG"
+  exit 1
+fi
+
+# ----------------------------------------------------------------------
+# Sicherung: EINMAL fuer den ganzen Lauf.
+#
+# backup.sh sichert immer den gesamten Stack, nicht ein einzelnes Tool.
+# Sie je Tool aufzurufen hiess bei --alle: sechs vollstaendige Sicherungen
+# hintereinander, und im Fehlerfall sechsmal dieselbe Meldung.
+# ----------------------------------------------------------------------
+if [ "$TROCKEN" -eq 1 ]; then
+  melde ""
+  melde "[Sicherung] [trocken] $SICHERUNG"
+elif [ "$OHNE_SICHERUNG" -eq 1 ]; then
+  melde ""
+  melde "[Sicherung] UEBERSPRUNGEN (--ohne-sicherung)."
+  melde "            Das ist die Ausnahme, nicht der Normalfall. B-04 hat"
+  melde "            gezeigt, dass eine Migration nicht umkehrbar sein kann."
+elif [ ! -x "$SICHERUNG" ]; then
+  melde ""
+  melde "ABBRUCH: $SICHERUNG fehlt oder ist nicht ausfuehrbar."
+  exit 1
+else
+  melde ""
+  melde "[Sicherung] laeuft fuer den ganzen Stack ..."
+  if ! "$SICHERUNG"; then
+    melde ""
+    melde "ABBRUCH: die Sicherung endete mit einem Fehler."
+    melde "         Ohne belegte Sicherung wird nicht aktualisiert."
+    melde ""
+    melde "         Die Meldungen von backup.sh stehen oben - dort steht,"
+    melde "         WAS fehlgeschlagen ist. Zwei haeufige Faelle:"
+    melde ""
+    melde "         - \"permission denied ... docker API\" oder \"Operation not"
+    melde "           permitted\": das Skript laeuft ohne root. Mit sudo neu."
+    melde "         - \"age ist nicht installiert\" oder \"kein Schluessel\":"
+    melde "           die Sicherung liegt da, nur unverschluesselt."
+    melde "           Pruefen: ls -la /opt/backups/ | tail -5"
+    melde "                    ls -la /opt/stack/.backup-schluessel.pub"
+    melde "                    command -v age || echo 'apt install age'"
+    melde ""
+    melde "         Ist der Grund geklaert und die Sicherung nachweislich da:"
+    melde "           sudo $0 --ohne-sicherung $URSPRUNG"
+    exit 1
+  fi
+  melde "            erledigt."
+fi
 
 FEHLGESCHLAGEN=()
 for t in "${ZIELE[@]}"; do
