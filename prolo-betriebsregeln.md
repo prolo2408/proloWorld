@@ -799,6 +799,36 @@ Verhalten **nicht** zurück: die Fassung steckt im Quellcode, nicht in der
 Und: hat die neue Fassung die Datenbank bereits migriert, reicht Zurückrollen
 grundsätzlich nicht — siehe Abschnitt 22.
 
+**Die Prüfung sagt „der Container läuft", nicht „der Dienst tut, was er
+soll".** Am 15.09.2026 auf dem Server erlebt (N-05): Traefik lief einwandfrei,
+das Skript meldete zu Recht `FERTIG`, und trotzdem lieferte es für alle
+Subdomains sein selbst ausgestelltes Notzertifikat aus — es kam wegen der
+Dateirechte nicht an `acme.json`. Kein Absturz, keine rote Meldung, nur eine
+Zeile im Protokoll. Aufgefallen ist es, weil jemand die Seite im Browser
+aufgerufen hat.
+
+Für Tools **ohne** `PRUEF_URL` — und Traefik ist genau so eines — ist die
+Prüfung damit oberflächlich. Nach einer Aktualisierung an der Tür gehört
+deshalb ein Blick in den Browser dazu, nicht nur ins Protokoll.
+
+### Dateirechte bei Bind-Mounts
+
+Aus derselben Sache, weil es jeden Dienst mit `cap_drop: ALL` trifft: ein
+Container läuft zwar oft als root, aber `cap_drop: ALL` nimmt ihm
+`CAP_DAC_OVERRIDE` — die Fähigkeit, mit der root sonst jede
+Dateirechteprüfung umgeht. Danach gelten die normalen Rechtebits.
+
+**Eingehängte Dateien müssen daher dem Nutzer gehören, unter dem der Dienst
+im Container läuft** — bei einer Datei mit `600`, die `prolo` gehört, kommt
+ein als root laufender Container mit `cap_drop: ALL` nicht mehr daran.
+
+Beim Einhängen einer neuen Datei also immer prüfen:
+
+```bash
+ls -la <datei>                       # wem gehoert sie?
+docker exec <container> id           # als wem laeuft der Dienst?
+```
+
 ## 21. Ablauf im Alltag
 
 **Fertiges Abbild (n8n, Authentik, Traefik, socket-proxy):**
@@ -975,6 +1005,9 @@ Design- und Qualitätspunkte stehen in `prolo-regelblatt.md`.
       (B-29) — und nur die Fähigkeiten zurückgegeben, die der Dienst wirklich
       braucht
 - [ ] `read_only: true` geprüft: möglich oder mit Begründung nicht
+- [ ] Bei `cap_drop: ALL`: gehören alle eingehängten Dateien dem Nutzer, unter
+      dem der Dienst im Container läuft? Ohne `CAP_DAC_OVERRIDE` hilft root
+      nicht mehr über fremde Rechtebits hinweg (N-05)
 - [ ] Traefik-Labels inklusive `authentik@file`
 - [ ] Anwendung in Authentik angelegt **und dem Outpost zugewiesen**
 - [ ] Von außen aufgerufen, Anmelde-Weiterleitung geprüft

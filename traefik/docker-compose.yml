@@ -25,6 +25,23 @@ services:
       # Datei, nicht die API dahinter.
       - ./traefik.yml:/etc/traefik/traefik.yml:ro
       - ./dynamic:/etc/traefik/dynamic:ro
+      # WICHTIG: acme.json und log/ muessen root gehoeren.
+      #
+      # Traefik laeuft im Container als root, aber cap_drop: ALL oben nimmt
+      # ihm CAP_DAC_OVERRIDE - die Faehigkeit, mit der root sonst jede
+      # Dateirechtepruefung umgeht. Ohne sie gelten fuer root die normalen
+      # Rechtebits. Gehoert acme.json einem anderen Nutzer und hat 600,
+      # kommt Traefik nicht mehr daran.
+      #
+      # Die Folge ist kein sichtbarer Absturz, sondern eine Zeile im
+      # Protokoll und ein stiller Rueckfall auf das Notzertifikat:
+      #   ERR The ACME resolve is skipped from the resolvers list
+      #       error="... open /letsencrypt/acme.json: permission denied"
+      # Der Browser meldet dann "Nicht sicher" und zeigt
+      # CN=TRAEFIK DEFAULT CERT. Am 15.09.2026 genau so passiert.
+      #
+      #   sudo chown root:root acme.json && sudo chmod 600 acme.json
+      #   sudo chown -R root:root log
       - ./acme.json:/letsencrypt/acme.json
       # Zugriffsprotokolle (B-26). Ordner vorher anlegen:
       #   sudo mkdir -p /opt/stack/traefik/log
