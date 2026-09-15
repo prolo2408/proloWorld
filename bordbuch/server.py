@@ -249,6 +249,20 @@ MAX_EINSTELLUNGEN_B = 64 * 1024
 MAX_IMPORT_ZEILEN = 5000
 
 
+# Hoechstzahl Platzhalter je Abfrage (B-39). Eine IN-Liste mit beliebig
+# vielen Platzhaltern laeuft irgendwann gegen SQLITE_MAX_VARIABLE_NUMBER -
+# je nach Uebersetzung 999, 32766 oder mehr. Statt sich auf die jeweilige
+# Umgebung zu verlassen, wird in Bloecken gearbeitet: 500 ist klein genug
+# fuer jede Uebersetzung und gross genug, dass es nicht auffaellt.
+BLOCK = 500
+
+
+def in_bloecken(werte, groesse=BLOCK):
+    """Eine Liste in Bloecke zerlegen."""
+    for i in range(0, len(werte), groesse):
+        yield werte[i:i + groesse]
+
+
 class RumpfZuGross(Exception):
     """Der Rumpf ueberschreitet MAX_BODY (B-37) - fuehrt zu 413."""
 
@@ -2117,11 +2131,17 @@ class App(BaseHTTPRequestHandler):
         if dbid:
             # Auch importierte Ladungen duerfen korrigiert werden - eine falsch
             # abgerechnete Ladung soll man geradebiegen koennen.
-            finish = start
-            row = con.execute("SELECT start FROM sessions WHERE id=? AND nutzer_id=?",
+            row = con.execute("SELECT start,finish FROM sessions WHERE id=? AND nutzer_id=?",
                               (dbid, user["id"])).fetchone()
             if not row:
                 return self.send_json({"error": "Ladung nicht gefunden"}, 404)
+            # Ein vorhandenes Ende BEHALTEN (B-40). Vorher wurde finish hart
+            # auf start gesetzt: bei einer importierten Ladung mit echter
+            # Endzeit ging diese Angabe verloren, sobald jemand einen
+            # Tippfehler im Betrag korrigierte. Regelblatt 15 - stille
+            # Datenverluste sind das Schlimmste, was ein Tool tun kann.
+            mitgeschickt = valid_ts(data.get("finish") or data.get("end"))
+            finish = mitgeschickt or row["finish"] or start
             cur = con.execute("""UPDATE sessions SET car_id=?,start=?,finish=?,sec=?,kwh=?,cost=?,net=?,
                                  vat=?,cost_ct=?,net_ct=?,vat_ct=?,station=?,note=?,odo=?
                                  WHERE id=? AND nutzer_id=?""",
@@ -2153,8 +2173,13 @@ class App(BaseHTTPRequestHandler):
         ids = [int(i) for i in (data.get("ids") or []) if str(i).isdigit()]
         if not ids:
             return self.send_json({"ok": True, "changed": 0})
-        q = "UPDATE sessions SET car_id=? WHERE nutzer_id=? AND id IN (%s)" % ",".join("?" * len(ids))
-        return self.send_json({"ok": True, "changed": con.execute(q, [car_id, user["id"]] + ids).rowcount})
+        # In Bloecken (B-39) - siehe in_bloecken().
+        geaendert = 0
+        for teil in in_bloecken(ids):
+            q = ("UPDATE sessions SET car_id=? WHERE nutzer_id=? AND id IN (%s)"
+                 % ",".join("?" * len(teil)))
+            geaendert += con.execute(q, [car_id, user["id"]] + teil).rowcount
+        return self.send_json({"ok": True, "changed": geaendert})
 
     def sessions_delete(self, con, user, data):
         if data.get("all"):
@@ -2163,8 +2188,15 @@ class App(BaseHTTPRequestHandler):
         ids = [int(i) for i in (data.get("ids") or []) if str(i).isdigit()]
         if not ids:
             return self.send_json({"ok": True, "deleted": 0})
-        q = "DELETE FROM sessions WHERE nutzer_id=? AND id IN (%s)" % ",".join("?" * len(ids))
-        return self.send_json({"ok": True, "deleted": con.execute(q, [user["id"]] + ids).rowcount})
+        # In Bloecken (B-39). Die Loeschungen laufen in EINER Transaktion,
+        # damit nicht die Haelfte verschwindet, wenn es dazwischen klemmt.
+        weg = 0
+        with bulk(con):
+            for teil in in_bloecken(ids):
+                q = ("DELETE FROM sessions WHERE nutzer_id=? AND id IN (%s)"
+                     % ",".join("?" * len(teil)))
+                weg += con.execute(q, [user["id"]] + teil).rowcount
+        return self.send_json({"ok": True, "deleted": weg})
 
     # ---------------- Tankungen ----------------
     def save_receipt(self, data):
