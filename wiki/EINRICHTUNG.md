@@ -189,6 +189,17 @@ Import prüft beides und meldet, was fehlt.
 
 ---
 
+# Was die Hülle beim Lesen anbietet
+
+- **Merken** im Kopf legt die Seite auf die Übersicht. Nochmal drücken nimmt
+  sie wieder weg.
+- **Auf dieser Seite** — die Leiste unter dem Kopf — springt zu einem
+  Abschnitt, ohne die Seite neu zu laden. Sie erscheint ab zwei Abschnitten;
+  die Anker kommen aus dem Meta-Block.
+- **Bearbeiten** öffnet den Editor (nur für Verwalter).
+
+---
+
 # Seiten im Wiki selbst schreiben
 
 Für alles, was keine eigene Gestaltung braucht, gibt es den **Editor** —

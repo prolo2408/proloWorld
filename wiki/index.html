@@ -304,6 +304,22 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
   .knopf{height:44px}
   #kopftitel{font-size:16px}
 }
+/* ---------- Abschnittsleiste einer Seite ----------
+   Lange Seiten (die Git-Anleitung hat sieben Abschnitte) waren nur mit
+   Scrollen zu ueberblicken. Die Anker stehen im Meta-Block, der Sprung
+   laeuft ueber denselben Weg wie ein Suchtreffer. */
+#abschnittsleiste{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;
+  padding:8px 24px;background:var(--surface);
+  border-bottom:1px solid var(--line)}
+#abschnittsleiste::-webkit-scrollbar{display:none}
+#abschnittsleiste[hidden]{display:none}
+#abschnittsleiste button{flex:0 0 auto;height:28px;padding:0 11px;
+  border-radius:999px;border:1px solid var(--line);background:var(--bg);
+  color:var(--ink-2);font:inherit;font-size:12.5px;cursor:pointer;
+  white-space:nowrap}
+#abschnittsleiste button:hover{background:var(--hover);color:var(--ink)}
+#abschnittsleiste .wo{align-self:center;margin-right:4px;flex:0 0 auto}
+
 /* ---------- Seiten-Editor ---------- */
 .ed-abschnitt{background:var(--surface);border:1px solid var(--line);
   border-radius:14px;padding:16px}
@@ -352,6 +368,7 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
     <header>
       <button class="knopf rahmen" id="menue-knopf" aria-label="Themen anzeigen"
               aria-expanded="false">Themen</button>
+      <button class="knopf rahmen" id="merken-knopf" hidden>Merken</button>
       <button class="knopf rahmen" id="bearbeiten-knopf" hidden>Bearbeiten</button>
 
       <div style="min-width:0;flex:0 1 auto">
@@ -376,6 +393,8 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
                 style="font-weight:600;color:var(--ink)">…</button>
       </div>
     </header>
+
+    <nav id="abschnittsleiste" hidden aria-label="Abschnitte dieser Seite"></nav>
 
     <div id="vorschau-leiste" hidden
          style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;
@@ -567,6 +586,7 @@ async function oeffnen(slug, anker, begriff, ohneWeg){
   ZUSTAND.ansicht = 'seite';
   if(!slug) return start();
   bearbeitenKnopf(slug);
+  merkenKnopf(slug);
   $('vorschau-leiste').hidden = true;
   let daten;
   try { daten = await hole('/api/seite/' + encodeURIComponent(slug)); }
@@ -577,6 +597,7 @@ async function oeffnen(slug, anker, begriff, ohneWeg){
   $('kopftitel').textContent = daten.titel;
   $('kopfkontext').textContent = (daten.pfad||[]).join(' › ') +
     (daten.stand ? '  ·  Stand ' + datum(daten.stand) : '');
+  abschnittsleiste(slug, daten.abschnitte);
   document.title = daten.titel + ' — Prolo Wiki';
 
   const f = $('rahmen');
@@ -735,6 +756,8 @@ function trefferSchliessen(){
 /* ---------------------------------------------------- Startseite */
 async function start(){
   bearbeitenKnopf(null);
+  merkenKnopf(null);
+  abschnittsleiste(null);
   ZUSTAND.ansicht = 'start'; ZUSTAND.slug = null;
   $('vorschau-leiste').hidden = true;
   history.replaceState(null, '', '#/');
@@ -806,6 +829,8 @@ function zaehlen(k){
    Aufbau nach Regelblatt 6a: Darstellung, Tool-Einstellungen, Konto. */
 async function einstellungen(){
   bearbeitenKnopf(null);
+  merkenKnopf(null);
+  abschnittsleiste(null);
   $('vorschau-leiste').hidden = true;
   ZUSTAND.ansicht = 'einstellungen'; ZUSTAND.slug = null;
   markieren(); menueZu();
@@ -931,6 +956,8 @@ async function einstellungen(){
 async function verwaltung(){
   ZUSTAND.ansicht = 'verwaltung'; ZUSTAND.slug = null; markieren(); menueZu();
   bearbeitenKnopf(null);
+  merkenKnopf(null);
+  abschnittsleiste(null);
   $('vorschau-leiste').hidden = true;
   $('rahmen').hidden = true; $('rahmen').removeAttribute('src');
   $('flaeche').hidden = false;
@@ -1646,6 +1673,51 @@ function edFelderLesen(){
       const v = w('ed-a-' + k + '-' + i); if(v !== undefined) a[k] = v; });
   });
 }
+function abschnittsleiste(slug, abschnitte){
+  const n = $('abschnittsleiste');
+  if(!n) return;
+  const liste = (abschnitte || []).filter(a => a.anker && a.titel);
+  /* Unter zwei Abschnitten bringt die Leiste nichts und nimmt nur Platz. */
+  if(!slug || liste.length < 2){ n.hidden = true; n.innerHTML = ''; return; }
+  n.innerHTML = '<span class="label wo">Auf dieser Seite</span>' +
+    liste.map(a => `<button type="button" data-anker="${schuetzen(a.anker)}"
+      >${schuetzen(a.titel)}</button>`).join('');
+  n.hidden = false;
+  n.querySelectorAll('[data-anker]').forEach(b => b.onclick = () => {
+    /* Kein Neuladen des Rahmens - dieselbe Nachricht wie beim Suchtreffer. */
+    wegSetzen(slug, b.dataset.anker);
+    $('rahmen')._auftrag = {anker:b.dataset.anker};
+    springen(b.dataset.anker, '');
+  });
+}
+function istGemerkt(slug){
+  return (ZUSTAND.marken || []).some(m => m.slug === slug && !m.anker);
+}
+function merkenKnopf(slug){
+  /* Der Server kann Merkzettel und die Uebersicht zeigt sie an - nur setzen
+     konnte sie niemand, weil es keinen Knopf dafuer gab. Hier ist er. */
+  const k = $('merken-knopf');
+  if(!k) return;
+  k.hidden = !slug;
+  if(!slug) return;
+  const drin = istGemerkt(slug);
+  k.textContent = drin ? 'Gemerkt' : 'Merken';
+  k.setAttribute('aria-pressed', String(drin));
+  k.title = drin ? 'Von der Übersicht nehmen' : 'Auf der Übersicht merken';
+  k.onclick = async () => {
+    const titel = $('kopftitel').textContent || slug;
+    k.disabled = true;
+    try {
+      await hole('/api/lesezeichen', {method:'POST', body:JSON.stringify(
+        drin ? {slug, anker:'', entfernen:true} : {slug, anker:'', titel})});
+      await baumLaden();
+      einblenden(drin ? 'Merkzettel entfernt.'
+                      : 'Gemerkt — steht jetzt auf der Übersicht.');
+    } catch(e){ einblenden(e.message); }
+    k.disabled = false;
+    merkenKnopf(slug);
+  };
+}
 function bearbeitenKnopf(slug){
   /* Nur beim Lesen einer Seite und nur fuer Verwalter: schreiben darf, wer
      einspielen darf (/api/import verlangt Verwalterrecht). */
@@ -1661,6 +1733,8 @@ function bearbeitenKnopf(slug){
 async function editor(slug){
   ZUSTAND.ansicht = 'editor'; ZUSTAND.slug = slug || null;
   bearbeitenKnopf(null);
+  merkenKnopf(null);
+  abschnittsleiste(null);
   $('vorschau-leiste').hidden = true;
   $('rahmen').hidden = true; $('rahmen').removeAttribute('src');
   $('flaeche').hidden = false;
@@ -2005,7 +2079,11 @@ async function baumLaden(){
   ZUSTAND.baum = d.baum || [];
   // Die Anzahl gehoert in den Inhalt, nicht unter das Logo (Regelblatt 5).
   ZUSTAND.anzahl = d.anzahl || 0;
+  /* Die Merkzettel kommen aus derselben Antwort - der Knopf im Kopf muss
+     wissen, ob die offene Seite schon gemerkt ist. */
+  ZUSTAND.marken = d.lesezeichen || [];
   baumZeichnen();
+  if(ZUSTAND.ansicht === 'seite') merkenKnopf(ZUSTAND.slug);
 }
 (async function los(){
   try { themaAnwenden(localStorage.getItem('wiki-thema') || 'system'); }

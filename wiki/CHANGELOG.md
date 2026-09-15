@@ -51,6 +51,17 @@ schreiben — ohne HTML, ohne Datei, ohne Editor auf dem Rechner.
 - **Noch nicht drin:** Anhänge. Wer Bilder oder PDFs braucht, spielt eine
   Datei ein.
 
+**Merkzettel lassen sich jetzt setzen.** Der Server konnte sie schon
+(`/api/lesezeichen`) und die Übersicht zeigte sie an — nur einen Knopf dafür
+gab es nirgends, die Schnittstelle war von der Oberfläche aus unerreichbar.
+Jetzt steht **Merken** im Kopf einer offenen Seite und schaltet um.
+
+**Abschnittsleiste.** Unter dem Kopf steht bei Seiten mit mindestens zwei
+Abschnitten „Auf dieser Seite" mit einem Knopf je Abschnitt. Der Sprung läuft
+über denselben Weg wie ein Suchtreffer (`wiki-springen`), lädt den Rahmen
+also nicht neu. Die Git-Anleitung mit ihren sieben Abschnitten war vorher nur
+durch Scrollen zu überblicken.
+
 **Zwei Korrekturen am Pflichtteil jeder Seite** (Befunde N-06 und N-07,
 beide beim Bau des Editors aufgefallen):
 
