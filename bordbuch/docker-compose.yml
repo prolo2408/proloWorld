@@ -8,7 +8,7 @@
 services:
   bordbuch:
     build: .
-    image: bordbuch:2.5.2          # feste Fassung, nie latest
+    image: bordbuch:2.5.3          # feste Fassung, nie latest
     container_name: bordbuch
     # Grenzen nach Betriebsregeln 5 (B-29). Vorher hatte KEIN Container
     # mem_limit, pids_limit, cap_drop oder security_opt. Folgen: ein

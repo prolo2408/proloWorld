@@ -471,11 +471,131 @@ je Zeile, dass gerechnet wurde.
 
 ---
 
+## N-10 — Eingelesene und eingespielte Beträge standen hundertfach in der Datenbank
+
+**Stufe:** hoch — falsche Zahlen, die niemandem auffallen müssen
+**Datei:** `bordbuch/server.py` (`sessions_import`, `cent_aus_sicherung`)
+**Gefunden bei:** Durchtesten des Datei-Imports
+
+Eine Ladeliste als CSV eingelesen, wie ein Anbieter sie ausgibt — Semikolon,
+deutsche Zahlen. Die Prüfansicht stimmte:
+
+```
+Gefundene Ladungen prüfen
+Neu 3 · Energie 102,3 kWh · Kosten 24,05 €
+```
+
+Nach dem Übernehmen stand in der Übersicht:
+
+```
+Ausgaben 2.418,36 €   Ø Preis 23,646 €/kWh   Kosten je 100 km 425,63 €
+```
+
+Am API nachgemessen, gegen die Werte aus der Datei:
+
+```
+Ort                    kWh      Kosten    erwartet  Faktor
+EnBW Siegen Ost        38.412   1421.0    14.21     100
+Aldi Netto Park        22.1     984.0     9.84      100
+```
+
+**Der zweite, schlimmere Weg:** dasselbe beim Einspielen einer Sicherung. Eine
+von Hand erfasste Tankung für 74,12 € kam als **7.412,00 €** zurück:
+
+```
+vor der Sicherung:  Tankung 42,8 l -> 74,12 EUR (costCt 7412)
+nach dem Einspielen: Tankung 42,8 l -> 7412,00 EUR (costCt 741200)
+```
+
+Eine Sicherung spielt man genau dann ein, wenn man sich auf sie verlassen
+muss.
+
+### Die Ursache
+
+Zwei Funktionen, die fast dasselbe tun:
+
+- `cent(v)` bekommt **Euro** und multipliziert mit 100. `cent(14.21) = 1421`.
+- Die Oberfläche schickt beim Import `costCt` — das ist **schon Cent**
+  (`ct(14.21) = 1421`), und die Sicherung enthält `cost_ct` ebenso.
+
+An beiden Stellen wurde die Cent-Angabe durch `cent()` geschickt:
+`cent(1421) = 142100`. Der Kommentar im Code sagte sogar „bevorzugt die
+Cent-Angabe" — genommen wurde sie auch, nur eben noch einmal umgerechnet.
+
+Von Hand erfasste Vorgänge waren nie betroffen: die gehen über
+`pflicht_cent(data, "cost")` und bekommen tatsächlich Euro.
+
+### Behoben
+
+`ct_lesen(v)` liest eine Cent-Angabe als Cent — mit derselben kaufmännischen
+Rundung wie `cent()`, und ohne stillen Vorgabewert, damit der Aufrufer auf die
+Euro-Spalte ausweichen kann. Beide Stellen benutzen sie. Die Umrechnung einer
+Importzeile steckt jetzt in `import_zeile_werte()`, damit genau dieser Weg
+einzeln prüfbar ist.
+
+**Prüfen (ausgeführt):** Import und Sicherungsdurchlauf am laufenden Server:
+
+```
+Ladung  EnBW            14,21 EUR  erwartet 14.21  ok
+Ladung  Alt ohne Cent    3,50 EUR  erwartet 3.50   ok   (Datei ohne Cent-Spalte)
+Tankung Shell           74,12 EUR  erwartet 74.12  ok   (nach Sicherung + Einspielen)
+```
+
+### Was mit bestehenden Daten passiert
+
+Der Fehler ist behoben, aber gespeicherte Zeilen bleiben falsch. Dafür gibt es
+zwei Schalter:
+
+```bash
+python3 server.py --db <datei> --betraege-pruefen    # nur nachsehen
+python3 server.py --db <datei> --betraege-richten    # berichtigen
+```
+
+Erkannt wird auf zwei Wegen, und die beiden sind unterschiedlich stark:
+
+| Spur | Merkmal | Wird berichtigt |
+|---|---|---|
+| **sicher** | die zwei Geldspalten widersprechen sich um genau Faktor 100 | mit `--betraege-richten` |
+| **verdächtig** | nur der Stückpreis verrät es: 7.412,00 € für 42,8 l = 173 €/l | nur mit `--auch-unplausible` |
+
+Die zweite Spur ist nötig, weil beim Einspielen einer Sicherung **beide**
+Spalten verdorben wurden (die Euro-Altspalte wurde aus der falschen Cent-Zahl
+abgeleitet) — der Widerspruch fehlt dort. Sie ist ein Indiz, kein Beweis,
+darum getrennt und nur auf Wunsch. Werkstattrechnungen bleiben außen vor: ohne
+Menge gibt es keinen Stückpreis, und eine Rechnung über 7.412 € ist möglich.
+
+`--betraege-pruefen` ändert nichts und nennt jede Zeile mit altem und neuem
+Betrag. An einer wirklich verdorbenen Datenbank ausgeführt: 11 sichere Zeilen
+über vier Spalten, 4 verdächtige; nach `--betraege-richten --auch-unplausible`
+standen alle Preise wieder im plausiblen Bereich (0,296–0,445 €/kWh,
+1,73–1,77 €/l) und die Nachprüfung meldete nichts Offenes.
+
+**Vor dem Berichtigen sichern** (Regelblatt 15) — der Schalter sagt es selbst
+und nennt den Weg.
+
+### Was daraus folgt
+
+Zwei Funktionen mit demselben Namensteil und verschiedener Einheit sind eine
+Falle, die sich nicht durch Aufmerksamkeit entschärfen lässt. Aufgefallen ist
+es nur, weil jemand nach dem Import auf die Übersicht geschaut und die Zahlen
+mit der Datei verglichen hat — die Prüfansicht **vor** dem Übernehmen zeigte
+die richtigen Beträge, weil sie aus der Datei stammen und nicht aus der
+Datenbank. Eine Prüfung, die nur „Import erfolgreich" sagt, hätte hier nichts
+gemerkt.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
 sichtbar war — und der einzige, den keine Prüfung hier gefunden hätte,
 weil er erst mit echten Dateirechten auf einem echten Server entsteht.
+
+`N-10` ist der schwerste Befund dieser Reihe: falsche Geldbeträge, die
+niemandem auffallen müssen, weil sie plausibel aussehen, solange man sie nicht
+mit der Datei vergleicht. Er zeigt dasselbe Muster wie `N-05` und `N-08` — die
+Prüfung sagte „Import erfolgreich", und das war auch richtig. Nur der Betrag
+war falsch.
 
 `N-08` war der einzige Befund, der einen neuen Benutzer komplett ausgesperrt
 hat — und er war mit keiner Prüfung dieses Repositorys zu finden, weil beide
