@@ -21,6 +21,58 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
   Fehler - aber sie stehen vor dem "Uebernehmen"-Knopf, nicht dahinter
   (B-07).
 
+## Fassung 1.1.0
+
+**Neu: der Seiten-Editor.** Seiten lassen sich jetzt im Wiki selbst
+schreiben — ohne HTML, ohne Datei, ohne Editor auf dem Rechner.
+
+- **Neue Seite** in der Seitenleiste, **Bearbeiten** im Kopf einer offenen
+  Seite. Beides nur für Verwalter, weil Speichern dieselbe Berechtigung
+  braucht wie Einspielen (`/api/import`).
+- Eine kleine, vollständig dokumentierte Auszeichnung: Absätze, Titel,
+  Listen, fett, Code, Codeblöcke, drei Kastenarten, Tabellen und Verweise
+  auf andere Wiki-Seiten (`[[kennung]]`). Die Liste im Editor unter *Wie
+  schreibe ich hier?* ist die ganze Sprache.
+- Der Editor **erzeugt eine gewöhnliche Wiki-Seite** und schickt sie durch
+  dieselbe Strecke wie eine eingespielte Datei: `/api/pruefen` legt die
+  Vorschau an, `/api/import` übernimmt. Fassungen, Rücksprung und Suche
+  funktionieren damit unverändert.
+- Getippter Text wird immer zuerst geschützt. Wer `<script>` schreibt, sieht
+  `<script>` auf der Seite. Ein Verweis wird ein Knopf, der die Hülle bittet
+  zu öffnen — kein `href`, weil eine Seite im abgeschotteten Rahmen nicht
+  selbst navigieren darf.
+- Die getippte Quelle steht im Meta-Block je Abschnitt unter `markup`; nur
+  deshalb lässt sich eine Seite später wieder aufklappen. Unter `text` steht
+  wie gehabt der Suchstoff, dort ohne Auszeichnung.
+- Eine Seite, die nicht aus dem Editor kommt, lässt sich trotzdem öffnen —
+  mit deutlichem Hinweis, dass Speichern die eigene Gestaltung durch die
+  Standardgestaltung ersetzt. Die alte Fassung bleibt über *Fassungen*
+  erreichbar.
+- **Noch nicht drin:** Anhänge. Wer Bilder oder PDFs braucht, spielt eine
+  Datei ein.
+
+**Zwei Korrekturen am Pflichtteil jeder Seite** (Befunde N-06 und N-07,
+beide beim Bau des Editors aufgefallen):
+
+- Das Thema gilt ab der ersten Zeile aus `prefers-color-scheme`. Vorher kam
+  es erst mit der Nachricht der Hülle — gemessen 10 ms nach dem ersten
+  Anstrich, also blitzte bei hellem Wiki jedes Mal die dunkle Fassung auf.
+- Der Textdurchlauf der Suchhervorhebung lässt `script` und `style` aus.
+  Vorher markierte er auch Skriptkommentare: für das Wort „Nachricht" 11
+  Marken, davon 7 im Skript — und weil die erste Marke im Skript kein
+  Layout hat, sprang die Seite gar nicht (`scrollY 0`). Jetzt 4 Marken,
+  keine im Skript, Sprung an die Fundstelle.
+
+Geändert in `test-seite.html`, in `vorlagen/git-und-github.html` und im
+Vorlagenblock von `EINRICHTUNG.md`.
+
+**Neu: `wiki/tests/`.** Das Wiki hatte keine Tests. Jetzt prüfen 11
+Python-Tests die mitgelieferten Seiten mit derselben Funktion, die beim
+Einspielen läuft, und 36 Node-Tests den Editor. `./tests/alle.sh` läuft
+beides. Die Zähne der Tests sind mit zehn Mutationen nachgewiesen, in
+`tests/README.md` aufgeführt — eine davon hat einen echten Testfehler
+gefunden (der Kennungstest prüfte nur zwei der vier Sonderbuchstaben).
+
 ## Fassung 1.0.0
 
 **Bewusst offen gelassen (B-46):** `poppler-utils` wird ohne Fassungsangabe
