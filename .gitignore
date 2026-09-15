@@ -26,6 +26,9 @@ authentik/certs/
 **/__pycache__/
 **/.sicherung-*/
 **/.letzte-fassung
+# Rueckweg des Aktualisierungsskripts: der docker-compose.yml-Stand des
+# letzten erfolgreichen Laufs. Gehoert auf den Server, nicht ins Git.
+**/.stand-erfolgreich.yml
 **/.vorschau/
 *.tar.gz
 *.tar.gz.age

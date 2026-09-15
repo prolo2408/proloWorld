@@ -409,6 +409,28 @@ die niemandem auffallen.
 Pflichtfälle je Berechnung: ein normaler Fall (handgerechnet), der
 Grenzfall (null, negativ, sehr groß), der Fall mit fehlenden Daten.
 
+### 13a. Die Tests müssen Zähne haben
+
+Aus der Prüfung vom 14.09.2026. Handgerechnete Erwartungswerte sind
+notwendig, aber nicht genug: ein Test kann grün sein, weil er nichts prüft.
+
+**Darum wird zu jeder Testsuite eine Gegenprobe geschrieben**, die
+absichtlich Fehler in den Code einbaut und verlangt, dass **jeder** von einem
+Test gefunden wird. Findet ihn keiner, ist der Test Beschäftigung und wird
+ergänzt. Vorbild: `bordbuch/tests/gegenprobe.sh`.
+
+Warum das nicht theoretisch ist — ein Fall aus dieser Prüfung: die
+Rundungstests benutzten `8,995 €`. Kaufmännisch gerundet ergibt das 900
+Cent, zur geraden Zahl gerundet ebenfalls 900 — weil 900 gerade ist. Der
+Test war grün und hätte **beide** Rundungsarten durchgelassen, also genau
+den Fehler nicht gefunden, um dessentwillen er geschrieben wurde. Aufgefallen
+ist das erst, als die Gegenprobe „Rundung zur geraden Zahl" einbaute und
+kein Test anschlug. Ergänzt wurden `8,985`, `1,005`, `2,665` und `-8,985` —
+Werte, bei denen sich die beiden Arten unterscheiden.
+
+Ein Erwartungswert, der bei zwei verschiedenen Verfahren gleich herauskommt,
+prüft das Verfahren nicht.
+
 ## 14. Was durchprobiert sein muss
 
 Ein Tool gilt erst als fertig, wenn diese Fälle **tatsächlich ausprobiert**
@@ -457,7 +479,13 @@ Jede Ansicht wird einzeln angeschaut, in **beiden Themen**, bei
 - Löschen fragt nach — bei mehreren Datensätzen mit Nennung der Anzahl.
 - Wo möglich: erst als gelöscht markieren, später endgültig entfernen.
 - Vor Migrationen, die Daten verändern, weist das Tool auf die Sicherung
-  hin.
+  hin — und zwar **vor** der ersten Änderung, danach wäre der Hinweis
+  wertlos. Dazu gehören zwei weitere Schritte, die in
+  `prolo-betriebsregeln.md` Abschnitt 19a ausgeführt sind: eine **Kopie** des
+  bisherigen Stands als Rückweg, und alle Änderungen in einer
+  **Transaktion**. Eine bestehende Kopie wird dabei nicht überschrieben —
+  sonst ersetzt ein zweiter, ebenfalls gescheiterter Lauf den einzigen
+  brauchbaren Stand.
 - Ein Import kann rückgängig gemacht werden. Dafür bekommt jeder
   Datensatz das Feld `quelle` mit Importlauf und Zeilennummer.
 
@@ -489,7 +517,9 @@ gern" ausmachen:
 
 **Design**
 - [ ] Tool-Logo oben links nach dem Muster aus Abschnitt 5
-- [ ] Nur Token aus Abschnitt 2, kein `#000`/`#fff` außer auf `--accent`
+- [ ] Nur Token aus Abschnitt 2. Text auf `--accent` läuft über
+      `--on-accent`, nicht über ein hartes `#fff` — erlaubt bleibt es, aber
+      als Token ist es an einer Stelle änderbar
 - [ ] Höchstens eine `--feature`-Fläche, ein Primärbutton pro Screen
 - [ ] Sora / Instrument Sans / JetBrains Mono korrekt eingesetzt
 - [ ] Karten ohne Schatten, Schatten nur am Fenster
@@ -516,6 +546,9 @@ gern" ausmachen:
 - [ ] Alle Eingaben geprüft, keine stillen Vorgabewerte
 - [ ] Zusammengehörende Schreibvorgänge in Transaktionen
 - [ ] Fachlogik hat Tests mit handgerechneten Werten
+- [ ] Gegenprobe vorhanden (13a) und **alle** eingebauten Fehler werden
+      gefunden
+- [ ] Kein Erwartungswert, der bei zwei Verfahren gleich herauskommt
 - [ ] Geldbeträge nicht als Fließkommazahl
 - [ ] Löschen fragt nach
 - [ ] Die neun Punkte aus 14a **einzeln durchgesehen**, in beiden Themen
