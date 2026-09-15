@@ -85,8 +85,44 @@ anderen Zusammenhang wieder auftauchen könnte.
 
 ---
 
+## N-04 — Eine `.pyc`-Datei liegt seit B-03 im Git
+
+**Stufe:** niedrig
+**Datei:** `wiki/__pycache__/server.cpython-311.pyc`
+**Gefunden bei:** Abschlussvalidierung
+
+`git status` war nach dem letzten Commit nicht sauber: eine übersetzte
+Python-Datei meldete sich als geändert. Nachgesehen — sie ist **verfolgt**:
+
+```
+$ git log --oneline --diff-filter=A -- wiki/__pycache__/server.cpython-311.pyc
+2343d81 B-03: Fremdherkunft verschaerft und Content-Type erzwungen
+```
+
+Sie ist mir in meinem eigenen B-03-Commit hineingerutscht, weil `wiki/.gitignore`
+damals noch nicht existierte — die kam erst mit B-49. Seither ist sie in fünf
+weiteren Commits stillschweigend mitgelaufen, weil sie sich bei jedem Serverlauf
+ändert.
+
+Der entscheidende Punkt: `__pycache__/` steht inzwischen in **allen drei**
+`.gitignore`-Dateien. Das hat nichts geholfen — **`.gitignore` wirkt nicht auf
+bereits verfolgte Dateien.** Eine vollständige Pflichtliste nach Betriebsregeln
+§10 ist also keine Garantie für das, was schon im Git liegt.
+
+Der Vorab-Test aus B-49 greift hier ebenfalls nicht: er prüft Namensmuster für
+Geheimnisse und Datenbanken, nicht auf Bauartefakte.
+
+**Behoben:** `git rm --cached` für die Datei; der Inhalt bleibt auf der Platte,
+nur die Verfolgung endet.
+
+**Prüfen:** `git ls-files | grep -E '__pycache__|\.pyc$'` gibt nichts mehr aus,
+und `git status` bleibt nach einem Serverlauf sauber.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
-`N-01` und `N-02` sind offen. Beide sind klein, beide sind keine
-Sicherheitslücken — aber sie gehören in dieselbe Liste wie alles andere,
-statt in einer Commit-Nachricht zu verschwinden.
+`N-01` und `N-02` sind offen, `N-03` und `N-04` sind behoben. Die beiden
+offenen sind klein und keine Sicherheitslücken — aber sie gehören in
+dieselbe Liste wie alles andere, statt in einer Commit-Nachricht zu
+verschwinden.
