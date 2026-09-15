@@ -36,9 +36,6 @@ DB_LOCK = threading.Lock()
 RECEIPT_DIR = os.path.join(HERE, "receipts")
 
 
-def daten_dir():
-    """Verzeichnis der Datenbank - dort leben auch Belege und Sicherungen."""
-    return os.path.dirname(os.path.abspath(CFG.db)) or HERE
 # Was der Server ueberhaupt herausgeben darf - der Rest des Verzeichnisses
 # (Datenbank, Quelltext, Sicherungen) bleibt unerreichbar.
 PUBLIC_FILES = {"index.html", "favicon.ico"}
