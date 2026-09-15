@@ -165,6 +165,49 @@ in der `sicherung.conf` unter `HINWEIS=` zu vermerken.
 - Keine Steuersätze, Preise oder Wirkungsgrade fest im Code — die gehören
   in Konfiguration mit Gültigkeitsdatum.
 
+### 6a. Verbindliche Benennungskonvention
+
+Aus B-30. Bis dahin stand die Regel nur halb da, und das Ergebnis war ein
+Schema, in dem in **einer Zeile** beides nebeneinander steht:
+
+```sql
+nutzer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE
+```
+
+Deutsche Spalte, englische Tabelle. Über das Schema hinweg: `wartung`,
+`werkstatt`, `freigaben` gegen `users`, `cars`, `sessions`, `fuelings`;
+`art`, `notiz`, `betrieb` gegen `cost`, `odo`, `liters`, `note`. In manchen
+Tabellen stehen `note` **und** `notiz` nebeneinander, je nachdem wann sie
+entstanden sind.
+
+Verbindlich ab jetzt:
+
+1. **Tabellen und Spalten mit fachlicher Bedeutung: deutsch, ohne Umlaute.**
+   `nutzer`, `fahrzeug`, `ladevorgang`, `tankvorgang`, `wartung`, `werkstatt`,
+   `freigabe`.
+2. **Jede Größe mit Einheit im Namen** — steht oben schon und wurde nur
+   teilweise befolgt: `menge_l`, `energie_kwh`, `betrag_ct`, `stand_km`,
+   `dauer_s`. `betrag_ct` ist mit B-04 der erste Fall, der es einhält.
+3. **Schlüssel einheitlich `<tabelle>_id`:** `nutzer_id`, `fahrzeug_id`.
+4. **`nutzer_id` bedeutet überall dasselbe.** Heute nicht: im Bordbuch ist es
+   ein `INTEGER` auf `users(id)`, im Wiki ein `TEXT` mit dem
+   Authentik-Anmeldenamen. **Festgelegt: überall der Anmeldename als `TEXT`.**
+   Damit braucht das Bordbuch auf Dauer keine eigene Nutzertabelle, was §4
+   entgegenkommt („Es gibt **keine** Oberfläche, in der ein Nutzer andere
+   Nutzer anlegt"). Das Wiki hält es bereits so.
+5. **Die JSON-Schnittstelle folgt dem Schema**, keine eigene Schreibweise.
+   Die Tabelle `JSON_TO_COL` im Bordbuch ist heute eine Übersetzungsschicht,
+   die es bei einheitlicher Benennung nicht bräuchte.
+
+**Umsetzung: nicht in einem Zug.** Neue Felder folgen ab sofort der
+Konvention; bestehende werden bei der nächsten ohnehin nötigen Migration
+mitgezogen. Der Umbau von `users`/`nutzer_id` im Bordbuch ist ein eigener
+Arbeitsschritt mit Datenmigration und gehört nach dem Dreischritt aus
+Abschnitt 19a behandelt — er ist **nicht** Teil von B-30.
+
+Was aus B-30 **sofort** erledigt wurde, weil es ein echter Fehler mit Wirkung
+war: das Trennzeichen der Gruppen (Pipe, Komma, Semikolon).
+
 ## 7. Ein neues Tool einhängen — Ablauf
 
 1. DNS-Eintrag bei IONOS: A-Record `<tool>` auf die Server-IP. **Keinen

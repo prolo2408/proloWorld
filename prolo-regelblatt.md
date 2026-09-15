@@ -118,6 +118,19 @@ genommen. Beispiele, die häufig zu schwach sind: `--ink-3` auf
 `--feature-ink` verwenden. Gibt es kein passendes Token, wird eines
 ergänzt.
 
+### Nachträglich aufgenommen
+
+Drei Token, die das Bordbuch sinnvoll ergänzt hatte, die aber im Regelwerk
+fehlten — aus der Prüfung vom 14.09.2026. Der letzte Satz oben sagt
+ausdrücklich „Gibt es kein passendes Token, wird eines ergänzt"; ergänzt
+werden muss es dann aber **hier**, sonst weiß das nächste Tool nichts davon:
+
+| Token | Wofür | Warum es nötig ist |
+|---|---|---|
+| `--danger` | Zerstörende Aktionen: Löschen, Zurücksetzen | `--warn` ist eine Warnung, kein Verlust. Wer beides mit derselben Farbe zeigt, nimmt dem Löschen sein Gewicht. |
+| `--on-accent` | Text **auf** `--accent` | Abschnitt 1 erlaubt dort `#fff` ausdrücklich. Als Token ist es nachvollziehbar und lässt sich an einer Stelle ändern, falls `--accent` einmal heller wird. |
+| `--overlay` | Abdunklung hinter Dialogen und Blättern | Sonst schreibt jedes Tool sein eigenes `rgba(0,0,0,.5)` — und sie sehen verschieden aus. |
+
 ## 3. Typografie
 
 - **Sora** 600: Überschriften, Kennzahlen, Beträge, Kartentitel.
