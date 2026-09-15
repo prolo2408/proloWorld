@@ -16,6 +16,7 @@ zahl = server.zahl
 FEHLT = server.FEHLT
 pflicht_zahl = server.pflicht_zahl
 pflicht_cent = server.pflicht_cent
+pflicht_text = server.pflicht_text
 valid_ts = server.valid_ts
 valid_dat = server.valid_dat
 valid_dat_vergangen = server.valid_dat_vergangen
@@ -228,3 +229,59 @@ class MailVerkuerzen(unittest.TestCase):
     def test_die_domain_bleibt_lesbar(self):
         # Absicht: die Domain hilft beim Unterscheiden und ist kein Geheimnis.
         self.assertTrue(server.mail_kurz("max.mustermann@firma.de").endswith("@firma.de"))
+
+
+class PflichtTextOhneVorgabe(unittest.TestCase):
+    """N-02: ein Pflichttext darf nicht still erfunden werden.
+
+    Der Befund: POST /api/cars/save ganz ohne Inhalt legte ein Auto namens
+    "Auto" an und meldete 200. Erwartungswerte von Hand.
+    """
+    MELDUNG = "Bitte gib dem Auto einen Namen."
+
+    def test_normalfall(self):
+        wert, fehler = pflicht_text({"name": "Golf"}, "name", 60, self.MELDUNG)
+        self.assertEqual(wert, "Golf")
+        self.assertIsNone(fehler)
+
+    def test_fehlt_ganz(self):
+        # Der Kern des Befunds: leeres Objekt, kein Feld.
+        wert, fehler = pflicht_text({}, "name", 60, self.MELDUNG)
+        self.assertIsNone(wert)
+        self.assertEqual(fehler, self.MELDUNG)
+
+    def test_leer_und_nur_leerzeichen(self):
+        for roh in ("", "   ", "\t\n"):
+            wert, fehler = pflicht_text({"name": roh}, "name", 60, self.MELDUNG)
+            self.assertIsNone(wert, roh)
+            self.assertEqual(fehler, self.MELDUNG, roh)
+
+    def test_none_ist_nicht_der_text_None(self):
+        # Fallstrick: str(None) waere "None" - ein gueltiger Name.
+        wert, fehler = pflicht_text({"name": None}, "name", 60, self.MELDUNG)
+        self.assertIsNone(wert)
+        self.assertEqual(fehler, self.MELDUNG)
+
+    def test_wird_auf_die_grenze_gekuerzt(self):
+        wert, fehler = pflicht_text({"name": "x" * 200}, "name", 60, self.MELDUNG)
+        self.assertEqual(len(wert), 60)
+        self.assertIsNone(fehler)
+
+    def test_leerzeichen_aussen_fallen_weg(self):
+        wert, _ = pflicht_text({"name": "  Zoe  "}, "name", 60, self.MELDUNG)
+        self.assertEqual(wert, "Zoe")
+
+    def test_zahl_als_name_bleibt_erhalten(self):
+        # Ein Auto darf "911" heissen.
+        wert, fehler = pflicht_text({"name": 911}, "name", 60, self.MELDUNG)
+        self.assertEqual(wert, "911")
+        self.assertIsNone(fehler)
+
+    def test_null_ist_falsch_aber_nicht_leer(self):
+        # Fallstrick, beim Schreiben der Funktion aufgefallen: mit 'or ""'
+        # waere die Zahl 0 als fehlender Name durchgefallen, 911 dagegen
+        # nicht. Ein Auto darf "0" heissen, so sinnlos das ist.
+        for roh in (0, 0.0):
+            wert, fehler = pflicht_text({"name": roh}, "name", 60, self.MELDUNG)
+            self.assertIsNone(fehler, roh)
+            self.assertEqual(wert, str(roh))

@@ -79,6 +79,32 @@ Wenn doch, bleibt es wie es ist — dann gehört ein Satz in den Code, warum.
 **Prüfen:** `curl -X POST … -H "Content-Length: 0" …/api/cars/save` — die
 Antwort muss zu der getroffenen Entscheidung passen.
 
+**Behoben.** Entschieden wurde: **der Name ist Pflicht.** Ausschlaggebend war,
+dass die Oberfläche ihn ohnehin schon selbst verlangt (`wizSpeichern` bricht mit
+„Bitte gib dem Auto einen Namen." ab, bevor überhaupt gesendet wird). Der
+Vorgabewert war also gar nicht aus dem Formular erreichbar, sondern nur über
+einen direkten API-Aufruf — er hat nichts abgefangen und nur stille Daten
+erzeugt.
+
+Die Prüfung steckt jetzt in `pflicht_text()`, dem Gegenstück zu `pflicht_zahl`
+und `pflicht_cent` aus B-05. Dass es die Funktion gibt, ist kein Selbstzweck:
+so ist die Regel testbar, ohne einen HTTP-Server hochzufahren.
+
+**Zweite Fundstelle, bewusst anders entschieden:** in `einspielen()`
+(Wiederherstellung aus einer Sicherung) bleibt `or "Auto"` stehen. Dort werden
+vorhandene Daten zurückgeholt; eine alte Sicherung mit einem namenlosen Auto
+darf nicht dazu führen, dass die ganze Wiederherstellung abbricht. Ein Auto
+namens „Auto" ist besser als die Tankungen, die daran hängen. Der Grund steht
+jetzt als Satz im Code, wie es dieser Befund verlangt hat.
+
+**Beim Schreiben aufgefallen:** ein erster Entwurf benutzte `data.get(feld) or ""`.
+Damit wäre die Zahl `0` als *fehlender* Name durchgefallen, `911` dagegen nicht.
+Behoben und als eigener Testfall festgehalten.
+
+Geprüft: vier Fälle am laufenden Server (ohne Inhalt, nur Leerzeichen, mit
+Namen, Ändern), Wiederherstellung mit namenlosem Auto geht weiter durch,
+82 Tests grün, und die Gegenprobe findet beide eingebauten Rückbauten.
+
 ---
 
 ## N-03 — Der Vorab-Test im Bericht selbst funktioniert nicht
@@ -137,6 +163,6 @@ und `git status` bleibt nach einem Serverlauf sauber.
 
 ## Was daraus für die Abnahme folgt
 
-`N-02` ist offen, `N-01`, `N-03` und `N-04` sind behoben. Der offene Punkt
-ist klein und keine Sicherheitslücke — aber er gehört in dieselbe Liste wie
-alles andere, statt in einer Commit-Nachricht zu verschwinden.
+`N-01` bis `N-04` sind alle behoben. Keiner davon war eine Sicherheitslücke,
+aber jeder ist in dieselbe Liste gegangen wie alles andere, statt in einer
+Commit-Nachricht zu verschwinden.
