@@ -114,6 +114,25 @@ lauf krank >/dev/null
 pruefe "ohne Rueckweg bleibt die docker-compose.yml unveraendert" \
        "image:probe:3.0.0" "$(fassung_jetzt)"
 
+# 4b. Scheiternde Sicherung bricht ab - und --ohne-sicherung geht daran vorbei.
+#     Das ist der Fall "kein age-Schluessel": backup.sh endet mit 1, obwohl
+#     die Sicherung geschrieben wurde.
+printf '#!/bin/bash\nexit 1\n' > "$T/stack/backup.sh"; chmod +x "$T/stack/backup.sh"
+rm -f "$T/stack/probe/.stand-erfolgreich.yml"; fassung_setzen 1.0.0
+echo "$(lauf gesund)" | grep -q 'ABBRUCH: die Sicherung endete' && E=ja || E=nein
+pruefe "scheiternde Sicherung bricht ab" "ja" "$E"
+
+echo "$(lauf gesund)" | grep -q 'age-Schluessel' && E=ja || E=nein
+pruefe "Abbruchtext nennt den haeufigsten Grund" "ja" "$E"
+
+A=$(PATH="$T/bin:$PATH" LAGE=gesund "$T/stack/werkzeuge/aktualisieren.sh" \
+      --ohne-sicherung probe 2>&1)
+echo "$A" | grep -q '^FERTIG' && E=ja || E=nein
+pruefe "--ohne-sicherung laeuft trotz Sicherungsfehler durch" "ja" "$E"
+echo "$A" | grep -q 'UEBERSPRUNGEN' && E=ja || E=nein
+pruefe "--ohne-sicherung sagt deutlich, dass es uebersprungen wurde" "ja" "$E"
+printf '#!/bin/bash\nexit 0\n' > "$T/stack/backup.sh"; chmod +x "$T/stack/backup.sh"
+
 # 5. Fehlende image:-Zeile bricht ab (B-23)
 cat > "$T/stack/probe/docker-compose.yml" <<'Y'
 services:

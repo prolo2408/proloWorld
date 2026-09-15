@@ -8,6 +8,7 @@
 #   aktualisieren.sh --alle                alle gefundenen Tools
 #   aktualisieren.sh --liste               nur auflisten, nichts tun
 #   aktualisieren.sh --trocken <tool>      Ablauf zeigen, nichts anfassen
+#   aktualisieren.sh --ohne-sicherung ...  Ausnahme, siehe unten
 #
 # Der Kern des Entwurfs: im Skript steht KEIN Toolname. Tools werden am
 # Dateisystem erkannt, alles Tool-eigene steht in der jeweiligen
@@ -58,6 +59,7 @@ STACK="$(dirname "$HIER")"
 SICHERUNG="$STACK/backup.sh"
 
 TROCKEN=0
+OHNE_SICHERUNG=0
 
 # ----------------------------------------------------------------------
 # Hilfsmittel
@@ -138,17 +140,36 @@ ein_tool() {
   # Sichtbar, nicht nach /dev/null: eine fehlgeschlagene Sicherung ist der
   # Grund, JETZT abzubrechen, und nicht erst nach der Migration zu merken.
   melde "[2/5] Sicherung laeuft ..."
-  if [ -x "$SICHERUNG" ]; then
-    if ! tun "$SICHERUNG"; then
-      melde "ABBRUCH: die Sicherung ist fehlgeschlagen."
-      melde "         Ohne Sicherung wird nicht aktualisiert - B-04 hat"
-      melde "         gezeigt, dass Migrationen nicht umkehrbar sein koennen."
-      return 1
-    fi
-    melde "      erledigt."
-  else
+  if [ "$OHNE_SICHERUNG" -eq 1 ]; then
+    melde "      UEBERSPRUNGEN (--ohne-sicherung)."
+    melde "      Das ist die Ausnahme, nicht der Normalfall. B-04 hat gezeigt,"
+    melde "      dass eine Migration nicht umkehrbar sein kann."
+  elif [ ! -x "$SICHERUNG" ]; then
     melde "ABBRUCH: $SICHERUNG fehlt oder ist nicht ausfuehrbar."
     return 1
+  elif ! tun "$SICHERUNG"; then
+    # Wichtige Unterscheidung: backup.sh endet auch dann mit 1, wenn die
+    # Sicherung zwar GESCHRIEBEN wurde, aber unverschluesselt blieb (kein
+    # age-Schluessel, age nicht installiert). Die Daten sind dann gesichert,
+    # nur nicht verschluesselt. Ein Abbruch ist hier richtig - sonst
+    # verschwindet der Hinweis -, aber der Grund muss dastehen, sonst sucht
+    # man ihn an der falschen Stelle.
+    melde "ABBRUCH: die Sicherung endete mit einem Fehler."
+    melde "         Ohne belegte Sicherung wird nicht aktualisiert."
+    melde ""
+    melde "         Haeufigster Grund ist NICHT ein Datenverlust, sondern ein"
+    melde "         fehlender age-Schluessel: dann liegt die Sicherung zwar da,"
+    melde "         aber im Klartext, und backup.sh meldet das als Fehler."
+    melde "         Pruefen:"
+    melde "           ls -la /opt/backups/ | tail -5"
+    melde "           ls -la /opt/stack/.backup-schluessel.pub"
+    melde "           command -v age || echo 'age fehlt: apt install age'"
+    melde ""
+    melde "         Ist der Grund geklaert und die Sicherung nachweislich da:"
+    melde "           $(basename "$0") --ohne-sicherung $TOOL"
+    return 1
+  else
+    melde "      erledigt."
   fi
 
   cd "$ORDNER"
@@ -310,6 +331,10 @@ zurueckrollen() {
 verwendung() {
   melde "Aufruf: $(basename "$0") <tool> [<tool> ...] | --alle | --liste"
   melde "        $(basename "$0") --trocken <tool>    zeigt nur, was passieren wuerde"
+  melde "        $(basename "$0") --ohne-sicherung <tool>"
+  melde "              laesst die Sicherung aus. Nur, wenn nachweislich eine"
+  melde "              aktuelle da ist - z. B. weil backup.sh nur am fehlenden"
+  melde "              age-Schluessel gescheitert ist."
   melde ""
   melde "Gefundene Tools in $STACK:"
   local t
@@ -325,6 +350,7 @@ while [ $# -gt 0 ]; do
     --alle)    mapfile -t ZIELE < <(tools_finden) ;;
     --liste)   verwendung; exit 0 ;;
     --trocken) TROCKEN=1 ;;
+    --ohne-sicherung) OHNE_SICHERUNG=1 ;;
     -h|--help) verwendung; exit 0 ;;
     -*)        melde "Unbekannte Option: $1"; verwendung; exit 1 ;;
     *)         ZIELE+=("$1") ;;
