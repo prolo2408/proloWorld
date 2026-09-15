@@ -122,6 +122,16 @@ Verbindlich in jeder `docker-compose.yml`:
   und `PYTHONDONTWRITEBYTECODE=1` im Dockerfile, sonst versucht Python bei
   jedem Start erfolglos, `__pycache__` neben `server.py` zu schreiben.
 
+- **Pfade ohne Anmeldung** kann ein Tool auch **selbst** bereitstellen, nicht
+  nur als zweiter Router ohne Middleware (aus B-44). Das Wiki macht es so:
+  `/gesundheit` und `/api/version` antworten ohne Anmeldekopf, alles andere
+  nicht. Das ist fachlich richtig — `aktualisieren.sh` und die
+  Gesundheitsprüfung erreichen den Dienst intern am Traefik vorbei und hätten
+  über die Middleware gar keinen Weg. Beide Varianten sind erlaubt; welche ein
+  Tool benutzt, gehört in den `HINWEIS` seiner `sicherung.conf`, damit man es
+  bei einer Prüfung nicht suchen muss. Ein solcher Pfad darf **nichts
+  Schützenswertes** ausgeben: „ok" und eine Fassungsnummer, mehr nicht.
+
 - **Feste Versionsnummer beim Image, niemals `latest`.** Datenbank-
   migrationen bei Hauptversionen sind nicht umkehrbar.
 - Persistente Daten liegen in benannten Volumes, nicht im Container.

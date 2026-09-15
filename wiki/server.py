@@ -217,6 +217,8 @@ def db_freigeben(fehlgeschlagen=False):
     except Exception:
         pass
     _lokal.db = None
+    # Der Zweig-Zwischenspeicher gehoert zur Anfrage und geht mit ihr (B-47).
+    _lokal.zweige = None
 
 
 def datenbank_anlegen():
@@ -302,15 +304,29 @@ def nutzer_aus_kopf(kopf):
     return n
 
 
+def zweig_tabelle():
+    """Alle Zweig-Freigaben, EINMAL je Anfrage gelesen (B-47).
+
+    Vorher fragte zweig_gruppen() je Aufruf und je Pfadebene die Datenbank.
+    sichtbare_seiten() ruft das fuer JEDE Seite auf - bei 500 Seiten mit drei
+    Ebenen waren das 1500 Abfragen fuer eine einzige Antwort. Der
+    Zwischenspeicher haengt an der Verbindung und wird mit ihr freigegeben,
+    ist also nie aelter als die laufende Anfrage.
+    """
+    t = getattr(_lokal, "zweige", None)
+    if t is None:
+        t = {z["pfad"]: set(json.loads(z["gruppen_json"] or "[]"))
+             for z in db().execute("SELECT pfad,gruppen_json FROM zweig")}
+        _lokal.zweige = t
+    return t
+
+
 def zweig_gruppen(pfad_liste):
     """Geerbte Gruppen aller Ebenen oberhalb der Seite."""
+    t = zweig_tabelle()
     noetig = set()
-    v = db()
     for i in range(1, len(pfad_liste) + 1):
-        p = "/".join(pfad_liste[:i])
-        z = v.execute("SELECT gruppen_json FROM zweig WHERE pfad=?", (p,)).fetchone()
-        if z:
-            noetig |= set(json.loads(z["gruppen_json"]))
+        noetig |= t.get("/".join(pfad_liste[:i]), set())
     return noetig
 
 
@@ -1578,6 +1594,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_senden({"ok": True, "fassung": neu})
 
         if rest == ["zweig"]:
+            # Nach dem Schreiben ist der Zwischenspeicher ueberholt (B-47).
+            _lokal.zweige = None
             self.admin()
             daten = json.loads(self.koerper_lesen() or b"{}")
             pfad = (daten.get("pfad") or "").strip("/")

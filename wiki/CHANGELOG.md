@@ -23,6 +23,15 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
 
 ## Fassung 1.0.0
 
+**Bewusst offen gelassen (B-46):** `poppler-utils` wird ohne Fassungsangabe
+installiert. Eine feste apt-Fassung wirkt reproduzierbar, ist es aber nicht:
+Debian nimmt alte Paketfassungen aus dem Spiegel, sobald eine
+Sicherheitsaktualisierung nachrückt — der Bau schlägt dann fehl, und zwar
+genau dann, wenn man dringend neu bauen muss. Die Reproduzierbarkeit kommt
+hier vom festen Basisabbild `python:3.13-slim-bookworm`, das den Paketstand
+einer Debian-Veröffentlichung festlegt. Wer es doch festschreiben will, muss
+den Spiegel mit festhalten (snapshot.debian.org).
+
 Die Fassung steht ab jetzt an drei Stellen und muss zusammenpassen
 (Befund B-23): `VERSION` in `server.py`, `image: wiki:<fassung>` im
 `docker-compose.yml` und diese Datei. Abfragen am laufenden System:
