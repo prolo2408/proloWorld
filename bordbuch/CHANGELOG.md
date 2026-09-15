@@ -48,6 +48,15 @@ die Menge zum Vergleich.
 Berichtigen eine Sicherung ziehen (Einstellungen › Daten, oder
 `sudo prolo sicherung`).
 
+Auf dem Server, wo Bordbuch im Container läuft:
+
+    sudo docker exec bordbuch python3 server.py --db /daten/bordbuch.db --betraege-pruefen
+    sudo docker exec bordbuch python3 server.py --db /daten/bordbuch.db --betraege-richten
+
+Das geht auch bei `read_only: true`, weil `/daten` ein Volume ist. Wer schon
+einmal eine Lade- oder Tankliste eingelesen oder eine Sicherung eingespielt
+hat, sollte einmal nachsehen.
+
 ### Behoben (Einrichtung)
 - **Der Einrichtungs-Assistent konnte drei von vier Antriebsarten nicht
   anlegen.** „Auto anlegen" meldete einen Tippfehler in einem Feld, das der
