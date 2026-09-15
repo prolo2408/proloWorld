@@ -248,6 +248,18 @@ MAX_EINSTELLUNGEN_B = 64 * 1024
 # minutenlang haelt.
 MAX_IMPORT_ZEILEN = 5000
 
+
+class RumpfZuGross(Exception):
+    """Der Rumpf ueberschreitet MAX_BODY (B-37) - fuehrt zu 413."""
+
+    def __init__(self, groesse=0):
+        Exception.__init__(self, "Rumpf zu gross")
+        self.groesse = groesse
+
+
+class LaengeFehlt(Exception):
+    """Die Anfrage hat keine brauchbare Content-Length (B-38) - fuehrt zu 411."""
+
 BASE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(
   id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -965,11 +977,33 @@ class App(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def body_json(self):
-        n = int(self.headers.get("Content-Length") or 0)
-        if n <= 0:
+        """Den Rumpf als JSON lesen.
+
+        Wirft eigene Ausnahmen, damit do_POST() die Faelle unterscheiden kann
+        (B-37, B-38). Vorher flog fuer alles ein ValueError, und do_POST fing
+        pauschal alles ab und meldete "Die Anfrage war keine gueltige
+        JSON-Nachricht." - bei einem zu grossen Rumpf war das schlicht falsch
+        und schickte den Nutzer auf die Suche nach einem Tippfehler, den es
+        nicht gab.
+        """
+        roh = self.headers.get("Content-Length")
+        if roh is None:
+            # Ohne Content-Length landete n bei 0 und damit bei einem LEEREN
+            # Objekt - der Aufruf lief durch, als haette jemand {} geschickt
+            # (B-38). Bei einer Anfrage mit chunked transfer-encoding ist das
+            # der Normalfall und fuehrte zu voellig unverstaendlichem
+            # Verhalten: gespeichert wurde nichts, gemeldet auch nichts.
+            raise LaengeFehlt()
+        try:
+            n = int(roh)
+        except (TypeError, ValueError):
+            raise LaengeFehlt()
+        if n < 0:
+            raise LaengeFehlt()
+        if n == 0:
             return {}
         if n > MAX_BODY:
-            raise ValueError("Anfrage zu gross (Grenze: %d MB)" % (MAX_BODY // 1024 // 1024))
+            raise RumpfZuGross(n)
         return json.loads(self.rfile.read(n).decode("utf-8"))
 
     def ich(self, con):
@@ -1711,6 +1745,20 @@ class App(BaseHTTPRequestHandler):
                           "Bitte den Kopf Content-Type: application/json setzen."}, 415)
         try:
             data = self.body_json()
+        except RumpfZuGross as e:
+            # 413, nicht 400 (B-37): die Meldung kam bisher nie an, weil der
+            # ValueError im Sammelfang landete.
+            return self.send_json(
+                {"error": "Die Anfrage ist zu gross (%d MB, Grenze %d MB). Bei "
+                          "einem Beleg hilft ein kleineres Foto; bei einem "
+                          "Import teilt die Oberflaeche die Datei selbst auf."
+                          % (e.groesse // 1024 // 1024, MAX_BODY // 1024 // 1024)}, 413)
+        except LaengeFehlt:
+            # 411, nicht ein leeres Objekt (B-38).
+            return self.send_json(
+                {"error": "Der Anfrage fehlt die Angabe Content-Length. "
+                          "Bordbuch nimmt keine Anfragen mit unbekannter "
+                          "Laenge entgegen (kein chunked transfer-encoding)."}, 411)
         except Exception:
             return self.send_json({"error": "Die Anfrage war keine gueltige JSON-Nachricht."}, 400)
         if not isinstance(data, dict):
