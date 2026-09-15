@@ -32,6 +32,27 @@ Jedes Tool bekommt genau einen Ordner unter `/opt/stack/`:
 Der Ordnername ist kleingeschrieben, ohne Leerzeichen und Umlaute, und
 identisch mit der Subdomain: Ordner `bordbuch` → `bordbuch.prolo.me`.
 
+Daneben liegt, was **allen** Tools gemeinsam ist — kein Tool, also auch
+keine `sicherung.conf` und keine `aktualisierung.conf`:
+
+```
+/opt/stack/
+├── backup.sh               zentrale Sicherung (Abschnitt 15)
+├── werkzeuge/              gemeinsame Skripte
+│   ├── aktualisieren.sh        zentrale Aktualisierung (Abschnitt 20)
+│   ├── aktualisieren-pruefen.sh  stellt deren Verhalten nach
+│   ├── pre-commit              Vorab-Test (Abschnitt 11)
+│   ├── dockerfile-pruefen.sh
+│   └── schriften-pruefen.sh
+├── prolo-regelblatt.md
+└── prolo-betriebsregeln.md
+```
+
+**Neue gemeinsame Skripte gehören nach `werkzeuge/`**, nicht in die Wurzel.
+`backup.sh` liegt aus Bestandsgründen dort und bleibt, wo es ist: der Pfad
+steht in der Cron-Zeile jedes Servers, und ein Umzug bricht still die
+nächtliche Sicherung.
+
 ## 2. Anmeldung: niemals selbst bauen
 
 **Kein Tool bringt eine eigene Anmeldung mit.** Kein Login-Formular, keine
@@ -599,11 +620,16 @@ nicht mehr lesen kann.
 Ein Befehl für alle Tools:
 
 ```bash
-sudo /opt/stack/aktualisieren.sh <toolname>
+/opt/stack/werkzeuge/aktualisieren.sh <toolname>
 ```
 
-Ablauf: sichern → alte Fassung merken → holen bzw. bauen → neu starten →
-30 Sekunden prüfen → bei Fehler automatisch zurückrollen.
+Ablauf: sichern → holen bzw. bauen → neu starten → prüfen, bis der Dienst
+gesund ist → bei Fehler auf den letzten erfolgreichen Stand zurückrollen.
+
+Geprüft wird bis zu `PRUEF_WARTEN` Sekunden lang, nicht *genau* so lange:
+ist der Dienst früher da, geht es sofort weiter. Der Rückweg ist der Stand
+des letzten **erfolgreichen** Laufs — warum das der entscheidende Punkt ist,
+steht in Abschnitt 20.
 
 ## 19. `aktualisierung.conf` — Pflicht je Tool
 
@@ -617,21 +643,36 @@ TYP="image"
 # Interne Adresse, unter der der Dienst antworten muss.
 # Containername und interner Port - NICHT die oeffentliche Domain,
 # sonst haengt die Pruefung an der Anmeldung fest.
+# Darf leer bleiben: hat der Container eine eigene Gesundheitspruefung
+# (HEALTHCHECK im Dockerfile oder healthcheck: in der compose-Datei),
+# genuegt die. Sie ist naeher an der Wahrheit als ein Aufruf von aussen.
 PRUEF_URL="http://<container>:<port>/"
 
-# Wartezeit nach dem Start in Sekunden. Bei traegen Diensten hochsetzen.
+# Obergrenze in Sekunden, KEINE feste Wartezeit. Das Skript fragt alle zwei
+# Sekunden nach und ist fertig, sobald alle Container gesund sind.
+# Hochsetzen bei Diensten, die beim Start Migrationen fahren.
 PRUEF_WARTEN=30
+
+# Nur bei Tools mit MEHREREN Containern noetig (bisher allein authentik):
+# aus wessen Netz die URL-Pruefung laeuft. Ohne die Angabe nimmt das Skript
+# den ersten Container - bei authentik waere das die Datenbank.
+HAUPT="<containername>"
 ```
 
-Stand für die bestehenden Tools:
+**Die Werte je Tool stehen in den Dateien, nicht hier.** Eine Tabelle an
+dieser Stelle wäre eine zweite Wahrheit, die still veraltet — genau das war
+sie bis jetzt: sie führte drei Tools auf, zu dem Zeitpunkt gab es sechs, und
+die Wartezeiten stimmten mit keiner Datei mehr überein.
 
-```
-authentik: TYP="image"  PRUEF_URL="http://authentik-server:9000/-/health/live/"  PRUEF_WARTEN=90
-n8n:       TYP="image"  PRUEF_URL="http://n8n:5678/healthz"                      PRUEF_WARTEN=45
-bordbuch:  TYP="build"  PRUEF_URL="http://bordbuch:8080/"                        PRUEF_WARTEN=20
+Was tatsächlich eingestellt ist, zeigt:
+
+```bash
+werkzeuge/aktualisieren.sh --liste     # welche Tools, welche ohne conf
+grep -r "" */aktualisierung.conf       # alle Werte auf einmal
 ```
 
-Authentik braucht spürbar länger, weil beim Start Migrationen laufen.
+Authentik braucht spürbar länger als der Rest, weil beim Start Migrationen
+laufen.
 
 ### 19a. Datenbank-Migrationen: Hinweis, Kopie, Transaktion
 
@@ -681,117 +722,131 @@ sqlite3 /tmp/probe.db "SELECT COUNT(*) FROM sessions;" # Anzahl unveraendert
 
 ## 20. Zentrales Aktualisierungsskript
 
-`/opt/stack/aktualisieren.sh`, ausführbar:
+`werkzeuge/aktualisieren.sh`, ausführbar. Daneben liegt
+`werkzeuge/aktualisieren-pruefen.sh`, das sein Verhalten nachstellt.
+
+**Die Datei im Repository ist maßgeblich, nicht die Beschreibung hier** —
+dieselbe Regel wie für `backup.sh` in Abschnitt 15, und aus demselben Grund.
+An dieser Stelle stand bis jetzt ein vollständiger Skriptabdruck, der **nie
+ausgeführt worden war**. Er enthielt drei Fehler, die alle erst beim
+Nachstellen sichtbar wurden:
+
+1. `docker inspect "$TOOL"` — es gibt keinen Container namens `authentik`,
+   sondern `authentik-db`, `authentik-server` und `authentik-worker`. Für
+   das einzige Tool mit mehreren Containern wäre die Prüfung **immer** mit
+   „Container läuft nicht" gescheitert.
+2. `sed -i "s|image:.*|image: $ALT|"` zum Zurückrollen — das trifft *jede*
+   `image:`-Zeile. Nachgestellt: bei drei Diensten wurden alle drei auf das
+   Abbild der Datenbank gesetzt. Bei Authentik hätte das Server und Worker
+   in Postgres verwandelt.
+3. **Der schwerwiegendste:** die Rückfallfassung wurde aus der
+   `docker-compose.yml` gelesen, *bevor* aktualisiert wurde. Bei `TYP=image`
+   trägt man die neue Version aber selbst dort ein und startet **danach** das
+   Skript. Gelesen wurde also die schon eingetragene neue Nummer — das
+   Zurückrollen schrieb die Fassung zurück, die eben gescheitert war.
+
+Aufruf:
 
 ```bash
-#!/bin/bash
-set -euo pipefail
-
-TOOL="${1:-}"
-ORDNER="/opt/stack/$TOOL"
-
-if [ -z "$TOOL" ] || [ ! -d "$ORDNER" ]; then
-  echo "Aufruf: $0 <toolname>"; echo "Verfuegbar:"
-  for D in /opt/stack/*/docker-compose.yml; do
-    [ -e "$D" ] && echo "  - $(basename "$(dirname "$D")")"
-  done
-  exit 1
-fi
-
-TYP="image"; PRUEF_URL=""; PRUEF_WARTEN=30
-[ -f "$ORDNER/aktualisierung.conf" ] && . "$ORDNER/aktualisierung.conf"
-
-echo "=== $TOOL aktualisieren ==="
-
-echo "[1/5] Sicherung laeuft ..."
-/opt/stack/backup.sh > /dev/null
-echo "      erledigt."
-
-ALT=$(grep -E '^\s*image:' "$ORDNER/docker-compose.yml" | head -1 | sed 's/.*image:\s*//' | tr -d '"')
-# Ohne image:-Zeile gibt es keinen Rueckweg (B-23). Lieber gar nicht
-# aktualisieren als ohne Rueckweg: bis dahin blieb ALT leer,
-# .letzte-fassung enthielt nichts, und das Zurueckrollen unten haette
-# stillschweigend ins Nichts gegriffen.
-if [ -z "$ALT" ]; then
-  echo "ABBRUCH: in $ORDNER/docker-compose.yml fehlt eine image:-Zeile."
-  echo "         Ohne sie gibt es keinen Rueckweg (Betriebsregeln 5)."
-  echo "         Auch bei einem eigenen Dockerfile gehoert sie dazu -"
-  echo "         'build: .' UND 'image: <tool>:<fassung>'."
-  exit 1
-fi
-echo "$ALT" > "$ORDNER/.letzte-fassung"
-echo "[2/5] Bisherige Fassung: $ALT"
-
-cd "$ORDNER"
-echo "[3/5] Neue Fassung wird bereitgestellt ..."
-if [ "$TYP" = "build" ]; then docker compose build --pull; else docker compose pull; fi
-
-echo "[4/5] Container wird neu gestartet ..."
-docker compose up -d
-
-echo "[5/5] Pruefe ${PRUEF_WARTEN}s lang ..."
-sleep "$PRUEF_WARTEN"
-
-FEHLER=0
-NEUSTARTS=$(docker inspect "$TOOL" --format '{{.RestartCount}}' 2>/dev/null || echo "0")
-LAEUFT=$(docker inspect "$TOOL" --format '{{.State.Running}}' 2>/dev/null || echo "false")
-[ "$LAEUFT" != "true" ] && { echo "  FEHLER: Container laeuft nicht."; FEHLER=1; }
-[ "$NEUSTARTS" -gt 2 ]  && { echo "  FEHLER: Container startet staendig neu."; FEHLER=1; }
-
-if [ -n "$PRUEF_URL" ] && [ "$FEHLER" -eq 0 ]; then
-  if ! docker run --rm --network proxy curlimages/curl:latest \
-       -sf -o /dev/null --max-time 10 "$PRUEF_URL"; then
-    echo "  FEHLER: Dienst antwortet nicht unter $PRUEF_URL"; FEHLER=1
-  fi
-fi
-
-if [ "$FEHLER" -eq 0 ]; then
-  echo ""; echo "FERTIG. $TOOL laeuft."
-  docker compose logs --tail 10
-else
-  echo ""; echo "!!! FEHLGESCHLAGEN - rolle zurueck auf $ALT"
-  docker compose logs --tail 40
-  if [ "$TYP" != "build" ]; then
-    sed -i "s|image:.*|image: $ALT|" "$ORDNER/docker-compose.yml"
-    docker compose up -d
-    echo "Zurueckgerollt. ACHTUNG: Wenn die neue Fassung die Datenbank"
-    echo "bereits migriert hat, zusaetzlich die Sicherung einspielen."
-  else
-    echo "Eigenes Abbild - Quellcode zuruecksetzen und neu bauen."
-  fi
-  exit 1
-fi
+werkzeuge/aktualisieren.sh <tool> [<tool> ...]
+werkzeuge/aktualisieren.sh --alle
+werkzeuge/aktualisieren.sh --liste            # nur auflisten
+werkzeuge/aktualisieren.sh --trocken <tool>   # Ablauf zeigen, nichts tun
 ```
+
+### Was es leistet
+
+- **Kein Toolname im Skript.** Ein Tool ist ein Ordner mit
+  `docker-compose.yml`, alles Tool-eigene steht in seiner
+  `aktualisierung.conf`. Ein neues Tool braucht keine Zeile im Skript.
+- **Sicherung zuerst**, sichtbar und nicht nach `/dev/null`. Schlägt sie
+  fehl, wird nicht aktualisiert. Die Meldung nennt den häufigsten Grund
+  beim Namen: ein fehlender `age`-Schlüssel lässt `backup.sh` mit einem
+  Fehler enden, obwohl die Sicherung geschrieben wurde — sie liegt dann nur
+  im Klartext. Für diesen geklärten Fall gibt es `--ohne-sicherung`, und der
+  Lauf schreibt deutlich ins Protokoll, dass übersprungen wurde.
+- **Abbruch ohne `image:`-Zeile** (B-23). Ohne sie gibt es keinen Rückweg.
+- **Prüfung über die Gesundheitsprüfung des Containers**, `PRUEF_URL` nur
+  ersatzweise. `PRUEF_WARTEN` ist eine Obergrenze: gefragt wird alle zwei
+  Sekunden, im Erfolgsfall ist der Lauf sofort durch.
+- **Rückweg vom letzten *erfolgreichen* Lauf.** Nach jedem Erfolg wird der
+  Stand als `.stand-erfolgreich.yml` abgelegt; nur der gilt als Rückweg.
+  Gibt es keinen — das Tool wurde so noch nie erfolgreich aktualisiert —,
+  bleibt die `docker-compose.yml` **unangetastet**, und das Skript verweist
+  auf `git`. Lieber gar kein Rückweg als ein falscher.
+- **Reihenfolge wird erzwungen:** `socket-proxy` vor `traefik` vor
+  `authentik`. Der Socket-Vermittler legt das Netz an, das Traefik braucht
+  (B-02); alphabetisch sortiert liefe es falsch herum.
+- **Ein Fehlschlag stoppt nicht den Rest.** Am Ende steht, was durch ist und
+  was nicht; der Rückgabewert ist ungleich null, sobald eines gescheitert
+  ist.
+
+### Grenzen, die man kennen muss
+
+Bei `TYP="build"` bringt das Zurückrollen der `docker-compose.yml` das alte
+Verhalten **nicht** zurück: die Fassung steckt im Quellcode, nicht in der
+`image:`-Zeile. Das Skript sagt das und nennt den Weg über `git checkout`.
+
+Und: hat die neue Fassung die Datenbank bereits migriert, reicht Zurückrollen
+grundsätzlich nicht — siehe Abschnitt 22.
 
 ## 21. Ablauf im Alltag
 
-**Fertiges Abbild (n8n, Authentik, Traefik):**
+**Fertiges Abbild (n8n, Authentik, Traefik, socket-proxy):**
 
 ```bash
 nano /opt/stack/n8n/docker-compose.yml     # neue Versionsnummer eintragen
-sudo /opt/stack/aktualisieren.sh n8n
+/opt/stack/werkzeuge/aktualisieren.sh n8n
 ```
 
 Nie mehrere Hauptversionen auf einmal überspringen. Von 1.68 auf 1.72 ist
 unkritisch; von 1.x auf 2.x erst die Umstellungshinweise lesen.
 
-**Eigener Code (Bordbuch):**
+**Eigener Code (Bordbuch, Wiki):**
+
+Beide liegen im Git. Der Weg führt darüber — nicht über ein Archiv nach
+`/tmp`. Der eigenständige Weg ohne Docker ist mit B-34 entfallen
+(`install.sh`, `update.sh`, `bordbuch.service` sind gelöscht).
 
 ```bash
-cp -r /opt/stack/bordbuch /opt/stack/bordbuch.alt
-cd /opt/stack/bordbuch
-tar xzf /tmp/bordbuch-neu.tar.gz --strip-components=1 -C .
-sudo /opt/stack/aktualisieren.sh bordbuch
+cd /opt/stack
+git status                                 # erst sehen, ob lokal etwas abweicht
+git pull origin main
+/opt/stack/werkzeuge/aktualisieren.sh bordbuch
 ```
 
-Rückweg:
+Die Fassung in der `image:`-Zeile gehört bei eigenem Code **mit dem
+Quellcode zusammen erhöht**, nicht danach: sie ist das Etikett des Abbilds,
+das aus genau diesem Stand gebaut wird.
+
+**Alles auf einmal**, in der richtigen Reihenfolge:
 
 ```bash
-cd /opt/stack && sudo rm -rf bordbuch && sudo mv bordbuch.alt bordbuch
+/opt/stack/werkzeuge/aktualisieren.sh --alle
+```
+
+**Vorher sehen, was passieren würde:**
+
+```bash
+/opt/stack/werkzeuge/aktualisieren.sh --trocken --alle
+```
+
+### Rückweg
+
+Bei fertigen Abbildern rollt das Skript selbst zurück, sofern es einen Stand
+aus einem früheren erfolgreichen Lauf gibt. Bei eigenem Code führt der Weg
+über git:
+
+```bash
+cd /opt/stack && git log --oneline -5 -- bordbuch
+git checkout <alter-commit> -- bordbuch
 cd bordbuch && sudo docker compose up -d --build
 ```
 
-Nach Erfolg aufräumen: `sudo rm -rf /opt/stack/bordbuch.alt`
+Hat die neue Fassung die Datenbank bereits migriert, reicht das nicht —
+Abschnitt 22. Bordbuch legt vor jeder Migration eine Kopie neben die
+Datenbank (`.vor-stand-<n>`, aus B-13); das ist der kurze Weg zurück, solange
+sie noch da ist.
 
 ## 22. Wenn Zurückrollen allein nicht reicht
 
@@ -816,7 +871,36 @@ sudo docker compose up -d
 sudo apt update && sudo apt upgrade          # Betriebssystem
 sudo docker image prune -a                   # Platz freigeben
 grep -rn "image:" /opt/stack/*/docker-compose.yml   # was ist veraltet?
+/opt/stack/werkzeuge/aktualisieren.sh --liste       # hat jedes Tool eine conf?
 ```
+
+**Lebt die Sicherung noch?** Abschnitt 15 verlangt eine Überwachung, die
+anschlägt, wenn `/opt/backups/.letzter-erfolg` älter als zwei Tage ist. Eine
+solche Überwachung gibt es bisher **nicht** — bis sie existiert, ist das hier
+der Ersatz, und der Handgriff gehört in dieselbe Runde wie alles andere:
+
+```bash
+M=/opt/backups/.letzter-erfolg
+if [ ! -e "$M" ]; then
+  echo "ACHTUNG: es gibt keinen Vermerk ueber eine erfolgreiche Sicherung."
+elif [ -n "$(find "$M" -mtime +2)" ]; then
+  echo "ACHTUNG: letzte erfolgreiche Sicherung ist aelter als zwei Tage:"
+  cat "$M"
+else
+  echo -n "letzte erfolgreiche Sicherung: "; cat "$M"
+fi
+```
+
+Geprüft mit einer frischen und einer fünf Tage alten Datei. Der naheliegende
+Einzeiler `find … -mtime +2 && echo ACHTUNG` **funktioniert nicht**: `find`
+gibt auch ohne Treffer 0 zurück, die Warnung käme also immer — und eine
+Warnung, die immer kommt, liest nach einer Woche niemand mehr. Darum wird
+die Ausgabe geprüft, nicht der Rückgabewert.
+
+Gibt die Zeile eine Warnung aus — oder die Datei fehlt ganz —, ist zuerst
+das zu klären und nichts zu aktualisieren. Eine Sicherung, deren Scheitern
+niemand merkt, ist keine Sicherung; eine monatliche Handprüfung ist dafür
+eigentlich zu selten, und sie ersetzt die Überwachung nicht.
 
 Die gefundenen Versionsnummern mit den Releases-Seiten abgleichen.
 **Sicherheitsaktualisierungen bei Authentik und Traefik haben Vorrang** —
@@ -901,9 +985,25 @@ Design- und Qualitätspunkte stehen in `prolo-regelblatt.md`.
 
 **Betrieb**
 - [ ] `sicherung.conf` angelegt, Volume-Namen geprüft
-- [ ] `aktualisierung.conf` angelegt, `PRUEF_URL` intern und erreichbar
+- [ ] `aktualisierung.conf` angelegt — taucht das Tool bei
+      `werkzeuge/aktualisieren.sh --liste` ohne den Zusatz „(ohne
+      aktualisierung.conf)" auf?
+- [ ] Eigene Gesundheitsprüfung im `Dockerfile` (`HEALTHCHECK`) oder in der
+      compose-Datei. Sie ist die bessere Prüfung; `PRUEF_URL` ist der Ersatz,
+      wenn es keine gibt
+- [ ] `PRUEF_URL`, falls gesetzt: intern und ohne Anmeldung erreichbar —
+      Containername und interner Port, **nicht** die öffentliche Domain
 - [ ] Bei eigenem Code: `CHANGELOG.md` mit Datum je Änderung
 - [ ] Einmal testweise aktualisiert **und einmal testweise zurückgerollt**
 
-Der letzte Punkt ist der wichtigste. Ein Rückweg, den niemand ausprobiert
+**Nach jedem frischen Klon**
+- [ ] `ln -sf ../../werkzeuge/pre-commit .git/hooks/pre-commit` gesetzt —
+      `.git/hooks` wird nicht mitversioniert, der Haken ist sonst weg
+
+Der vorletzte Punkt ist der wichtigste. Ein Rückweg, den niemand ausprobiert
 hat, ist kein Rückweg.
+
+Und er entsteht nicht von selbst: `aktualisieren.sh` legt seinen Rückweg
+erst **nach dem ersten erfolgreichen Lauf** an. Beim allerersten Mal gibt es
+nichts, worauf zurückgerollt werden könnte — dann führt der Weg über `git`.
+Genau deshalb steht „einmal testweise aktualisiert" **vor** „zurückgerollt".
