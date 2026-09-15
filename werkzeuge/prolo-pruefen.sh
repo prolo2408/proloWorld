@@ -166,6 +166,61 @@ pruefe "hilfe listet die Befehle" "ja" "$E"
 prolo quatsch >/dev/null 2>&1 && E=0 || E=1
 pruefe "unbekannter Befehl endet mit Fehler" "1" "$E"
 
+# 11. Der Aufruf UEBER EINEN SYMLINK muss denselben Stack finden.
+#     Genau daran ist die erste Fassung gescheitert: BASH_SOURCE zeigt auf
+#     den Symlink, nicht aufs Ziel - STACK wurde /usr/local, und vier
+#     Befehle liefen ins Leere. Der empfohlene Weg ist ein Symlink nach
+#     /usr/local/bin, also gehoert genau der geprueft.
+mkdir -p "$T/anderswo"
+ln -sf "$T/stack/werkzeuge/prolo" "$T/anderswo/prolo"
+A=$(PATH="$T/bin:$PATH" "$T/anderswo/prolo" hilfe 2>&1)
+echo "$A" | grep -q "Stack unter $T/stack" && E=ja || E=nein
+pruefe "ueber einen Symlink wird derselbe Stack gefunden" "ja" "$E"
+
+# Und zwar nicht nur in der Hilfe, sondern auch bei einem echten Befehl.
+printf 'nginx:1.27-alpine\n8080\n' | PATH="$T/bin:$PATH" "$T/anderswo/prolo" neu symtest \
+  >/dev/null 2>&1
+[ -f "$T/stack/symtest/docker-compose.yml" ] && E=ja || E=nein
+pruefe "und 'neu' legt im richtigen Ordner an" "ja" "$E"
+
+A=$(PATH="$T/bin:$PATH" "$T/anderswo/prolo" status --kurz 2>&1)
+echo "$A" | grep -q "symtest" && E=ja || E=nein
+pruefe "und 'status' findet die Tools" "ja" "$E"
+
+# Auch ueber eine Kette aus zwei Symlinks.
+ln -sf "$T/anderswo/prolo" "$T/anderswo/prolo2"
+A=$(PATH="$T/bin:$PATH" "$T/anderswo/prolo2" hilfe 2>&1)
+echo "$A" | grep -q "Stack unter $T/stack" && E=ja || E=nein
+pruefe "auch ueber eine Kette aus zwei Symlinks" "ja" "$E"
+
+# 12. Zusatznamen aus dns-namen.conf werden mitgelesen
+mkdir -p "$T/stack/werkzeuge"
+printf '# Kommentar\nzusatz.beispiel.de\n\n' > "$T/stack/werkzeuge/dns-namen.conf"
+A=$(PATH="$T/bin:$PATH" "$T/anderswo/prolo" dns 2>&1 || true)
+echo "$A" | grep -q "zusatz.beispiel.de" && E=ja || E=nein
+pruefe "Zusatznamen aus dns-namen.conf werden geprueft" "ja" "$E"
+echo "$A" | grep -q "^  # Kommentar" && E=ja || E=nein
+pruefe "Kommentarzeilen werden dabei nicht als Name gelesen" "nein" "$E"
+
+# 13. Ein Name, der NICHT auflaest, darf den Befehl nicht lahmlegen.
+#     getent gibt dann 2 zurueck; unter set -euo pipefail riss das vorher
+#     die ganze Funktion ab, noch vor der ersten Zeile. Ausgerechnet der
+#     Fall, fuer den es den Befehl gibt.
+printf 'gibtesganzsicherniemals.invalid\nzweiter.invalid\n' \
+  > "$T/stack/werkzeuge/dns-namen.conf"
+A=$(PATH="$T/bin:$PATH" "$T/anderswo/prolo" dns 2>&1 || true)
+echo "$A" | grep -q "gibtesganzsicherniemals.invalid" && E=ja || E=nein
+pruefe "ein nicht aufloesbarer Name wird gemeldet" "ja" "$E"
+echo "$A" | grep -q "zweiter.invalid" && E=ja || E=nein
+pruefe "und bricht die Liste nicht ab" "ja" "$E"
+echo "$A" | grep -q "KEINE ANTWORT" && E=ja || E=nein
+pruefe "mit einer verstaendlichen Meldung" "ja" "$E"
+
+# 14. status haelt denselben Fall aus
+A=$(PATH="$T/bin:$PATH" "$T/anderswo/prolo" status --kurz 2>&1 || true)
+echo "$A" | grep -q "TOOL" && E=ja || E=nein
+pruefe "status --kurz laeuft durch" "ja" "$E"
+
 echo
 if [ "$FEHLER" -eq 0 ]; then echo "Alles gruen."; else echo "GEGENPROBE FEHLGESCHLAGEN." >&2; fi
 exit "$FEHLER"
