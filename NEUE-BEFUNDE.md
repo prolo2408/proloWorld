@@ -161,8 +161,81 @@ und `git status` bleibt nach einem Serverlauf sauber.
 
 ---
 
+## N-05 — `cap_drop: ALL` nahm Traefik den Zugriff auf `acme.json`
+
+**Stufe:** hoch (Ausfall nach außen)
+**Datei:** `traefik/docker-compose.yml`
+**Gefunden bei:** dem ersten echten Ausrollen auf dem Server, 15.09.2026
+**Verursacht durch:** B-29 (Speicher-, Prozess- und Rechtegrenzen)
+
+### Befund
+
+Nach dem Ausrollen meldete der Browser bei `wiki.prolo.me` **„Nicht sicher"**
+und zeigte als Zertifikat `CN=TRAEFIK DEFAULT CERT`. Im Protokoll:
+
+```
+ERR The ACME resolve is skipped from the resolvers list
+    error="unable to get ACME account: open /letsencrypt/acme.json: permission denied"
+WRN Unable to create access logger
+    error="... /var/log/traefik/zugriff.log: permission denied"
+```
+
+Die Rechte auf dem Server:
+
+```
+-rw------- 1 prolo prolo 65868 acme.json
+drwxrwxr-x 2 prolo prolo       log
+```
+
+Traefik läuft im Container als root. Normalerweise umgeht root jede
+Dateirechteprüfung — über `CAP_DAC_OVERRIDE`. Genau die nimmt ihm aber das
+mit B-29 eingeführte `cap_drop: ALL`. Ohne sie gelten für root die normalen
+Rechtebits, und `acme.json` gehört `prolo` mit `600`.
+
+**Was daran wichtig ist:** Es gab keinen Absturz und keine rote Meldung. Der
+Container lief, das Aktualisierungsskript meldete `FERTIG. traefik laeuft.` —
+richtig, denn es prüft den Containerzustand, und der war einwandfrei. Nur
+lieferte Traefik ab diesem Moment sein selbst ausgestelltes Notzertifikat
+aus, für **alle** Subdomains. Aufgefallen ist es erst, weil jemand die Seite
+im Browser aufgerufen hat.
+
+Auch die Einschätzung „die bestehenden Zertifikate laufen weiter, nur die
+Erneuerung ist kaputt" war falsch: der Resolver wurde beim Start
+**übersprungen**, Traefik kam also gar nicht erst an die gespeicherten
+Zertifikate.
+
+### Zu tun — erledigt
+
+Eigentümerschaft geradeziehen, nicht die Fähigkeit zurückgeben:
+
+```bash
+sudo chown root:root /opt/stack/traefik/acme.json
+sudo chmod 600      /opt/stack/traefik/acme.json
+sudo chown -R root:root /opt/stack/traefik/log
+cd /opt/stack/traefik && sudo docker compose restart
+```
+
+`cap_add: DAC_OVERRIDE` wäre der bequemere Weg und würde die Härtung aus
+B-29 wieder aufweichen. Die Datei gehört dem Dienst, der sie braucht — das
+ist die richtige Ebene.
+
+In `traefik/docker-compose.yml` steht der Zusammenhang jetzt als Kommentar
+direkt über der Zeile, samt der Protokollmeldung, an der man ihn
+wiedererkennt.
+
+### Was daraus folgt
+
+Die Prüfung im Aktualisierungsskript sagt „der Container läuft" — nicht „der
+Dienst tut, was er soll". Bei Traefik ist das derselbe Unterschied wie
+zwischen einem laufenden Motor und einem Auto, das fährt. Ein Tool ohne
+`PRUEF_URL` (Traefik hat keine, siehe `traefik/aktualisierung.conf`) ist
+damit nur oberflächlich geprüft. Offen und in Abschnitt 20 der
+Betriebsregeln als Grenze benannt.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
-`N-01` bis `N-04` sind alle behoben. Keiner davon war eine Sicherheitslücke,
-aber jeder ist in dieselbe Liste gegangen wie alles andere, statt in einer
-Commit-Nachricht zu verschwinden.
+`N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
+sichtbar war — und der einzige, den keine Prüfung hier gefunden hätte,
+weil er erst mit echten Dateirechten auf einem echten Server entsteht.
