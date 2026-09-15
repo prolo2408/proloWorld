@@ -160,7 +160,11 @@
     --overlay:oklch(0.2 0.012 258); --on-overlay:oklch(0.98 0.002 250);
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{margin:0;padding:0}
+  /* height:100% ist die Voraussetzung dafuer, dass die Seitenleiste ueber
+     die volle Hoehe laeuft und "Einstellungen" unten klebt - so wie im
+     Wiki. Ohne sie endete die Leiste dort, wo ihr Inhalt endet, und
+     darunter lag der Seitenhintergrund. */
+  html,body{margin:0;padding:0;height:100%}
   body{background:var(--bg);
     color:var(--text);font-family:var(--sans);font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
   /* Regelblatt 3: Ueberschriften, Kennzahlen und Betraege in der
@@ -170,46 +174,88 @@
      KPI-Reihe so schmal, dass grosse Betraege (1.284.500,55 EUR) umbrachen -
      und zwei Tools nebeneinander hatten sichtbar verschiedene Satzspiegel.
      Das Wiki hielt den Wert bereits ein. */
-  .wrap{max-width:1280px;margin:0 auto;padding:18px 16px calc(96px + env(safe-area-inset-bottom))}
+  /* ------------------------------------------------ Grundgeruest
+     Seitenleiste links, Kopf rechts daneben - dasselbe Geruest wie im Wiki.
+     Vorher hatte das Bordbuch eine Kopfzeile mit seitlich scrollender
+     Reiterleiste, das Wiki eine Seitenleiste. Zwei Tools derselben Werkstatt
+     sahen damit verschieden aus, und Regelblatt 5 nennt als Zweck der
+     Vorgaben ausdruecklich, "damit die Tools als Familie erkennbar sind".
 
-  header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap}
-  .brand{display:flex;align-items:center;gap:11px;min-width:0}
+     Die Reiter sind dabei zu Eintraegen der Seitenleiste geworden. Das loest
+     nebenbei ein eigenes Problem: bei zehn Reitern war die Zeile schmaler
+     als ihr Inhalt, und es brauchte Randmarken, damit man ueberhaupt merkte,
+     dass rechts noch etwas folgt. Untereinander stehen sie einfach da. */
+  .app{display:flex;height:100%;background:var(--app)}
+
+  #seitenleiste{
+    width:248px;flex:0 0 248px;background:var(--chrome);
+    border-right:1px solid var(--line);display:flex;flex-direction:column;height:100%;
+  }
+  .marke{display:flex;align-items:center;gap:10px;padding:18px 16px 14px;width:100%;
+    border:0;background:transparent;font:inherit;cursor:pointer;text-align:left;
+    text-decoration:none;color:inherit;border-radius:0}
+  .marke:hover{background:transparent;border-color:transparent}
+  .marke:hover .wortmarke{color:var(--accent)}
   /* Kachel nach Regelblatt 5: 30 px, Radius 8, --accent als Flaeche, ein
-     Grossbuchstabe in #fff. Das #fff auf --accent ist hier ausdruecklich
-     erlaubt (Regelblatt 1: "Nie #000 oder #fff direkt setzen, ausser als Text
-     auf --accent"). Vorher waren es 32 px und eine Illustration. */
-  .brand{text-decoration:none;color:inherit}
-  .brand .kachel{width:30px;height:30px;flex:0 0 30px;border-radius:8px;
-    background:var(--accent);color:#fff;display:flex;align-items:center;
-    justify-content:center;font-family:var(--display);font-size:15px;font-weight:600}
-  .brand .unterzeile{font-family:var(--mono);font-size:10px;letter-spacing:.06em;
-    text-transform:uppercase;color:var(--dim);line-height:1.4}
-  .brand h1 #testmarke{font-size:11px;color:var(--accent);vertical-align:super;
+     Grossbuchstabe. Text auf --accent laeuft ueber --on-accent statt ueber
+     ein hartes #fff - wie im Wiki seit N-01. */
+  .marke .kachel{width:30px;height:30px;border-radius:8px;background:var(--accent);
+    display:grid;place-items:center;color:var(--on-accent);font-family:var(--display);
+    font-weight:600;font-size:15px;flex:0 0 30px}
+  .marke .wortmarke{font-family:var(--display);font-weight:600;letter-spacing:-.02em;
+    color:var(--ink);font-size:14px;line-height:1.2}
+  .marke .unterzeile{font-family:var(--mono);font-size:10px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--ink-3);line-height:1.4}
+  .marke #testmarke{font-size:10px;color:var(--accent);vertical-align:super;
     font-family:var(--mono);margin-left:4px}
-  .brand h1{font-size:21px;margin:0;letter-spacing:-.02em;font-weight:650;line-height:1.1}
-  /* Der Anzeigename ist ein Verweis auf die Einstellungen (B-16). Er steht
-     neben der Marke, nicht als deren Unterzeile - die beschreibt das Tool. */
+
+  .navi{padding:0 8px 8px;flex:1;overflow-y:auto;scrollbar-width:none}
+  .navi::-webkit-scrollbar{width:0}
+  .blatt{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;
+    padding:6px 10px 6px 12px;border:0;border-left:3px solid transparent;
+    background:transparent;color:var(--ink-2);font:inherit;font-size:13.5px;
+    cursor:pointer;text-align:left;border-radius:0 8px 8px 0}
+  .blatt:hover{background:var(--hover);color:var(--ink);border-color:transparent;
+    border-left-color:transparent}
+  .blatt[aria-current="true"]{background:var(--accent-soft);color:var(--accent-ink);
+    border-left-color:var(--accent);font-weight:600}
+  .leiste-fuss{border-top:1px solid var(--line);padding:8px}
+  .leiste-fuss .blatt, .navi .blatt{border-radius:8px;padding-left:12px}
+  .blatt .badge{min-width:17px;padding:1px 5px;border-radius:99px;background:var(--red);
+    color:var(--on-accent);font-size:10.5px;font-weight:700;font-family:var(--mono);
+    margin-left:auto;display:inline-block}
+
+  #hauptteil{flex:1;min-width:0;display:flex;flex-direction:column;height:100%}
+  header{height:76px;flex:0 0 76px;background:var(--chrome);
+    border-bottom:1px solid var(--line);display:flex;align-items:center;
+    gap:14px;padding:0 24px}
+  #kopftitel{font-family:var(--display);font-weight:600;letter-spacing:-.02em;
+    color:var(--ink);font-size:20px;line-height:1.2}
+  #kopfkontext{font-family:var(--mono);font-size:10px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--ink-3)}
+  #menue-knopf{display:none}
+  #inhalt{flex:1;min-height:0;overflow-y:auto;background:var(--app)}
+  /* Der Satzspiegel bleibt bei 1280 px (B-18) - jetzt innerhalb des
+     Hauptteils statt um die ganze Seite. */
+  .wrap{max-width:1280px;margin:0 auto;
+    padding:22px 24px calc(96px + env(safe-area-inset-bottom))}
+
+  /* Der Anzeigename ist ein Verweis auf die Einstellungen (B-16). */
   .who{font-family:var(--mono);font-size:11px;letter-spacing:.06em;
-    color:var(--muted);text-decoration:none;align-self:center;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:34vw}
+    color:var(--muted);text-decoration:none;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:20vw}
   .who:hover{color:var(--text)}
-  /* Zustandsangabe im Kopfbereich rechts - dorthin, wo Regelblatt 6 die
-     Kontextangaben verortet. */
   .zustand{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--dim);
-    align-self:center;max-width:40vw}
+    max-width:24vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .zustand.hidden{display:none}
-  .headtools{display:flex;gap:8px;align-items:center}
+  .headtools{display:flex;gap:10px;align-items:center;margin-left:auto;min-width:0}
 
   button{font:inherit;cursor:pointer;border-radius:11px;border:1px solid var(--line);background:var(--panel);
     color:var(--text);padding:10px 15px;transition:.14s background,.14s border-color,.14s color;
     display:inline-flex;align-items:center;gap:7px}
   button:hover{border-color:var(--ink-3);background:var(--panel2)}
   button:active{transform:translateY(1px)}
-  /* Pflichtblock aus Regelblatt 8.1 (B-15). Vorher stand hier nur
-     "button:focus-visible" - Auswahllisten im Kopfbereich, alle Eingaben und
-     alle Verweise bekamen bei Tastaturbedienung keinen sichtbaren
-     Fokusrahmen. Regelblatt 9 nennt das "nicht verhandelbar". Der Block ist
-     woertlich aus dem Wiki uebernommen, einschliesslich [tabindex]. */
+  /* Pflichtblock aus Regelblatt 8.1 (B-15). */
   button:focus-visible, a:focus-visible, input:focus-visible,
   select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible{
     outline:2px solid var(--volt); outline-offset:2px;
@@ -231,27 +277,6 @@
     border-radius:11px;padding:3px 3px 3px 11px;min-width:0}
   .carpick .lab{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
   .carpick select{border:0;background:transparent;padding:8px 6px;font-weight:600;font-size:15px;min-width:0}
-
-  /* U1: In der seitlich scrollenden Reiterzeile wurde nicht erkennbar, dass
-     rechts noch etwas folgt. Der Rahmen bekommt darum einen Farbverlauf am
-     Rand, der beim Scrollen bis zum Ende verschwindet (per JS gesetzt). */
-  .navwrap{position:sticky;top:0;z-index:20;margin-bottom:16px;
-    background:var(--chrome);backdrop-filter:blur(10px)}
-  .navwrap::after{content:'';position:absolute;top:0;right:0;bottom:1px;width:34px;pointer-events:none;
-    background:linear-gradient(to right,transparent,var(--bg));opacity:0;transition:opacity .15s}
-  .navwrap.mehr-rechts::after{opacity:.95}
-  .navwrap::before{content:'';position:absolute;top:0;left:0;bottom:1px;width:26px;pointer-events:none;
-    background:linear-gradient(to left,transparent,var(--bg));opacity:0;transition:opacity .15s;z-index:1}
-  .navwrap.mehr-links::before{opacity:.95}
-  nav{display:flex;gap:2px;overflow-x:auto;border-bottom:1px solid var(--soft);
-    scrollbar-width:none;-ms-overflow-style:none}
-  nav::-webkit-scrollbar{display:none}
-  nav button{border:0;background:transparent;border-radius:0;padding:12px 13px;color:var(--muted);
-    border-bottom:2px solid transparent;white-space:nowrap;font-size:14.5px}
-  nav button:hover{background:transparent;color:var(--text)}
-  nav button[aria-selected=true]{color:var(--volt);border-bottom-color:var(--volt);font-weight:650}
-  nav .badge{min-width:17px;padding:1px 5px;border-radius:99px;background:var(--red);color:var(--on-accent);
-    font-size:10.5px;font-weight:700;font-family:var(--mono);margin-left:6px;display:inline-block}
 
   section{border:1px solid var(--soft);background:var(--panel);border-radius:var(--r);padding:16px;margin-bottom:14px}
   section.accent{border-color:var(--volt)}
@@ -433,10 +458,26 @@
     header,nav,.no-print,.toast,.fab{display:none!important}
     section{border:0;background:#fff;padding:0;margin:0} h2{display:none} .paper{border-radius:0;padding:0}
   }
+  /* Schmal: die Seitenleiste faehrt ueber den Inhalt, wie im Wiki.
+     Dieselbe Schwelle (860 px) und dasselbe Verfahren - body[data-menue]. */
+  @media (max-width:860px){
+    #seitenleiste{position:fixed;z-index:60;left:0;top:0;bottom:0;
+      transform:translateX(-100%);transition:transform .18s;box-shadow:var(--shadow)}
+    body[data-menue="1"] #seitenleiste{transform:none}
+    #menue-knopf{display:inline-flex}
+    header{height:auto;flex:0 0 auto;padding:10px 16px;flex-wrap:wrap;gap:8px;
+      padding-top:max(10px,env(safe-area-inset-top))}
+    #kopftitel{font-size:16px}
+    .wrap{padding:18px 16px calc(96px + env(safe-area-inset-bottom))}
+    .headtools{width:100%;margin-left:0;order:3}
+    .who{max-width:none}
+    /* Ein Schleier ueber dem Inhalt, solange die Leiste offen ist - sonst
+       tippt man daneben und weiss nicht, warum nichts passiert. */
+    body[data-menue="1"] #hauptteil::after{content:'';position:fixed;inset:0;
+      z-index:50;background:var(--overlay);opacity:.5}
+  }
   @media (max-width:820px){
     .cols3{grid-template-columns:1fr}
-    .brand h1{font-size:19px}
-    .headtools{width:100%}
     .carpick{flex:1}
     .carpick select{flex:1;width:100%}
     .choose{grid-template-columns:1fr}
@@ -510,47 +551,50 @@ label>.hlp{margin-left:4px}
 
 </head>
 <body data-theme="dark">
-<div class="wrap">
-  <header class="no-print">
-    <!-- Tool-Logo nach Regelblatt 5 (B-17). Vorher stand hier eine
-         Illustration - ein Auto mit Blitz -, die das Regelblatt ausdruecklich
-         verbietet: "Keine Emojis, keine Icon-Bibliothek, keine Illustration.
-         Wer mehr als einen Buchstaben braucht, braucht ein einfacheres Logo."
-         Der Zweck der Regel steht dort auch: "damit die Tools als Familie
-         erkennbar sind". Bordbuch und Wiki sahen nicht aus wie zwei Tools
-         derselben Werkstatt; das Wiki hielt das Muster bereits ein.
+<div class="app">
 
-         Ein Klick auf das Logo fuehrt immer zur Startseite des Tools - das
-         war vorher nicht umgesetzt. -->
-    <a class="brand" href="/" title="Zur Übersicht">
+  <!-- ------------------------------------------------ Seitenleiste -->
+  <aside id="seitenleiste" class="no-print" aria-label="Bereiche">
+    <a class="marke" id="logo" href="/" title="Zur Übersicht">
       <div class="kachel" aria-hidden="true">B</div>
-      <div style="min-width:0">
-        <h1>Bordbuch<span id="testmarke" hidden>TEST</span></h1>
+      <div style="min-width:0;text-align:left">
+        <div class="wortmarke">Bordbuch<span id="testmarke" hidden>TEST</span></div>
         <!-- Die Unterzeile beschreibt das TOOL, nicht den Zustand
-             (Regelblatt 5: "'Fahrtenbuch' ist richtig, '1 Seite' gehoert in
-             den Inhalt"). Vorher stand hier "Angemeldet: … · sieht …". -->
+             (Regelblatt 5). -->
         <div class="unterzeile">Fahrtenbuch</div>
       </div>
     </a>
-    <div class="headtools">
-      <div class="carpick"><span class="lab">Auto</span><select id="carPick" aria-label="Auto wählen"></select></div>
-      <div class="carpick hidden" id="profilWrap"><span class="lab">Profil</span><select id="profilPick" aria-label="Profil wählen"></select></div>
-      <!-- Regelblatt 6a, letzter Absatz, woertlich: "Im Header steht nur noch
-           der Anzeigename, verlinkt auf diese Seite. Kein Theme-Umschalter und
-           kein Abmelden-Knopf direkt in der Kopfzeile." Beides stand genau
-           hier (B-16). Der Theme-Umschalter ist jetzt ein Segment in den
-           Einstellungen unter "Darstellung" (B-11), das Abmelden steht dort
-           unter "Konto". Der alte <a href="#"> war zudem ein Verweis ohne
-           Ziel: bis das JavaScript ihn nachtraeglich befuellte, war er
-           fokussierbar und fuehrte ins Leere. -->
-      <div class="zustand" id="zustand"></div>
-      <!-- Ganz rechts der Anzeigename als Verweis auf die Einstellungen -
-           die Reihenfolge gibt Regelblatt 6 vor. -->
-      <a class="who" id="who" href="/einstellungen"></a>
+    <nav class="navi" id="tabs" aria-label="Hauptnavigation"></nav>
+    <div class="leiste-fuss">
+      <button class="blatt" data-act="tab" data-v="settings">Einstellungen</button>
     </div>
-  </header>
-  <div class="navwrap no-print" id="navwrap"><nav id="tabs" role="tablist"></nav></div>
-  <div id="view"></div>
+  </aside>
+
+  <!-- ------------------------------------------------ Hauptteil -->
+  <div id="hauptteil">
+    <header class="no-print">
+      <button class="ghost" id="menue-knopf" aria-label="Bereiche anzeigen"
+              aria-expanded="false">Bereiche</button>
+
+      <div style="min-width:0">
+        <div id="kopftitel">Übersicht</div>
+        <div id="kopfkontext">Fahrtenbuch</div>
+      </div>
+
+      <div class="headtools">
+        <div class="carpick"><span class="lab">Auto</span><select id="carPick" aria-label="Auto wählen"></select></div>
+        <div class="carpick hidden" id="profilWrap"><span class="lab">Profil</span><select id="profilPick" aria-label="Profil wählen"></select></div>
+        <div class="zustand" id="zustand"></div>
+        <!-- Ganz rechts der Anzeigename als Verweis auf die Einstellungen -
+             die Reihenfolge gibt Regelblatt 6 vor (B-16). -->
+        <a class="who" id="who" href="/einstellungen"></a>
+      </div>
+    </header>
+
+    <main id="inhalt">
+      <div class="wrap"><div id="view"></div></div>
+    </main>
+  </div>
 </div>
 
 <button class="primary fab hidden no-print" id="fab"></button>
@@ -4736,14 +4780,25 @@ function wegSetzen(tab,ersetzen){
 /* =====================================================================
    Rendern
    ===================================================================== */
-/* U1: Zeigt an, ob in der Reiterzeile links oder rechts noch etwas folgt.
-   Ohne diesen Hinweis wurden Reiter ausserhalb des Bildschirms uebersehen. */
-function navRandmarken(){
-  const w=document.getElementById('navwrap'),n=document.getElementById('tabs');
-  if(!w||!n||!n.classList||typeof n.scrollWidth!=='number')return;
-  const rest=n.scrollWidth-n.clientWidth-n.scrollLeft;
-  w.classList.toggle('mehr-rechts',rest>4);
-  w.classList.toggle('mehr-links',n.scrollLeft>4);
+/* Kopfzeile: Titel ist der offene Bereich, darunter der Kontext.
+   Genau wie im Wiki, wo ueber dem Inhalt der Seitenname und darunter das
+   Thema steht. Vorher trug das Bordbuch im Kopf nur die Wortmarke - wo man
+   gerade war, stand allein im hervorgehobenen Reiter.
+
+   Die frueher hier stehende Funktion navRandmarken() ist entfallen: sie
+   zeigte an, ob in der seitlich scrollenden Reiterzeile noch etwas folgt.
+   Untereinander in der Seitenleiste ist alles sichtbar, die Randmarken
+   haetten nichts mehr anzuzeigen. */
+function kopfSetzen(tabs){
+  const t=document.getElementById('kopftitel');
+  const k=document.getElementById('kopfkontext');
+  if(!t||!k)return;
+  const eintrag=(tabs||[]).find(([kk])=>kk===state.tab);
+  t.textContent=eintrag?eintrag[1]:'Übersicht';
+  /* Im Kontext steht das Auto, um das es geht - die fachliche Einordnung,
+     nicht der Toolname. Ohne Auto bleibt die Beschreibung des Tools. */
+  const c=(typeof car==='function')?car():null;
+  k.textContent=(c&&c.name)?c.name:'Fahrtenbuch';
 }
 
 
@@ -5193,11 +5248,23 @@ function render(){
   if(!tabs.some(([k])=>k===state.tab))state.tab='overview';
   const nCheck=checkCount();
   const nWart=wartungHinweise().length;
-  document.getElementById('tabs').innerHTML=tabs.map(([k,l])=>
-    '<button role="tab" data-act="tab" data-v="'+k+'" aria-selected="'+(state.tab===k)+'">'+l+
+  /* Die Bereiche stehen jetzt untereinander in der Seitenleiste, nicht mehr
+     als seitlich scrollende Reiterzeile - dasselbe Geruest wie im Wiki.
+     aria-current statt aria-selected: es sind Navigationseintraege, keine
+     Reiter mehr, und role="tablist" gibt es nicht mehr.
+     "Einstellungen" steht fest im Fuss der Leiste und faellt hier heraus. */
+  document.getElementById('tabs').innerHTML=tabs
+    .filter(([k])=>k!=='settings')
+    .map(([k,l])=>
+    '<button class="blatt" data-act="tab" data-v="'+k+'" aria-current="'+(state.tab===k)+'">'+
+    '<span>'+l+'</span>'+
     (k==='checks'&&nCheck?'<span class="badge">'+nCheck+'</span>':'')+
     /* Am Wartungstab nur ein Abzeichen, wenn wirklich etwas ansteht. */
     (k==='wartung'&&nWart?'<span class="badge">'+nWart+'</span>':'')+'</button>').join('');
+  /* Der Eintrag im Fuss muss denselben Zustand zeigen wie die anderen. */
+  const einst=document.querySelector('.leiste-fuss .blatt[data-v="settings"]');
+  if(einst)einst.setAttribute('aria-current',String(state.tab==='settings'));
+  kopfSetzen(tabs);
   const c=car();
   /* B4: Hier stand das Auto ein zweites Mal - direkt unter dem Auswahlfeld,
      und bei schmalem Fenster abgeschnitten. Jetzt nur noch das Profil. */
@@ -5248,12 +5315,12 @@ function render(){
     if(state.tab==='fuel'){fab.textContent='Tankung';fab.dataset.act='fuelNew';fab.dataset.v='';}
     else{fab.textContent='Ladung';fab.dataset.act='chargeNew';fab.dataset.v='';}
   }
-  /* B5: Bei vielen Reitern lag der aktive außerhalb des sichtbaren Bereichs. */
-  const aktiv=document.querySelector('nav button[aria-selected="true"]');
+  /* B5: Bei vielen Eintraegen kann der aktive ausserhalb des sichtbaren
+     Bereichs der Seitenleiste liegen - jetzt senkrecht statt waagerecht. */
+  const aktiv=document.querySelector('#seitenleiste .blatt[aria-current="true"]');
   if(aktiv&&aktiv.scrollIntoView)try{
     aktiv.scrollIntoView({inline:'nearest',block:'nearest'});
   }catch(e){}
-  navRandmarken();
   if(state.tab==='overview')drawBars();
   if(state.tab==='prices'){
     drawTrend('tKwh',chargeAll().filter(s=>s.kwh>.3&&s.ppk>0).map(s=>({t:s.d.getTime(),v:s.ppk,w:s.kwh,
@@ -5962,12 +6029,35 @@ document.addEventListener('keydown',e=>{
     if(e.key==='ArrowRight'){state.weekOffset++;render();}
   }
 });
-/* U1: Randmarken der Reiterzeile beim Scrollen und bei Größenänderung nachziehen */
+/* Menueknopf: faehrt die Seitenleiste bei schmalem Fenster ein und aus.
+   Gleiches Verfahren wie im Wiki - ein Merkmal am body, damit CSS den Rest
+   macht. Ein Klick in den Inhalt schliesst sie wieder; sonst steht sie im
+   Weg, und man tippt daneben. */
 (function(){
-  const n=document.getElementById('tabs');
-  if(n&&n.addEventListener)n.addEventListener('scroll',navRandmarken);
+  const knopf=document.getElementById('menue-knopf');
+  if(!knopf||!knopf.addEventListener)return;
+  const setzen=auf=>{
+    document.body.dataset.menue=auf?'1':'';
+    knopf.setAttribute('aria-expanded',String(auf));
+  };
+  knopf.addEventListener('click',()=>setzen(document.body.dataset.menue!=='1'));
+  /* Zum Schliessen NUR der Inhaltsbereich, nicht der ganze Hauptteil.
+     Der Menueknopf steht in der Kopfzeile, und die liegt in #hauptteil: ein
+     Klick darauf hat die Leiste geoeffnet, ist hochgeblubbert und hat sie
+     sofort wieder geschlossen. Sie liess sich damit gar nicht oeffnen -
+     im Browsertest als {"menue":"","leisteLinks":-248} aufgefallen. */
+  const inhalt=document.getElementById('inhalt');
+  if(inhalt&&inhalt.addEventListener)
+    inhalt.addEventListener('click',()=>{ if(document.body.dataset.menue==='1')setzen(false); });
+  /* Nach der Wahl eines Bereichs schliessen - sonst verdeckt die Leiste
+     genau das, was man gerade aufgerufen hat. */
+  const leiste=document.getElementById('seitenleiste');
+  if(leiste&&leiste.addEventListener)
+    leiste.addEventListener('click',e=>{
+      if(e.target&&e.target.closest&&e.target.closest('[data-act="tab"]'))setzen(false);
+    });
   if(typeof window!=='undefined'&&window.addEventListener)
-    window.addEventListener('resize',navRandmarken);
+    window.addEventListener('keydown',e=>{ if(e.key==='Escape')setzen(false); });
 })();
 
 ['dragenter','dragover'].forEach(t=>document.addEventListener(t,e=>e.preventDefault()));
