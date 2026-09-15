@@ -99,6 +99,16 @@
 
   --track:oklch(0.94 0.004 250);
   --shadow:0 24px 60px -20px oklch(0.4 0.03 250 / 0.22);
+
+  /* Die drei Token aus Regelblatt 2, die hier fehlten (N-01). Werte
+     identisch zum Bordbuch - ein Loeschknopf muss in beiden Tools gleich
+     aussehen. --overlay hat im Wiki heute keine Fundstelle: es gibt keinen
+     eigenen Dialog, gefragt wird ueber confirm(). Es steht trotzdem hier,
+     weil genau das sein Zweck laut Regelblatt ist - damit der naechste
+     Dialog nicht sein eigenes rgba(0,0,0,.5) erfindet. */
+  --danger:oklch(0.52 0.18 25);      /* Loeschen, Zuruecksetzen       */
+  --on-accent:oklch(0.99 0.002 250); /* Text auf --accent             */
+  --overlay:oklch(0.28 0.02 258);    /* Abdunklung hinter Dialogen    */
 }
 body[data-theme="dark"]{
   --bg:oklch(0.16 0.012 258); --app:oklch(0.2 0.012 258);
@@ -112,6 +122,8 @@ body[data-theme="dark"]{
   --feature:oklch(0.31 0.07 262); --feature-ink:oklch(0.97 0.004 250); --feature-ink-2:oklch(0.8 0.02 250);
   --feature-line:oklch(0.42 0.05 262); --feature-good:oklch(0.85 0.15 158);
   --track:oklch(0.3 0.014 258);
+  --danger:oklch(0.7 0.16 25); --on-accent:oklch(0.16 0.012 258);
+  --overlay:oklch(0.2 0.012 258);
   --shadow:0 24px 60px -20px oklch(0.05 0 0 / 0.6);
 }
 
@@ -152,9 +164,11 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible{
 .marke{display:flex;align-items:center;gap:10px;padding:18px 16px 14px;width:100%;
   border:0;background:transparent;font:inherit;cursor:pointer;text-align:left}
 .marke:hover .wortmarke{color:var(--accent)}
-/* #fff auf --accent ist die eine erlaubte Ausnahme (Regelblatt 1). */
+/* Text auf --accent laeuft ueber --on-accent, nicht ueber ein hartes #fff
+   (N-01). Regelblatt 1 erlaubt #fff dort zwar, aber als Token ist es an
+   einer Stelle aenderbar, falls --accent einmal heller wird. */
 .marke .kachel{width:30px;height:30px;border-radius:8px;background:var(--accent);
-  display:grid;place-items:center;color:#fff;font-family:'Sora',sans-serif;
+  display:grid;place-items:center;color:var(--on-accent);font-family:'Sora',sans-serif;
   font-weight:600;font-size:15px;flex:0 0 30px}
 .navi{padding:0 8px 8px;border-bottom:1px solid var(--line)}
 .baum{flex:1;overflow-y:auto;padding:8px 8px 20px}
@@ -193,11 +207,15 @@ header{height:76px;flex:0 0 76px;background:var(--chrome);
 
 .knopf{display:inline-flex;align-items:center;justify-content:center;gap:7px;
   height:38px;min-width:44px;padding:0 15px;border-radius:10px;border:0;
-  background:var(--accent);color:#fff;font:inherit;font-weight:600;font-size:13px;
+  background:var(--accent);color:var(--on-accent);font:inherit;font-weight:600;font-size:13px;
   cursor:pointer}
 .knopf:hover{background:var(--accent-hover)}
 .knopf[disabled]{opacity:.5;cursor:not-allowed}
 .knopf.rahmen{background:transparent;color:var(--ink-2);border:1px solid var(--line)}
+/* Zerstoerende Aktionen (N-01). Gleiches Verhalten wie im Bordbuch: der
+   Knopf ist im Ruhezustand unauffaellig und faerbt sich erst beim Zeigen -
+   rot als Dauerzustand waere eine Warnung, kein Hinweis auf Verlust. */
+.knopf.gefahr:hover{border-color:var(--danger);color:var(--danger)}
 .knopf.rahmen:hover{background:var(--hover);color:var(--ink)}
 .knopf.still{background:transparent;color:var(--ink-3);border:0}
 .knopf.still:hover{background:var(--hover);color:var(--ink)}
@@ -919,7 +937,7 @@ async function verwaltung(){
     <td style="text-align:right;white-space:nowrap">
       <button class="knopf rahmen" data-fassungen="${schuetzen(s.slug)}"
         style="height:32px;padding:0 10px">Fassungen</button>
-      <button class="knopf rahmen" data-loeschen="${schuetzen(s.slug)}"
+      <button class="knopf rahmen gefahr" data-loeschen="${schuetzen(s.slug)}"
         style="height:32px;padding:0 10px;margin-left:6px">Löschen</button></td>
   </tr>`).join('');
 
@@ -1155,7 +1173,7 @@ async function fassungen(slug){
     <td class="mono">${f.nummer}</td><td>${datum(f.datum)}</td>
     <td class="mono">${schuetzen(f.nutzer_id)}</td>
     <td class="mono" style="text-align:right">${bytes(f.groesse_b)}</td>
-    <td style="text-align:right"><button class="knopf rahmen" data-zurueck="${f.nummer}"
+    <td style="text-align:right"><button class="knopf rahmen gefahr" data-zurueck="${f.nummer}"
       style="height:32px;padding:0 10px">Zurück auf diese</button></td></tr>`).join('');
   $('flaeche').innerHTML = `<div class="raster mitte" style="max-width:760px">
     <div class="karte"><h3>Fassungen von ${schuetzen(slug)}</h3>

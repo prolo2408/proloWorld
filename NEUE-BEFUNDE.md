@@ -38,6 +38,21 @@ sie auf `--accent` stehen, durch `--on-accent` ersetzen. Die Löschknöpfe auf
 **Prüfen:** Bordbuch und Wiki nebeneinander, beide Themen. Ein Löschknopf muss
 in beiden Tools gleich aussehen.
 
+**Behoben.** Die drei Token stehen jetzt in beiden Themen des Wikis, wertgleich
+zum Bordbuch (nachgemessen, alle sechs Werte identisch). Die beiden harten
+`#fff` standen tatsächlich beide auf `--accent` und laufen jetzt über
+`--on-accent`; übrig bleibt `--surface:#fff`, und das ist die Definition aus
+dem Regelblatt selbst. Löschen und Zurücksetzen tragen `gefahr` und färben sich
+im Hover auf `--danger` — dieselbe Kette wie `.danger` im Bordbuch.
+
+Eine Abweichung von der ursprünglichen Notiz: `--overlay` hat im Wiki **keine
+Fundstelle**. Es gibt dort keinen eigenen Dialog, gefragt wird über `confirm()`.
+Das Token ist trotzdem definiert, weil genau das sein im Regelblatt genannter
+Zweck ist — damit der nächste Dialog nicht sein eigenes `rgba(0,0,0,.5)`
+erfindet. `--danger-soft` und `--on-overlay` sind **nicht** übernommen worden:
+die sind Ergänzungen des Bordbuchs, stehen nicht im Regelblatt und hätten hier
+keine Verwendung.
+
 ---
 
 ## N-02 — Leerer Rumpf legt ein Auto mit dem Namen „Auto" an
@@ -63,6 +78,32 @@ Wenn doch, bleibt es wie es ist — dann gehört ein Satz in den Code, warum.
 
 **Prüfen:** `curl -X POST … -H "Content-Length: 0" …/api/cars/save` — die
 Antwort muss zu der getroffenen Entscheidung passen.
+
+**Behoben.** Entschieden wurde: **der Name ist Pflicht.** Ausschlaggebend war,
+dass die Oberfläche ihn ohnehin schon selbst verlangt (`wizSpeichern` bricht mit
+„Bitte gib dem Auto einen Namen." ab, bevor überhaupt gesendet wird). Der
+Vorgabewert war also gar nicht aus dem Formular erreichbar, sondern nur über
+einen direkten API-Aufruf — er hat nichts abgefangen und nur stille Daten
+erzeugt.
+
+Die Prüfung steckt jetzt in `pflicht_text()`, dem Gegenstück zu `pflicht_zahl`
+und `pflicht_cent` aus B-05. Dass es die Funktion gibt, ist kein Selbstzweck:
+so ist die Regel testbar, ohne einen HTTP-Server hochzufahren.
+
+**Zweite Fundstelle, bewusst anders entschieden:** in `einspielen()`
+(Wiederherstellung aus einer Sicherung) bleibt `or "Auto"` stehen. Dort werden
+vorhandene Daten zurückgeholt; eine alte Sicherung mit einem namenlosen Auto
+darf nicht dazu führen, dass die ganze Wiederherstellung abbricht. Ein Auto
+namens „Auto" ist besser als die Tankungen, die daran hängen. Der Grund steht
+jetzt als Satz im Code, wie es dieser Befund verlangt hat.
+
+**Beim Schreiben aufgefallen:** ein erster Entwurf benutzte `data.get(feld) or ""`.
+Damit wäre die Zahl `0` als *fehlender* Name durchgefallen, `911` dagegen nicht.
+Behoben und als eigener Testfall festgehalten.
+
+Geprüft: vier Fälle am laufenden Server (ohne Inhalt, nur Leerzeichen, mit
+Namen, Ändern), Wiederherstellung mit namenlosem Auto geht weiter durch,
+82 Tests grün, und die Gegenprobe findet beide eingebauten Rückbauten.
 
 ---
 
@@ -122,7 +163,6 @@ und `git status` bleibt nach einem Serverlauf sauber.
 
 ## Was daraus für die Abnahme folgt
 
-`N-01` und `N-02` sind offen, `N-03` und `N-04` sind behoben. Die beiden
-offenen sind klein und keine Sicherheitslücken — aber sie gehören in
-dieselbe Liste wie alles andere, statt in einer Commit-Nachricht zu
-verschwinden.
+`N-01` bis `N-04` sind alle behoben. Keiner davon war eine Sicherheitslücke,
+aber jeder ist in dieselbe Liste gegangen wie alles andere, statt in einer
+Commit-Nachricht zu verschwinden.

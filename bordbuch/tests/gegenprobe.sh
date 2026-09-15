@@ -79,6 +79,20 @@ probe "Gruppentrennung nur an Komma (der Fehler aus B-30)" \
   'return {g.strip() for g in re.split(r"[|,;]", roh or "") if g.strip()}' \
   'return {g.strip() for g in (roh or "").split(",") if g.strip()}'
 
+# N-02: der Vorgabewert, der den Befund ausgemacht hat - zurueckgebaut.
+probe "Pflichttext still durch eine Vorgabe ersetzen (der Fehler aus N-02)" \
+  '    if not wert:
+        return None, meldung
+    return wert, None' \
+  '    if not wert:
+        return "Auto", None
+    return wert, None'
+
+# N-02, zweite Stelle: der Fallstrick mit der Null.
+probe "Pflichttext mit or-Kurzschluss (0 faellt als leer durch)" \
+  'wert = "" if roh is None else roh if isinstance(roh, str) else str(roh)' \
+  'wert = str(roh or "")'
+
 echo
 if [ "$FEHLER" -eq 0 ]; then
   echo "Alle eingebauten Fehler wurden gefunden."

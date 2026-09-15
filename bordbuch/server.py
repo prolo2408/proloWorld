@@ -741,6 +741,28 @@ def pflicht_cent(data, feld, pflicht=True):
     return ct, None
 
 
+def pflicht_text(data, feld, grenze, meldung):
+    """Ein Pflicht-Textfeld lesen (N-02).
+
+    Das Gegenstueck zu pflicht_zahl/pflicht_cent fuer Text. Vorher stand an
+    den Aufrufstellen ein 'or "Vorgabe"' - ein POST ganz ohne Inhalt legte
+    damit einen Datensatz mit erfundenem Namen an und meldete 200. Regelblatt
+    11 verbietet stille Vorgabewerte; B-05 hat das fuer Zahlen umgesetzt,
+    Text war uebersehen worden.
+
+    Gibt (wert, fehler) zurueck - nie beides. Leerzeichen zaehlen als leer.
+    """
+    roh = data.get(feld)
+    # Bewusst kein 'or ""': die Zahl 0 ist falsch, aber nicht leer. Mit
+    # 'or ""' waere ein Auto namens 0 als fehlender Name durchgefallen,
+    # eines namens 911 dagegen nicht.
+    wert = "" if roh is None else roh if isinstance(roh, str) else str(roh)
+    wert = wert.strip()[:grenze]
+    if not wert:
+        return None, meldung
+    return wert, None
+
+
 # ----------------------------------------------------------------------
 # Geld (B-04)
 #
@@ -1262,6 +1284,12 @@ class App(BaseHTTPRequestHandler):
                 con.execute("SELECT id,name FROM cars WHERE nutzer_id=?", (user["id"],))}
         carmap, cars_new = {}, 0
         for c in payload.get("cars") or []:
+            # Hier bleibt der Vorgabewert - anders als in car_save (N-02).
+            # Das ist eine Wiederherstellung: die Daten gibt es bereits, sie
+            # werden nur zurueckgeholt. Eine alte Sicherung mit einem
+            # namenlosen Auto darf nicht dazu fuehren, dass die gesamte
+            # Wiederherstellung abbricht - ein Auto namens "Auto" ist
+            # deutlich besser als verlorene Tankungen daran.
             name = str(c.get("name") or "Auto")[:60]
             if name in have:
                 carmap[c.get("id")] = have[name]
@@ -1992,7 +2020,19 @@ class App(BaseHTTPRequestHandler):
     # ---------------- Autos ----------------
     def car_save(self, con, user, data):
         kind = data.get("kind") if data.get("kind") in ("bev", "phev", "petrol", "diesel") else "bev"
-        name = (data.get("name") or "").strip()[:60] or "Auto"
+        # Der Name ist Pflicht (N-02). Vorher stand hier ein 'or "Auto"': ein
+        # POST ganz ohne Inhalt legte ein Auto namens "Auto" an und meldete
+        # 200. Das ist eine stille Vorgabe im Sinne von Regelblatt 11, nur an
+        # einer Stelle, die B-05 nicht erfasst hat - dort ging es um Zahlen.
+        # Die Oberflaeche verlangt den Namen ohnehin schon selbst
+        # ("Bitte gib dem Auto einen Namen."), erreichbar war der Vorgabewert
+        # also nur ueber einen direkten API-Aufruf.
+        name, fehler = pflicht_text(
+            data, "name", 60,
+            "Bitte gib dem Auto einen Namen - ohne ihn laesst es sich in den "
+            "Listen nicht auseinanderhalten.")
+        if fehler:
+            return self.send_json({"error": fehler}, 400)
         # Geprueft statt stillschweigend in die Grenze gezwungen (B-05):
         # wer 999 kWh/100 km eintippt, hat sich verschrieben und soll das
         # erfahren, statt lautlos 100 gespeichert zu bekommen.
