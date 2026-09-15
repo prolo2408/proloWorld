@@ -71,6 +71,13 @@ exit 0
 STUB
 chmod +x "$T/bin/docker"
 
+# Die Rechtepruefung haengt an "id -u". Damit die Gegenprobe unabhaengig
+# davon laeuft, ob sie selbst als root startet, wird id ueber eine Attrappe
+# gesteuert: UID_VORGABE=0 heisst root, alles andere ein normaler Nutzer.
+printf '#!/bin/bash\n[ "$1" = "-u" ] && echo "${UID_VORGABE:-0}" || exec /usr/bin/id "$@"\n' \
+  > "$T/bin/id"
+chmod +x "$T/bin/id"
+
 lauf() { PATH="$T/bin:$PATH" LAGE="$1" "$T/stack/werkzeuge/aktualisieren.sh" probe 2>&1; }
 
 echo "=== Gegenprobe aktualisieren.sh ==="
@@ -122,8 +129,11 @@ rm -f "$T/stack/probe/.stand-erfolgreich.yml"; fassung_setzen 1.0.0
 echo "$(lauf gesund)" | grep -q 'ABBRUCH: die Sicherung endete' && E=ja || E=nein
 pruefe "scheiternde Sicherung bricht ab" "ja" "$E"
 
-echo "$(lauf gesund)" | grep -q 'age-Schluessel' && E=ja || E=nein
-pruefe "Abbruchtext nennt den haeufigsten Grund" "ja" "$E"
+A=$(lauf gesund)
+echo "$A" | grep -q 'permission denied' && E=ja || E=nein
+pruefe "Abbruchtext nennt den Rechte-Fall" "ja" "$E"
+echo "$A" | grep -q 'age ist nicht installiert' && E=ja || E=nein
+pruefe "Abbruchtext nennt den age-Fall" "ja" "$E"
 
 A=$(PATH="$T/bin:$PATH" LAGE=gesund "$T/stack/werkzeuge/aktualisieren.sh" \
       --ohne-sicherung probe 2>&1)
@@ -132,6 +142,37 @@ pruefe "--ohne-sicherung laeuft trotz Sicherungsfehler durch" "ja" "$E"
 echo "$A" | grep -q 'UEBERSPRUNGEN' && E=ja || E=nein
 pruefe "--ohne-sicherung sagt deutlich, dass es uebersprungen wurde" "ja" "$E"
 printf '#!/bin/bash\nexit 0\n' > "$T/stack/backup.sh"; chmod +x "$T/stack/backup.sh"
+
+# 4c. Ohne root wird abgebrochen, bevor irgendetwas laeuft.
+A=$(PATH="$T/bin:$PATH" UID_VORGABE=1000 LAGE=gesund \
+      "$T/stack/werkzeuge/aktualisieren.sh" probe 2>&1 || true)
+echo "$A" | grep -q 'ABBRUCH: das Skript braucht root' && E=ja || E=nein
+pruefe "ohne root wird sofort abgebrochen" "ja" "$E"
+echo "$A" | grep -q '\[1/4\]' && E=ja || E=nein
+pruefe "und zwar BEVOR ein Tool angefasst wird" "nein" "$E"
+
+# 4d. Die Sicherung laeuft einmal je Lauf, nicht je Tool.
+printf '#!/bin/bash\necho "SICHERUNGSLAUF"\nexit 0\n' > "$T/stack/backup.sh"
+chmod +x "$T/stack/backup.sh"
+mkdir -p "$T/stack/zwei"
+printf 'services:\n  x:\n    image: x:1\n' > "$T/stack/zwei/docker-compose.yml"
+printf 'TYP="image"\nPRUEF_URL=""\nPRUEF_WARTEN=4\n' > "$T/stack/zwei/aktualisierung.conf"
+rm -f "$T/stack/probe/.stand-erfolgreich.yml"; fassung_setzen 1.0.0
+N=$(PATH="$T/bin:$PATH" LAGE=gesund "$T/stack/werkzeuge/aktualisieren.sh" probe zwei 2>&1 \
+    | grep -c "SICHERUNGSLAUF")
+pruefe "Sicherung laeuft einmal je Lauf, nicht je Tool" "1" "$N"
+printf '#!/bin/bash\nexit 0\n' > "$T/stack/backup.sh"; chmod +x "$T/stack/backup.sh"
+
+# 4e. Ein Abbild mit Kommentar dahinter darf nicht zerfallen.
+mkdir -p "$T/stack/komm"
+cat > "$T/stack/komm/docker-compose.yml" <<'Y'
+services:
+  x:
+    image: ghcr.io/beispiel/ding:0.3.0   # feste Fassung, Betriebsregeln 5
+Y
+Z=$(PATH="$T/bin:$PATH" LAGE=gesund "$T/stack/werkzeuge/aktualisieren.sh" --trocken komm 2>&1 \
+    | sed -n '/Eingetragene Fassung/,/Rueckweg/p' | grep -c '^        ')
+pruefe "Abbild mit Kommentar bleibt eine Zeile" "1" "$Z"
 
 # 5. Fehlende image:-Zeile bricht ab (B-23)
 cat > "$T/stack/probe/docker-compose.yml" <<'Y'

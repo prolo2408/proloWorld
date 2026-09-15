@@ -745,26 +745,35 @@ Nachstellen sichtbar wurden:
    Skript. Gelesen wurde also die schon eingetragene neue Nummer — das
    Zurückrollen schrieb die Fassung zurück, die eben gescheitert war.
 
-Aufruf:
+Aufruf — **mit `sudo`**, sonst kommt es nicht an docker und `/opt/backups`:
 
 ```bash
-werkzeuge/aktualisieren.sh <tool> [<tool> ...]
-werkzeuge/aktualisieren.sh --alle
-werkzeuge/aktualisieren.sh --liste            # nur auflisten
-werkzeuge/aktualisieren.sh --trocken <tool>   # Ablauf zeigen, nichts tun
+sudo werkzeuge/aktualisieren.sh <tool> [<tool> ...]
+sudo werkzeuge/aktualisieren.sh --alle
+werkzeuge/aktualisieren.sh --liste            # nur auflisten, ohne sudo
+werkzeuge/aktualisieren.sh --trocken <tool>   # Ablauf zeigen, ohne sudo
 ```
+
+Ohne root bricht es **vor** dem ersten Tool ab und sagt das. Ohne diese
+Prüfung lief es mitten hinein und meldete `permission denied while trying to
+connect to the docker API` — eine Meldung, die nach einem Docker-Problem
+aussieht und nicht nach einem fehlenden `sudo`.
 
 ### Was es leistet
 
 - **Kein Toolname im Skript.** Ein Tool ist ein Ordner mit
   `docker-compose.yml`, alles Tool-eigene steht in seiner
   `aktualisierung.conf`. Ein neues Tool braucht keine Zeile im Skript.
-- **Sicherung zuerst**, sichtbar und nicht nach `/dev/null`. Schlägt sie
-  fehl, wird nicht aktualisiert. Die Meldung nennt den häufigsten Grund
-  beim Namen: ein fehlender `age`-Schlüssel lässt `backup.sh` mit einem
-  Fehler enden, obwohl die Sicherung geschrieben wurde — sie liegt dann nur
-  im Klartext. Für diesen geklärten Fall gibt es `--ohne-sicherung`, und der
-  Lauf schreibt deutlich ins Protokoll, dass übersprungen wurde.
+- **Sicherung zuerst**, sichtbar und nicht nach `/dev/null` — und **einmal
+  je Lauf, nicht je Tool**. `backup.sh` sichert immer den gesamten Stack;
+  sie je Tool aufzurufen hieß bei `--alle` sechs vollständige Sicherungen
+  hintereinander und im Fehlerfall sechsmal dieselbe Meldung.
+  Schlägt sie fehl, wird nicht aktualisiert. Die Meldung nennt die beiden
+  häufigen Gründe: fehlendes `sudo` (dann stehen Rechtefehler im Protokoll)
+  oder ein fehlender `age`-Schlüssel — dann liegt die Sicherung zwar da,
+  aber im Klartext. Für den geklärten zweiten Fall gibt es
+  `--ohne-sicherung`, und der Lauf schreibt deutlich ins Protokoll, dass
+  übersprungen wurde.
 - **Abbruch ohne `image:`-Zeile** (B-23). Ohne sie gibt es keinen Rückweg.
 - **Prüfung über die Gesundheitsprüfung des Containers**, `PRUEF_URL` nur
   ersatzweise. `PRUEF_WARTEN` ist eine Obergrenze: gefragt wird alle zwei
@@ -796,7 +805,7 @@ grundsätzlich nicht — siehe Abschnitt 22.
 
 ```bash
 nano /opt/stack/n8n/docker-compose.yml     # neue Versionsnummer eintragen
-/opt/stack/werkzeuge/aktualisieren.sh n8n
+sudo /opt/stack/werkzeuge/aktualisieren.sh n8n
 ```
 
 Nie mehrere Hauptversionen auf einmal überspringen. Von 1.68 auf 1.72 ist
@@ -812,7 +821,7 @@ Beide liegen im Git. Der Weg führt darüber — nicht über ein Archiv nach
 cd /opt/stack
 git status                                 # erst sehen, ob lokal etwas abweicht
 git pull origin main
-/opt/stack/werkzeuge/aktualisieren.sh bordbuch
+sudo /opt/stack/werkzeuge/aktualisieren.sh bordbuch
 ```
 
 Die Fassung in der `image:`-Zeile gehört bei eigenem Code **mit dem
@@ -822,7 +831,7 @@ das aus genau diesem Stand gebaut wird.
 **Alles auf einmal**, in der richtigen Reihenfolge:
 
 ```bash
-/opt/stack/werkzeuge/aktualisieren.sh --alle
+sudo /opt/stack/werkzeuge/aktualisieren.sh --alle
 ```
 
 **Vorher sehen, was passieren würde:**
