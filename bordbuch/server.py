@@ -1569,8 +1569,6 @@ class App(BaseHTTPRequestHandler):
                                    "profile": profile})
 
     def admin_import(self, con, user, data):
-        if not self.ist_admin():
-            return self.send_json({"error": "Dafuer fehlt die Gruppe '%s'." % CFG.admin_gruppe}, 403)
         """Eine Gesamtsicherung einspielen.
 
         mode="replace" loescht ALLE Profile und baut die Datenbank neu auf,
@@ -1578,6 +1576,12 @@ class App(BaseHTTPRequestHandler):
         gefunden, unbekannte neu angelegt. Alles in einer Transaktion - bricht
         etwas ab, bleibt die Datenbank wie vorher.
         """
+        # Die Berechtigungspruefung stand bis B-35 VOR diesem Text. Damit war
+        # die Zeichenkette kein Docstring mehr, sondern eine wirkungslose
+        # Anweisung mitten in der Funktion: help(), __doc__ und jedes
+        # Werkzeug, das Docstrings liest, sahen nichts.
+        if not self.ist_admin():
+            return self.send_json({"error": "Dafuer fehlt die Gruppe '%s'." % CFG.admin_gruppe}, 403)
         payload = data.get("data") or {}
         profile = payload.get("profile")
         if not isinstance(profile, list) or not profile:
