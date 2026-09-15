@@ -9,6 +9,8 @@
 #   aktualisieren.sh --liste               nur auflisten, nichts tun
 #   aktualisieren.sh --trocken <tool>      Ablauf zeigen, nichts anfassen
 #   aktualisieren.sh --ohne-sicherung ...  Ausnahme, siehe unten
+#   aktualisieren.sh --ohne-holen ...      baut den Stand auf der Platte,
+#                                          auch wenn origin weiter ist
 #
 # Der Kern des Entwurfs: im Skript steht KEIN Toolname. Tools werden am
 # Dateisystem erkannt, alles Tool-eigene steht in der jeweiligen
@@ -60,6 +62,7 @@ SICHERUNG="$STACK/backup.sh"
 
 TROCKEN=0
 OHNE_SICHERUNG=0
+OHNE_HOLEN=0
 
 # ----------------------------------------------------------------------
 # Hilfsmittel
@@ -400,6 +403,7 @@ while [ $# -gt 0 ]; do
     --liste)   verwendung; exit 0 ;;
     --trocken) TROCKEN=1 ;;
     --ohne-sicherung) OHNE_SICHERUNG=1 ;;
+    --ohne-holen)     OHNE_HOLEN=1 ;;
     -h|--help) verwendung; exit 0 ;;
     -*)        melde "Unbekannte Option: $1"; verwendung; exit 1 ;;
     *)         ZIELE+=("$1") ;;
@@ -506,6 +510,45 @@ vorpruefung() {
     FEHLT=1
   else
     melde "  Sicherungsschluessel  vorhanden"
+  fi
+
+  # Ist der Quellstand ueberhaupt aktuell?
+  #
+  # Der Anlass: bei TYP=build baut das Skript aus dem, was auf der Platte
+  # liegt. Wer vergisst zu ziehen, baut die alte Fassung neu - docker meldet
+  # dann brav "CACHED" und "Image gebaut", und am Ende steht FERTIG, obwohl
+  # sich nichts geaendert hat. Am 15.09.2026 genau so passiert: eine
+  # umgebaute Oberflaeche kam nicht an, und in der Ausgabe stand als
+  # einziger Hinweis "CACHED [3/5] COPY server.py index.html".
+  if [ -d "$STACK/.git" ] && command -v git >/dev/null 2>&1; then
+    local ZWEIG HINTER
+    ZWEIG=$(git -C "$STACK" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    if [ -n "$ZWEIG" ] && [ "$ZWEIG" != "HEAD" ]; then
+      # Holen darf fehlschlagen (kein Netz, kein Schluessel) - das ist kein
+      # Grund abzubrechen, nur einer, nichts zu behaupten.
+      if timeout 20 git -C "$STACK" fetch --quiet origin "$ZWEIG" 2>/dev/null; then
+        HINTER=$(git -C "$STACK" rev-list --count "HEAD..origin/$ZWEIG" 2>/dev/null || echo 0)
+        if [ "${HINTER:-0}" -gt 0 ]; then
+          melde "  Quellstand         $HINTER Commit(s) HINTER origin/$ZWEIG"
+          melde ""
+          melde "  ACHTUNG: es liegt eine neuere Fassung bereit, die hier noch"
+          melde "           nicht ausgecheckt ist. Bei eigenem Code (TYP=build)"
+          melde "           wuerde jetzt die ALTE Fassung neu gebaut - docker"
+          melde "           meldet dabei CACHED, und am Ende staende FERTIG,"
+          melde "           obwohl sich nichts geaendert hat."
+          melde ""
+          melde "           Erst holen:  cd $STACK && git pull origin $ZWEIG"
+          melde ""
+          melde "           Wer bewusst den jetzigen Stand bauen will, ruft mit"
+          melde "           --ohne-holen auf."
+          [ "$OHNE_HOLEN" -eq 1 ] || FEHLT=1
+        else
+          melde "  Quellstand         aktuell (origin/$ZWEIG)"
+        fi
+      else
+        melde "  Quellstand         nicht pruefbar (kein Zugriff auf origin)"
+      fi
+    fi
   fi
 
   [ "$FEHLT" -eq 0 ] || return 1
