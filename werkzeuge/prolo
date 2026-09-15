@@ -1,0 +1,513 @@
+#!/bin/bash
+# werkzeuge/prolo
+#
+# Ein Einstiegspunkt fuer den ganzen Stack - wie apt oder docker, nur fuer
+# die eigenen Tools.
+#
+#   prolo status                    Ueberblick ueber alles
+#   prolo pruefen [tool]            Gesundheit, Zertifikate, DNS
+#   prolo aktualisieren [tool|--alle]
+#   prolo start|stop|neustart <tool>
+#   prolo protokoll <tool> [-f]
+#   prolo sichern
+#   prolo neu <name>                neues Tool anlegen (Geruest + Anmeldung)
+#   prolo suchen <begriff>          Abbild in der Registry suchen
+#   prolo entfernen <tool>          ins Archiv, NICHT loeschen
+#   prolo archiv                    was liegt im Archiv
+#   prolo zurueckholen <tool> [stand]
+#   prolo dns                       zeigen die Namen noch hierher?
+#
+# Die englischen Namen aus der Anfrage gehen auch: update, healthcheck,
+# logs, backup, new, search, remove, archive, restore.
+#
+# Grundsatz wie bei aktualisieren.sh: im Skript steht KEIN Toolname. Ein
+# Tool ist ein Ordner mit docker-compose.yml, alles Tool-eigene steht in
+# seinen conf-Dateien.
+set -euo pipefail
+
+HIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STACK="$(dirname "$HIER")"
+ARCHIV="$STACK/.archiv"
+DOMAENE="${PROLO_DOMAENE:-prolo.me}"
+
+melde()     { printf '%s\n' "$*"; }
+abschnitt() { printf '\n\033[1m%s\033[0m\n' "$*"; }
+fehler()    { printf '%s\n' "$*" >&2; }
+
+root_noetig() {
+  [ "$(id -u)" -eq 0 ] && return 0
+  fehler "Dieser Befehl braucht root: sudo prolo $*"
+  exit 1
+}
+
+tools() {
+  local d
+  for d in "$STACK"/*/docker-compose.yml; do
+    [ -e "$d" ] || continue
+    basename "$(dirname "$d")"
+  done
+}
+
+tool_pruefen_da() {
+  [ -f "$STACK/$1/docker-compose.yml" ] && return 0
+  fehler "Kein Tool '$1' unter $STACK."
+  fehler "Vorhanden: $(tools | tr '\n' ' ')"
+  exit 1
+}
+
+# Hostnamen aus den Traefik-Regeln lesen - die Wahrheit steht in den Labels,
+# nicht in einer zweiten Liste, die veraltet.
+hostnamen() {
+  grep -ho 'Host(`[^`]*`)' "$STACK"/*/docker-compose.yml 2>/dev/null \
+    | sed 's/Host(`//; s/`)//' | sort -u
+}
+
+# ----------------------------------------------------------------------
+befehl_status() {
+  abschnitt "Tools"
+  local t ids anz laufend
+  printf '  %-14s %-10s %s\n' "TOOL" "CONTAINER" "ABBILD"
+  for t in $(tools); do
+    ids=$(cd "$STACK/$t" && docker compose ps -q 2>/dev/null || true)
+    anz=$(printf '%s' "$ids" | grep -c . || true)
+    laufend=0
+    for i in $ids; do
+      [ "$(docker inspect "$i" --format '{{.State.Running}}' 2>/dev/null)" = "true" ] \
+        && laufend=$((laufend + 1))
+    done
+    printf '  %-14s %-10s %s\n' "$t" "$laufend/$anz" \
+      "$(grep -m1 -E '^[[:space:]]*image:' "$STACK/$t/docker-compose.yml" \
+         | sed -e 's/^[[:space:]]*image:[[:space:]]*//' -e 's/[[:space:]]*#.*$//')"
+  done
+
+  abschnitt "Sicherung"
+  local M=/opt/backups/.letzter-erfolg
+  if [ ! -e "$M" ]; then
+    melde "  ACHTUNG: kein Vermerk ueber eine erfolgreiche Sicherung."
+  elif [ -n "$(find "$M" -mtime +2 2>/dev/null)" ]; then
+    melde "  ACHTUNG: letzte erfolgreiche Sicherung ist aelter als zwei Tage:"
+    melde "           $(cat "$M")"
+  else
+    melde "  letzte erfolgreiche: $(cat "$M")"
+  fi
+
+  abschnitt "Archiv"
+  if [ -d "$ARCHIV" ] && [ -n "$(ls -A "$ARCHIV" 2>/dev/null)" ]; then
+    local a
+    for a in "$ARCHIV"/*; do
+      [ -d "$a" ] || continue
+      melde "  $(basename "$a")  ($(ls "$a"/*.tar.gz 2>/dev/null | wc -l) Stand/Staende)"
+    done
+  else
+    melde "  leer"
+  fi
+}
+
+# ----------------------------------------------------------------------
+befehl_dns() {
+  abschnitt "Zeigen die Namen noch hierher?"
+  local eigene name ip
+  eigene=$(curl -s --max-time 10 https://api.ipify.org 2>/dev/null || echo "")
+  if [ -z "$eigene" ]; then
+    melde "  Eigene IP nicht ermittelbar - pruefe nur auf Abweichungen."
+  else
+    melde "  Server-IP: $eigene"
+  fi
+  melde ""
+  local abweichung=0
+  for name in $(hostnamen); do
+    ip=$(getent ahostsv4 "$name" 2>/dev/null | awk '{print $1; exit}')
+    if [ -z "$ip" ]; then
+      printf '  %-24s %s\n' "$name" "KEINE ANTWORT"; abweichung=1
+    elif [ -n "$eigene" ] && [ "$ip" != "$eigene" ]; then
+      printf '  %-24s %s  <-- ZEIGT WOANDERS HIN\n' "$name" "$ip"; abweichung=1
+    else
+      printf '  %-24s %s\n' "$name" "$ip"
+    fi
+  done
+  if [ "$abweichung" -eq 1 ]; then
+    melde ""
+    melde "  Ein Name, der woanders hinzeigt, ist meist eine DynDNS-Bindung"
+    melde "  beim Anbieter: sie ueberschreibt den A-Eintrag bei jedem Update"
+    melde "  des Routers. Das Loeschen von API-Schluesseln hilft dagegen"
+    melde "  NICHT - die Update-URL traegt ihr Token selbst. Die Bindung"
+    melde "  muss beim Anbieter entfernt werden."
+    return 1
+  fi
+}
+
+# ----------------------------------------------------------------------
+befehl_neu() {
+  root_noetig neu "$@"
+  local NAME="${1:-}"
+  [ -n "$NAME" ] || { fehler "Aufruf: prolo neu <name>"; exit 1; }
+  case "$NAME" in
+    *[!a-z0-9-]*) fehler "Nur Kleinbuchstaben, Ziffern und Bindestrich (Betriebsregeln 1)."; exit 1 ;;
+  esac
+  [ -e "$STACK/$NAME" ] && { fehler "$STACK/$NAME gibt es schon."; exit 1; }
+
+  local ABBILD PORT
+  read -rp "  Abbild (z. B. nginx:1.27-alpine): " ABBILD
+  [ -n "$ABBILD" ] || { fehler "Ohne Abbild geht es nicht."; exit 1; }
+  case "$ABBILD" in
+    *:latest|*[!:]) : ;;
+  esac
+  if ! printf '%s' "$ABBILD" | grep -q ':'; then
+    fehler "Ohne Fassung nicht erlaubt (Betriebsregeln 5: nie latest, immer fest)."
+    fehler "Beispiel: ${ABBILD}:1.2.3"
+    exit 1
+  fi
+  if printf '%s' "$ABBILD" | grep -q ':latest$'; then
+    fehler "'latest' ist verboten (Betriebsregeln 5). Feste Fassung eintragen."
+    exit 1
+  fi
+  read -rp "  Interner Port des Dienstes [8080]: " PORT
+  PORT="${PORT:-8080}"
+
+  mkdir -p "$STACK/$NAME"
+  geruest_schreiben "$NAME" "$ABBILD" "$PORT"
+
+  melde ""
+  melde "Angelegt: $STACK/$NAME"
+  melde "  docker-compose.yml   Geruest nach Betriebsregeln 1 und 5"
+  melde "  sicherung.conf       ist damit in backup.sh aufgenommen"
+  melde "  aktualisierung.conf  ist damit in prolo aktualisieren aufgenommen"
+  melde ""
+  melde "Noch von Hand:"
+  melde "  1. Subdomain $NAME.$DOMAENE beim Anbieter auf die Server-IP setzen"
+  melde "     (KEIN DynDNS - siehe prolo dns)"
+  melde "  2. In Authentik eine Anwendung anlegen UND dem Outpost zuweisen"
+  melde "  3. In der docker-compose.yml: environment und volumes ergaenzen -"
+  melde "     die kann kein Skript raten, die stehen in der Doku des Abbilds"
+  melde "  4. prolo aktualisieren $NAME"
+}
+
+geruest_schreiben() {
+  local NAME="$1" ABBILD="$2" PORT="$3"
+  cat > "$STACK/$NAME/docker-compose.yml" <<YML
+# /opt/stack/$NAME/docker-compose.yml
+#
+# Angelegt mit "prolo neu $NAME".
+#
+# Bewusst KEINE ports-Zeile: der Dienst ist ausschliesslich ueber Traefik
+# erreichbar. Das ist nicht Gewohnheit, sondern der eigentliche Schutz -
+# die Anmeldekoepfe von Authentik waeren faelschbar, sobald jemand den
+# Container direkt erreicht.
+
+services:
+  $NAME:
+    image: $ABBILD          # feste Fassung, nie latest
+    container_name: $NAME
+    # Grenzen nach Betriebsregeln 5. Die Werte sind ein Anfang - anpassen,
+    # wenn der Dienst mehr braucht, aber nicht ersatzlos streichen.
+    mem_limit: 512m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+
+    # environment:
+    #   Hier die Variablen aus der Doku des Abbilds eintragen.
+
+    volumes:
+      - ${NAME}_daten:/daten
+
+    networks:
+      - proxy
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.services.$NAME.loadbalancer.server.port=$PORT"
+      - "traefik.http.routers.$NAME.rule=Host(\`$NAME.$DOMAENE\`)"
+      - "traefik.http.routers.$NAME.entrypoints=websecure"
+      - "traefik.http.routers.$NAME.tls.certresolver=letsencrypt"
+      # Ohne diese Zeile steht der Dienst offen im Netz.
+      - "traefik.http.routers.$NAME.middlewares=authentik@file"
+      - "traefik.http.routers.$NAME.service=$NAME"
+
+volumes:
+  ${NAME}_daten:                    # von aussen: ${NAME}_${NAME}_daten
+
+networks:
+  proxy:
+    external: true
+YML
+
+  cat > "$STACK/$NAME/sicherung.conf" <<CONF
+# /opt/stack/$NAME/sicherung.conf
+# Angelegt mit "prolo neu $NAME". Damit ist das Tool in backup.sh drin.
+
+# Namen pruefen mit: docker volume ls | grep $NAME
+VOLUMES="${NAME}_${NAME}_daten"
+
+# Fuer einen eigenen Datenbank-Container ausfuellen, sonst leer lassen.
+DB_CONTAINER=""
+DB_USER=""
+DB_NAME=""
+
+# Ein "?" davor heisst: darf fehlen, ohne dass die Sicherung als
+# fehlgeschlagen gilt.
+DATEIEN="?.env"
+
+# SQLite IM Container, Form "behaelter:/pfad/zur.db". Leer lassen, wenn es
+# keine gibt - sonst meldet jede Sicherung einen Fehler.
+SQLITE=""
+
+ORDNER=""
+
+HINWEIS="Neu angelegt am $(date +%Y-%m-%d). Noch nicht geprueft, ob die
+Volume-Namen stimmen - vor der ersten Sicherung einmal nachsehen."
+CONF
+
+  cat > "$STACK/$NAME/aktualisierung.conf" <<CONF
+# /opt/stack/$NAME/aktualisierung.conf
+# Angelegt mit "prolo neu $NAME".
+
+# "image" = fertiges Abbild, "build" = eigenes Dockerfile im Ordner
+TYP="image"
+
+# Interne Adresse - Containername und interner Port, NICHT die oeffentliche
+# Domain. Leer lassen, wenn das Abbild eine eigene Gesundheitspruefung
+# mitbringt; die ist naeher an der Wahrheit.
+PRUEF_URL="http://$NAME:$PORT/"
+
+# Obergrenze, kein fester Schlaf. Hochsetzen bei Diensten, die beim Start
+# Migrationen fahren.
+PRUEF_WARTEN=60
+CONF
+
+  printf '%s\n' ".env" "daten/" "*.db" > "$STACK/$NAME/.gitignore"
+}
+
+# ----------------------------------------------------------------------
+befehl_suchen() {
+  local BEGRIFF="${1:-}"
+  [ -n "$BEGRIFF" ] || { fehler "Aufruf: prolo suchen <begriff>"; exit 1; }
+  abschnitt "Abbilder zu '$BEGRIFF'"
+  docker search --limit 15 --format 'table {{.Name}}\t{{.Stars}}\t{{.Description}}' \
+    "$BEGRIFF" 2>/dev/null || {
+    fehler "Suche fehlgeschlagen - haengt der Server am Netz?"; exit 1; }
+  melde ""
+  melde "Die Suche liefert NUR Namen. Fassung, Port, Volumes und"
+  melde "Umgebungsvariablen stehen in der Doku des jeweiligen Abbilds -"
+  melde "die kann kein Skript raten. Danach:"
+  melde "  sudo prolo neu <name>"
+}
+
+# ----------------------------------------------------------------------
+befehl_entfernen() {
+  root_noetig entfernen "$@"
+  local TOOL="${1:-}"
+  [ -n "$TOOL" ] || { fehler "Aufruf: prolo entfernen <tool>"; exit 1; }
+  tool_pruefen_da "$TOOL"
+  case "$TOOL" in
+    traefik|authentik|socket-proxy)
+      fehler "$TOOL traegt den ganzen Stack. Entfernen wuerde alles"
+      fehler "unerreichbar machen. Wenn das wirklich gewollt ist, von Hand."
+      exit 1 ;;
+  esac
+
+  local ZIEL="$ARCHIV/$TOOL"
+  mkdir -p "$ZIEL"; chmod 700 "$ARCHIV" "$ZIEL"
+
+  # Sekunden gehoeren dazu, und danach wird trotzdem auf Kollision geprueft.
+  # Mit %H%M allein trugen zwei Entfernungen in derselben Minute denselben
+  # Namen - der zweite Stand haette den ersten stillschweigend ueberschrieben.
+  # Ein Archiv, das Staende verliert, ist schlimmer als keines: man verlaesst
+  # sich darauf.
+  local STAND; STAND=$(date +%Y-%m-%d-%H%M%S)
+  local N=2
+  while [ -e "$ZIEL/$STAND.tar.gz" ]; do
+    STAND="$(date +%Y-%m-%d-%H%M%S)-$N"; N=$((N + 1))
+  done
+
+  melde "Halte $TOOL an ..."
+  (cd "$STACK/$TOOL" && docker compose down) || true
+
+  melde "Lege den Ordner ins Archiv ..."
+  tar czf "$ZIEL/$STAND.tar.gz" -C "$STACK" "$TOOL"
+
+  # Die Daten gehoeren dazu - ein Tool ohne seine Volumes ist nicht
+  # wiederbelebbar, sondern nur nachbaubar.
+  local VOLUMES=""
+  # shellcheck disable=SC1090
+  [ -f "$STACK/$TOOL/sicherung.conf" ] && . "$STACK/$TOOL/sicherung.conf"
+  if [ -n "${VOLUMES:-}" ]; then
+    melde "Sichere die Volumes dazu ..."
+    local V ok=1
+    for V in $VOLUMES; do
+      docker run --rm -v "$V":/daten -v "$ZIEL":/ab alpine \
+        tar czf "/ab/$STAND.volume.$V.tar.gz" -C /daten . 2>/dev/null \
+        || { melde "  WARNUNG: Volume $V nicht gefunden"; ok=0; }
+    done
+    [ "$ok" -eq 1 ] || melde "  (mindestens ein Volume fehlte - siehe oben)"
+  fi
+
+  cat > "$ZIEL/$STAND.info" <<INFO
+Tool:      $TOOL
+Entfernt:  $(date -Iseconds)
+Abbilder:
+$(grep -E '^[[:space:]]*image:' "$STACK/$TOOL/docker-compose.yml" \
+  | sed -e 's/^[[:space:]]*image:[[:space:]]*//' -e 's/[[:space:]]*#.*$//' -e 's/^/  /')
+Volumes:   ${VOLUMES:-(keine)}
+INFO
+
+  chmod 600 "$ZIEL/$STAND".* 2>/dev/null || true
+  rm -rf "${STACK:?}/$TOOL"
+
+  melde ""
+  melde "$TOOL ist aus $STACK verschwunden, aber nicht weg:"
+  melde "  $ZIEL/$STAND.tar.gz"
+  melde ""
+  melde "Zurueck damit:  sudo prolo zurueckholen $TOOL"
+  melde "Die Volumes im Docker sind NICHT geloescht - falls sie weg sollen:"
+  melde "  docker volume ls | grep $TOOL"
+}
+
+# ----------------------------------------------------------------------
+befehl_archiv() {
+  abschnitt "Archiv"
+  if [ ! -d "$ARCHIV" ] || [ -z "$(ls -A "$ARCHIV" 2>/dev/null)" ]; then
+    melde "  leer"; return 0
+  fi
+  local a f
+  for a in "$ARCHIV"/*; do
+    [ -d "$a" ] || continue
+    melde ""
+    melde "  $(basename "$a")"
+    for f in "$a"/*.tar.gz; do
+      [ -e "$f" ] || continue
+      case "$f" in *.volume.*) continue ;; esac
+      local st; st=$(basename "$f" .tar.gz)
+      printf '    %-18s %8s   %s\n' "$st" \
+        "$(du -h "$f" | cut -f1)" \
+        "$(grep -m1 -A1 'Abbilder:' "$a/$st.info" 2>/dev/null | tail -1 | sed 's/^ *//')"
+    done
+  done
+}
+
+# ----------------------------------------------------------------------
+befehl_zurueckholen() {
+  root_noetig zurueckholen "$@"
+  local TOOL="${1:-}" STAND="${2:-}"
+  [ -n "$TOOL" ] || { fehler "Aufruf: prolo zurueckholen <tool> [stand]"; exit 1; }
+  local Q="$ARCHIV/$TOOL"
+  [ -d "$Q" ] || { fehler "Nichts im Archiv zu '$TOOL'."; befehl_archiv; exit 1; }
+  [ -e "$STACK/$TOOL" ] && { fehler "$STACK/$TOOL gibt es schon - erst entfernen."; exit 1; }
+
+  local STAENDE; STAENDE=$(ls "$Q"/*.tar.gz 2>/dev/null | grep -v '\.volume\.' \
+                           | xargs -n1 basename 2>/dev/null | sed 's/\.tar\.gz$//' | sort)
+  local ANZ; ANZ=$(printf '%s\n' "$STAENDE" | grep -c . || true)
+  [ "$ANZ" -gt 0 ] || { fehler "Keine Staende zu '$TOOL'."; exit 1; }
+
+  if [ -z "$STAND" ]; then
+    if [ "$ANZ" -eq 1 ]; then
+      STAND="$STAENDE"
+      melde "Nur ein Stand vorhanden: $STAND"
+    else
+      # Nur HIER wird gefragt - so war es gewuenscht.
+      melde "Mehrere Staende zu $TOOL:"
+      local i=1 s
+      while IFS= read -r s; do
+        printf '  %d) %-18s %s\n' "$i" "$s" \
+          "$(grep -m1 -A1 'Abbilder:' "$Q/$s.info" 2>/dev/null | tail -1 | sed 's/^ *//')"
+        i=$((i + 1))
+      done <<< "$STAENDE"
+      local WAHL
+      read -rp "  Welchen Stand? [$(printf '%s\n' "$STAENDE" | tail -1)] " WAHL
+      if [ -z "$WAHL" ]; then
+        STAND=$(printf '%s\n' "$STAENDE" | tail -1)
+      elif printf '%s' "$WAHL" | grep -qE '^[0-9]+$' && [ "$WAHL" -lt "$i" ]; then
+        STAND=$(printf '%s\n' "$STAENDE" | sed -n "${WAHL}p")
+      else
+        STAND="$WAHL"
+      fi
+    fi
+  fi
+  [ -f "$Q/$STAND.tar.gz" ] || { fehler "Stand '$STAND' gibt es nicht."; exit 1; }
+
+  melde "Hole $TOOL, Stand $STAND ..."
+  tar xzf "$Q/$STAND.tar.gz" -C "$STACK"
+
+  local f V
+  for f in "$Q/$STAND".volume.*.tar.gz; do
+    [ -e "$f" ] || continue
+    V=$(basename "$f" .tar.gz); V="${V#"$STAND".volume.}"
+    melde "  Volume $V ..."
+    docker volume create "$V" >/dev/null
+    docker run --rm -v "$V":/daten -v "$Q":/ab alpine \
+      sh -c "cd /daten && tar xzf '/ab/$(basename "$f")'" \
+      || melde "  WARNUNG: Volume $V liess sich nicht einspielen"
+  done
+
+  melde ""
+  melde "$TOOL liegt wieder unter $STACK/$TOOL."
+  melde "Das Archiv bleibt, wo es ist - nichts wurde geloescht."
+  melde ""
+  melde "Weiter:  sudo prolo aktualisieren $TOOL"
+}
+
+# ----------------------------------------------------------------------
+befehl_compose() {
+  local WAS="$1" TOOL="${2:-}"
+  [ -n "$TOOL" ] || { fehler "Aufruf: prolo $WAS <tool>"; exit 1; }
+  tool_pruefen_da "$TOOL"
+  cd "$STACK/$TOOL"
+  case "$WAS" in
+    start)    docker compose up -d ;;
+    stop)     docker compose down ;;
+    neustart) docker compose restart ;;
+  esac
+}
+
+befehl_protokoll() {
+  local TOOL="${1:-}"; shift || true
+  [ -n "$TOOL" ] || { fehler "Aufruf: prolo protokoll <tool> [-f]"; exit 1; }
+  tool_pruefen_da "$TOOL"
+  cd "$STACK/$TOOL"
+  docker compose logs --tail 60 "$@"
+}
+
+# ----------------------------------------------------------------------
+hilfe() {
+  cat <<HILFE
+prolo - ein Einstiegspunkt fuer den Stack unter $STACK
+
+  status                      Ueberblick: Tools, Sicherung, Archiv
+  pruefen [tool]              Gesundheit (auch: healthcheck)
+  dns                         Zeigen die Namen noch hierher?
+  aktualisieren [tool|--alle] auch: update
+  start|stop|neustart <tool>
+  protokoll <tool> [-f]       auch: logs
+  sichern                     auch: backup
+
+  neu <name>                  neues Tool anlegen (auch: new)
+  suchen <begriff>            Abbild suchen (auch: search)
+  entfernen <tool>            ins Archiv (auch: remove)
+  archiv                      Archiv anzeigen (auch: archive)
+  zurueckholen <tool> [stand] auch: restore
+
+Was Daten oder Container anfasst, braucht sudo.
+HILFE
+}
+
+BEFEHL="${1:-hilfe}"; shift || true
+case "$BEFEHL" in
+  status|st)                  befehl_status ;;
+  pruefen|healthcheck|health) exec "$HIER/aktualisieren.sh" --trocken "${@:---alle}" ;;
+  aktualisieren|update)       exec "$HIER/aktualisieren.sh" "${@:---alle}" ;;
+  sichern|backup)             root_noetig sichern; exec "$STACK/backup.sh" ;;
+  dns)                        befehl_dns ;;
+  start|stop|neustart)        root_noetig "$BEFEHL" "$@"; befehl_compose "$BEFEHL" "$@" ;;
+  protokoll|logs)             root_noetig protokoll "$@"; befehl_protokoll "$@" ;;
+  neu|new)                    befehl_neu "$@" ;;
+  suchen|search)              befehl_suchen "$@" ;;
+  entfernen|remove|rm)        befehl_entfernen "$@" ;;
+  archiv|archive)             befehl_archiv ;;
+  zurueckholen|restore)       befehl_zurueckholen "$@" ;;
+  hilfe|help|-h|--help)       hilfe ;;
+  *) fehler "Unbekannt: $BEFEHL"; echo; hilfe; exit 1 ;;
+esac

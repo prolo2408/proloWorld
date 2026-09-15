@@ -29,6 +29,10 @@ authentik/certs/
 # Rueckweg des Aktualisierungsskripts: der docker-compose.yml-Stand des
 # letzten erfolgreichen Laufs. Gehoert auf den Server, nicht ins Git.
 **/.stand-erfolgreich.yml
+# Archiv entfernter Tools (prolo entfernen). Enthaelt vollstaendige
+# Tool-Ordner samt Volume-Inhalten - also Produktivdaten und moeglicherweise
+# .env-Dateien. Gehoert auf den Server und in die Sicherung, nie ins Git.
+.archiv/
 **/.vorschau/
 *.tar.gz
 *.tar.gz.age

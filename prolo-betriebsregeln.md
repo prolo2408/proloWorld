@@ -38,7 +38,10 @@ keine `sicherung.conf` und keine `aktualisierung.conf`:
 ```
 /opt/stack/
 ├── backup.sh               zentrale Sicherung (Abschnitt 15)
+├── .archiv/                entfernte Tools (prolo entfernen), NIE ins Git
 ├── werkzeuge/              gemeinsame Skripte
+│   ├── prolo                   Einstiegspunkt fuer alles (Abschnitt 1a)
+│   ├── prolo-pruefen.sh        stellt dessen Verhalten nach
 │   ├── aktualisieren.sh        zentrale Aktualisierung (Abschnitt 20)
 │   ├── aktualisieren-pruefen.sh  stellt deren Verhalten nach
 │   ├── pre-commit              Vorab-Test (Abschnitt 11)
@@ -47,6 +50,56 @@ keine `sicherung.conf` und keine `aktualisierung.conf`:
 ├── prolo-regelblatt.md
 └── prolo-betriebsregeln.md
 ```
+
+### 1a. `prolo` — ein Einstiegspunkt
+
+Statt sich zu merken, welches Skript was tut, gibt es `werkzeuge/prolo`.
+Es ruft die vorhandenen Skripte auf, statt ihre Arbeit zu wiederholen —
+`aktualisieren` ist `aktualisieren.sh`, `sichern` ist `backup.sh`.
+
+```
+prolo status                   Tools, Sicherung, Archiv auf einen Blick
+prolo pruefen [tool]           Gesundheit (auch: healthcheck)
+prolo dns                      zeigen die Namen noch hierher?
+prolo aktualisieren [tool|--alle]
+prolo start|stop|neustart <tool>
+prolo protokoll <tool> [-f]
+prolo sichern
+
+prolo neu <name>               neues Tool anlegen
+prolo suchen <begriff>         Abbild in der Registry suchen
+prolo entfernen <tool>         ins Archiv, NICHT löschen
+prolo archiv                   was liegt im Archiv
+prolo zurueckholen <tool> [stand]
+```
+
+Zum Aufrufen ohne Pfad:
+
+```bash
+sudo ln -sf /opt/stack/werkzeuge/prolo /usr/local/bin/prolo
+```
+
+**`prolo neu` legt alle drei Pflichtdateien an** — `docker-compose.yml`,
+`sicherung.conf`, `aktualisierung.conf` — und zwar mit dem vollen
+Pflichtsatz: Grenzen nach Abschnitt 5, `authentik@file`, keine
+`ports:`-Zeile, feste Fassung. Ein Abbild ohne Fassung oder mit `latest`
+wird abgelehnt. Damit ist ein neues Tool ab der ersten Minute in der
+Sicherung **und** in der Aktualisierung, statt dass beides nachgetragen
+werden muss und dabei vergessen wird.
+
+Was das Gerüst **nicht** kann: die tool-eigenen `environment`- und
+`volumes`-Zeilen. Die stehen in der Doku des jeweiligen Abbilds und lassen
+sich nicht raten. `prolo suchen` findet Abbilder, mehr nicht.
+
+**`prolo entfernen` löscht nichts.** Der Tool-Ordner und die Inhalte seiner
+Volumes wandern nach `.archiv/<tool>/<zeitstempel>.tar.gz`, dazu eine
+`.info` mit Datum und Fassungen. `traefik`, `authentik` und `socket-proxy`
+sind ausgenommen — sie tragen den Stack. `prolo zurueckholen` bringt beides
+zurück und fragt **nur dann** nach, wenn es mehrere Stände gibt.
+
+Das Archiv liegt bewusst neben dem Stack und nicht in der Sicherung: es soll
+auch dann greifbar sein, wenn gerade niemand eine Sicherung einspielen will.
+Es gehört trotzdem in `.gitignore` — dort liegen Produktivdaten.
 
 **Neue gemeinsame Skripte gehören nach `werkzeuge/`**, nicht in die Wurzel.
 `backup.sh` liegt aus Bestandsgründen dort und bleibt, wo es ist: der Pfad
