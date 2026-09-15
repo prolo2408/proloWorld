@@ -38,6 +38,21 @@ sie auf `--accent` stehen, durch `--on-accent` ersetzen. Die Löschknöpfe auf
 **Prüfen:** Bordbuch und Wiki nebeneinander, beide Themen. Ein Löschknopf muss
 in beiden Tools gleich aussehen.
 
+**Behoben.** Die drei Token stehen jetzt in beiden Themen des Wikis, wertgleich
+zum Bordbuch (nachgemessen, alle sechs Werte identisch). Die beiden harten
+`#fff` standen tatsächlich beide auf `--accent` und laufen jetzt über
+`--on-accent`; übrig bleibt `--surface:#fff`, und das ist die Definition aus
+dem Regelblatt selbst. Löschen und Zurücksetzen tragen `gefahr` und färben sich
+im Hover auf `--danger` — dieselbe Kette wie `.danger` im Bordbuch.
+
+Eine Abweichung von der ursprünglichen Notiz: `--overlay` hat im Wiki **keine
+Fundstelle**. Es gibt dort keinen eigenen Dialog, gefragt wird über `confirm()`.
+Das Token ist trotzdem definiert, weil genau das sein im Regelblatt genannter
+Zweck ist — damit der nächste Dialog nicht sein eigenes `rgba(0,0,0,.5)`
+erfindet. `--danger-soft` und `--on-overlay` sind **nicht** übernommen worden:
+die sind Ergänzungen des Bordbuchs, stehen nicht im Regelblatt und hätten hier
+keine Verwendung.
+
 ---
 
 ## N-02 — Leerer Rumpf legt ein Auto mit dem Namen „Auto" an
@@ -122,7 +137,6 @@ und `git status` bleibt nach einem Serverlauf sauber.
 
 ## Was daraus für die Abnahme folgt
 
-`N-01` und `N-02` sind offen, `N-03` und `N-04` sind behoben. Die beiden
-offenen sind klein und keine Sicherheitslücken — aber sie gehören in
-dieselbe Liste wie alles andere, statt in einer Commit-Nachricht zu
-verschwinden.
+`N-02` ist offen, `N-01`, `N-03` und `N-04` sind behoben. Der offene Punkt
+ist klein und keine Sicherheitslücke — aber er gehört in dieselbe Liste wie
+alles andere, statt in einer Commit-Nachricht zu verschwinden.
