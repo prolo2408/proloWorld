@@ -313,11 +313,155 @@ durchzählen, wie viele in einem `script` stecken.
 
 ---
 
+## N-08 — Der Einrichtungs-Assistent konnte drei von vier Antriebsarten nicht anlegen
+
+**Stufe:** hoch — ein neuer Benutzer kam nicht in das Tool hinein
+**Datei:** `bordbuch/server.py` (`car_save`), `bordbuch/index.html` (Assistent)
+**Gefunden bei:** Nachstellen der gemeldeten „Einrichtungsschleife"
+
+Im Browser nachgefahren, mit frischer Datenbank und neuem Anmeldenamen: Name
+eingegeben, Antriebsart Elektro, durch alle vier Schritte, „Auto anlegen" —
+und dann nichts. Der Assistent blieb stehen, mit diesem Hinweis, der nach
+3,8 Sekunden verschwand:
+
+```
+Der Verbrauch in l/100 km 0 wirkt wie ein Tippfehler -
+plausibel ist 0.5 bis 60. Bitte pruefen.
+```
+
+Ein Feld für l/100 km zeigt der Assistent bei einem Elektroauto überhaupt
+nicht. Es war also eine Meldung über einen Wert, den niemand eingeben oder
+korrigieren konnte — und weil ohne Auto kein Weg am Assistenten vorbeiführt
+(`wizNoetig()`), war das eine Sackgasse.
+
+Die Ursache liegt im Zusammenspiel zweier für sich richtiger Regeln:
+
+- Die Oberfläche schickt für die Größe, die zur Art nicht gehört, eine `0`
+  (`lPer100:K.fuel?…:0`).
+- `pflicht_zahl(..., pflicht=False)` lässt ein Feld **fehlen**, aber eine
+  eingetragene `0` prüft es gegen die Plausibilitätsgrenze — und die liegt
+  bei 0,5 bzw. 1.
+
+Am API nachgemessen, genau die vier Aufrufe, die der Assistent macht:
+
+```
+bev     -> FEHLER 400: Der Verbrauch in l/100 km 0 wirkt wie ein Tippfehler
+phev    -> OK id=1
+petrol  -> FEHLER 400: Der Verbrauch in kWh/100 km 0 wirkt wie ein Tippfehler
+diesel  -> FEHLER 400: Der Verbrauch in kWh/100 km 0 wirkt wie ein Tippfehler
+```
+
+Nur der Plug-in-Hybrid ging durch — der ist die einzige Art, die beide
+Größen wirklich hat.
+
+### Behoben
+
+1. **Server:** `car_save` prüft nur, was zur Antriebsart gehört (`LAEDT`,
+   `TANKT` neben den Grenzen). Was es bei dieser Art nicht gibt, wird nicht
+   geprüft und als `0` gespeichert — das ist die Aussage „gibt es hier
+   nicht" und keine stille Vorgabe.
+2. **Oberfläche:** Scheitert das Anlegen, steht die Meldung jetzt **im
+   Assistenten** (`.wiz .fehler`), zusammen mit dem Hinweis, dass die
+   Eingaben erhalten sind. Vorher gab es nur den verschwindenden Hinweis.
+3. **`saveSettings(streng)`:** Im Assistenten wird ein Fehlschlag beim
+   Speichern der Einstellungen weitergegeben. Vorher verpuffte er in einem
+   Hinweis — und weil `onboarded` damit nur lokal stand, kam der Assistent
+   nach dem nächsten Laden stumm wieder. Das war der zweite Weg in dieselbe
+   Schleife.
+4. **`wizNoetig()`:** Kein erzwungener Assistent in einem fremden Profil und
+   keiner ohne Schreibrecht. Ein freigegebenes Profil ohne Auto legte sonst
+   einen Assistenten über den Bildschirm, dessen Speichern der Server zu
+   Recht mit 403 abweist — und der erzwungene Assistent hat keinen
+   Abbrechen-Knopf.
+
+**Prüfen (ausgeführt):** Alle vier Antriebsarten im Browser durch den
+Assistenten, je mit frischem Anmeldenamen:
+
+```
+Art bev     | Assistent offen: False | Autos: ['Test-bev/bev']       | onboarded: True
+Art phev    | Assistent offen: False | Autos: ['Test-phev/phev']     | onboarded: True
+Art petrol  | Assistent offen: False | Autos: ['Test-petrol/petrol'] | onboarded: True
+Art diesel  | Assistent offen: False | Autos: ['Test-diesel/diesel'] | onboarded: True
+```
+
+**Gegenprobe:** Mit absichtlich unmöglichem Verbrauch (999 kWh/100 km) bleibt
+der Assistent stehen — jetzt aber mit stehender Meldung, „Zurück" und „Auto
+anlegen":
+
+```
+Assistent offen: True | Fehlerkasten: True | Autos: []
+Kasten: Das Anlegen hat nicht geklappt / Der Verbrauch in kWh/100 km 999
+        wirkt wie ein Tippfehler - plausibel ist 1 bis 100.
+```
+
+Tippfehler fallen also weiter auf; nur die Größe, die es bei dieser Art nicht
+gibt, wird nicht mehr geprüft.
+
+---
+
+## N-09 — „Zuhause" war kein Heim-Ladepunkt, und der Vergleich rechnete mit Vorzeichen
+
+**Stufe:** mittel
+**Datei:** `bordbuch/index.html`
+**Gefunden bei:** erster echter Durchlauf nach N-08
+
+Nach dem Assistenten zwei Ladungen von Hand erfasst, beide mit dem Ort
+`Zuhause` — das ist der Wert, den das Ladeformular selbst vorschlägt. Die
+Übersicht schrieb danach:
+
+```
+Unterwegs 24,66 € 2× · 80,3 kWh · 0,307 €/kWh
+Unterwegs hat dich -1,04 € mehr gekostet, als die 80 kWh
+zuhause gekostet hätten (0,320 €/kWh).
+```
+
+Zwei Fehler in einem Satz:
+
+1. **Der Ort „Zuhause" war nicht als Heim-Ladepunkt eingeordnet.**
+   `placeOf()` kennt nur `settings.stationKind`, und das war leer. Also
+   galten Heimladungen als „unterwegs" und wurden mit dem Anbieterpreis
+   gerechnet. Der Assistent fragt den Heimstrompreis ab — wer ihn angibt,
+   hat einen Heim-Ladepunkt. Der wird jetzt beim Abschluss eingetragen
+   (`stationKind['Zuhause']='home'`), änderbar unter Einstellungen ›
+   Ladepunkte. Im Assistenten steht dazu jetzt ein Satz, damit es keine
+   stille Magie ist.
+2. **„-1,04 € mehr gekostet"** ist keine Aussage. Das Vorzeichen gehört in
+   die Worte: mehr / weniger, und unter einem halben Cent Unterschied
+   „genauso teuer".
+
+**Prüfen (ausgeführt):** Derselbe Durchlauf danach:
+
+```
+Zuhause 25,70 € 2× · 80,3 kWh · 0,320 €/kWh
+```
+
+Der Vergleichssatz erscheint gar nicht mehr, weil es keine Ladung unterwegs
+gibt — und mit einer Ladung unterwegs stimmt die Richtung.
+
+### Was dabei offen bleibt
+
+Eine Heimladung mit **eingetragenem** Betrag wird mit dem Heimstrompreis
+gerechnet, nicht mit dem Betrag: 42,3 kWh für eingetippte 12,50 € stehen in
+der Übersicht als 13,54 € (42,3 × 0,320). Das ist Absicht
+(`settings.useHomePrice`, die Stromrechnung kommt vom Versorger und nicht je
+Ladung), aber an der Stelle, an der es passiert, steht es nicht — der Betrag
+verschwindet ohne Hinweis. Nicht mitgeändert, weil es eine
+Verhaltensentscheidung ist: entweder der Betrag gewinnt, oder die Liste sagt
+je Zeile, dass gerechnet wurde.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
 sichtbar war — und der einzige, den keine Prüfung hier gefunden hätte,
 weil er erst mit echten Dateirechten auf einem echten Server entsteht.
+
+`N-08` war der einzige Befund, der einen neuen Benutzer komplett ausgesperrt
+hat — und er war mit keiner Prüfung dieses Repositorys zu finden, weil beide
+Seiten für sich richtig sind: die Oberfläche schickt eine ehrliche 0, der
+Server prüft ehrlich auf Plausibilität. Sichtbar wurde er erst dadurch, dass
+jemand den Assistenten wirklich zu Ende geklickt hat.
 
 `N-06` und `N-07` stecken in der Seitenvorlage, die jede künftige Wiki-Seite
 kopiert. `N-06` ist in der neuen Seite `git-und-github` behoben, in der

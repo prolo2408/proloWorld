@@ -676,6 +676,14 @@ GRENZEN = {
     "akku_kwh":   (0, 250),
     "tank_l":     (0, 200),
 }
+# Welche Antriebsart welche Verbrauchsgroesse ueberhaupt hat. Steht hier
+# neben den Grenzen, weil beides zusammen gelesen werden muss: eine Groesse,
+# die es bei dieser Art nicht gibt, wird auch nicht auf Plausibilitaet
+# geprueft (N-08). Dieselbe Aufteilung wie KINDS.charge / KINDS.fuel in
+# index.html.
+LAEDT = {"bev", "phev"}       # hat einen Verbrauch in kWh/100 km
+TANKT = {"phev", "petrol", "diesel"}   # hat einen Verbrauch in l/100 km
+
 # Klartextnamen fuer die Fehlermeldung - "odo" sagt einem Nutzer nichts.
 FELD_NAMEN = {
     "odo": "Der Kilometerstand", "liters": "Die Litermenge", "kwh": "Die Energiemenge",
@@ -739,6 +747,36 @@ def pflicht_cent(data, feld, pflicht=True):
                       % (name, _zahl_text(ct / 100.0), _zahl_text(lo / 100),
                          _zahl_text(hi // 100)))
     return ct, None
+
+
+def verbrauchswerte(kind, data):
+    """Verbrauchsangaben einlesen, passend zur Antriebsart (N-08).
+
+    Rueckgabe: (kwh_pro_100, liter_pro_100, fehler). Geprueft wird nur die
+    Groesse, die es bei dieser Art ueberhaupt gibt - fuer die andere steht 0,
+    und das ist die Aussage "gibt es hier nicht".
+
+    Der Befund dahinter: die Oberflaeche schickt fuer die nicht passende
+    Groesse eine 0. pflicht_zahl(..., pflicht=False) laesst ein Feld fehlen,
+    prueft eine eingetragene 0 aber gegen die Plausibilitaetsgrenze - und die
+    liegt bei 0,5 (l/100 km) bzw. 1 (kWh/100 km). Damit liessen sich bev,
+    petrol und diesel gar nicht anlegen, mit einer Meldung ueber ein Feld,
+    das der Assistent fuer diese Art nicht anzeigt.
+    """
+    kwh = lit = None
+    if kind in LAEDT:
+        kwh, fehler = pflicht_zahl(data, "kwhPer100", "verbrauch_kwh100",
+                                   pflicht=False)
+        if fehler:
+            return None, None, fehler
+    if kind in TANKT:
+        lit, fehler = pflicht_zahl(data, "lPer100", "verbrauch_l100",
+                                   pflicht=False)
+        if fehler:
+            return None, None, fehler
+    return (kwh if kwh is not None else (18.0 if kind in LAEDT else 0.0),
+            lit if lit is not None else (7.0 if kind in TANKT else 0.0),
+            None)
 
 
 def pflicht_text(data, feld, grenze, meldung):
@@ -2036,10 +2074,17 @@ class App(BaseHTTPRequestHandler):
         # Geprueft statt stillschweigend in die Grenze gezwungen (B-05):
         # wer 999 kWh/100 km eintippt, hat sich verschrieben und soll das
         # erfahren, statt lautlos 100 gespeichert zu bekommen.
-        kwh_w, fehler = pflicht_zahl(data, "kwhPer100", "verbrauch_kwh100", pflicht=False)
-        if fehler:
-            return self.send_json({"error": fehler}, 400)
-        lit_w, fehler = pflicht_zahl(data, "lPer100", "verbrauch_l100", pflicht=False)
+        #
+        # ABER: geprueft wird nur, was zur Antriebsart gehoert (N-08). Ein
+        # Elektroauto hat keinen Verbrauch in l/100 km, ein Benziner keinen
+        # in kWh/100 km - die Oberflaeche schickt fuer die nicht passende
+        # Groesse eine 0, und die lag unter der Plausibilitaetsgrenze (0,5
+        # bzw. 1). Ergebnis: bev, petrol und diesel liessen sich ueberhaupt
+        # nicht anlegen, mit einer Meldung ueber ein Feld, das der
+        # Assistent fuer diese Art gar nicht anzeigt. Weil der Assistent
+        # erst weiterlaesst, wenn ein Auto steht, sass ein neuer Benutzer
+        # damit fest.
+        kwh, lit, fehler = verbrauchswerte(kind, data)
         if fehler:
             return self.send_json({"error": fehler}, 400)
         akku_w, fehler = pflicht_zahl(data, "battery", "akku_kwh", pflicht=False)
@@ -2048,8 +2093,6 @@ class App(BaseHTTPRequestHandler):
         tank_w, fehler = pflicht_zahl(data, "tank", "tank_l", pflicht=False)
         if fehler:
             return self.send_json({"error": fehler}, 400)
-        kwh = kwh_w if kwh_w is not None else 18.0
-        lit = lit_w if lit_w is not None else 7.0
         akku = akku_w or 0.0
         tank = tank_w or 0.0
         active = 1 if data.get("active", True) else 0

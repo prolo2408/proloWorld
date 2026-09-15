@@ -535,6 +535,13 @@ label>.hlp{margin-left:4px}
 .tiles button[aria-pressed=true]{border-color:var(--teal);background:var(--good-soft)}
 .wiz .skip{background:none;border:0;color:var(--dim);font-size:13px;cursor:pointer;
   text-decoration:underline;font-family:var(--sans);padding:6px 0}
+/* Scheitert das Anlegen, muss die Meldung STEHEN bleiben. Vorher gab es nur
+   einen Hinweis, der nach 3,8 Sekunden verschwand - und weil der Assistent
+   ohne Auto nicht weiterlaesst, sass man danach ohne Anhaltspunkt fest. */
+.wiz .fehler{margin-top:18px;padding:12px 14px;border-radius:10px;
+  background:var(--danger-soft);border:1px solid var(--danger);
+  color:var(--text);font-size:13px;line-height:1.5}
+.wiz .fehler b{display:block;margin-bottom:3px;color:var(--danger)}
 
 /* ---------- Einstellungen: Karten mit kurzen Zeilen ---------- */
 .setgrid{display:grid;gap:10px}
@@ -1262,7 +1269,18 @@ async function loadState(){
   if(!cars.length)state.carId=null;
   invalidate();
 }
-async function saveSettings(){if(me)try{await api('/api/settings',{settings});}catch(e){toast(e.message);}}
+async function saveSettings(streng){
+  if(!me)return;
+  try{await api('/api/settings',{settings});}
+  catch(e){
+    /* streng=true: der Aufrufer will es wissen. Der Assistent zum Beispiel -
+       laesst er den Fehlschlag durchgehen, steht "onboarded" nur lokal, und
+       nach dem naechsten Laden ist der Assistent wieder da, ohne dass
+       jemand weiss warum. */
+    if(streng)throw e;
+    toast(e.message);
+  }
+}
 
 /* ---------- Autos ---------- */
 function car(){return cars.find(c=>c.id===state.carId)||null;}
@@ -2315,8 +2333,17 @@ function blockCharge(list){
       [['home','Zuhause','t'],['work','Arbeit','p'],['public','Unterwegs','']].filter(([k])=>pl[k].n)
       .map(([k,l,c])=>bar('<span class="tag '+PLACE[k].c+'">'+l+'</span>',eur(pl[k].cost),pl[k].cost/tot*100,
         pl[k].n+'× · '+num(pl[k].kwh,1)+' kWh'+(pl[k].kwh?' · '+num(pl[k].cost/pl[k].kwh,3)+' €/kWh':''),c)).join('')+'</div>'+
-      (pl.public.n&&pl.public.kwh?'<p class="hint">Unterwegs hat dich '+eur(extra)+' mehr gekostet, als die '+
-        num(pl.public.kwh,0)+' kWh zuhause gekostet hätten ('+num(settings.homePrice,3)+' €/kWh).</p>':'')
+      /* Das Vorzeichen gehoert in die Worte, nicht in die Zahl: "-1,04 EUR
+         mehr gekostet" liest niemand richtig. Unter einem Cent Unterschied
+         ist die Aussage "gleich teuer". */
+      (pl.public.n&&pl.public.kwh?'<p class="hint">'+
+        (Math.abs(extra)<0.005
+          ? 'Unterwegs war genauso teuer wie zuhause: die '+num(pl.public.kwh,0)+
+            ' kWh haetten dort dasselbe gekostet ('+num(homePreisJetzt(),3)+' €/kWh).'
+          : 'Unterwegs hat dich '+eur(Math.abs(extra))+
+            (extra>0?' mehr':' weniger')+' gekostet, als die '+
+            num(pl.public.kwh,0)+' kWh zuhause gekostet hätten ('+
+            num(homePreisJetzt(),3)+' €/kWh).')+'</p>':'')
       :'<p class="hint">Keine Ladungen in diesem Zeitraum.</p>'));
 }
 function blockFuel(list){
@@ -4988,6 +5015,12 @@ function wizPlatzhalter(){
 }
 function wizNoetig(){
   if(settings.onboarded)return false;
+  /* Nur im eigenen Profil und nur mit Schreibrecht. Ein freigegebenes Profil
+     ohne Auto zwang sonst einen Assistenten auf, dessen Speichern der Server
+     zu Recht mit 403 abweist - und weil der erzwungene Assistent keinen
+     Abbrechen-Knopf hat, kam man nicht mehr heraus. */
+  if(state.profilId)return false;
+  if(!darfSchreiben)return false;
   return cars.length===0||!!wizPlatzhalter();
 }
 function wizStart(erzwungen){
@@ -5115,7 +5148,10 @@ function wizHtml(){
     body='<div class="form">'+
       '<label class="wide">'+lz('Strompreis zuhause','homePrice')+
         inp('homePrice','0,32','decimal')+'<small>€/kWh</small></label>'+
-      '<p class="hint" style="margin:10px 2px 0">Den Spritpreis musst du nicht eintragen — '+
+      '<p class="hint" style="margin:10px 2px 0">Ladungen mit dem Ort „Zuhause" rechnet '+
+        'Bordbuch mit diesem Preis — auch wenn du bei der Ladung nichts einträgst. '+
+        'Weitere Ladepunkte ordnest du später unter Einstellungen › Ladepunkte ein.</p>'+
+      '<p class="hint" style="margin:8px 2px 0">Den Spritpreis musst du nicht eintragen — '+
         'Bordbuch nimmt den Median deiner Tankungen.</p>'+
       '</div>';
     warum='Fertig ist fertig: danach kannst du sofort die erste Ladung oder Tankung erfassen — '+
@@ -5132,13 +5168,33 @@ function wizHtml(){
     '</div>'+
     (!letzter&&w.schritt>0?'<div style="text-align:center"><button class="skip" data-act="wizDone">'+
       'Rest überspringen und anlegen</button></div>':'');
+  const fehler=w.fehler?'<div class="fehler" role="alert">'+
+    '<b>Das Anlegen hat nicht geklappt</b>'+esc(w.fehler)+
+    '<br><br>Deine Eingaben stehen noch da. Korrigiere den genannten Wert und '+
+    'versuche es erneut'+(w.schritt>0?' — mit <b>Zurück</b> kommst du zu den '+
+    'anderen Schritten':'')+'.</div>':'';
   return punkte+'<h1>'+esc(titel)+'</h1><p class="lead">'+lead+'</p>'+
-    '<section>'+body+'</section>'+(warum?'<div class="why">'+warum+'</div>':'')+bar;
+    '<section>'+body+'</section>'+(warum?'<div class="why">'+warum+'</div>':'')+
+    fehler+bar;
 }
 async function wizSpeichern(){
   wizFelderLesen();
   const d=state.wiz.d;
+  state.wiz.fehler='';
   if(!String(d.name||'').trim()){state.wiz.schritt=0;render();return toast('Bitte gib dem Auto einen Namen.');}
+  /* Scheitert irgendein Aufruf, bleibt der Assistent stehen - MIT Meldung
+     und mit allen Eingaben. Ohne das Abfangen blieb nur ein Hinweis, der
+     nach Sekunden verschwand, und ein Assistent, der nicht weiterlaesst. */
+  try{
+    await wizSchreiben(d);
+  }catch(e){
+    state.wiz.fehler=e.message||String(e);
+    render();
+    window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});
+    return;
+  }
+}
+async function wizSchreiben(d){
   const K=KINDS[d.kind]||KINDS.bev;
   const body={name:String(d.name).trim(),kind:d.kind,
     plate:String(d.plate||'').trim(),
@@ -5173,8 +5229,19 @@ async function wizSpeichern(){
   /* Preise gelten profilweit. */
   const hp=toNum(d.homePrice);
   if(hp>0)settings.homePrice=hp;   /* Spritpreis wird NICHT gefragt - kommt aus dem Median der Tankungen */
+  /* Der Ladeort "Zuhause" ist genau der Wert, den das Ladeformular selbst
+     vorschlaegt. Ohne Einordnung galt er als "unterwegs": Bordbuch rechnete
+     die Heimladung mit dem Anbieterpreis und schrieb in die Uebersicht,
+     unterwegs sei es guenstiger gewesen als zuhause. Wer im Assistenten
+     einen Heimstrompreis angibt, hat einen Heim-Ladepunkt - der wird hier
+     eingetragen und ist unter Einstellungen > Ladepunkte aenderbar. */
+  if(K.charge){
+    const orte={...(settings.stationKind||{})};
+    if(!orte['Zuhause'])orte['Zuhause']='home';
+    settings.stationKind=orte;
+  }
   settings.onboarded=true;
-  await saveSettings();
+  await saveSettings(true);
   const odo=toNum(d.odo);
   state.wiz=null;
   await loadState();
