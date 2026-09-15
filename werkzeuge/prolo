@@ -4,7 +4,7 @@
 # Ein Einstiegspunkt fuer den ganzen Stack - wie apt oder docker, nur fuer
 # die eigenen Tools.
 #
-#   prolo status                    Ueberblick ueber alles
+#   prolo status [--kurz]           Tools, Namen, Zertifikate, Sicherung
 #   prolo pruefen [tool]            Gesundheit, Zertifikate, DNS
 #   prolo aktualisieren [tool|--alle]
 #   prolo start|stop|neustart <tool>
@@ -25,7 +25,23 @@
 # seinen conf-Dateien.
 set -euo pipefail
 
-HIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Symlinks aufloesen, BEVOR der Ort bestimmt wird.
+#
+# Der empfohlene Weg ist
+#   sudo ln -sf /opt/stack/werkzeuge/prolo /usr/local/bin/prolo
+# und genau daran ist die erste Fassung gescheitert: BASH_SOURCE zeigt auf
+# den SYMLINK, nicht auf das Ziel. STACK wurde damit /usr/local - keine
+# Tools gefunden, kein backup.sh, kein aktualisieren.sh, keine Hostnamen.
+# Vier Befehle kaputt, eine Ursache.
+QUELLE="${BASH_SOURCE[0]}"
+while [ -L "$QUELLE" ]; do
+  ZIEL="$(readlink "$QUELLE")"
+  case "$ZIEL" in
+    /*) QUELLE="$ZIEL" ;;
+    *)  QUELLE="$(cd "$(dirname "$QUELLE")" && pwd)/$ZIEL" ;;
+  esac
+done
+HIER="$(cd "$(dirname "$QUELLE")" && pwd)"
 STACK="$(dirname "$HIER")"
 ARCHIV="$STACK/.archiv"
 DOMAENE="${PROLO_DOMAENE:-prolo.me}"
@@ -58,27 +74,137 @@ tool_pruefen_da() {
 # Hostnamen aus den Traefik-Regeln lesen - die Wahrheit steht in den Labels,
 # nicht in einer zweiten Liste, die veraltet.
 hostnamen() {
-  grep -ho 'Host(`[^`]*`)' "$STACK"/*/docker-compose.yml 2>/dev/null \
-    | sed 's/Host(`//; s/`)//' | sort -u
+  # Die Wahrheit steht in den Traefik-Regeln, nicht in einer zweiten Liste,
+  # die veraltet. Nicht auf eine Domaene festgelegt - was in einer Regel
+  # steht, wird geprueft.
+  # Jede Stufe mit "|| true": ein grep ohne Treffer gibt 1 zurueck, und
+  # unter set -euo pipefail reisst das die Funktion ab - dann wuerde die
+  # Zusatzdatei unten nie gelesen. Genau so ist sie zuerst stumm geblieben.
+  { grep -ho 'Host(`[^`]*`)' "$STACK"/*/docker-compose.yml 2>/dev/null \
+    | sed 's/Host(`//; s/`)//' | sort -u; } || true
+  # Dazu Namen, die zum Server gehoeren, aber in keiner Regel stehen -
+  # eine Subdomain, die noch eingerichtet wird, oder eine, die jemand
+  # versehentlich auf DynDNS gestellt hat. Eine Zeile je Name, # ist ein
+  # Kommentar.
+  if [ -f "$STACK/werkzeuge/dns-namen.conf" ]; then
+    { sed -e 's/#.*//' -e 's/[[:space:]]//g' "$STACK/werkzeuge/dns-namen.conf" \
+      | grep -v '^$'; } || true
+  fi
+  return 0
+}
+
+aufloesen() {
+  # Die IPv4 zu einem Namen, oder leer.
+  #
+  # Das "|| true" ist der Kern: getent gibt 2 zurueck, wenn der Name nicht
+  # aufloest. Unter set -euo pipefail riss das die aufrufende Funktion ab -
+  # und zwar bevor auch nur eine Zeile ausgegeben war. "prolo dns" blieb
+  # damit genau dann stumm, wenn ein Name NICHT auflaest, also in dem Fall,
+  # fuer den es den Befehl gibt.
+  { getent ahostsv4 "$1" 2>/dev/null | awk '{print $1; exit}'; } || true
+}
+
+# Zertifikat einer Domaene: Aussteller und Restlaufzeit in Tagen.
+# Gibt "<tage>|<aussteller>" oder "" zurueck.
+zertifikat() {
+  local NAME="$1" ROH ENDE
+  ROH=$(echo | timeout 12 openssl s_client -connect "$NAME:443" \
+        -servername "$NAME" 2>/dev/null | openssl x509 -noout -enddate -issuer 2>/dev/null) \
+        || return 1
+  ENDE=$(printf '%s' "$ROH" | sed -n 's/^notAfter=//p')
+  [ -n "$ENDE" ] || return 1
+  local BIS HEUTE
+  BIS=$(date -d "$ENDE" +%s 2>/dev/null) || return 1
+  HEUTE=$(date +%s)
+  printf '%s|%s' "$(( (BIS - HEUTE) / 86400 ))" \
+    "$(printf '%s' "$ROH" | sed -n 's/.*issuer=.*O *= *\([^,]*\).*/\1/p' | head -1)"
 }
 
 # ----------------------------------------------------------------------
 befehl_status() {
+  local KURZ=0
+  [ "${1:-}" = "--kurz" ] && KURZ=1
+
   abschnitt "Tools"
-  local t ids anz laufend
-  printf '  %-14s %-10s %s\n' "TOOL" "CONTAINER" "ABBILD"
+  local t ids anz laufend gesund g id
+  printf '  %-14s %-10s %-12s %s\n' "TOOL" "CONTAINER" "GESUNDHEIT" "ABBILD"
   for t in $(tools); do
     ids=$(cd "$STACK/$t" && docker compose ps -q 2>/dev/null || true)
     anz=$(printf '%s' "$ids" | grep -c . || true)
-    laufend=0
-    for i in $ids; do
-      [ "$(docker inspect "$i" --format '{{.State.Running}}' 2>/dev/null)" = "true" ] \
+    laufend=0; gesund="-"
+    local krank=0 startend=0 mit=0
+    for id in $ids; do
+      [ "$(docker inspect "$id" --format '{{.State.Running}}' 2>/dev/null)" = "true" ] \
         && laufend=$((laufend + 1))
+      g=$(docker inspect "$id" \
+          --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}ohne{{end}}' 2>/dev/null)
+      case "$g" in
+        unhealthy) krank=$((krank + 1)); mit=$((mit + 1)) ;;
+        starting)  startend=$((startend + 1)); mit=$((mit + 1)) ;;
+        healthy)   mit=$((mit + 1)) ;;
+      esac
     done
-    printf '  %-14s %-10s %s\n' "$t" "$laufend/$anz" \
+    if   [ "$anz" -eq 0 ];        then gesund="AUS"
+    elif [ "$laufend" -lt "$anz" ];then gesund="TEILWEISE"
+    elif [ "$krank" -gt 0 ];      then gesund="KRANK"
+    elif [ "$startend" -gt 0 ];   then gesund="startet"
+    elif [ "$mit" -gt 0 ];        then gesund="gesund"
+    else gesund="laeuft"          # ohne eigene Pruefung: mehr wissen wir nicht
+    fi
+    printf '  %-14s %-10s %-12s %s\n' "$t" "$laufend/$anz" "$gesund" \
       "$(grep -m1 -E '^[[:space:]]*image:' "$STACK/$t/docker-compose.yml" \
          | sed -e 's/^[[:space:]]*image:[[:space:]]*//' -e 's/[[:space:]]*#.*$//')"
   done
+  melde ""
+  melde "  'laeuft' heisst nur: der Container laeuft. Ohne eigene"
+  melde "  Gesundheitspruefung im Abbild ist damit NICHT belegt, dass der"
+  melde "  Dienst tut, was er soll."
+
+  if [ "$KURZ" -eq 1 ]; then
+    melde ""
+    melde "  (--kurz: Namen, Zertifikate und Sicherung uebersprungen)"
+    return 0
+  fi
+
+  # --- Namen und Zertifikate -------------------------------------------
+  abschnitt "Namen, Ziele und Zertifikate"
+  local eigene name ip z tage aus warnung=0
+  eigene=$(curl -s --max-time 10 https://api.ipify.org 2>/dev/null || echo "")
+  [ -n "$eigene" ] && melde "  Server-IP: $eigene" || \
+    melde "  Server-IP nicht ermittelbar - vergleiche nur die Zertifikate."
+  melde ""
+  printf '  %-26s %-16s %s\n' "NAME" "ZEIGT AUF" "ZERTIFIKAT"
+  for name in $(hostnamen); do
+    ip=$(aufloesen "$name")
+    local ipfeld="$ip"
+    if [ -z "$ip" ]; then ipfeld="KEINE ANTWORT"; warnung=1
+    elif [ -n "$eigene" ] && [ "$ip" != "$eigene" ]; then ipfeld="$ip (FREMD)"; warnung=1
+    fi
+    if z=$(zertifikat "$name"); then
+      tage="${z%%|*}"; aus="${z#*|}"
+      if [ "$tage" -lt 0 ]; then
+        printf '  %-26s %-16s ABGELAUFEN seit %s Tagen\n' "$name" "$ipfeld" "$(( -tage ))"; warnung=1
+      elif [ "$tage" -lt 21 ]; then
+        printf '  %-26s %-16s laeuft in %s Tagen ab (%s)\n' "$name" "$ipfeld" "$tage" "$aus"; warnung=1
+      elif printf '%s' "$aus" | grep -qi "traefik"; then
+        printf '  %-26s %-16s NOTZERTIFIKAT (%s)\n' "$name" "$ipfeld" "$aus"; warnung=1
+      else
+        printf '  %-26s %-16s %s Tage (%s)\n' "$name" "$ipfeld" "$tage" "$aus"
+      fi
+    else
+      printf '  %-26s %-16s keine Antwort auf 443\n' "$name" "$ipfeld"; warnung=1
+    fi
+  done
+  if [ "$warnung" -eq 1 ]; then
+    melde ""
+    melde "  FREMD heisst: der Name zeigt nicht auf diesen Server. Meist eine"
+    melde "  DynDNS-Bindung beim Anbieter - sie ueberschreibt den A-Eintrag"
+    melde "  bei jedem Router-Update. Das Loeschen von API-Schluesseln hilft"
+    melde "  dagegen NICHT, die Update-URL traegt ihr Token selbst."
+    melde ""
+    melde "  NOTZERTIFIKAT heisst: Traefik kommt nicht an acme.json und"
+    melde "  liefert sein eigenes aus. Meist die Dateirechte - siehe N-05."
+  fi
 
   abschnitt "Sicherung"
   local M=/opt/backups/.letzter-erfolg
@@ -96,7 +222,7 @@ befehl_status() {
     local a
     for a in "$ARCHIV"/*; do
       [ -d "$a" ] || continue
-      melde "  $(basename "$a")  ($(ls "$a"/*.tar.gz 2>/dev/null | wc -l) Stand/Staende)"
+      melde "  $(basename "$a")  ($(ls "$a"/*.tar.gz 2>/dev/null | grep -vc volume) Stand/Staende)"
     done
   else
     melde "  leer"
@@ -116,7 +242,7 @@ befehl_dns() {
   melde ""
   local abweichung=0
   for name in $(hostnamen); do
-    ip=$(getent ahostsv4 "$name" 2>/dev/null | awk '{print $1; exit}')
+    ip=$(aufloesen "$name")
     if [ -z "$ip" ]; then
       printf '  %-24s %s\n' "$name" "KEINE ANTWORT"; abweichung=1
     elif [ -n "$eigene" ] && [ "$ip" != "$eigene" ]; then
@@ -287,9 +413,17 @@ befehl_suchen() {
   local BEGRIFF="${1:-}"
   [ -n "$BEGRIFF" ] || { fehler "Aufruf: prolo suchen <begriff>"; exit 1; }
   abschnitt "Abbilder zu '$BEGRIFF'"
-  docker search --limit 15 --format 'table {{.Name}}\t{{.Stars}}\t{{.Description}}' \
-    "$BEGRIFF" 2>/dev/null || {
-    fehler "Suche fehlgeschlagen - haengt der Server am Netz?"; exit 1; }
+  # .StarCount, nicht .Stars - das Feld heisst so, und mit dem falschen
+  # Namen bricht das Template ab. Vorher lief die Fehlerausgabe zusaetzlich
+  # nach /dev/null, sodass statt der echten Meldung nur "Suche
+  # fehlgeschlagen - haengt der Server am Netz?" kam. Das Netz war in
+  # Ordnung; die Vermutung im Text hat in die Irre gefuehrt.
+  if ! docker search --limit 15 \
+       --format 'table {{.Name}}\t{{.StarCount}}\t{{.Description}}' "$BEGRIFF"; then
+    fehler ""
+    fehler "Die Suche hat nicht geklappt - die Meldung von docker steht oben."
+    exit 1
+  fi
   melde ""
   melde "Die Suche liefert NUR Namen. Fassung, Port, Volumes und"
   melde "Umgebungsvariablen stehen in der Doku des jeweiligen Abbilds -"
@@ -476,7 +610,8 @@ hilfe() {
   cat <<HILFE
 prolo - ein Einstiegspunkt fuer den Stack unter $STACK
 
-  status                      Ueberblick: Tools, Sicherung, Archiv
+  status [--kurz]             Tools, Namen, Zertifikate, Sicherung, Archiv
+                              --kurz laesst alles weg, was ins Netz muss
   pruefen [tool]              Gesundheit (auch: healthcheck)
   dns                         Zeigen die Namen noch hierher?
   aktualisieren [tool|--alle] auch: update
@@ -496,7 +631,7 @@ HILFE
 
 BEFEHL="${1:-hilfe}"; shift || true
 case "$BEFEHL" in
-  status|st)                  befehl_status ;;
+  status|st)                  befehl_status "$@" ;;
   pruefen|healthcheck|health) exec "$HIER/aktualisieren.sh" --trocken "${@:---alle}" ;;
   aktualisieren|update)       exec "$HIER/aktualisieren.sh" "${@:---alle}" ;;
   sichern|backup)             root_noetig sichern; exec "$STACK/backup.sh" ;;
