@@ -229,16 +229,56 @@ Ein PDF-Anhang wird außerdem **seitenweise durchsuchbar** (dafür braucht der
 Container `pdftotext`, das Abbild bringt es mit). Ein Suchtreffer aus dem PDF
 öffnet die Seite und das PDF auf der Fundstelle.
 
+## Gruppen im Inhaltsverzeichnis
+
+Jeder Abschnitt kann eine **Gruppe** tragen. Abschnitte mit derselben Gruppe
+stehen links unter einer gemeinsamen Überschrift:
+
+```
+Netzwerk-Grundlagen          ← Titel der Seite
+Schichten, Adressen, Ports   ← der Satz darunter
+
+GRUNDLAGEN
+  Schichten und Kapselung
+  Latenz und Durchsatz
+ADRESSIERUNG
+  IP-Adressen und Subnetze
+  Namen und DNS
+```
+
+Im Editor steht das Feld unter *Mehr zu diesem Abschnitt*. Die Reihenfolge der
+Gruppen ist die Reihenfolge der Abschnitte — nicht alphabetisch, denn die
+Reihenfolge ist eine Aussage des Autors. Im Meta-Block ist es ein Feld je
+Abschnitt:
+
+```json
+{ "anker": "adressen", "titel": "IP-Adressen und Subnetze",
+  "gruppe": "Adressierung", "text": "…" }
+```
+
+Eine Gruppe ist außerdem **durchsuchbar**: „Adressierung" findet die Seite und
+springt an den Abschnitt.
+
 ## Was die Suche findet
 
-Der Index hat vier Quellen, und die Reihenfolge ist Absicht:
+Der Index hat fünf Quellen, und die Reihenfolge ist Absicht:
 
 | Quelle | Woher |
 |---|---|
-| Abschnitte | `abschnitte[].text` und `stichworte` aus dem Meta-Block |
+| Seitenkopf | Titel, der Satz darunter, der Pfad, die Gruppen des Verzeichnisses, die Adresse, alle Abschnittstitel |
+| Abschnitte | `abschnitte[].text`, `stichworte` und `gruppe` aus dem Meta-Block |
 | Seitentext | der sichtbare Text im HTML |
 | gemeldeter Text | was die Seite nach dem Laden selbst meldet — genau das, was der Leser sieht |
 | Skripttext | Zeichenketten aus den Skriptblöcken, wenn die Seite nichts gemeldet hat |
+
+Der **Seitenkopf** ist die Quelle für alles, was eine Seite *beschreibt*.
+Ohne ihn ist sie nur über ihren Inhalt zu finden: „Haushalt" (steht nur im
+Pfad), „Grundlagen" (nur eine Gruppe) oder der erste Satz der Seite ergaben
+nichts. Gezeigt wird als Schnipsel trotzdem der Satz der Seite — gefunden
+wird mit allem, gelesen wird, was ein Mensch lesen will.
+
+Ein **leeres Suchfeld** listet alle Seiten, die du sehen darfst. Das ist der
+Weg, wenn man das Wort nicht kennt.
 
 Die dritte Quelle ist der Grund, warum eine Seite, die ihre Tabellen erst im
 Browser aufbaut, überhaupt durchsuchbar ist: **der Server kann kein

@@ -98,6 +98,9 @@ CREATE TABLE IF NOT EXISTS abschnitt(
   ebene        INTEGER NOT NULL DEFAULT 1,
   stichworte   TEXT NOT NULL DEFAULT '',
   text         TEXT NOT NULL DEFAULT '',
+  -- Ueberschrift im Inhaltsverzeichnis: mehrere Abschnitte teilen eine
+  -- Gruppe ("Grundlagen", "Adressierung"). Leer heisst: keine Gruppe.
+  gruppe       TEXT NOT NULL DEFAULT '',
   reihenfolge  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_abschnitt_seite ON abschnitt(seite_id);
@@ -239,6 +242,11 @@ def datenbank_anlegen():
     os.makedirs(SEITEN, exist_ok=True)
     v = db()
     v.executescript(SCHEMA)
+    if spalte_nachtragen(v, "abschnitt", "gruppe", "TEXT NOT NULL DEFAULT ''"):
+        sys.stderr.write(
+            "HINWEIS: Die Tabelle abschnitt hat die Spalte gruppe bekommen. "
+            "Sie fuellt sich beim naechsten Speichern einer Seite; bis dahin "
+            "steht das Inhaltsverzeichnis ohne Ueberschriften da.\n")
     if spalte_urheber_nachtragen(v):
         sys.stderr.write(
             "HINWEIS: Die Tabelle seite hat die Spalte urheber bekommen "
@@ -399,6 +407,15 @@ SKRIPT_MUELL = {
     "div", "span", "button", "true", "false", "null", "undefined", "px",
     "class", "style", "data", "text", "html", "json", "get", "post",
 }
+# Regelblatt 11: Text auf sinnvolle Laenge begrenzt. Die Zahlen kommen aus der
+# Messung (N-20): ein Titel von 376 Zeichen machte den Kopf der Anwendung am
+# Handy 523 Pixel hoch. 120 Zeichen sind zwei Zeilen und passen ueberall hin,
+# wo ein Titel auftaucht - Kopf, Themenbaum, Inhaltsverzeichnis, Suchtreffer.
+GRENZE_TITEL = 120
+GRENZE_KURZ = 300
+GRENZE_PFADTEIL = 60
+GRENZE_STICHWORT = 60
+
 SKRIPT_TEXT_GRENZE = 60000
 # Wie viel Text eine Seite von sich selbst melden darf. 200 000 Zeichen sind
 # rund 30 000 Woerter - mehr hat keine Wiki-Seite, und die Grenze verhindert,
@@ -596,8 +613,21 @@ def regeln_pruefen(html, meta):
     elif not SLUG_MUSTER.match(slug):
         fehler.append(f"Der slug '{slug}' ist nicht erlaubt. Nur Kleinbuchstaben, "
                       "Ziffern und Bindestriche, Anfang und Ende ohne Bindestrich.")
-    if not (meta.get("titel") or "").strip():
+    titel = (meta.get("titel") or "").strip()
+    if not titel:
         fehler.append("Im Block wiki-meta fehlt das Feld 'titel'.")
+    elif len(titel) > GRENZE_TITEL:
+        # Regelblatt 11: "Text auf sinnvolle Laenge begrenzt?" Ein Titel von
+        # 376 Zeichen liess am Handy den Kopf der Anwendung auf 523 Pixel
+        # wachsen - zwei Drittel des Schirms fuer eine Zeile (N-20).
+        fehler.append(f"Der Titel ist {len(titel)} Zeichen lang, erlaubt sind "
+                      f"{GRENZE_TITEL}. Er steht im Kopf, im Themenbaum und in "
+                      "jedem Suchtreffer.")
+    kurz = (meta.get("kurz") or "").strip()
+    if len(kurz) > GRENZE_KURZ:
+        fehler.append(f"Der Satz unter dem Titel ist {len(kurz)} Zeichen lang, "
+                      f"erlaubt sind {GRENZE_KURZ}. Er ist eine Zusammenfassung, "
+                      "kein Abschnitt.")
 
     pfad = meta.get("pfad")
     if not isinstance(pfad, list) or not pfad or not all(isinstance(p, str) and p.strip() for p in pfad):
@@ -606,6 +636,12 @@ def regeln_pruefen(html, meta):
     elif len(pfad) > 4:
         warnungen.append("Der Pfad ist tiefer als vier Ebenen. Das wird in der "
                          "Navigation unuebersichtlich.")
+    if isinstance(pfad, list):
+        for teil in pfad:
+            if isinstance(teil, str) and len(teil.strip()) > GRENZE_PFADTEIL:
+                fehler.append(f"Die Pfadebene '{teil.strip()[:30]}…' ist "
+                              f"{len(teil.strip())} Zeichen lang, erlaubt sind "
+                              f"{GRENZE_PFADTEIL}.")
 
     gruppen = meta.get("gruppen", [])
     if not isinstance(gruppen, list) or not all(isinstance(g, str) for g in gruppen):
@@ -628,6 +664,16 @@ def regeln_pruefen(html, meta):
         anker = (a.get("anker") or "").strip()
         if not anker:
             fehler.append(f"Abschnitt {i} ({a.get('titel', '?')}) hat keinen Anker.")
+        atitel = str(a.get("titel") or "").strip()
+        if len(atitel) > GRENZE_TITEL:
+            fehler.append(f"Der Titel von Abschnitt {i} ist {len(atitel)} Zeichen "
+                          f"lang, erlaubt sind {GRENZE_TITEL}. Er steht im "
+                          "Inhaltsverzeichnis.")
+        for wort in (a.get("stichworte") or []):
+            if isinstance(wort, str) and len(wort.strip()) > GRENZE_STICHWORT:
+                fehler.append(f"Das Stichwort '{wort.strip()[:30]}…' in Abschnitt "
+                              f"{i} ist zu lang (erlaubt: {GRENZE_STICHWORT}).")
+                break
             continue
         if not ANKER_MUSTER.match(anker):
             fehler.append(f"Anker '{anker}' ist nicht erlaubt.")
@@ -833,6 +879,21 @@ def darf_aendern(z, kennung, ist_admin):
     return bool(kennung) and urheber_von(z) == kennung
 
 
+def spalte_nachtragen(v, tabelle, spalte, bauart):
+    """Eine Spalte in einer bestehenden Datenbank nachtragen.
+
+    CREATE TABLE IF NOT EXISTS legt keine Spalte in einer Tabelle nach, die
+    es schon gibt. Darum dieser Weg: nur hinzufuegen, nie etwas
+    ueberschreiben. Gibt True zurueck, wenn die Spalte angelegt wurde.
+    """
+    spalten = {z["name"] for z in
+               v.execute("PRAGMA table_info(%s)" % tabelle).fetchall()}
+    if spalte in spalten:
+        return False
+    v.execute("ALTER TABLE %s ADD COLUMN %s %s" % (tabelle, spalte, bauart))
+    return True
+
+
 def spalte_urheber_nachtragen(v):
     """Aeltere Datenbank auf die Spalte urheber bringen (N-15).
 
@@ -843,10 +904,8 @@ def spalte_urheber_nachtragen(v):
 
     Gibt True zurueck, wenn die Spalte angelegt wurde.
     """
-    spalten = {z["name"] for z in v.execute("PRAGMA table_info(seite)").fetchall()}
-    if "urheber" in spalten:
+    if not spalte_nachtragen(v, "seite", "urheber", "TEXT NOT NULL DEFAULT ''"):
         return False
-    v.execute("ALTER TABLE seite ADD COLUMN urheber TEXT NOT NULL DEFAULT ''")
     v.execute("UPDATE seite SET urheber = COALESCE("
               "(SELECT f.nutzer_id FROM fassung f WHERE f.seite_id = seite.id "
               "AND f.nutzer_id <> '' ORDER BY f.nummer LIMIT 1), nutzer_id)")
@@ -1007,9 +1066,10 @@ def uebernehmen(html, teile, nutzer, kommentar=""):
     v.execute("DELETE FROM abschnitt WHERE seite_id=?", (seite_id,))
     for i, a in enumerate(teile["abschnitte"]):
         v.execute("INSERT INTO abschnitt(seite_id,anker,titel,ebene,stichworte,text,"
-                  "reihenfolge) VALUES(?,?,?,?,?,?,?)",
+                  "gruppe,reihenfolge) VALUES(?,?,?,?,?,?,?,?)",
                   (seite_id, a.get("anker", ""), a.get("titel", ""), a.get("ebene", 1),
-                   " ".join(a.get("stichworte", []) or []), a.get("text", "") or "", i))
+                   " ".join(a.get("stichworte", []) or []), a.get("text", "") or "",
+                   str(a.get("gruppe", "") or "").strip()[:80], i))
 
     # Anhaenge (N-18): Die Zeilen der Anhaenge, die diese Seite weiter nennt,
     # bleiben - sonst verliert eine Seite beim Bearbeiten ihre Anhaenge. Genau
@@ -1131,9 +1191,33 @@ def index_neu_bauen(seite_id, html=None):
         except sqlite3.OperationalError:
             pass
 
-    for a in v.execute("SELECT * FROM abschnitt WHERE seite_id=? ORDER BY reihenfolge",
-                       (seite_id,)).fetchall():
-        eintragen("abschnitt", a["anker"], "", 0, a["titel"], a["stichworte"], a["text"])
+    abschnitte = v.execute(
+        "SELECT * FROM abschnitt WHERE seite_id=? ORDER BY reihenfolge",
+        (seite_id,)).fetchall()
+    for a in abschnitte:
+        # Die Gruppe gehoert zu den Stichworten des Abschnitts: wer nach
+        # "Adressierung" sucht, will den Abschnitt, nicht nur die Seite.
+        stich = " ".join(x for x in (a["stichworte"], a["gruppe"]) if x)
+        eintragen("abschnitt", a["anker"], "", 0, a["titel"], stich, a["text"])
+
+    # Der Seitenkopf als eigener Treffer: Titel, der Satz darunter, der Pfad im
+    # Themenbaum, die Gruppen des Verzeichnisses und die Abschnittstitel.
+    #
+    # Ohne das ist eine Seite nur ueber ihren INHALT zu finden, nicht ueber das,
+    # was sie beschreibt. In der Messung fehlten damit sechs von 22 Begriffen:
+    # "Haushalt" und "Energie" (nur im Pfad), "hingeht" (nur im Satz der Seite),
+    # "Grundlagen" und "Adressierung" (nur als Gruppe). Genau die Woerter, mit
+    # denen ein Mensch anfaengt, wenn er den Titel nicht mehr weiss.
+    pfad = " ".join(json.loads(seite["pfad_json"] or "[]"))
+    gruppen = []
+    for a in abschnitte:
+        g = (a["gruppe"] or "").strip()
+        if g and g not in gruppen:
+            gruppen.append(g)
+    eintragen("kopf", "", "", 0, seite["titel"],
+              " ".join(x for x in [pfad, " ".join(gruppen), seite["slug"]] if x),
+              " ".join(x for x in [seite["kurz"]] +
+                       [a["titel"] for a in abschnitte] if x))
 
     # Sichtbarer Seitentext als zusaetzliches Netz.
     if html is None:
@@ -1347,12 +1431,19 @@ def suchen(nutzer, begriff, grenze=40, mit_anhaengen=True):
         titel = z["abschnittstitel"] or seite["titel"]
         if entwerten(begriff) in entwerten(titel):
             punkte += 25
+        # Der Kopftreffer zeigt den Satz der Seite, nicht seinen Suchstoff.
+        # Im Index stehen dort auch Pfad, Gruppen und alle Abschnittstitel -
+        # das ist zum FINDEN da. Als Schnipsel gelesen ergaebe es eine
+        # aneinandergehaengte Titelkette, und die sagt nichts.
+        stoff = z["s_text"] or z["s_stich"] or ""
+        if z["art"] == "kopf":
+            stoff = seite["kurz"] or stoff
         ergebnis.append({
             "slug": seite["slug"], "seitentitel": seite["titel"],
             "pfad": json.loads(seite["pfad_json"] or "[]"),
             "art": z["art"], "anker": z["anker"], "anhang": z["anhang_name"],
             "seitennr": z["seitennr"], "titel": titel,
-            "schnipsel": schnipsel(z["s_text"] or z["s_stich"] or "", worte),
+            "schnipsel": schnipsel(stoff, worte),
             "punkte": round(punkte, 3), "quelle": quelle,
         })
 
@@ -1683,7 +1774,7 @@ class Handler(BaseHTTPRequestHandler):
                          (n.kennung, slug, jetzt()))
             db().commit()
             absch = [dict(r) for r in db().execute(
-                "SELECT anker,titel,ebene FROM abschnitt WHERE seite_id=? "
+                "SELECT anker,titel,ebene,gruppe FROM abschnitt WHERE seite_id=? "
                 "ORDER BY reihenfolge", (z["id"],)).fetchall()]
             anh = [dict(r) for r in db().execute(
                 "SELECT name,typ,groesse_b,marke FROM anhang WHERE seite_id=?",

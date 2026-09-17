@@ -192,6 +192,20 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible{
 .leiste-fuss .blatt, .navi .blatt{border-radius:8px;padding-left:12px}
 
 #hauptteil{flex:1;min-width:0;display:flex;flex-direction:column;height:100%}
+/* Lange Titel duerfen den Kopf nicht aufblasen (N-20). Der Server weist sie
+   inzwischen ab, aber Seiten aus der Zeit davor liegen schon da - und eine
+   Oberflaeche, die an ihren eigenen Daten zerbricht, ist nicht fertig. */
+#kopftitel, #kopfkontext{display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden}
+.blatt{overflow:hidden}
+.blatt > span, .blatt{display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical}
+.teile-titel{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;
+  overflow:hidden}
+.teile-satz{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;
+  overflow:hidden}
+.treffer-gruppe .seite, .treffer-zeile .titel{display:-webkit-box;
+  -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 header{height:76px;flex:0 0 76px;background:var(--chrome);
   border-bottom:1px solid var(--line);display:flex;align-items:center;
   gap:14px;padding:0 24px}
@@ -257,6 +271,32 @@ textarea{height:auto;padding:10px 12px;min-height:76px;line-height:1.5}
   color:var(--ink-3)}
 .treffer-zeile .aus{font-size:12.5px;color:var(--ink-3);margin-top:3px;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* Regelblatt 9: Klickflaeche mindestens 44 px. In der Verwaltung waren der
+   Seitentitel und die Freigabe 20 px hoch - am Handy mit dem Daumen nicht zu
+   treffen. Sie behalten ihr Aussehen, bekommen aber die Hoehe. */
+.verw-zeile{height:auto;min-height:44px;padding:2px 0;justify-content:flex-start;
+  text-align:left}
+summary{min-height:44px;display:flex;align-items:center;gap:8px}
+.ed-kurzhilfe summary{min-height:44px}
+details.karte > summary{min-height:44px}
+
+/* Treffer nach Seite gruppiert: bei einem breiten Suchwort standen sonst
+   zwoelf Zeilen derselben Seite untereinander, und man sah den Wald nicht. */
+.treffer-gruppe{padding:8px 12px 2px;display:flex;align-items:baseline;gap:8px;
+  flex-wrap:wrap}
+.treffer-gruppe + .treffer-gruppe, .treffer-zeile + .treffer-gruppe{
+  border-top:1px solid var(--line-soft);margin-top:4px;padding-top:12px}
+.treffer-gruppe .seite{font-family:'Sora',sans-serif;font-weight:600;
+  font-size:14px;color:var(--ink)}
+.treffer-gruppe .weg{font-size:11px;font-family:'JetBrains Mono',monospace;
+  color:var(--ink-3)}
+.treffer-zeile.unter{padding-left:24px;min-height:38px}
+.treffer-zeile .quelle{font-size:10.5px;font-family:'JetBrains Mono',monospace;
+  letter-spacing:0.04em;text-transform:uppercase;color:var(--ink-3)}
+.treffer-zeile.unter .titel{font-family:inherit;font-size:13.5px;font-weight:600;
+  color:var(--ink-2)}
+.treffer-fuss{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:8px 12px 4px}
 mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;padding:0 2px}
 
 /* ------------------------------------------------ Startseite und Verwaltung */
@@ -311,14 +351,22 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
    DIESER Seite bin. Genau die Aufteilung, die eine gut gemachte
    Inhaltsseite selbst benutzt. Die Anker stehen im Meta-Block, der Sprung
    laeuft ueber denselben Weg wie ein Suchtreffer. */
-#seitenteile{flex:0 0 232px;width:232px;height:100%;overflow-y:auto;
-  padding:22px 12px 40px;border-right:1px solid var(--line);
-  background:var(--app);scrollbar-width:thin}
+#seitenteile{flex:0 0 268px;width:268px;height:100%;overflow-y:auto;
+  padding:0 0 40px;border-right:1px solid var(--line);
+  background:var(--chrome);scrollbar-width:thin}
 #seitenteile[hidden]{display:none}
-#seitenteile .wo{display:block;padding:0 10px 8px}
+.teile-kopf{padding:22px 20px 14px}
+.teile-titel{font-family:'Sora',sans-serif;font-size:16px;font-weight:600;
+  color:var(--ink);line-height:1.3;letter-spacing:-0.01em}
+.teile-satz{margin-top:6px;font-size:12.5px;line-height:1.5;color:var(--ink-3)}
+.teile-liste{padding:0 8px}
+.teile-gruppe{padding:16px 12px 6px;font-family:'JetBrains Mono',monospace;
+  font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;
+  color:var(--ink-3)}
+.teile-luecke{height:10px}
 #seitenteile button{display:block;width:100%;text-align:left;border:0;
-  background:none;font:inherit;font-size:13px;color:var(--ink-2);
-  padding:7px 10px;border-radius:8px;cursor:pointer;line-height:1.35;
+  background:none;font:inherit;font-size:13.5px;color:var(--ink-2);
+  padding:9px 12px;border-radius:8px;cursor:pointer;line-height:1.35;
   border-left:2px solid transparent}
 #seitenteile button:hover{background:var(--hover);color:var(--ink)}
 #seitenteile button[aria-current="true"]{background:var(--accent-soft);
@@ -327,14 +375,17 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
   /* Zu schmal fuer zwei Spalten neben dem Text: dann wird daraus wieder
      eine Zeile ueber dem Inhalt - lieber schmal als gar kein Inhalt. */
   #inhalt{flex-direction:column}
-  #seitenteile{flex:0 0 auto;width:auto;height:auto;display:flex;gap:6px;
-    overflow-x:auto;overflow-y:hidden;padding:8px 16px;border-right:0;
-    border-bottom:1px solid var(--line);scrollbar-width:none}
-  #seitenteile::-webkit-scrollbar{width:0;height:0}
-  #seitenteile .wo{align-self:center;flex:0 0 auto;padding:0 4px 0 0}
+  #seitenteile{flex:0 0 auto;width:auto;height:auto;padding:0;border-right:0;
+    border-bottom:1px solid var(--line);overflow-x:hidden}
+  .teile-kopf{display:none}
+  .teile-liste{display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;
+    padding:8px 16px;scrollbar-width:none}
+  .teile-liste::-webkit-scrollbar{width:0;height:0}
+  .teile-gruppe{align-self:center;flex:0 0 auto;padding:0 2px 0 8px}
+  .teile-luecke{display:none}
   #seitenteile button{flex:0 0 auto;width:auto;height:30px;padding:0 11px;
     border-radius:999px;border:1px solid var(--line);white-space:nowrap;
-    border-left-width:1px}
+    border-left-width:1px;font-size:12.5px}
   #seitenteile button[aria-current="true"]{border-color:var(--accent)}
 }
 
@@ -365,6 +416,29 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
 #pdf-rahmen{flex:1;width:100%;border:0;background:var(--app)}
 @media (max-width:860px){
   #pdf-schau{width:100%;min-width:0;max-width:none;left:0}
+}
+
+/* ---------- Editor: drei sichtbare Schritte ----------
+   Vorher standen alle Felder gleichzeitig da - fuenf davon, bevor man ein
+   Wort geschrieben hatte. Jetzt: erst worum es geht, dann der Inhalt, und
+   die Leiste unten bleibt immer sichtbar. */
+.ed-fahrplan{padding:12px 16px;border-radius:12px;background:var(--accent-soft);
+  color:var(--accent-ink);font-size:13px;line-height:1.6}
+.ed-schritt{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.ed-schritt h3{margin:0}
+.ed-schritt-frei{padding:4px 2px 0}
+.ed-nr{flex:0 0 26px;width:26px;height:26px;border-radius:8px;
+  background:var(--accent);color:var(--on-accent);display:grid;
+  place-items:center;font-family:'Sora',sans-serif;font-weight:600;font-size:14px}
+.ed-mehr{margin-top:14px;border-top:1px solid var(--line-soft);padding-top:4px}
+.ed-mehr > summary{cursor:pointer;font-size:13px;color:var(--accent-ink)}
+.ed-leiste{position:sticky;bottom:0;z-index:20;margin:18px -32px -60px;
+  padding:12px 32px calc(12px + env(safe-area-inset-bottom));
+  background:var(--chrome);border-top:1px solid var(--line)}
+.ed-stand{font-size:12.5px;color:var(--ink-3)}
+.ed-stand[data-fehlt="1"]{color:var(--warm-ink)}
+@media (max-width:432px){
+  .ed-leiste{margin:18px -20px -40px;padding-left:20px;padding-right:20px}
 }
 
 /* ---------- Blockkarten im Editor ----------
@@ -411,6 +485,9 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
   border:1px solid var(--line);background:var(--surface);color:var(--ink);
   resize:vertical}
 .flaeche textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+/* Ein fehlendes Pflichtfeld zeigt sich am Feld, nicht nur in einer Liste. */
+.flaeche input[aria-invalid="true"], .flaeche textarea[aria-invalid="true"]{
+  border-color:var(--warm-ink);background:var(--warm-soft)}
 @media (max-width:432px){
   .marke .wortmarke{font-size:14px}
   #treffer{position:fixed;left:8px;right:8px;top:auto}
@@ -461,7 +538,8 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
                stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
         </span>
         <label for="suchfeld" class="label" style="position:absolute;left:-9999px">Suche</label>
-        <input type="search" id="suchfeld" placeholder="Suchen …" autocomplete="off"
+        <input type="search" id="suchfeld" placeholder="Suchen — oder tippen für alle Seiten"
+               autocomplete="off"
                role="combobox" aria-expanded="false" aria-controls="treffer">
         <kbd>/</kbd>
         <div id="treffer" role="listbox" aria-label="Suchergebnisse"></div>
@@ -653,7 +731,7 @@ function baumZeichnen(){
 
   if(!ZUSTAND.baum.length){
     ziel.innerHTML = `<div style="padding:14px 10px;font-size:13px;color:var(--ink-3)">
-      Noch keine Seite eingespielt.</div>`;
+      Noch keine Seite. Über <strong>Neue Seite</strong> geht es los.</div>`;
     return;
   }
   ZUSTAND.baum.forEach(k => ziel.appendChild(knoten(k, 0, [k.name])));
@@ -691,7 +769,7 @@ async function oeffnen(slug, anker, begriff, ohneWeg){
   $('kopftitel').textContent = daten.titel;
   $('kopfkontext').textContent = (daten.pfad||[]).join(' › ') +
     (daten.stand ? '  ·  Stand ' + datum(daten.stand) : '');
-  abschnittsleiste(slug, daten.abschnitte);
+  abschnittsleiste(slug, daten);
   if(anker) abschnittMarkieren(anker);
   bearbeitenKnopf(slug, daten.urheber || daten.nutzer_id);
   document.title = daten.titel + ' — Prolo Wiki';
@@ -769,8 +847,15 @@ let suchZeit = null, letzteSuche = '';
 $('suchfeld').addEventListener('input', () => {
   const q = $('suchfeld').value.trim();
   clearTimeout(suchZeit);
+  /* Leeres Feld: dann die ganze Liste. Wer nicht weiss, wie das Wort heisst,
+     kommt so trotzdem hin - und ein einzelner Buchstabe ist fuer die
+     Volltextsuche zu wenig, waere also nur eine Enttaeuschung. */
+  if(!q){ alleSeitenZeigen(); return; }
   if(q.length < 2){ trefferSchliessen(); return; }
   suchZeit = setTimeout(() => suchen(q), 130);
+});
+$('suchfeld').addEventListener('focus', () => {
+  if(!$('suchfeld').value.trim()) alleSeitenZeigen();
 });
 $('suchfeld').addEventListener('keydown', (e) => {
   const n = ZUSTAND.treffer.length;
@@ -804,15 +889,41 @@ document.addEventListener('click', (e) => {
   if(!$('suchfeld-huelle').contains(e.target)) trefferSchliessen();
 });
 
+/* Reihenfolge innerhalb einer Seite: erst die Seite selbst, dann ihre
+   Abschnitte, dann der Fliesstext, zuletzt die Anhaenge. */
+const TREFFER_RANG = {kopf:0, abschnitt:1, seite:2, ansicht:2, skript:3, anhang:4};
+
+function trefferGruppieren(liste){
+  /* Nach Seite gruppieren, aber die Reihenfolge der Seiten so lassen, wie die
+     Suche sie gewichtet hat - der beste Treffer einer Seite bestimmt ihren
+     Platz. Die Rueckgabe ist wieder eine flache Liste: die Tastatur laeuft
+     ueber Zahlen, und die muessen zur Anzeige passen. */
+  const seiten = [];
+  const nach = new Map();
+  (liste || []).forEach(t => {
+    if(!nach.has(t.slug)){ nach.set(t.slug, []); seiten.push(t.slug); }
+    nach.get(t.slug).push(t);
+  });
+  const aus = [];
+  seiten.forEach(slug => {
+    const gruppe = nach.get(slug).slice().sort((a, b) =>
+      (TREFFER_RANG[a.art] === undefined ? 9 : TREFFER_RANG[a.art]) -
+      (TREFFER_RANG[b.art] === undefined ? 9 : TREFFER_RANG[b.art]));
+    gruppe.forEach((t, k) => aus.push(Object.assign({}, t, {erster: k === 0})));
+  });
+  return aus;
+}
+
 async function suchen(q){
   letzteSuche = q;
   let d;
   try { d = await hole('/api/suche?q=' + encodeURIComponent(q)); }
   catch(err){ einblenden(err.message); return; }
   if(letzteSuche !== q) return;
-  ZUSTAND.treffer = d.treffer || [];
+  ZUSTAND.treffer = trefferGruppieren(d.treffer);
   ZUSTAND.aktiv = ZUSTAND.treffer.length ? 0 : -1;
   ZUSTAND.statt = d.statt || null;
+  ZUSTAND.trefferSeiten = new Set(ZUSTAND.treffer.map(t => t.slug)).size;
   trefferZeichnen(d.statt || q, d.dauer_ms, d.statt ? q : null);
 }
 function hervorheben(text, q){
@@ -831,25 +942,101 @@ function trefferZeichnen(q, ms, statt){
          <strong style="color:var(--ink)">${schuetzen(q)}</strong></div>`
     : '';
   if(!ZUSTAND.treffer.length){
-    ziel.innerHTML = `<div style="padding:16px 14px;font-size:13px;color:var(--ink-3)">
-      Nichts gefunden zu <strong style="color:var(--ink)">${schuetzen(q)}</strong>.<br>
-      Versuch es mit einem kürzeren Wortteil.</div>`;
+    ziel.innerHTML = `<div style="padding:14px">
+      <div style="font-size:13.5px;color:var(--ink-2)">Nichts gefunden zu
+        <strong style="color:var(--ink)">${schuetzen(q)}</strong>.</div>
+      <div style="font-size:12.5px;color:var(--ink-3);margin-top:8px;line-height:1.7">
+        Gesucht wird in Titeln, Überschriften, Stichworten, im ganzen Text,
+        im Pfad und in PDF-Anhängen.<br>
+        Versuch einen <strong>kürzeren Wortteil</strong> — <span class="mono">netz</span>
+        findet auch <span class="mono">Netzwerkkabel</span>.</div>
+      <button class="knopf rahmen ed-klein" id="alles-zeigen"
+              style="margin-top:12px">Alle Seiten zeigen</button></div>`;
+    const az = $('alles-zeigen');
+    if(az) az.onclick = () => alleSeitenZeigen();
   } else {
-    ziel.innerHTML = korrektur + ZUSTAND.treffer.map((t, i) => {
-      const wo = (t.pfad||[]).concat([t.seitentitel]).join(' › ');
+    /* Erst die Marke der Quelle: woher kommt dieser Treffer? Ohne das ist ein
+       Treffer aus einem PDF nicht von einem Absatz zu unterscheiden. */
+    const QUELLE = {kopf:'', abschnitt:'', seite:'im Text', ansicht:'im Text',
+                    skript:'im Text', anhang:''};
+    let letzterSlug = null;
+    const zeilen = [];
+    ZUSTAND.treffer.forEach((t, i) => {
+      if(t.slug !== letzterSlug){
+        letzterSlug = t.slug;
+        const wo = (t.pfad || []).join(' › ');
+        zeilen.push(`<div class="treffer-gruppe">
+          <span class="seite">${hervorheben(t.seitentitel || t.titel, q)}</span>
+          ${wo ? `<span class="weg">${schuetzen(wo)}</span>` : ''}</div>`);
+      }
       const marke = t.art === 'anhang'
-        ? `<span class="marke-badge warm">${schuetzen(t.anhang)} S.&nbsp;${t.seitennr}</span>` : '';
-      return `<button class="treffer-zeile" role="option" data-i="${i}"
+        ? `<span class="marke-badge warm">${schuetzen(t.anhang)} S.&nbsp;${t.seitennr}</span>`
+        : '';
+      const quelle = QUELLE[t.art] === undefined ? '' : QUELLE[t.art];
+      /* Der Kopftreffer traegt den Seitentitel, der schon in der Gruppe
+         steht - in der Zeile steht dann der Satz, nicht der Titel zweimal. */
+      const zeigeTitel = t.art === 'kopf' ? '' :
+        `<span class="titel">${hervorheben(t.titel, q)}</span>`;
+      zeilen.push(`<button class="treffer-zeile unter" role="option" data-i="${i}"
         ${i === ZUSTAND.aktiv ? 'data-aktiv="1" aria-selected="true"' : 'aria-selected="false"'}>
-        <span class="kopf"><span class="titel">${hervorheben(t.titel, q)}</span>${marke}</span>
-        <span class="weg">${schuetzen(wo)}</span>
+        ${zeigeTitel || quelle || marke ? `<span class="kopf">${zeigeTitel}
+          ${quelle ? `<span class="quelle">${quelle}</span>` : ''}${marke}</span>` : ''}
         <span class="aus">${hervorheben(t.schnipsel, q)}</span>
-      </button>`;
-    }).join('') + `<div class="label" style="padding:8px 12px 4px">
-      ${zahl(ZUSTAND.treffer.length)} Treffer · ${String(ms).replace('.', ',')} ms</div>`;
+      </button>`);
+    });
+    ziel.innerHTML = korrektur + zeilen.join('') + `<div class="treffer-fuss">
+      <span class="label">${zahl(ZUSTAND.trefferSeiten || 0)}
+        ${(ZUSTAND.trefferSeiten === 1 ? 'Seite' : 'Seiten')} ·
+        ${zahl(ZUSTAND.treffer.length)} ${ZUSTAND.treffer.length === 1 ? 'Stelle' : 'Stellen'} ·
+        ${String(ms).replace('.', ',')} ms</span>
+      <button class="knopf still ed-klein" id="alles-zeigen"
+              style="margin-left:auto">Alle Seiten</button></div>`;
     ziel.querySelectorAll('.treffer-zeile').forEach(b =>
       b.onclick = () => trefferWaehlen(+b.dataset.i));
+    const az = $('alles-zeigen');
+    if(az) az.onclick = () => alleSeitenZeigen();
   }
+  ziel.dataset.offen = '1';
+  $('suchfeld').setAttribute('aria-expanded', 'true');
+}
+function ersteSeiteVerdrahten(){
+  const k = $('erste-seite');
+  if(k) k.onclick = () => {
+    history.pushState(null, '', '#/neu');
+    editor(null);
+  };
+}
+function alleSeitenZeigen(){
+  /* Wer das Wort nicht weiss, soll trotzdem hinkommen: die vollstaendige
+     Liste aller Seiten, die dieser Nutzer sehen darf - aus dem Themenbaum,
+     ohne neuen Aufruf. */
+  const alle = [];
+  const sammeln = (zweige, pfad) => (zweige || []).forEach(z => {
+    const weg = pfad.concat([z.name]);
+    (z.seiten || []).forEach(s => alle.push({slug:s.slug, titel:s.titel,
+                                             kurz:s.kurz || '', pfad:weg}));
+    sammeln(z.kinder, weg);
+  });
+  sammeln(ZUSTAND.baum, []);
+  alle.sort((a, b) => a.titel.localeCompare(b.titel, 'de'));
+  const ziel = $('treffer');
+  ZUSTAND.treffer = alle.map(s => ({slug:s.slug, titel:s.titel, art:'kopf',
+                                    seitentitel:s.titel, pfad:s.pfad,
+                                    schnipsel:s.kurz, anker:''}));
+  ZUSTAND.aktiv = alle.length ? 0 : -1;
+  ziel.innerHTML = `<div class="label" style="padding:10px 12px 6px">
+      Alle Seiten, die du sehen darfst — ${zahl(alle.length)}</div>` +
+    alle.map((s, i) => `<button class="treffer-zeile" role="option" data-i="${i}"
+      ${i === 0 ? 'data-aktiv="1" aria-selected="true"' : 'aria-selected="false"'}>
+      <span class="kopf"><span class="titel">${schuetzen(s.titel)}</span>
+        <span class="weg">${schuetzen(s.pfad.join(' › '))}</span></span>
+      ${s.kurz ? `<span class="aus">${schuetzen(s.kurz)}</span>` : ''}
+    </button>`).join('') ||
+    `<div style="padding:16px 14px;font-size:13px;color:var(--ink-3)">
+      Noch keine Seite da. Über <strong>Neue Seite</strong> in der linken
+      Leiste geht es los.</div>`;
+  ziel.querySelectorAll('.treffer-zeile').forEach(b =>
+    b.onclick = () => trefferWaehlen(+b.dataset.i));
   ziel.dataset.offen = '1';
   $('suchfeld').setAttribute('aria-expanded', 'true');
 }
@@ -961,7 +1148,13 @@ async function start(){
       <div>
         <div class="label" style="margin-bottom:8px">Themen</div>
         <div class="raster" style="grid-template-columns:repeat(auto-fill,minmax(210px,1fr))">
-          ${themen || '<div class="karte"><h3>Noch leer</h3><div class="kontext">Spiel über die Verwaltung die erste Seite ein.</div></div>'}
+          ${themen || `<div class="karte">
+            <h3>Noch keine Seite</h3>
+            <div class="kontext">Eine Wissenssammlung fängt mit einer Seite an.
+              Titel, ein Abschnitt, speichern — der Rest kommt später.</div>
+            <div style="margin-top:14px">
+              <button class="knopf" id="erste-seite">Erste Seite anlegen</button>
+            </div></div>`}
         </div>
       </div>
       <div class="raster" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
@@ -976,6 +1169,7 @@ async function start(){
     b.onclick = () => oeffnen(b.dataset.slug, b.dataset.anker || ''));
   $('flaeche').querySelectorAll('[data-thema]').forEach(b =>
     b.onclick = () => { $('suchfeld').focus(); });
+  ersteSeiteVerdrahten();
 }
 function zaehlen(k){
   return (k.seiten||[]).length + (k.kinder||[]).reduce((s,x) => s + zaehlen(x), 0);
@@ -1018,11 +1212,14 @@ async function einstellungen(){
         <div style="font-size:12.5px;color:var(--ink-3);margin-top:2px">${erklaerung}</div>
       </div>
       <button class="schalter" id="s-${schluessel}" data-schluessel="${schluessel}"
-        role="switch" aria-checked="${an}"
-        style="flex:0 0 auto;width:52px;height:30px;border-radius:15px;border:1px solid var(--line);
-               cursor:pointer;position:relative;
-               background:${an ? 'var(--accent)' : 'var(--track)'}">
-        <span aria-hidden="true" style="position:absolute;top:3px;left:${an ? '25px' : '3px'};
+        role="switch" aria-checked="${an}" aria-label="${titel}"
+        style="flex:0 0 auto;width:52px;height:44px;border:0;background:none;
+               cursor:pointer;position:relative;padding:0">
+        <span aria-hidden="true" style="position:absolute;top:7px;left:0;
+              width:52px;height:30px;border-radius:15px;
+              border:1px solid var(--line);
+              background:${an ? 'var(--accent)' : 'var(--track)'}"></span>
+        <span aria-hidden="true" style="position:absolute;top:10px;left:${an ? '25px' : '3px'};
               width:22px;height:22px;border-radius:11px;background:var(--surface);
               transition:left .15s"></span>
       </button>
@@ -1126,13 +1323,13 @@ async function verwaltung(){
 
   ZUSTAND.pfade = d.pfade || [];
   const zeilen = d.seiten.map(s => `<tr>
-    <td><button class="knopf still" style="height:auto;padding:0" data-slug="${schuetzen(s.slug)}"
+    <td><button class="knopf still verw-zeile" data-slug="${schuetzen(s.slug)}"
         >${schuetzen(s.titel)}</button>
       <div class="label">${schuetzen(s.pfad.join(' › '))}</div></td>
     <td class="mono">${schuetzen(s.slug)}</td>
     <td class="mono" style="text-align:right">${bytes(s.groesse_b)}</td>
     <td class="mono" style="text-align:right">${s.fassung}</td>
-    <td><button class="knopf still" style="height:auto;padding:0;text-align:left"
+    <td><button class="knopf still verw-zeile" style="text-align:left"
         data-rechte="${schuetzen(s.slug)}" title="Freigabe ändern">${s.gruppen.length
       ? s.gruppen.map(g => `<span class="marke-badge">${schuetzen(g)}</span>`).join(' ')
       : '<span style="color:var(--ink-3)">alle · ändern</span>'}</button></td>
@@ -2218,13 +2415,20 @@ function edPfadListe(s){
 }
 function edSeiteBauen(e){
   const heute = new Date().toISOString().slice(0, 10);
-  const absch = (e.abschnitte || []).map(a => ({
-    anker: String(a.anker || '').trim(),
-    titel: String(a.titel || '').trim(),
-    stichworte: edListe(a.stichworte),
-    text: edNurText(a.markup),
-    markup: String(a.markup || '')
-  }));
+  const absch = (e.abschnitte || []).map(a => {
+    const x = {
+      anker: String(a.anker || '').trim(),
+      titel: String(a.titel || '').trim(),
+      stichworte: edListe(a.stichworte),
+      text: edNurText(a.markup),
+      markup: String(a.markup || '')
+    };
+    /* Die Gruppe nur, wenn es eine gibt - ein leeres Feld in jedem
+       Abschnitt macht den Meta-Block nur laenger. */
+    const g = String(a.gruppe || '').trim();
+    if(g) x.gruppe = g;
+    return x;
+  });
   const meta = {
     slug: String(e.slug || '').trim(),
     titel: String(e.titel || '').trim(),
@@ -2583,7 +2787,8 @@ function edBlockFormular(i, j, b){
         <label class="knopf rahmen ed-klein" for="ed-bpdf-${i}-${j}"
           >Datei auswählen</label>
         <input type="file" id="ed-bpdf-${i}-${j}" accept="application/pdf,.pdf"
-               data-bpdf="${i}-${j}" style="position:absolute;left:-9999px">
+               data-bpdf="${i}-${j}" aria-label="PDF-Datei auswählen"
+               style="position:absolute;left:-9999px">
       </div>
       <div style="margin-top:4px">${stand}</div>
       <div class="ed-merke">Das PDF wird ein Anhang dieser Seite. Die Hülle
@@ -2764,6 +2969,20 @@ function edBlockTun(was, i, j, knopf){
   }
 }
 
+function edStandZeigen(){
+  /* Eine Zeile, die sagt, was gerade entsteht - damit "Speichern" nicht
+     blind gedrueckt wird. */
+  const e = ZUSTAND.editor, z = $('ed-stand');
+  if(!e || !z) return;
+  const abschnitte = (e.abschnitte || []).length;
+  const bloecke = (e.abschnitte || []).reduce((n, a) => n + (a.bloecke || []).length, 0);
+  const fehlt = edPruefbar(true);
+  z.textContent = fehlt.length
+    ? (fehlt.length === 1 ? 'Eine Sache fehlt noch' : fehlt.length + ' Sachen fehlen noch')
+    : zahl(abschnitte) + (abschnitte === 1 ? ' Abschnitt' : ' Abschnitte') + ', ' +
+      zahl(bloecke) + (bloecke === 1 ? ' Block' : ' Blöcke') + ' — bereit';
+  z.dataset.fehlt = fehlt.length ? '1' : '0';
+}
 function edBlockAnhaengen(i, art){
   const e = ZUSTAND.editor;
   const a = e && e.abschnitte[i];
@@ -2779,7 +2998,8 @@ function edLeer(){
           quelle:null, abschnitte:[edAbschnittNeu()], slugGetippt:false};
 }
 function edAbschnittNeu(){
-  return {anker:'', titel:'', stichworte:'', markup:'', bloecke:[edBlockNeu('text')]};
+  return {anker:'', titel:'', stichworte:'', gruppe:'', markup:'',
+          bloecke:[edBlockNeu('text')]};
 }
 function edFelderLesen(){
   const e = ZUSTAND.editor;
@@ -2788,7 +3008,7 @@ function edFelderLesen(){
   ['titel','slug','kurz','pfad','gruppen'].forEach(k => {
     const v = w('ed-' + k); if(v !== undefined) e[k] = v; });
   e.abschnitte.forEach((a, i) => {
-    ['titel','anker','stichworte'].forEach(k => {
+    ['titel','anker','stichworte','gruppe'].forEach(k => {
       const v = w('ed-a-' + k + '-' + i); if(v !== undefined) a[k] = v; });
     /* Die Bloecke sind die Wahrheit im Editor, das Markup entsteht daraus -
        gespeichert wird weiter Markup, damit die Seite lesbar bleibt und
@@ -2799,15 +3019,36 @@ function edFelderLesen(){
     }
   });
 }
-function abschnittsleiste(slug, abschnitte){
+function abschnittsleiste(slug, daten){
+  /* Die Inhaltsspalte einer Seite: Titel, ein Satz dazu, und die Abschnitte
+     in Gruppen. Genau der Aufbau, den eine gut gemachte Inhaltsseite selbst
+     benutzt - Ueberschrift, dann Rubriken, dann Sprungziele. Ohne Gruppen
+     ist es eine einfache Liste, und das bleibt richtig. */
   const n = $('seitenteile');
   if(!n) return;
-  const liste = (abschnitte || []).filter(a => a.anker && a.titel);
+  const liste = ((daten || {}).abschnitte || []).filter(a => a.anker && a.titel);
   /* Unter zwei Abschnitten bringt die Liste nichts und nimmt nur Platz. */
   if(!slug || liste.length < 2){ n.hidden = true; n.innerHTML = ''; return; }
-  n.innerHTML = '<span class="label wo">Auf dieser Seite</span>' +
-    liste.map(a => `<button type="button" data-anker="${schuetzen(a.anker)}"
-      >${schuetzen(a.titel)}</button>`).join('');
+  const kopf = `<div class="teile-kopf">
+      <div class="teile-titel">${schuetzen((daten || {}).titel || 'Diese Seite')}</div>
+      ${(daten || {}).kurz
+        ? `<div class="teile-satz">${schuetzen(daten.kurz)}</div>` : ''}
+    </div>`;
+  /* Gruppen in der Reihenfolge, in der sie vorkommen - nicht alphabetisch:
+     die Reihenfolge der Abschnitte ist die Aussage des Autors. */
+  const stuecke = [];
+  let offen = null;
+  liste.forEach(a => {
+    const g = String(a.gruppe || '').trim();
+    if(g !== offen){
+      if(g) stuecke.push(`<div class="teile-gruppe">${schuetzen(g)}</div>`);
+      else if(offen !== null) stuecke.push('<div class="teile-luecke"></div>');
+      offen = g;
+    }
+    stuecke.push(`<button type="button" data-anker="${schuetzen(a.anker)}"
+      >${schuetzen(a.titel)}</button>`);
+  });
+  n.innerHTML = kopf + '<div class="teile-liste">' + stuecke.join('') + '</div>';
   n.hidden = false;
   n.querySelectorAll('[data-anker]').forEach(b => b.onclick = () => {
     /* Kein Neuladen des Rahmens - dieselbe Nachricht wie beim Suchtreffer. */
@@ -2924,6 +3165,7 @@ function edAusHtml(roh, slug, neu){
     abschnitte: (meta.abschnitte || []).map(a => ({
       anker: a.anker || '', titel: a.titel || '',
       stichworte: (a.stichworte || []).join(', '),
+      gruppe: a.gruppe || '',
       /* markup gibt es nur bei Seiten aus dem Editor. Sonst dient der
          Suchtext als Anfang - besser als ein leeres Feld, und die Warnung
          darüber sagt, was dabei verloren geht. */
@@ -2978,10 +3220,15 @@ function editorZeichnen(opt){
       Text und Abschnitte bleiben, eigenes HTML und eigene Skripte nicht.
       Die alte Fassung bleibt über <em>Fassungen</em> erreichbar.</div></div>` : '';
 
+  /* Die Rubriken, die auf dieser Seite schon vorkommen - damit die zweite
+     Gruppe nicht "Grundlagen " mit Leerzeichen heisst. */
+  const rubriken = [...new Set(e.abschnitte
+    .map(a => String(a.gruppe || '').trim()).filter(Boolean))];
   const abschnitte = e.abschnitte.map((a, i) => `
     <div class="ed-abschnitt">
       <div class="ed-kopf">
-        <span class="label">Abschnitt ${i + 1}</span>
+        <span class="label">Abschnitt ${i + 1}${a.titel
+          ? ' · ' + schuetzen(a.titel) : ''}</span>
         <div style="margin-left:auto;display:flex;gap:6px">
           <button class="knopf rahmen ed-klein" data-ed="hoch" data-i="${i}"
             ${i === 0 ? 'disabled' : ''} title="nach oben">↑</button>
@@ -2993,27 +3240,41 @@ function editorZeichnen(opt){
       </div>
       <div class="ed-zeile">
         <div style="flex:2 1 260px">
-          <label class="label" for="ed-a-titel-${i}">Titel des Abschnitts</label>
+          <label class="label" for="ed-a-titel-${i}">Überschrift dieses Abschnitts</label>
           <input type="text" id="ed-a-titel-${i}" data-ed-feld="titel" data-i="${i}"
+                 maxlength="120"
                  value="${schuetzen(a.titel)}" placeholder="z. B. Wozu das gut ist">
         </div>
-        <div style="flex:1 1 160px">
-          <label class="label" for="ed-a-anker-${i}">Anker</label>
-          <input type="text" id="ed-a-anker-${i}" value="${schuetzen(a.anker)}"
-                 class="mono" placeholder="wird aus dem Titel gebildet">
+      </div>
+      <details class="ed-mehr"${(a.stichworte || a.gruppe) ? ' open' : ''}>
+        <summary>Mehr zu diesem Abschnitt — Gruppe, Stichworte, Anker</summary>
+        <div class="ed-zeile" style="margin-top:4px">
+          <div style="flex:1 1 180px">
+            <label class="label" for="ed-a-gruppe-${i}">Gruppe im Verzeichnis</label>
+            <input type="text" id="ed-a-gruppe-${i}" data-ed-feld="gruppe" maxlength="80"
+                   list="ed-gruppenrubriken" value="${schuetzen(a.gruppe || '')}"
+                   placeholder="z. B. Grundlagen">
+            <div class="ed-merke">Abschnitte mit derselben Gruppe stehen links
+              unter einer Überschrift.</div>
+          </div>
+          <div style="flex:2 1 220px">
+            <label class="label" for="ed-a-stichworte-${i}">Stichworte für die Suche</label>
+            <input type="text" id="ed-a-stichworte-${i}" value="${schuetzen(a.stichworte)}"
+                   placeholder="mit Komma, freiwillig">
+          </div>
+          <div style="flex:1 1 150px">
+            <label class="label" for="ed-a-anker-${i}">Anker in der Adresse</label>
+            <input type="text" id="ed-a-anker-${i}" value="${schuetzen(a.anker)}"
+                   class="mono" placeholder="aus dem Titel">
+          </div>
         </div>
-      </div>
-      <div style="margin-top:10px">
-        <label class="label" for="ed-a-stichworte-${i}">Stichworte für die Suche, mit Komma</label>
-        <input type="text" id="ed-a-stichworte-${i}" value="${schuetzen(a.stichworte)}"
-               placeholder="freiwillig">
-      </div>
+      </details>
       <div class="ed-bloecke">
         ${(a.bloecke || []).map((b, j) =>
             edBlockKarte(i, j, b, a.bloecke.length)).join('')}
       </div>
       <div class="ed-kasten">
-        <span class="label">Block hinzufügen</span>
+        <span class="label">Hier noch etwas einfügen</span>
         ${Object.entries(ED_FORM).map(([k, f]) =>
           `<button type="button" class="knopf rahmen ed-klein" data-ed="block"
              data-art="${k}" data-i="${i}" title="${schuetzen(f.hilfe)}"
@@ -3024,55 +3285,70 @@ function editorZeichnen(opt){
   $('flaeche').innerHTML = `
     <div class="raster mitte">
       ${warnFremd}
+      ${e.neu ? `<div class="ed-fahrplan">
+        <strong>So geht eine Seite:</strong> Titel eingeben, schreiben,
+        speichern. Alles andere ist freiwillig — die Adresse entsteht aus dem
+        Titel, und ohne Freigabe sehen sie alle Angemeldeten.</div>` : ''}
+
       <div class="karte">
-        <h3>${e.neu ? 'Neue Seite' : 'Seite bearbeiten'}</h3>
-        <div class="kontext">Der Editor erzeugt eine gewöhnliche Wiki-Seite und
-          schickt sie durch dieselbe Prüfung wie eine eingespielte Datei.</div>
-        <div class="ed-zeile" style="margin-top:14px">
-          <div style="flex:2 1 260px">
-            <label class="label" for="ed-titel">Titel</label>
-            <input type="text" id="ed-titel" value="${schuetzen(e.titel)}"
-                   placeholder="z. B. Drucker einrichten">
-          </div>
-          <div style="flex:1 1 200px">
-            <label class="label" for="ed-slug">Kennung (Adresse)</label>
-            <input type="text" id="ed-slug" class="mono" value="${schuetzen(e.slug)}"
-                   placeholder="drucker-einrichten">
-          </div>
-        </div>
-        <div class="ed-zeile" style="margin-top:10px">
-          <div style="flex:1 1 240px">
-            <label class="label" for="ed-pfad">Wohin im Themenbaum</label>
-            <input type="text" id="ed-pfad" list="ed-pfadliste" value="${schuetzen(e.pfad)}"
-                   placeholder="Technik / Netzwerke">
-            <datalist id="ed-pfadliste">${pfade}</datalist>
-          </div>
-          <div style="flex:1 1 200px">
-            <label class="label" for="ed-gruppen">Freigabe, leer = alle</label>
-            <input type="text" id="ed-gruppen" value="${schuetzen(e.gruppen)}"
-                   list="ed-gruppenliste" placeholder="leer = alle Angemeldeten">
-            <datalist id="ed-gruppenliste">${meine.map(g =>
-              `<option value="${schuetzen(g)}"></option>`).join('')}</datalist>
-            ${meine.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;
-                 margin-top:6px">${meine.map(g =>
-                 `<button type="button" class="knopf rahmen ed-klein"
-                    data-ed="gruppe" data-g="${schuetzen(g)}">${schuetzen(g)}</button>`
-               ).join('')}</div>` : ''}
-            <div style="font-size:12px;color:var(--ink-3);margin-top:6px">${
-              ZUSTAND.ich && ZUSTAND.ich.ist_admin
-                ? 'Als Verwalter kannst du jede Gruppe eintragen.'
-                : (meine.length
-                   ? 'Nur Gruppen, in denen du selbst bist.'
-                   : 'Du bist in keiner Gruppe — die Seite ist dann für alle Angemeldeten da.')}</div>
-          </div>
+        <div class="ed-schritt"><span class="ed-nr">1</span>
+          <h3>Worum geht es?</h3></div>
+        <div style="margin-top:12px">
+          <label class="label" for="ed-titel">Titel der Seite</label>
+          <input type="text" id="ed-titel" maxlength="120" value="${schuetzen(e.titel)}"
+                 placeholder="z. B. Drucker einrichten">
         </div>
         <div style="margin-top:10px">
-          <label class="label" for="ed-kurz">Ein Satz, worum es geht</label>
-          <input type="text" id="ed-kurz" value="${schuetzen(e.kurz)}"
-                 placeholder="Steht in der Übersicht und in den Suchtreffern">
+          <label class="label" for="ed-pfad">Wohin gehört sie?</label>
+          <input type="text" id="ed-pfad" list="ed-pfadliste" value="${schuetzen(e.pfad)}"
+                 placeholder="Technik / Geräte">
+          <datalist id="ed-pfadliste">${pfade}</datalist>
+          <div class="ed-merke">Ebenen mit Schrägstrich. Genau so steht sie
+            danach links im Themenbaum.</div>
         </div>
+        <details class="ed-mehr"${(e.kurz || e.gruppen || !e.neu) ? ' open' : ''}>
+          <summary>Mehr einstellen — Satz, Adresse, Freigabe</summary>
+          <div style="margin-top:4px">
+            <label class="label" for="ed-kurz">Ein Satz, worum es geht</label>
+            <input type="text" id="ed-kurz" maxlength="300" value="${schuetzen(e.kurz)}"
+                   placeholder="Steht in der Übersicht, im Verzeichnis und in den Suchtreffern">
+          </div>
+          <div class="ed-zeile" style="margin-top:10px">
+            <div style="flex:1 1 220px">
+              <label class="label" for="ed-slug">Adresse der Seite</label>
+              <input type="text" id="ed-slug" class="mono" value="${schuetzen(e.slug)}"
+                     placeholder="entsteht aus dem Titel">
+              <div class="ed-merke">Kleinbuchstaben, Ziffern, Bindestriche.</div>
+            </div>
+            <div style="flex:1 1 220px">
+              <label class="label" for="ed-gruppen">Wer darf sie sehen?</label>
+              <input type="text" id="ed-gruppen" value="${schuetzen(e.gruppen)}"
+                     list="ed-gruppenliste" placeholder="leer = alle Angemeldeten">
+              <datalist id="ed-gruppenliste">${meine.map(g =>
+                `<option value="${schuetzen(g)}"></option>`).join('')}</datalist>
+              ${meine.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;
+                   margin-top:6px">${meine.map(g =>
+                   `<button type="button" class="knopf rahmen ed-klein"
+                      data-ed="gruppe" data-g="${schuetzen(g)}">${schuetzen(g)}</button>`
+                 ).join('')}</div>` : ''}
+              <div class="ed-merke">${
+                ZUSTAND.ich && ZUSTAND.ich.ist_admin
+                  ? 'Als Verwalter kannst du jede Gruppe eintragen.'
+                  : (meine.length
+                     ? 'Nur Gruppen, in denen du selbst bist.'
+                     : 'Du bist in keiner Gruppe — dann sehen sie alle Angemeldeten.')}</div>
+            </div>
+          </div>
+        </details>
       </div>
 
+      <div class="ed-schritt ed-schritt-frei"><span class="ed-nr">2</span>
+        <h3>Was soll drinstehen?</h3>
+        <span class="ed-merke" style="margin:0">Jeder Abschnitt wird ein
+          Kapitel und erscheint links im Verzeichnis.</span></div>
+
+      <datalist id="ed-gruppenrubriken">${rubriken.map(g =>
+        `<option value="${schuetzen(g)}"></option>`).join('')}</datalist>
       ${abschnitte}
 
       <div style="display:flex;gap:10px;flex-wrap:wrap">
@@ -3091,17 +3367,26 @@ function editorZeichnen(opt){
           <div style="font-size:13px;color:var(--ink-3)">Datei hierher ziehen</div>
           <label for="datei" class="knopf" style="margin-top:12px">Datei auswählen</label>
           <input type="file" id="datei" accept=".html,text/html"
+                 aria-label="HTML-Datei auswählen"
                  style="position:absolute;left:-9999px">
         </div>
         <div id="bericht" style="margin-top:14px"></div>
       </details>
 
-      <div class="karte">
-        <div id="ed-bericht"></div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px">
-          <button class="knopf" data-ed="speichern">Speichern</button>
-          <button class="knopf rahmen" data-ed="vorschau">Prüfen und ansehen</button>
-          <button class="knopf rahmen" data-ed="datei">Als Datei sichern</button>
+      <div id="ed-bericht"></div>
+    </div>
+
+    <!-- Regelblatt 9 und 10: Der Weg heraus muss immer sichtbar sein. Vorher
+         stand "Speichern" am Ende einer langen Seite - bei drei Abschnitten
+         scrollt man dafuer zweimal. -->
+    <div class="ed-leiste">
+      <div class="mitte" style="display:flex;gap:10px;flex-wrap:wrap;
+                                align-items:center">
+        <button class="knopf" data-ed="speichern">Speichern</button>
+        <button class="knopf rahmen" data-ed="vorschau">Ansehen</button>
+        <span class="ed-stand" id="ed-stand"></span>
+        <div style="margin-left:auto;display:flex;gap:10px;flex-wrap:wrap">
+          <button class="knopf still" data-ed="datei">Als Datei sichern</button>
           <button class="knopf still" data-ed="abbrechen">Abbrechen</button>
         </div>
       </div>
@@ -3114,6 +3399,19 @@ function editorZeichnen(opt){
     const t = $('ed-titel').value;
     $('kopfkontext').textContent = t || 'noch kein Titel';
     if(!ZUSTAND.editor.slugGetippt) $('ed-slug').value = edSlug(t);
+    $('ed-titel').removeAttribute('aria-invalid');
+    edFelderLesen(); edStandZeigen();
+  });
+  $('ed-pfad').addEventListener('input', () => {
+    $('ed-pfad').removeAttribute('aria-invalid');
+    edFelderLesen(); edStandZeigen();
+  });
+  e.abschnitte.forEach((a, i) => {
+    const ti = $('ed-a-titel-' + i);
+    if(ti) ti.addEventListener('input', () => {
+      ti.removeAttribute('aria-invalid');
+      edFelderLesen(); edStandZeigen();
+    });
   });
   e.abschnitte.forEach((a, i) => {
     const ti = $('ed-a-titel-' + i), an = $('ed-a-anker-' + i);
@@ -3128,6 +3426,7 @@ function editorZeichnen(opt){
   $('flaeche').querySelectorAll('[data-ed]').forEach(b =>
     b.onclick = () => edTun(b.dataset.ed, +b.dataset.i, b));
 
+  edStandZeigen();
   edStilSicherstellen();
   /* Die Blockkarten: Knoepfe verdrahten, Ergebnis malen, und bei jeder
      Eingabe nur DIESES eine Ergebnis neu malen - kein Neuzeichnen, sonst
@@ -3142,6 +3441,11 @@ function editorZeichnen(opt){
       f.addEventListener('input', () => {
         edBlockLesenAusDerSeite(i, j);
         edErgebnisMalen(i, j);
+        /* Das Markup des Abschnitts mitziehen: sonst haelt die Pruefung den
+           Abschnitt weiter fuer leer, und die Standzeile sagt "eine Sache
+           fehlt noch", obwohl gerade etwas geschrieben wurde. */
+        a.markup = edBloeckeZuMarkup(a.bloecke);
+        edStandZeigen();
       }));
     const dat = karte.querySelector('[data-bpdf]');
     if(dat) dat.addEventListener('change', () => edPdfWaehlen(i, j, dat));
@@ -3224,17 +3528,28 @@ function edEinsetzen(i, j, text){
   edBlockLesenAusDerSeite(i, j);
   edErgebnisMalen(i, j);
 }
-function edPruefbar(){
+function edPruefbar(nurNachsehen){
   /* Was der Editor selbst schon weiß - bevor der Server es sagt. Die
      Serverprüfung bleibt die Wahrheit, aber für Tippfehler ist der Weg über
-     das Netz unnötig lang. */
-  edFelderLesen();
+     das Netz unnötig lang.
+
+     nurNachsehen: fuer die Standzeile. Dann werden die Felder nicht neu
+     gelesen (das laeuft beim Zeichnen sowieso) und keine Anker gesetzt. */
+  if(!nurNachsehen) edFelderLesen();
   const e = ZUSTAND.editor, m = [];
-  if(!String(e.titel || '').trim()) m.push('Der Seite fehlt der Titel.');
+  const titel = String(e.titel || '').trim();
+  if(!titel) m.push('Der Seite fehlt der Titel.');
+  else if(titel.length > 120)
+    m.push('Der Titel ist ' + titel.length + ' Zeichen lang, erlaubt sind 120.');
+  if(String(e.kurz || '').trim().length > 300)
+    m.push('Der Satz unter dem Titel ist zu lang (erlaubt: 300 Zeichen).');
   const slug = String(e.slug || '').trim();
-  if(!slug) m.push('Der Seite fehlt die Kennung.');
-  else if(!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug))
-    m.push('Die Kennung „' + slug + '" ist nicht erlaubt: nur Kleinbuchstaben, ' +
+  /* Die Adresse entsteht aus dem Titel. Fehlt der Titel, ist "keine Adresse"
+     keine zweite Aufgabe, sondern dieselbe - und eine Liste mit vier
+     Punkten schreckt ab, wo einer genuegt. */
+  if(!slug && titel) m.push('Der Seite fehlt die Adresse.');
+  else if(slug && !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug))
+    m.push('Die Adresse „' + slug + '" ist nicht erlaubt: nur Kleinbuchstaben, ' +
            'Ziffern und Bindestriche.');
   if(!edPfadListe(e.pfad).length) m.push('Der Pfad im Themenbaum fehlt.');
   const anker = new Set();
@@ -3242,14 +3557,15 @@ function edPruefbar(){
     const t = String(a.titel || '').trim();
     if(!t) m.push('Abschnitt ' + (i + 1) + ' hat keinen Titel.');
     let k = String(a.anker || '').trim() || edSlug(t);
-    if(!k) m.push('Abschnitt ' + (i + 1) + ' hat keinen Anker.');
-    else {
+    if(!k && t) m.push('Abschnitt ' + (i + 1) + ' hat keinen Anker.');
+    else if(k) {
       if(anker.has(k)) m.push('Der Anker „' + k + '" kommt zweimal vor.');
       anker.add(k);
-      a.anker = k;
+      if(!nurNachsehen) a.anker = k;
     }
     if(!String(a.markup || '').trim())
-      m.push('Abschnitt „' + (t || (i + 1)) + '" hat keinen Text.');
+      m.push(t ? 'Im Abschnitt „' + t + '" steht noch nichts.'
+                : 'Im Abschnitt ' + (i + 1) + ' steht noch nichts.');
   });
   return m;
 }
@@ -3266,9 +3582,13 @@ async function edSenden(weg){
 }
 async function edVorschau(){
   const m = edPruefbar();
-  if(m.length) return edBerichtZeigen('<div class="meldung fehler"><strong>' +
-    'Das fehlt noch</strong><ul style="margin:6px 0 0 18px;padding:0">' +
-    m.map(x => '<li>' + schuetzen(x) + '</li>').join('') + '</ul></div>');
+  if(m.length){
+    edFehlerMarkieren();
+    edStandZeigen();
+    return edBerichtZeigen('<div class="meldung fehler"><strong>' +
+      'Das fehlt noch</strong><ul style="margin:6px 0 0 18px;padding:0">' +
+      m.map(x => '<li>' + schuetzen(x) + '</li>').join('') + '</ul></div>');
+  }
   edBerichtZeigen('<div class="meldung">Wird geprüft …</div>');
   let b;
   try { b = await edSenden('/api/pruefen'); }
@@ -3301,11 +3621,34 @@ async function edVorschau(){
     (b.neu ? ' · neue Seite' : ' · ersetzt Fassung ' + (b.fassung - 1));
   $('vorschau-leiste').hidden = false;
 }
+function edFehlerMarkieren(){
+  /* Nicht nur eine Liste am Rand: das leere Feld selbst wird markiert, und
+     der Blick springt dorthin. Sonst sucht man, was gemeint ist. */
+  const e = ZUSTAND.editor;
+  let erstes = null;
+  const merken = (f) => { if(f && !erstes) erstes = f; };
+  if(!String(e.titel || '').trim()){
+    const f = $('ed-titel'); if(f){ f.setAttribute('aria-invalid', 'true'); merken(f); }
+  }
+  if(!edPfadListe(e.pfad).length){
+    const f = $('ed-pfad'); if(f){ f.setAttribute('aria-invalid', 'true'); merken(f); }
+  }
+  (e.abschnitte || []).forEach((a, i) => {
+    if(String(a.titel || '').trim()) return;
+    const f = $('ed-a-titel-' + i);
+    if(f){ f.setAttribute('aria-invalid', 'true'); merken(f); }
+  });
+  if(erstes){ erstes.scrollIntoView({block:'center'}); erstes.focus(); }
+}
 async function edSpeichern(){
   const m = edPruefbar();
-  if(m.length) return edBerichtZeigen('<div class="meldung fehler"><strong>' +
-    'Das fehlt noch</strong><ul style="margin:6px 0 0 18px;padding:0">' +
-    m.map(x => '<li>' + schuetzen(x) + '</li>').join('') + '</ul></div>');
+  if(m.length){
+    edFehlerMarkieren();
+    edStandZeigen();
+    return edBerichtZeigen('<div class="meldung fehler"><strong>' +
+      'Das fehlt noch</strong><ul style="margin:6px 0 0 18px;padding:0">' +
+      m.map(x => '<li>' + schuetzen(x) + '</li>').join('') + '</ul></div>');
+  }
   edBerichtZeigen('<div class="meldung">Wird gespeichert …</div>');
   let a;
   try { a = await edSenden('/api/import'); }
