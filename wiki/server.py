@@ -260,6 +260,15 @@ def datenbank_anlegen():
         except sqlite3.OperationalError:
             sys.stderr.write("HINWEIS: Trigramm-Index nicht verfuegbar, "
                              "Teilwortsuche eingeschraenkt.\n")
+    # Reste aus geloeschten Seiten wegraeumen (N-16). Ohne das scheitert in
+    # einer Datenbank, in der schon einmal eine Seite geloescht wurde, JEDER
+    # weitere Indexaufbau - auch "Index neu".
+    weg = verwaiste_indexzeilen_loeschen(v)
+    if weg:
+        sys.stderr.write("HINWEIS: %d verwaiste Zeilen aus den Suchtabellen "
+                         "entfernt (N-16). Der Suchindex baut sich wieder auf; "
+                         "wer sofort alles finden will, laesst in der "
+                         "Verwaltung 'Index neu' laufen.\n" % weg)
     v.commit()
 
 
@@ -1007,21 +1016,54 @@ def uebernehmen(html, teile, nutzer, kommentar=""):
     return seite_id, nummer, indexfehler
 
 
+def index_leeren(v, seite_id):
+    """Alle Indexzeilen einer Seite entfernen - erst die Suchtabellen, dann treffer.
+
+    Die Reihenfolge ist der ganze Punkt (N-16). treffer.id ist ein
+    rowid-Alias und dient gleichzeitig als rowid in den FTS-Tabellen. Wird
+    eine treffer-Zeile entfernt, ohne ihre FTS-Zeile mitzunehmen, bleibt
+    dort eine verwaiste rowid liegen - und weil SQLite freigewordene
+    rowids wiederverwendet, kollidiert der naechste Indexaufbau mit ihr:
+    "IntegrityError: constraint failed". Danach baut sich der Index NIE
+    wieder auf, auch nicht ueber "Index neu".
+    """
+    for z in v.execute("SELECT id FROM treffer WHERE seite_id=?", (seite_id,)).fetchall():
+        v.execute("DELETE FROM suche WHERE rowid=?", (z["id"],))
+        try:
+            v.execute("DELETE FROM suche_tri WHERE rowid=?", (z["id"],))
+        except sqlite3.OperationalError:
+            pass
+    v.execute("DELETE FROM treffer WHERE seite_id=?", (seite_id,))
+
+
+def verwaiste_indexzeilen_loeschen(v):
+    """Zeilen in den Suchtabellen ohne treffer-Zeile wegraeumen (N-16).
+
+    Das ist die Reparatur fuer Datenbanken, in denen schon eine Seite
+    geloescht wurde: dort liegen die FTS-Zeilen noch, und jeder Indexaufbau
+    scheitert an ihnen. Der Index ist abgeleitet - hier geht nichts verloren,
+    was sich nicht neu bauen laesst.
+
+    Gibt die Anzahl entfernter Zeilen zurueck.
+    """
+    weg = 0
+    for tabelle, spalte in (("suche", "rowid"), ("suche_tri", "rowid")):
+        try:
+            cur = v.execute("DELETE FROM %s WHERE %s NOT IN "
+                            "(SELECT id FROM treffer)" % (tabelle, spalte))
+            weg += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        except sqlite3.OperationalError:
+            pass                    # Tabelle gibt es nicht (Trigramm fehlt)
+    return weg
+
+
 def index_neu_bauen(seite_id, html=None):
     """Suchindex einer Seite verwerfen und frisch aufbauen."""
     v = db()
     seite = v.execute("SELECT * FROM seite WHERE id=?", (seite_id,)).fetchone()
     if not seite:
         return
-    alte = [r["id"] for r in v.execute("SELECT id FROM treffer WHERE seite_id=?",
-                                       (seite_id,)).fetchall()]
-    for tid in alte:
-        v.execute("DELETE FROM suche WHERE rowid=?", (tid,))
-        try:
-            v.execute("DELETE FROM suche_tri WHERE rowid=?", (tid,))
-        except sqlite3.OperationalError:
-            pass
-    v.execute("DELETE FROM treffer WHERE seite_id=?", (seite_id,))
+    index_leeren(v, seite_id)
 
     def eintragen(art, anker, anhang_name, seitennr, titel, stichworte, text):
         if not (text or "").strip() and not (stichworte or "").strip():
@@ -1030,6 +1072,14 @@ def index_neu_bauen(seite_id, html=None):
                         "abschnittstitel) VALUES(?,?,?,?,?,?)",
                         (seite_id, art, anker, anhang_name, seitennr, titel))
         tid = cur.lastrowid
+        # Guertel und Hosentraeger (N-16): liegt unter dieser rowid noch eine
+        # verwaiste Zeile, wird sie hier weggeraeumt statt den ganzen Aufbau
+        # umzuwerfen. Ein Indexaufbau darf an Resten nicht scheitern.
+        v.execute("DELETE FROM suche WHERE rowid=?", (tid,))
+        try:
+            v.execute("DELETE FROM suche_tri WHERE rowid=?", (tid,))
+        except sqlite3.OperationalError:
+            pass
         v.execute("INSERT INTO suche(rowid,titel,stichworte,text) VALUES(?,?,?,?)",
                   (tid, titel, stichworte, text))
         try:
@@ -1820,6 +1870,9 @@ class Handler(BaseHTTPRequestHandler):
             if not self.darf_schreiben(z, n):
                 raise Antwort(403, "Loeschen kann diese Seite ihr Urheber "
                                    "oder ein Verwalter.")
+            # Erst den Index, dann die Seite (N-16): danach ist die Seite weg
+            # und laesst nichts liegen, was den naechsten Indexaufbau umwirft.
+            index_leeren(db(), z["id"])
             db().execute("DELETE FROM seite WHERE id=?", (z["id"],))
             db().commit()
             # Dateien bleiben liegen - Datenverlust ist die einzige echte
@@ -1957,9 +2010,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if rest == ["neuindex"]:
             self.admin()
+            # Zuerst die Reste (N-16), sonst scheitert der Aufbau an ihnen -
+            # und genau dieser Knopf ist der Weg, mit dem man es reparieren
+            # will. Er muss also selbst reparieren koennen.
+            weg = verwaiste_indexzeilen_loeschen(db())
             for z in db().execute("SELECT id FROM seite").fetchall():
                 index_neu_bauen(z["id"])
-            return self.json_senden({"ok": True})
+            db().commit()
+            return self.json_senden({"ok": True, "verwaiste": weg})
 
         raise Antwort(404, "Unbekannter Aufruf.")
 

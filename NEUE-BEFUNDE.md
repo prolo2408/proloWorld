@@ -795,6 +795,66 @@ nach der Verwalteränderung noch einmal den Urheber gefragt hat.
 
 ---
 
+## N-16 — Eine gelöschte Seite legte den Suchindex für immer still
+
+**Stufe:** hoch — die Suche fand danach **nichts** mehr, in einem Werkzeug,
+dessen Zweck das Finden ist
+**Datei:** `wiki/server.py` (`index_neu_bauen`, `/api/loeschen`)
+**Gefunden bei:** der Rückmeldung „die Suche geht nicht" — mit dem
+Fehlertext, den `N-12` überhaupt erst sichtbar gemacht hat
+
+Im Screenshot stand:
+
+```
+Die Seite ist gespeichert, aber der Suchindex wurde nicht gebaut
+(IntegrityError: constraint failed).
+```
+
+`constraint failed` ohne Spaltennamen ist in SQLite die Meldung für eine
+**doppelte rowid in einer FTS5-Tabelle**. Nachgemessen, nicht geraten:
+
+```python
+con.execute("INSERT INTO suche(rowid,...) VALUES(1,...)")   # geht
+con.execute("INSERT INTO suche(rowid,...) VALUES(1,...)")   # IntegrityError: constraint failed
+```
+
+Die Ursache ist eine Kopplung, die man leicht übersieht: `treffer.id` ist ein
+`rowid`-Alias und dient **gleichzeitig** als `rowid` in `suche` und
+`suche_tri`. Beim Löschen einer Seite räumte der Fremdschlüssel
+(`ON DELETE CASCADE`) die `treffer`-Zeilen weg — die FTS-Zeilen blieben
+liegen, weil kein Trigger sie mitnimmt. SQLite verwendet freigewordene
+`rowid`s wieder. Die nächste eingespielte Seite bekam also eine `id`, unter
+der in `suche` noch eine Leiche lag, und der Indexaufbau brach ab.
+
+Und zwar **dauerhaft**: Auch „Index neu" in der Verwaltung lief in denselben
+Fehler — ausgeführt, HTTP 500. Genau der Knopf, mit dem man es reparieren
+würde, war selbst blockiert. Wer einmal eine Seite gelöscht hatte, hatte
+danach eine Wissenssammlung ohne Suche, ohne Weg zurück.
+
+**Behoben:**
+
+- `index_leeren(v, seite_id)` räumt erst die FTS-Zeilen, dann `treffer` —
+  und wird beim Löschen einer Seite **vor** dem Löschen aufgerufen.
+- `verwaiste_indexzeilen_loeschen(v)` räumt Reste weg. Läuft beim Start
+  (mit Hinweis im Protokoll, wie viele es waren) **und** als erster Schritt
+  von „Index neu" — der Reparaturknopf muss sich selbst reparieren können.
+- `eintragen()` räumt die `rowid` vorher frei. Gürtel und Hosenträger: ein
+  Indexaufbau darf an Resten grundsätzlich nicht scheitern.
+
+**Was daraus folgt:** Zwei Sachen.
+
+Erstens: `N-12` war kein Nebenbefund. Ohne den Hinweis statt des
+Serverfehlers hätte diese Meldung niemand gesehen — die Rückmeldung wäre
+„die Suche geht halt nicht" geblieben, und die Ursache lag drei Schichten
+tiefer. Eine Fehlermeldung, die den Grund nennt, ist ein Werkzeug.
+
+Zweitens: Ich habe in `N-11` zwei neue Indexquellen gebaut und mit
+`tcp -> 1 Treffer` belegt — auf einem **frischen** Wiki. Der Fehler brauchte
+eine Datenbank mit Geschichte: eine gelöschte Seite. Eine Prüfung auf
+leerem Stand prüft die halbe Welt.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

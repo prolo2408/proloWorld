@@ -42,6 +42,20 @@ findet die Suche auch den Inhalt aus den Skripten. Eine Seite, die den
 aktuellen Pflichtteil trägt, meldet ihren Text beim nächsten Öffnen selbst —
 dann verschwindet die ungenaue Quelle wieder.
 
+### Behoben: eine gelöschte Seite legte die Suche für immer still
+Der eigentliche Grund, warum die Suche nichts fand. Der Suchindex nutzt
+dieselbe Zeilennummer wie die Trefferliste. Beim Löschen einer Seite wurden
+die Treffer entfernt, die Zeilen im Suchindex blieben aber liegen — und die
+nächste eingespielte Seite stieß darauf. Der Indexaufbau brach ab
+(`IntegrityError: constraint failed`), und zwar dauerhaft: auch **Index neu**
+lief in denselben Fehler. Wer einmal eine Seite gelöscht hatte, hatte danach
+eine Wissenssammlung ohne Suche.
+
+Jetzt nimmt das Löschen den Index mit; Reste werden beim Start weggeräumt
+(mit Zeile im Protokoll) und zusätzlich immer dann, wenn **Index neu**
+gedrückt wird. Für eine betroffene Datenbank heißt das: einspielen, starten,
+einmal **Index neu** — danach findet die Suche wieder alles.
+
 ### Behoben: „Server Fehler" beim Einspielen, obwohl die Seite da war
 Der Suchindex wird nach dem Festschreiben gebaut. Ging dabei etwas schief —
 ein PDF-Anhang, den `pdftotext` nicht mochte, eine Eigenheit der

@@ -26,6 +26,7 @@ Oder beides zusammen:
 |---|---|---|
 | `test_seiten.py` | Die mitgelieferten Seiten gegen `regeln_pruefen`, Anker gegen `id=`, Pflichtteil vorhanden und korrigiert (auch die Textmeldung), keine externen Verweise | N-06, N-07, N-11 |
 | `test_urheber.py` | Wer eine Seite ändern darf, und das Nachtragen der Spalte `urheber` in einer älteren Datenbank | N-13, N-15 |
+| `test_index.py` | Dass der Suchindex an Resten gelöschter Seiten nicht scheitert, und dass das Aufräumen nur Verwaistes trifft | N-16 |
 | `test_editor.mjs` | Auszeichnung, Suchtext, Kennungen, Bausteine, Rechenwerk und die erzeugte Seite des Editors | Editor, N-14 |
 
 `test_seiten.py` prüft **die eigenen Dateien des Repositorys** mit derselben
@@ -62,6 +63,11 @@ zeigen, dass ein Test rot wird. Geprüft wurde so:
 | leere Fassungskennung zählt wieder mit | 1 Test rot |
 | Nachtragen nimmt die letzte statt der ersten Fassung | 1 Test rot |
 | Nachtragen läuft auch auf neuen Datenbanken | Fehler |
+| `index_leeren` lässt die FTS-Zeilen liegen | 2 Tests rot |
+| `index_leeren` lässt die `treffer`-Zeilen liegen | 2 Tests rot |
+| Aufräumen tut nichts mehr | 3 Tests rot |
+| Aufräumen meldet immer 0 | 2 Tests rot |
+| Aufräumen lässt den Trigramm-Index aus | 1 Test rot |
 
 Was die Tests hier **nicht** leisten, zeigt `N-15`: Die Reihenfolge von
 Handlungen am laufenden Server — anlegen, fremd speichern, wieder selbst
