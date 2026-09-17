@@ -906,6 +906,56 @@ Hinweis — nicht ein Hindernis, das man wegräumt.
 
 ---
 
+## N-18 — Beim Bearbeiten verlor eine Seite ihre Anhänge
+
+**Stufe:** mittel bis hoch — kein Dateiverlust, aber der Anhang ist danach
+nicht mehr *als Anhang* bekannt: er wird heruntergeladen statt angezeigt und
+fällt aus der Suche
+**Datei:** `wiki/server.py` (`uebernehmen`)
+**Gefunden bei:** der Vorarbeit zum PDF-Baustein
+
+`uebernehmen()` löschte alle `anhang`-Zeilen einer Seite und legte danach nur
+die wieder an, die **mitgeschickt** wurden. Die Dateien selbst blieben liegen
+(der Kommentar sagte das auch), die Registrierung nicht.
+
+Genau das passiert, sobald eine Seite mit Anhang neu gespeichert wird: Die
+Datei liegt schon auf dem Server, die neue Fassung nennt sie nur noch (die
+Marke `data-wiki-anhang`, die das Ausgliedern hinterlässt). Also kommt nichts
+Neues an — und die Zeile ist weg.
+
+Ausgeführt, an einer Seite mit einem 196 KB großen PDF:
+
+```
+nach dem Einspielen    anhang: 1 Zeile (kompendium.pdf, application/pdf)
+                       Abruf: 200, application/pdf
+                       die Seite meldet 1 Anhang
+nach dem Neuspeichern  anhang: 0 Zeilen
+                       Abruf: 200, application/octet-stream
+                       die Seite meldet 0 Anhänge
+```
+
+`application/octet-stream` heißt: Der Browser lädt die Datei herunter,
+statt sie anzuzeigen. Dazu kommt, dass der seitenweise Text des PDFs aus dem
+Suchindex fällt — die Suche findet in PDF-Anhängen dann nichts mehr.
+
+**Behoben:** `uebernehmen()` behält die Zeilen der Anhänge, die die neue
+Fassung noch nennt und deren Datei noch da ist. Die Entscheidung trifft
+`genannte_anhaenge(html)` — sie liest die Marke und Verweise auf
+`anhaenge/<name>`, und lässt nur Namen durch, die das Dateinamenmuster
+erfüllen (sonst entschiede der Inhalt einer eingespielten Seite, welche Datei
+gemeint ist).
+
+**Gegenprobe ausgeführt:** Wird der Anhang aus der Seite entfernt, ist die
+Zeile danach auch weg — behalten heißt nicht festhalten.
+
+**Was daraus folgt:** Der Fehler stand im Weg, bevor das Feature begann, das
+ihn gebraucht hätte. Eine Funktion, die es ohne Anhänge im Editor nie gab
+(„Seite mit Anhang neu speichern"), war mit dem Editor plötzlich der
+Normalfall — und kein Test deckte sie ab, weil sie vorher niemand ausführen
+konnte.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

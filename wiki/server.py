@@ -489,6 +489,19 @@ def typ_erkennen(b64_anfang):
     return "application/octet-stream", "bin"
 
 
+def genannte_anhaenge(html):
+    """Die Anhangsnamen, die in dieser Seite vorkommen (N-18).
+
+    Zwei Schreibweisen: die Marke data-wiki-anhang="name", die das
+    Ausgliedern hinterlaesst, und ein Verweis auf anhaenge/name im Text
+    (Bild, Verweis, iframe). Mehr braucht es nicht - es geht nur darum, ob
+    die Seite den Anhang noch benutzt.
+    """
+    namen = set(re.findall(r'data-wiki-anhang=["\']([^"\']+)["\']', html))
+    namen |= set(re.findall(r'anhaenge/([A-Za-z0-9][A-Za-z0-9._-]*)', html))
+    return {n for n in namen if n and DATEINAME_MUSTER.match(n)}
+
+
 def anhaenge_ausgliedern(html, slug, schwelle=ANHANG_SCHWELLE_B):
     """
     Grosse Base64-Bloecke aus dem HTML holen und als Datei ablegen.
@@ -989,7 +1002,28 @@ def uebernehmen(html, teile, nutzer, kommentar=""):
                   (seite_id, a.get("anker", ""), a.get("titel", ""), a.get("ebene", 1),
                    " ".join(a.get("stichworte", []) or []), a.get("text", "") or "", i))
 
+    # Anhaenge (N-18): Die Zeilen der Anhaenge, die diese Seite weiter nennt,
+    # bleiben - sonst verliert eine Seite beim Bearbeiten ihre Anhaenge. Genau
+    # das passierte, sobald der Editor eine Seite neu speichert: die Datei
+    # liegt schon auf dem Server, die neue Fassung nennt sie nur noch (die
+    # Marke data-wiki-anhang), also kam nichts Neues an - und die Zeile war
+    # weg. Folge: Der Abruf lieferte application/octet-stream statt
+    # application/pdf (der Browser laedt herunter statt zu zeigen), die Seite
+    # meldete keine Anhaenge mehr, und der Text des PDFs fiel aus der Suche.
+    neue = {a["name"] for a in teile["anhaenge"]}
+    genannt = genannte_anhaenge(html)
+    behalten = []
+    for z in v.execute("SELECT name,typ,groesse_b,marke FROM anhang WHERE seite_id=?",
+                       (seite_id,)).fetchall():
+        if z["name"] in neue or z["name"] not in genannt:
+            continue
+        if not os.path.exists(os.path.join(ordner, "anhaenge", z["name"])):
+            continue
+        behalten.append(tuple(z))
     v.execute("DELETE FROM anhang WHERE seite_id=?", (seite_id,))
+    for name, typ, groesse, marke in behalten:
+        v.execute("INSERT INTO anhang(seite_id,name,typ,groesse_b,marke) VALUES(?,?,?,?,?)",
+                  (seite_id, name, typ, groesse, marke))
     for a in teile["anhaenge"]:
         v.execute("INSERT INTO anhang(seite_id,name,typ,groesse_b,marke) VALUES(?,?,?,?,?)",
                   (seite_id, a["name"], a["typ"], len(a["daten"]), a["marke"]))
