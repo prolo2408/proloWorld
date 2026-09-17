@@ -989,6 +989,49 @@ finden — nur damit, dass jemand es benutzt und sagt, was er erwartet hat.
 
 ---
 
+## N-20 — Ein Titel ohne Längengrenze machte den Kopf 523 Pixel hoch
+
+**Stufe:** mittel — kein Datenverlust, aber die Oberfläche wird am Handy
+unbenutzbar, und es lässt sich von außen auslösen
+**Datei:** `wiki/server.py` (`regeln_pruefen`), `wiki/index.html`
+**Gefunden bei:** dem Bedienungsdurchgang, Punkt 12 aus Regelblatt §14b
+(„ganz falsche Eingabe")
+
+Regelblatt §11 fragt ausdrücklich: *„Text auf sinnvolle Länge begrenzt?"* Für
+den Titel einer Seite war die Antwort nein. Geprüft wurde nur, **ob** er da
+ist. Eine Seite mit einem Titel von 376 Zeichen und einem „Satz" von 669
+Zeichen ging ohne eine einzige Warnung durch.
+
+Gemessen, was das anrichtet:
+
+| | Desktop 1440 px | Handy 390 px |
+|---|---|---|
+| Titelkasten | 120 px hoch in einem 76-px-Kopf | — |
+| Kopf der Anwendung | 76 px (der Titel läuft heraus) | **523 px** |
+| Eintrag im Themenbaum | 326 px hoch | 326 px hoch |
+
+523 Pixel sind bei 844 Pixel Schirmhöhe zwei Drittel des Geräts — für eine
+Zeile.
+
+**Behoben, an beiden Enden:**
+
+- Der Server weist es ab, mit Zahl und Begründung: „Der Titel ist 376 Zeichen
+  lang, erlaubt sind 120. Er steht im Kopf, im Themenbaum und in jedem
+  Suchtreffer." Grenzen: Titel und Abschnittstitel 120, Satz 300, Pfadebene
+  und Stichwort je 60 Zeichen. Der Editor hat dieselben Grenzen als
+  `maxlength` und sagt es selbst, bevor der Server es tut.
+- Die Oberfläche hält auch Seiten aus, die vorher schon da waren: Kopftitel,
+  Baumeinträge, Verzeichnis und Suchtreffer sind auf zwei bis vier Zeilen
+  begrenzt. Nach der Änderung: Titelkasten 48 px statt 120, Kopf am Handy
+  235 px statt 523 (eine normale Seite braucht dort 163 px).
+
+**Was daraus folgt:** Die Grenze im Server allein hätte nicht gereicht — die
+Seiten, die es schon gibt, verschwinden davon nicht. Eine Oberfläche, die an
+ihren eigenen Altdaten zerbricht, ist nicht fertig. Und gefunden hat es nicht
+der Blick in den Code, sondern Punkt 12 einer Liste, die genau dafür da ist.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

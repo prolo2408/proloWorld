@@ -407,6 +407,15 @@ SKRIPT_MUELL = {
     "div", "span", "button", "true", "false", "null", "undefined", "px",
     "class", "style", "data", "text", "html", "json", "get", "post",
 }
+# Regelblatt 11: Text auf sinnvolle Laenge begrenzt. Die Zahlen kommen aus der
+# Messung (N-20): ein Titel von 376 Zeichen machte den Kopf der Anwendung am
+# Handy 523 Pixel hoch. 120 Zeichen sind zwei Zeilen und passen ueberall hin,
+# wo ein Titel auftaucht - Kopf, Themenbaum, Inhaltsverzeichnis, Suchtreffer.
+GRENZE_TITEL = 120
+GRENZE_KURZ = 300
+GRENZE_PFADTEIL = 60
+GRENZE_STICHWORT = 60
+
 SKRIPT_TEXT_GRENZE = 60000
 # Wie viel Text eine Seite von sich selbst melden darf. 200 000 Zeichen sind
 # rund 30 000 Woerter - mehr hat keine Wiki-Seite, und die Grenze verhindert,
@@ -604,8 +613,21 @@ def regeln_pruefen(html, meta):
     elif not SLUG_MUSTER.match(slug):
         fehler.append(f"Der slug '{slug}' ist nicht erlaubt. Nur Kleinbuchstaben, "
                       "Ziffern und Bindestriche, Anfang und Ende ohne Bindestrich.")
-    if not (meta.get("titel") or "").strip():
+    titel = (meta.get("titel") or "").strip()
+    if not titel:
         fehler.append("Im Block wiki-meta fehlt das Feld 'titel'.")
+    elif len(titel) > GRENZE_TITEL:
+        # Regelblatt 11: "Text auf sinnvolle Laenge begrenzt?" Ein Titel von
+        # 376 Zeichen liess am Handy den Kopf der Anwendung auf 523 Pixel
+        # wachsen - zwei Drittel des Schirms fuer eine Zeile (N-20).
+        fehler.append(f"Der Titel ist {len(titel)} Zeichen lang, erlaubt sind "
+                      f"{GRENZE_TITEL}. Er steht im Kopf, im Themenbaum und in "
+                      "jedem Suchtreffer.")
+    kurz = (meta.get("kurz") or "").strip()
+    if len(kurz) > GRENZE_KURZ:
+        fehler.append(f"Der Satz unter dem Titel ist {len(kurz)} Zeichen lang, "
+                      f"erlaubt sind {GRENZE_KURZ}. Er ist eine Zusammenfassung, "
+                      "kein Abschnitt.")
 
     pfad = meta.get("pfad")
     if not isinstance(pfad, list) or not pfad or not all(isinstance(p, str) and p.strip() for p in pfad):
@@ -614,6 +636,12 @@ def regeln_pruefen(html, meta):
     elif len(pfad) > 4:
         warnungen.append("Der Pfad ist tiefer als vier Ebenen. Das wird in der "
                          "Navigation unuebersichtlich.")
+    if isinstance(pfad, list):
+        for teil in pfad:
+            if isinstance(teil, str) and len(teil.strip()) > GRENZE_PFADTEIL:
+                fehler.append(f"Die Pfadebene '{teil.strip()[:30]}…' ist "
+                              f"{len(teil.strip())} Zeichen lang, erlaubt sind "
+                              f"{GRENZE_PFADTEIL}.")
 
     gruppen = meta.get("gruppen", [])
     if not isinstance(gruppen, list) or not all(isinstance(g, str) for g in gruppen):
@@ -636,6 +664,16 @@ def regeln_pruefen(html, meta):
         anker = (a.get("anker") or "").strip()
         if not anker:
             fehler.append(f"Abschnitt {i} ({a.get('titel', '?')}) hat keinen Anker.")
+        atitel = str(a.get("titel") or "").strip()
+        if len(atitel) > GRENZE_TITEL:
+            fehler.append(f"Der Titel von Abschnitt {i} ist {len(atitel)} Zeichen "
+                          f"lang, erlaubt sind {GRENZE_TITEL}. Er steht im "
+                          "Inhaltsverzeichnis.")
+        for wort in (a.get("stichworte") or []):
+            if isinstance(wort, str) and len(wort.strip()) > GRENZE_STICHWORT:
+                fehler.append(f"Das Stichwort '{wort.strip()[:30]}…' in Abschnitt "
+                              f"{i} ist zu lang (erlaubt: {GRENZE_STICHWORT}).")
+                break
             continue
         if not ANKER_MUSTER.match(anker):
             fehler.append(f"Anker '{anker}' ist nicht erlaubt.")

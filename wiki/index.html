@@ -192,6 +192,20 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible{
 .leiste-fuss .blatt, .navi .blatt{border-radius:8px;padding-left:12px}
 
 #hauptteil{flex:1;min-width:0;display:flex;flex-direction:column;height:100%}
+/* Lange Titel duerfen den Kopf nicht aufblasen (N-20). Der Server weist sie
+   inzwischen ab, aber Seiten aus der Zeit davor liegen schon da - und eine
+   Oberflaeche, die an ihren eigenen Daten zerbricht, ist nicht fertig. */
+#kopftitel, #kopfkontext{display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden}
+.blatt{overflow:hidden}
+.blatt > span, .blatt{display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical}
+.teile-titel{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;
+  overflow:hidden}
+.teile-satz{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;
+  overflow:hidden}
+.treffer-gruppe .seite, .treffer-zeile .titel{display:-webkit-box;
+  -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 header{height:76px;flex:0 0 76px;background:var(--chrome);
   border-bottom:1px solid var(--line);display:flex;align-items:center;
   gap:14px;padding:0 24px}
@@ -3213,6 +3227,7 @@ function editorZeichnen(opt){
         <div style="flex:2 1 260px">
           <label class="label" for="ed-a-titel-${i}">Überschrift dieses Abschnitts</label>
           <input type="text" id="ed-a-titel-${i}" data-ed-feld="titel" data-i="${i}"
+                 maxlength="120"
                  value="${schuetzen(a.titel)}" placeholder="z. B. Wozu das gut ist">
         </div>
       </div>
@@ -3221,7 +3236,7 @@ function editorZeichnen(opt){
         <div class="ed-zeile" style="margin-top:4px">
           <div style="flex:1 1 180px">
             <label class="label" for="ed-a-gruppe-${i}">Gruppe im Verzeichnis</label>
-            <input type="text" id="ed-a-gruppe-${i}" data-ed-feld="gruppe"
+            <input type="text" id="ed-a-gruppe-${i}" data-ed-feld="gruppe" maxlength="80"
                    list="ed-gruppenrubriken" value="${schuetzen(a.gruppe || '')}"
                    placeholder="z. B. Grundlagen">
             <div class="ed-merke">Abschnitte mit derselben Gruppe stehen links
@@ -3265,7 +3280,7 @@ function editorZeichnen(opt){
           <h3>Worum geht es?</h3></div>
         <div style="margin-top:12px">
           <label class="label" for="ed-titel">Titel der Seite</label>
-          <input type="text" id="ed-titel" value="${schuetzen(e.titel)}"
+          <input type="text" id="ed-titel" maxlength="120" value="${schuetzen(e.titel)}"
                  placeholder="z. B. Drucker einrichten">
         </div>
         <div style="margin-top:10px">
@@ -3280,7 +3295,7 @@ function editorZeichnen(opt){
           <summary>Mehr einstellen — Satz, Adresse, Freigabe</summary>
           <div style="margin-top:4px">
             <label class="label" for="ed-kurz">Ein Satz, worum es geht</label>
-            <input type="text" id="ed-kurz" value="${schuetzen(e.kurz)}"
+            <input type="text" id="ed-kurz" maxlength="300" value="${schuetzen(e.kurz)}"
                    placeholder="Steht in der Übersicht, im Verzeichnis und in den Suchtreffern">
           </div>
           <div class="ed-zeile" style="margin-top:10px">
@@ -3509,6 +3524,10 @@ function edPruefbar(nurNachsehen){
   const e = ZUSTAND.editor, m = [];
   const titel = String(e.titel || '').trim();
   if(!titel) m.push('Der Seite fehlt der Titel.');
+  else if(titel.length > 120)
+    m.push('Der Titel ist ' + titel.length + ' Zeichen lang, erlaubt sind 120.');
+  if(String(e.kurz || '').trim().length > 300)
+    m.push('Der Satz unter dem Titel ist zu lang (erlaubt: 300 Zeichen).');
   const slug = String(e.slug || '').trim();
   /* Die Adresse entsteht aus dem Titel. Fehlt der Titel, ist "keine Adresse"
      keine zweite Aufgabe, sondern dieselbe - und eine Liste mit vier

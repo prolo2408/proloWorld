@@ -133,6 +133,40 @@ class PruefungFaengtDasOffensichtliche(unittest.TestCase):
             {"anker": "a", "titel": "B", "text": "y"}])
         self.assertTrue(any("mehrfach" in f for f in fehler))
 
+    def test_zu_langer_titel_ist_ein_fehler(self):
+        """N-20, Regelblatt 11: Text auf sinnvolle Laenge begrenzt.
+
+        Gemessen: ein Titel von 376 Zeichen liess den Kopf der Anwendung am
+        Handy auf 523 Pixel wachsen - zwei Drittel des Schirms.
+        """
+        fehler, _ = self.bauen(titel="Ein " + "wirklich " * 40 + "langer Titel")
+        self.assertTrue(any("Zeichen lang" in f for f in fehler), fehler)
+
+    def test_titel_an_der_grenze_geht_durch(self):
+        # Genau 120 Zeichen: erlaubt. Die Grenze selbst darf nicht stolpern.
+        fehler, _ = self.bauen(titel="T" * 120)
+        self.assertEqual(fehler, [])
+        fehler, _ = self.bauen(titel="T" * 121)
+        self.assertTrue(fehler)
+
+    def test_zu_langer_satz_ist_ein_fehler(self):
+        fehler, _ = self.bauen(kurz="Und " + "ein langer Satz, " * 30 + "Ende.")
+        self.assertTrue(any("Satz unter dem Titel" in f for f in fehler), fehler)
+
+    def test_zu_lange_pfadebene_ist_ein_fehler(self):
+        fehler, _ = self.bauen(pfad=["Technik", "X" * 61])
+        self.assertTrue(any("Pfadebene" in f for f in fehler), fehler)
+
+    def test_zu_langer_abschnittstitel_ist_ein_fehler(self):
+        fehler, _ = self.bauen(abschnitte=[
+            {"anker": "a", "titel": "A" * 121, "text": "x"}])
+        self.assertTrue(any("Abschnitt" in f and "Zeichen" in f for f in fehler), fehler)
+
+    def test_zu_langes_stichwort_ist_ein_fehler(self):
+        fehler, _ = self.bauen(abschnitte=[
+            {"anker": "a", "titel": "A", "text": "x", "stichworte": ["S" * 61]}])
+        self.assertTrue(any("Stichwort" in f for f in fehler), fehler)
+
     def test_anker_ohne_element_ist_eine_warnung(self):
         fehler, warnungen = self.bauen(abschnitte=[
             {"anker": "fehlt-im-html", "titel": "A", "text": "x"}])
