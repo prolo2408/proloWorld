@@ -57,5 +57,54 @@ class WelcheAnhaengeNenntDieSeite(unittest.TestCase):
                                     # echte Datei
 
 
+class MarkierteAnhaengeWerdenAusgegliedert(unittest.TestCase):
+    """Ein PDF aus dem Editor ist ein Anhang, auch wenn es klein ist.
+
+    Die Groessenschwelle ist fuer Bloecke da, die ZUFAELLIG gross sind.
+    Traegt der Block die Marke data-wiki-anhang, ist er ausdruecklich als
+    Anhang gemeint - dann muss er ausgegliedert werden, sonst laesst sich
+    das PDF nicht anzeigen und nicht seitenweise durchsuchen.
+    """
+
+    # Ein winziges, gueltiges PDF - base64, weit unter der Schwelle.
+    PDF = ("JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4K"
+           "ZW5kb2JqCnRyYWlsZXIKPDwgL1Jvb3QgMSAwIFIgPj4KJSVFT0YK")
+
+    def test_mit_marke_wird_ausgegliedert(self):
+        html = ('<script type="text/plain" id="anhang-probe" '
+                'data-wiki-anhang="">%s</script>' % self.PDF)
+        neu, gefunden = server.anhaenge_ausgliedern(html, "probe")
+        self.assertEqual(len(gefunden), 1)
+        self.assertEqual(gefunden[0]["name"], "anhang-probe.pdf")
+        self.assertEqual(gefunden[0]["typ"], "application/pdf")
+        # Die Daten sind aus der Seite heraus - sonst stuenden sie zweimal da.
+        self.assertNotIn(self.PDF, neu)
+        self.assertIn('data-wiki-anhang="anhang-probe.pdf"', neu)
+
+    def test_ohne_marke_bleibt_kleines_stehen(self):
+        # Die Schwelle gilt weiter: ein kleiner Base64-Block ohne Marke ist
+        # kein Anhang, sondern irgendein Inhalt der Seite.
+        html = '<script type="text/plain" id="anhang-probe">%s</script>' % self.PDF
+        neu, gefunden = server.anhaenge_ausgliedern(html, "probe")
+        self.assertEqual(gefunden, [])
+        self.assertIn(self.PDF, neu)
+
+    def test_marke_macht_aus_text_keinen_anhang(self):
+        # Nur Base64 kommt in Frage - sonst wuerde ein Skript mit der Marke
+        # zur Datei erklaert.
+        html = ('<script id="x" data-wiki-anhang="">'
+                'alert(1); // kein base64</script>')
+        neu, gefunden = server.anhaenge_ausgliedern(html, "probe")
+        self.assertEqual(gefunden, [])
+        self.assertIn("alert(1)", neu)
+
+    def test_leerer_block_mit_marke_ist_nur_ein_verweis(self):
+        html = ('<script type="text/plain" id="anhang-probe" '
+                'data-wiki-anhang="anhang-probe.pdf"></script>')
+        neu, gefunden = server.anhaenge_ausgliedern(html, "probe")
+        self.assertEqual(gefunden, [])
+        self.assertEqual(server.genannte_anhaenge(neu), {"anhang-probe.pdf"})
+
+
 if __name__ == "__main__":
     unittest.main()

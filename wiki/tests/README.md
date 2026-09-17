@@ -27,6 +27,7 @@ Oder beides zusammen:
 | `test_seiten.py` | Die mitgelieferten Seiten gegen `regeln_pruefen`, Anker gegen `id=`, Pflichtteil vorhanden und korrigiert (auch die Textmeldung), keine externen Verweise | N-06, N-07, N-11 |
 | `test_urheber.py` | Wer eine Seite ändern darf, und das Nachtragen der Spalte `urheber` in einer älteren Datenbank | N-13, N-15 |
 | `test_index.py` | Dass der Suchindex an Resten gelöschter Seiten nicht scheitert, und dass das Aufräumen nur Verwaistes trifft | N-16 |
+| `test_anhaenge.py` | Dass ein markierter Anhang ausgegliedert wird und beim Bearbeiten seine Registrierung behält | N-18 |
 | `test_editor.mjs` | Auszeichnung, Suchtext, Kennungen, Bausteine, Rechenwerk und die erzeugte Seite des Editors | Editor, N-14 |
 
 `test_seiten.py` prüft **die eigenen Dateien des Repositorys** mit derselben
@@ -68,6 +69,17 @@ zeigen, dass ein Test rot wird. Geprüft wurde so:
 | Aufräumen tut nichts mehr | 3 Tests rot |
 | Aufräumen meldet immer 0 | 2 Tests rot |
 | Aufräumen lässt den Trigramm-Index aus | 1 Test rot |
+| Blockmodell: Zeilen ohne Trennstrich | 3 Tests rot |
+| Blockmodell: unbekannte Bausteinart verschluckt | 1 Test rot |
+| Blockmodell: leerer Block landet im Markup | 1 Test rot |
+| Vorschau baut selbst statt mit dem Erzeuger | 1 Test rot |
+| `eval`-Weg schleicht sich in die Hülle | 1 Test rot |
+| PDF-Block ohne Datei wird still verschluckt | 1 Test rot |
+| PDF: Seitenzahl geht nicht an den Knopf | 1 Test rot |
+| PDF: Anhangsmarke fehlt in der Seite | 1 Test rot |
+| PDF: vorhandener Anhang wird nicht mehr genannt | 1 Test rot |
+| PDF: Dateiname nicht aus der Marke gelesen | 1 Test rot |
+| Anhänge: Marke beim Ausgliedern ignoriert | 1 Test rot |
 
 Was die Tests hier **nicht** leisten, zeigt `N-15`: Die Reihenfolge von
 Handlungen am laufenden Server — anlegen, fremd speichern, wieder selbst

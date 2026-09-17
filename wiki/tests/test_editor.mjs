@@ -540,6 +540,74 @@ pruefe('Die Huelle wertet nichts mit eval oder new Function aus', () => {
   assert.deepEqual(treffer, [], 'in der Huelle steht: ' + treffer.join(', '));
 });
 
+/* ------------------------------------------------ PDF-Baustein */
+pruefe('PDF: Datei und Sprungziele gehen durch das Markup', () => {
+  const m = ':::pdf Kompendium\ndatei: anhang-kompendium\n' +
+            'Kapitel 1 | 10\nAnhang A | 88\n:::';
+  const b = edMarkupZuBloecken(m);
+  assert.equal(b[0].art, 'pdf');
+  assert.equal(b[0].kennung, 'anhang-kompendium');
+  assert.deepEqual(b[0].zeilen, [['Kapitel 1', '10'], ['Anhang A', '88']]);
+  assert.equal(edBloeckeZuMarkup(b), m);
+});
+pruefe('PDF: die Knoepfe nennen Kennung und Seite', () => {
+  const h = edBaustein('pdf', 'Kompendium',
+                       ['datei: anhang-kompendium', 'Kapitel 1 | 10']);
+  // Der Dateiname steht NICHT im HTML - er kommt zur Laufzeit aus der Marke.
+  assert.ok(!h.includes('.pdf'), 'der Dateiname darf nicht hier stehen: ' + h);
+  assert.ok(h.includes('data-wiki-pdf="anhang-kompendium"'));
+  assert.ok(h.includes('data-wiki-seite="10"'));
+  assert.ok(h.includes('Ganzes PDF'), 'der Knopf fuer das ganze PDF fehlt');
+  assert.equal((h.match(/data-wiki-pdf=/g) || []).length, 2);  // ganz + ein Ziel
+});
+pruefe('PDF: ohne Datei gibt es einen Hinweis, keine Stille', () => {
+  const h = edBaustein('pdf', 'Titel', ['Kapitel 1 | 10']);
+  assert.ok(h.includes('ohne Datei'), h);
+});
+pruefe('PDF: Text in Beschriftung und Kennung bleibt Text', () => {
+  const h = edBaustein('pdf', 'T', ['datei: a"><script>x</script>',
+                                    '<img onerror=x> | 1']);
+  assert.ok(!h.includes('<script>'), h);
+  assert.ok(!h.includes('<img'), h);
+});
+pruefe('PDF: die neue Datei geht als markierter Anhang in die Seite', () => {
+  const b = edBlockNeu('pdf');
+  b.kennung = 'anhang-kompendium'; b.daten64 = 'QUJD'; b.titel = 'K';
+  b.zeilen = [['Kapitel 1', '10']];
+  const seite = edSeiteBauen({titel:'T', slug:'t', pfad:'A', abschnitte:[
+    {anker:'x', titel:'X', markup:edBloeckeZuMarkup([b]), bloecke:[b]}]});
+  assert.ok(seite.includes('id="anhang-kompendium" data-wiki-anhang=""'),
+            'die Marke fehlt - der Server gliedert dann nichts aus');
+  assert.ok(seite.includes('>QUJD<'), 'die Daten fehlen');
+});
+pruefe('PDF: ein vorhandener Anhang wird weiter genannt (N-18)', () => {
+  /* Beim zweiten Speichern liegt die Datei schon auf dem Server. Die Seite
+     muss sie trotzdem NENNEN, sonst verliert der Anhang seine Zeile. */
+  const b = edBlockNeu('pdf');
+  b.kennung = 'anhang-kompendium'; b.dateiname = 'anhang-kompendium.pdf';
+  b.zeilen = [['Kapitel 1', '10']];
+  const seite = edSeiteBauen({titel:'T', slug:'t', pfad:'A', abschnitte:[
+    {anker:'x', titel:'X', markup:edBloeckeZuMarkup([b]), bloecke:[b]}]});
+  assert.ok(seite.includes('data-wiki-anhang="anhang-kompendium.pdf"'), seite.slice(-600));
+  assert.ok(!seite.includes('QUJD'));
+});
+pruefe('PDF: die Seite bittet die Huelle, sie zeigt nichts selbst', () => {
+  const b = edBlockNeu('pdf');
+  b.kennung = 'anhang-kompendium'; b.dateiname = 'anhang-kompendium.pdf';
+  const seite = edSeiteBauen({titel:'T', slug:'t', pfad:'A', abschnitte:[
+    {anker:'x', titel:'X', markup:edBloeckeZuMarkup([b]), bloecke:[b]}]});
+  assert.ok(seite.includes("typ:'wiki-pdf'"), 'die Nachricht an die Huelle fehlt');
+  /* Nicht nur, DASS beide Zeilen vorkommen, sondern dass sie zusammenhaengen:
+     der Name muss von dem Element kommen, das der Knopf nennt. Die
+     Mutationsprobe hat gezeigt, dass zwei getrennte includes() genau das
+     nicht sehen. */
+  assert.match(seite, /getElementById\(b\.dataset\.wikiPdf\)[\s\S]{0,240}getAttribute\('data-wiki-anhang'\)/,
+               'der Name wird nicht aus der Marke DIESES Anhangs gelesen');
+  // Kein iframe, kein embed, kein object: die CSP der Seite verbietet das,
+  // und die Seite soll es auch nicht versuchen.
+  assert.ok(!/<iframe|<embed|<object/i.test(seite), 'die Seite versucht es selbst');
+});
+
 console.log('');
 console.log(`${gut} ok, ${schlecht} Fehler`);
 process.exit(schlecht ? 1 : 0);

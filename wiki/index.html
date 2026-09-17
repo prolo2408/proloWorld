@@ -350,6 +350,23 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
   border:1px solid var(--line-soft)}
 .ed-kasten .label{margin-right:4px}
 
+/* ---------- PDF-Schau ---------- */
+#pdf-schau{position:fixed;z-index:70;right:0;top:0;bottom:0;width:48vw;
+  min-width:380px;max-width:900px;background:var(--chrome);
+  border-left:1px solid var(--line);box-shadow:var(--shadow);
+  display:flex;flex-direction:column}
+#pdf-schau[hidden]{display:none}
+#pdf-kopf{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:10px 14px;border-bottom:1px solid var(--line);
+  padding-top:max(10px,env(safe-area-inset-top))}
+#pdf-kopf #pdf-name{font-weight:600;color:var(--ink);min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#pdf-kopf #pdf-extern{margin-left:auto}
+#pdf-rahmen{flex:1;width:100%;border:0;background:var(--app)}
+@media (max-width:860px){
+  #pdf-schau{width:100%;min-width:0;max-width:none;left:0}
+}
+
 /* ---------- Blockkarten im Editor ----------
    Links das Formular, rechts das fertige Ergebnis. Der Sinn der Aufteilung:
    man sieht sofort, was entsteht, statt sich Markup vorzustellen. */
@@ -485,6 +502,19 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
       </div>
     </main>
   </div>
+</div>
+
+<!-- PDF-Schau: die Huelle zeigt Anhaenge, die eingespielte Seite darf das
+     nicht. Rechts neben dem Text, damit man mitlesen kann. -->
+<div id="pdf-schau" hidden role="dialog" aria-modal="false" aria-label="PDF ansehen">
+  <div id="pdf-kopf">
+    <span class="label" id="pdf-name">PDF</span>
+    <span class="label" id="pdf-stelle"></span>
+    <a class="knopf still ed-klein" id="pdf-extern" target="_blank"
+       rel="noopener">Eigenes Fenster</a>
+    <button class="knopf rahmen ed-klein" id="pdf-zu">Schließen</button>
+  </div>
+  <iframe id="pdf-rahmen" title="PDF-Anhang"></iframe>
 </div>
 
 <div id="einblendung" role="status" aria-live="polite"></div>
@@ -646,6 +676,8 @@ function wegSetzen(slug, anker, begriff){
   if(location.hash !== h) history.pushState(null, '', h);
 }
 async function oeffnen(slug, anker, begriff, ohneWeg){
+  /* Eine offene PDF-Schau gehoert zur Seite, von der sie kam. */
+  if(ZUSTAND.slug !== slug) pdfSchliessen();
   ZUSTAND.ansicht = 'seite';
   if(!slug) return start();
   merkenKnopf(slug);
@@ -700,6 +732,13 @@ window.addEventListener('message', (e) => {
   if(e.data.typ === 'wiki-bereit') springen(($('rahmen')._auftrag||{}).anker,
                                             ($('rahmen')._auftrag||{}).begriff);
   if(e.data.typ === 'wiki-oeffnen' && e.data.slug) oeffnen(e.data.slug, e.data.anker);
+  if(e.data.typ === 'wiki-pdf' && typeof e.data.datei === 'string'){
+    /* Die Seite darf ein PDF nicht selbst anzeigen (ihre CSP setzt frame-src
+       und object-src auf 'none', und das ist die Grenze, die sie vom Rest des
+       Wikis trennt). Sie bittet also die Huelle - und die kann es, weil der
+       Anhang aus demselben Origin kommt. */
+    pdfZeigen(ZUSTAND.slug, e.data.datei, e.data.seite);
+  }
   if(e.data.typ === 'wiki-text' && typeof e.data.text === 'string'){
     /* Die Seite hat gemeldet, was sie anzeigt - damit die Suche auch findet,
        was erst im Browser entsteht. Still: wer eine Seite liest, soll davon
@@ -744,6 +783,22 @@ document.addEventListener('keydown', (e) => {
   if(e.key === '/' && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)){
     e.preventDefault(); $('suchfeld').focus(); $('suchfeld').select();
   }
+  if(e.key === 'Escape') pdfSchliessen();
+});
+$('pdf-zu').onclick = () => pdfSchliessen();
+/* Die Knoepfe in der VORSCHAU des Editors: liegt die Datei schon als Anhang
+   auf dem Server, tut der Knopf dasselbe wie auf der fertigen Seite. Ist sie
+   gerade erst ausgewaehlt, gibt es noch keine Adresse - dann wird das
+   gesagt, statt einen toten Knopf zu zeigen. */
+document.addEventListener('click', (e) => {
+  const b = e.target.closest ? e.target.closest('.ed-erg [data-wiki-pdf]') : null;
+  if(!b) return;
+  const block = (((ZUSTAND.editor || {}).abschnitte || [])
+    .flatMap(a => a.bloecke || []))
+    .find(x => x.art === 'pdf' && x.kennung === b.dataset.wikiPdf);
+  if(block && block.dateiname && ZUSTAND.editor && ZUSTAND.editor.slug)
+    return pdfZeigen(ZUSTAND.editor.slug, block.dateiname, b.dataset.wikiSeite);
+  einblenden('Die Datei wird beim Speichern angehängt — danach öffnet der Knopf sie.');
 });
 document.addEventListener('click', (e) => {
   if(!$('suchfeld-huelle').contains(e.target)) trefferSchliessen();
@@ -808,13 +863,42 @@ function aktivSetzen(i){
     if(an) b.scrollIntoView({block:'nearest'});
   });
 }
+function pdfZeigen(slug, datei, seite){
+  /* Der Anhang liegt unter /seite/<slug>/anhaenge/<datei>. Die Seitenzahl
+     geht als #page=N an den PDF-Betrachter des Browsers - dieselbe
+     Schreibweise, die ein Verweis auf eine PDF-Seite ueberall benutzt. */
+  if(!slug || !datei) return;
+  const schau = $('pdf-schau'), rahmen = $('pdf-rahmen');
+  if(!schau || !rahmen) return;
+  const nr = String(seite || '').replace(/[^0-9]/g, '');
+  const weg = '/seite/' + encodeURIComponent(slug) + '/anhaenge/' +
+              encodeURIComponent(datei);
+  $('pdf-name').textContent = datei;
+  $('pdf-stelle').textContent = nr ? 'Seite ' + nr : '';
+  $('pdf-extern').setAttribute('href', weg + (nr ? '#page=' + nr : ''));
+  /* Erst leeren: unterscheiden sich zwei Adressen nur im Anker, laedt der
+     Rahmen nicht neu - und der Sprung auf die Seite bliebe aus. */
+  rahmen.removeAttribute('src');
+  schau.hidden = false;
+  setTimeout(() => { rahmen.setAttribute('src', weg + (nr ? '#page=' + nr : '')); }, 0);
+  $('pdf-zu').focus();
+}
+function pdfSchliessen(){
+  const schau = $('pdf-schau');
+  if(!schau || schau.hidden) return;
+  schau.hidden = true;
+  $('pdf-rahmen').removeAttribute('src');
+}
 function trefferWaehlen(i){
   const t = ZUSTAND.treffer[i];
   if(!t) return;
   trefferSchliessen();
   if(t.art === 'anhang'){
+    /* Der Treffer steht im PDF - dann auch dorthin springen, statt es nur
+       zu sagen. Die Seite darunter wird trotzdem geoeffnet: das PDF haengt
+       an ihr, und ihr Text gibt den Zusammenhang. */
     oeffnen(t.slug, '', letzteSuche);
-    einblenden(`Der Treffer steht in ${t.anhang}, Seite ${t.seitennr}.`);
+    pdfZeigen(t.slug, t.anhang, t.seitennr);
   } else {
     oeffnen(t.slug, t.anker, letzteSuche);
   }
@@ -1707,6 +1791,37 @@ function edBaustein(art, titel, zeilen){
     return '<div class="bk bk-begriffe">' + kopf +
       '<div class="tabelle"><table><tbody>' + reihen + '</tbody></table></div></div>';
   }
+  if(art === 'pdf'){
+    /* Ein PDF kann die Seite nicht selbst anzeigen: sie laeuft in einem
+       abgeschotteten Rahmen, dessen CSP frame-src und object-src auf 'none'
+       setzt - und das soll so bleiben. Darum stehen hier nur Knoepfe; die
+       Huelle zeigt das PDF (und springt auf die Seite). Der Anhangsname
+       steht NICHT hier: er kommt zur Laufzeit aus der Marke, die der Server
+       beim Ausgliedern setzt (data-wiki-anhang). Sonst waere jede
+       Umbenennung ein toter Knopf. */
+    let kennung = '';
+    const ziele = [];
+    zeilen.forEach(z => {
+      const roh = z.trim();
+      if(!roh) return;
+      const d = roh.match(/^datei\s*:\s*(.+)$/i);
+      if(d){ kennung = d[1].trim(); return; }
+      const s = roh.split('|').map(x => x.trim());
+      ziele.push([s[0] || 'Stelle', s[1] || '']);
+    });
+    if(!kennung) return '<div class="warn"><b>PDF-Baustein ohne Datei</b>' +
+      ' Im Editor ist keine Datei ausgewaehlt.</div>';
+    const knopf = (text, seite) =>
+      '<button type="button" class="bk-pdf-knopf" data-wiki-pdf="' +
+      edEscape(kennung) + '"' + (seite ? ' data-wiki-seite="' + edEscape(seite) + '"' : '') +
+      '>' + edInline(text) + (seite ? ' <span class="bk-pdf-seite">S.\u00a0' +
+      edEscape(seite) + '</span>' : '') + '</button>';
+    return '<div class="bk bk-pdf">' + kopf +
+      '<div class="bk-pdf-reihe">' + knopf('Ganzes PDF', '') +
+      ziele.map(([t, sn]) => knopf(t, sn)).join('') + '</div>' +
+      '<div class="bk-hinweis">Das PDF liegt als Anhang dieser Seite bei und ' +
+      'oeffnet sich im Wiki.</div></div>';
+  }
   if(art === 'rechner'){
     /* Felder, Formel, Einheit. Die Formel steht in einem data-Attribut und
        wird von einem winzigen Rechenwerk gelesen - kein eval, sondern ein
@@ -1803,6 +1918,14 @@ const ED_STIL_BAUSTEINE = [
 ".bk-formel{margin-top:6px;font-family:'JetBrains Mono',ui-monospace,monospace;",
 '  font-size:11.5px;color:var(--ink-3)}',
 '.bk-hinweis{margin-top:8px;font-size:12.5px;color:var(--ink-3)}',
+'.bk-pdf-reihe{display:flex;flex-wrap:wrap;gap:8px}',
+'.bk-pdf-knopf{display:inline-flex;align-items:center;gap:8px;min-height:36px;',
+'  padding:0 13px;border-radius:9px;border:1px solid var(--line);',
+'  background:var(--surface);color:var(--ink);font:inherit;font-size:13px;',
+'  cursor:pointer}',
+'.bk-pdf-knopf:hover{border-color:var(--accent);color:var(--accent-ink)}',
+".bk-pdf-seite{font-family:'JetBrains Mono',ui-monospace,monospace;",
+'  font-size:11.5px;color:var(--ink-3)}',
 '@media (max-width:432px){',
 '  .bk{padding:12px}',
 '  .bk-felder input{flex:1 1 100%;width:auto;text-align:left}',
@@ -2061,6 +2184,19 @@ ED_RECHENWERK,
 '    setTimeout(textMelden, 2500);',
 '  });',
 '  bkRechnerStarten();',
+'  /* PDF-Knoepfe: die Seite kann ein PDF nicht selbst zeigen (frame-src',
+"'     'none'), darum bittet sie die Huelle. Der Dateiname kommt aus der",
+'     Marke, die der Server beim Ausgliedern gesetzt hat - so bleibt der',
+'     Knopf richtig, auch wenn die Datei einen anderen Namen bekam. */',
+"  document.addEventListener('click', function(e){",
+"    var b = e.target.closest ? e.target.closest('[data-wiki-pdf]') : null;",
+'    if(!b) return;',
+'    var quelle = document.getElementById(b.dataset.wikiPdf);',
+"    var name = quelle ? (quelle.getAttribute('data-wiki-anhang') || '') : '';",
+'    if(!name || window.parent === window) return;',
+"    window.parent.postMessage({typ:'wiki-pdf', datei:name,",
+"                               seite:b.dataset.wikiSeite || ''}, '*');",
+'  });',
 '  if(window.parent !== window)',
 "    window.parent.postMessage({typ:'wiki-bereit'}, '*');",
 '})();',
@@ -2095,6 +2231,23 @@ function edSeiteBauen(e){
   const koerper = absch.map(a =>
     '<section id="' + edEscape(a.anker) + '">\n      <h2>' + edEscape(a.titel) +
     '</h2>\n      ' + edBloecke(a.markup) + '\n    </section>').join('\n\n    ');
+  /* Anhaenge: je PDF-Block ein Skriptblock mit der Marke data-wiki-anhang.
+     Ist eine Datei neu dabei, steht sie als Base64 darin und der Server
+     gliedert sie aus (die Marke sagt: das ist ausdruecklich ein Anhang, egal
+     wie gross). Liegt sie schon auf dem Server, bleibt der Block leer und
+     nennt nur ihren Namen - damit die Seite ihn weiter nennt und die
+     Registrierung nicht verliert (N-18). */
+  const anhaenge = [];
+  (e.abschnitte || []).forEach(a => (a.bloecke || []).forEach(b => {
+    if(b.art !== 'pdf' || !b.kennung) return;
+    if(b.daten64){
+      anhaenge.push('<' + 'script type="text/plain" id="' + edEscape(b.kennung) +
+        '" data-wiki-anhang="">' + b.daten64 + '<' + '/script>');
+    } else if(b.dateiname){
+      anhaenge.push('<' + 'script type="text/plain" id="' + edEscape(b.kennung) +
+        '" data-wiki-anhang="' + edEscape(b.dateiname) + '"><' + '/script>');
+    }
+  }));
   return [
     '<!DOCTYPE html>',
     '<html lang="de">',
@@ -2115,6 +2268,7 @@ function edSeiteBauen(e){
     '',
     '    ' + koerper,
     '',
+    anhaenge.join('\n'),
     ED_PFLICHTTEIL,
     '</body>',
     '</html>',
@@ -2160,7 +2314,9 @@ const ED_FORM = {
               spalten:['Seite', 'Inhalt']},
   begriffe:  {name:'Begriffsliste', hilfe:'Wort und Erklärung zum Nachschlagen.',
               spalten:['Begriff', 'Erklärung']},
-  klapp:     {name:'Klapptext', hilfe:'Überschrift, die man aufklappt.'}
+  klapp:     {name:'Klapptext', hilfe:'Überschrift, die man aufklappt.'},
+  pdf:       {name:'PDF', hilfe:'Ein PDF als Anhang, mit Sprungzielen auf einzelne Seiten.',
+              spalten:['Beschriftung', 'Seite']}
 };
 
 function edBlockNeu(art){
@@ -2170,6 +2326,13 @@ function edBlockNeu(art){
   if(f.spalten) b.zeilen = [f.spalten.map(() => ''), f.spalten.map(() => '')];
   if(art === 'rechner'){
     b.felder = [{name: '', wert: ''}, {name: '', wert: ''}];
+  }
+  if(art === 'pdf'){
+    /* kennung  = die Kennung des Skriptblocks in der Seite (id)
+       dateiname = wie der Anhang auf dem Server heisst, sobald er dort liegt
+       daten64  = die Datei selbst, nur bis zum naechsten Speichern */
+    b.kennung = ''; b.dateiname = ''; b.daten64 = ''; b.urname = '';
+    b.zeilen = [['', '']];
   }
   return b;
 }
@@ -2226,6 +2389,17 @@ function edBlockLesen(art, titel, zeilen){
     if(!b.felder.length) b.felder = [{name: '', wert: ''}];
     return b;
   }
+  if(art === 'pdf'){
+    b.zeilen = [];
+    echt.forEach(z => {
+      const d = z.trim().match(/^datei\s*:\s*(.+)$/i);
+      if(d){ b.kennung = d[1].trim(); return; }
+      const teile = z.split('|').map(x => x.trim());
+      b.zeilen.push([teile[0] || '', teile[1] || '']);
+    });
+    if(!b.zeilen.length) b.zeilen = [['', '']];
+    return b;
+  }
   const breite = (ED_FORM[art].spalten || []).length;
   b.zeilen = echt.map(z => {
     const teile = z.split('|').map(x => x.trim());
@@ -2245,6 +2419,15 @@ function edBlockZuZeilen(b){
     if(String(b.formel || '').trim()) z.push('= ' + b.formel.trim());
     if(String(b.einheit || '').trim()) z.push('Einheit: ' + b.einheit.trim());
     if(String(b.hinweis || '').trim()) z.push(b.hinweis.trim());
+    return z;
+  }
+  if(b.art === 'pdf'){
+    const z = [];
+    if(String(b.kennung || '').trim()) z.push('datei: ' + b.kennung.trim());
+    (b.zeilen || []).forEach(r => {
+      const t = String(r[0] || '').trim(), sn = String(r[1] || '').trim();
+      if(t || sn) z.push(t + ' | ' + sn);
+    });
     return z;
   }
   return (b.zeilen || [])
@@ -2363,6 +2546,39 @@ function edBlockFormular(i, j, b){
              value="${schuetzen(b.hinweis || '')}"
              placeholder="Woher die Zahlen kommen, was sie nicht enthalten">`;
   }
+  if(b.art === 'pdf'){
+    const ziele = (b.zeilen || []).map((r, k) => `
+      <div class="ed-reihe">
+        <input type="text" data-bzeile="${k}" data-bspalte="0"
+               value="${schuetzen(r[0] || '')}" placeholder="Kapitel 1"
+               aria-label="Beschriftung in Zeile ${k + 1}">
+        <input type="text" data-bzeile="${k}" data-bspalte="1" class="mono ed-schmal"
+               value="${schuetzen(r[1] || '')}" placeholder="10"
+               aria-label="Seite in Zeile ${k + 1}">
+        ${kn('zeile-weg', '✕', 'Ziel entfernen', (b.zeilen || []).length < 2)}
+      </div>`).join('');
+    const stand = b.daten64
+      ? `<span class="ed-gut">${schuetzen(b.urname || 'Datei')} ausgewählt, wird
+           beim Speichern angehängt</span>`
+      : (b.dateiname
+         ? `<span class="ed-gut">${schuetzen(b.dateiname)} liegt als Anhang bei</span>`
+         : `<span class="ed-merke">Noch keine Datei ausgewählt.</span>`);
+    return titelfeld('z. B. Kompendium Netzwerke') + `
+      <div class="label" style="margin-top:10px">PDF-Datei</div>
+      <div class="ed-reihe">
+        <label class="knopf rahmen ed-klein" for="ed-bpdf-${i}-${j}"
+          >Datei auswählen</label>
+        <input type="file" id="ed-bpdf-${i}-${j}" accept="application/pdf,.pdf"
+               data-bpdf="${i}-${j}" style="position:absolute;left:-9999px">
+      </div>
+      <div style="margin-top:4px">${stand}</div>
+      <div class="ed-merke">Das PDF wird ein Anhang dieser Seite. Die Hülle
+        zeigt es an — die Seite selbst darf das nicht, und das ist Absicht.
+        Nebenbei wird es seitenweise durchsuchbar.</div>
+      <div class="label" style="margin-top:12px">Sprungziele — Beschriftung · Seite</div>
+      ${ziele}
+      <div style="margin-top:6px">${kn('zeile-neu', 'Sprungziel hinzufügen')}</div>`;
+  }
   /* Die Zeilenarten: Schritte, Kennzahlen, Gegenueberstellung, Begriffe. */
   const spalten = (ED_FORM[b.art] || {}).spalten || ['Inhalt'];
   const reihen = (b.zeilen || []).map((r, k) => `
@@ -2445,6 +2661,45 @@ function edErgebnisMalen(i, j){
   if(b.art === 'rechner') bkRechnerStarten(ziel);
 }
 
+function edPdfWaehlen(i, j, feld){
+  /* Die Datei wird hier gelesen und erst beim Speichern mitgeschickt. Die
+     Kennung entsteht aus dem Dateinamen und ist in der Seite eindeutig -
+     der Server bildet daraus den Namen des Anhangs. */
+  const e = ZUSTAND.editor;
+  const b = e && e.abschnitte[i] && e.abschnitte[i].bloecke[j];
+  const datei = feld.files && feld.files[0];
+  if(!b || !datei) return;
+  if(datei.type && datei.type !== 'application/pdf' && !/\.pdf$/i.test(datei.name))
+    return einblenden('Das ist keine PDF-Datei.');
+  const leser = new FileReader();
+  leser.onerror = () => einblenden('Die Datei ließ sich nicht lesen.');
+  leser.onload = () => {
+    const roh = String(leser.result || '');
+    const komma = roh.indexOf(',');
+    b.daten64 = komma >= 0 ? roh.slice(komma + 1) : '';
+    b.urname = datei.name;
+    b.kennung = edPdfKennung(e, i, j, datei.name);
+    b.dateiname = '';
+    if(!String(b.titel || '').trim()) b.titel = datei.name.replace(/\.pdf$/i, '');
+    einblenden(datei.name + ' ausgewählt (' + bytes(datei.size) + ').');
+    editorZeichnen({fokus: 'ed-block-' + i + '-' + j});
+  };
+  leser.readAsDataURL(datei);
+}
+function edPdfKennung(e, i, j, dateiname){
+  /* Aus "Kompendium Netzwerke.pdf" wird "anhang-kompendium-netzwerke". Der
+     Server bildet daraus "anhang-kompendium-netzwerke.pdf". Kommt dieselbe
+     Kennung in der Seite schon vor, wird gezaehlt - sonst haengt der Server
+     zwei Dateien an denselben Namen und ein Knopf zeigt auf die falsche. */
+  const basis = 'anhang-' + (edSlug(dateiname.replace(/\.pdf$/i, '')) || 'pdf');
+  const belegt = new Set();
+  (e.abschnitte || []).forEach((a, ai) => (a.bloecke || []).forEach((b, bj) => {
+    if(b.art === 'pdf' && b.kennung && !(ai === i && bj === j)) belegt.add(b.kennung);
+  }));
+  if(!belegt.has(basis)) return basis;
+  for(let n = 2; n < 99; n++) if(!belegt.has(basis + '-' + n)) return basis + '-' + n;
+  return basis + '-' + Date.now();
+}
 function edBlockTun(was, i, j, knopf){
   const e = ZUSTAND.editor;
   const a = e && e.abschnitte[i];
@@ -2655,6 +2910,18 @@ async function editor(slug){
   /* Aus dem gespeicherten Markup wieder Bloecke machen - sonst waere
      "Bearbeiten" eine Textwand und der Editor nur beim Neuanlegen blockweise. */
   ZUSTAND.editor.abschnitte.forEach(a => { a.bloecke = edMarkupZuBloecken(a.markup); });
+  /* Die Namen der schon vorhandenen Anhaenge stehen in der Seite selbst, in
+     der Marke, die der Server beim Ausgliedern gesetzt hat. Ohne sie wuesste
+     der PDF-Block nicht, dass seine Datei schon auf dem Server liegt - und
+     die Seite wuerde ihn beim Speichern nicht mehr nennen (N-18). */
+  const marken = {};
+  roh.replace(/<script[^>]*\bid=["']([^"']+)["'][^>]*\bdata-wiki-anhang=["']([^"']*)["']/gi,
+              (_, kennung, name) => { if(name) marken[kennung] = name; return ''; });
+  roh.replace(/<script[^>]*\bdata-wiki-anhang=["']([^"']*)["'][^>]*\bid=["']([^"']+)["']/gi,
+              (_, name, kennung) => { if(name) marken[kennung] = name; return ''; });
+  ZUSTAND.editor.abschnitte.forEach(a => (a.bloecke || []).forEach(b => {
+    if(b.art === 'pdf' && b.kennung && marken[b.kennung]) b.dateiname = marken[b.kennung];
+  }));
   editorZeichnen();
 }
 function editorZeichnen(opt){
@@ -2841,6 +3108,8 @@ function editorZeichnen(opt){
         edBlockLesenAusDerSeite(i, j);
         edErgebnisMalen(i, j);
       }));
+    const dat = karte.querySelector('[data-bpdf]');
+    if(dat) dat.addEventListener('change', () => edPdfWaehlen(i, j, dat));
   }));
   if(opt.fokus){
     const z = $(opt.fokus);

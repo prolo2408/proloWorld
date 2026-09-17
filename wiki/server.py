@@ -521,7 +521,16 @@ def anhaenge_ausgliedern(html, slug, schwelle=ANHANG_SCHWELLE_B):
     def script_ersetzen(m):
         auf, inhalt = m.group(1), m.group(2)
         roh = inhalt.strip()
-        if len(roh) < schwelle or not re.fullmatch(r"[A-Za-z0-9+/=\s]+", roh):
+        # Die Schwelle gilt fuer Bloecke, die ZUFAELLIG gross sind. Traegt der
+        # Block die Marke data-wiki-anhang, ist er ausdruecklich als Anhang
+        # gemeint - dann wird er ausgegliedert, egal wie gross er ist. Genau
+        # das braucht der PDF-Baustein des Editors: ein PDF mit 30 KB ist
+        # trotzdem ein Anhang, und nur als Anhang laesst es sich anzeigen und
+        # seitenweise durchsuchen.
+        gewollt = "data-wiki-anhang" in auf.lower()
+        if not re.fullmatch(r"[A-Za-z0-9+/=\s]+", roh):
+            return m.group(0)
+        if len(roh) < schwelle and not gewollt:
             return m.group(0)
         typ, endung = typ_erkennen(roh[:10])
         marke_m = re.search(r'id=["\']([^"\']+)["\']', auf)
