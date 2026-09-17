@@ -60,6 +60,7 @@ const quellen = [
   /* edPruefbar liest im Normalfall die Felder der Seite. Hier laeuft es nur
      mit nurNachsehen=true - dann braucht es kein Dokument, nur ZUSTAND. */
   hol(/function edPruefbar\(nurNachsehen\)\{[\s\S]*?\n\}/, 'edPruefbar'),
+  hol(/function edGruppenWiederholt\(abschnitte\)\{[\s\S]*?\n\}/, 'edGruppenWiederholt'),
   'var ZUSTAND = {editor:null};',
 ].join('\n');
 
@@ -67,13 +68,15 @@ const { edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
         ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
         edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
         ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
-        edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, ZUSTAND } =
+        edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, edGruppenWiederholt,
+        ZUSTAND } =
   new Function(quellen + `
     return {edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
             ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
             edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
             ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
-            edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, ZUSTAND};`)();
+            edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, edGruppenWiederholt,
+            ZUSTAND};`)();
 
 /* Das Rechenwerk der erzeugten Seite - hier einzeln herausgeholt, damit die
    Formelauswertung geprueft werden kann, ohne einen Browser zu starten. */
@@ -728,6 +731,37 @@ pruefe('Die fertige Seite sagt, wenn zu einem PDF-Knopf nichts beiliegt', () => 
   assert.ok(zeile, 'der Hinweistext steht nicht in der Seite');
   assert.ok(zeile.includes('\\u201e'),
             'die Anfuehrung ist nicht als Escape gesetzt: ' + zeile);
+});
+
+/* ------------------------------------------------ N-24: geteilte Gruppen */
+function gr(namen){ return namen.map(g => ({gruppe: g})); }
+pruefe('Eine Gruppe, die getrennt wieder anfaengt, wird gemeldet', () => {
+  /* Reihenfolge Grundlagen, Anleitung, Grundlagen: das Verzeichnis fasst nur
+     aufeinanderfolgende Abschnitte, also stuende "Grundlagen" zweimal da.
+     Gemeldet wird Abschnitt 3 - Nummer 2, von null gezaehlt. */
+  const w = edGruppenWiederholt(gr(['Grundlagen', 'Anleitung', 'Grundlagen']));
+  assert.deepEqual([...w], [2]);
+});
+pruefe('Der erste Abschnitt einer Gruppe wird nie gemeldet', () => {
+  /* Sonst stuende an Abschnitt 1 "kommt weiter oben schon vor" - und
+     darueber steht nichts. */
+  const w = edGruppenWiederholt(gr(['Grundlagen', 'Anleitung', 'Grundlagen']));
+  assert.ok(!w.has(0), 'der erste Abschnitt wurde angemahnt');
+});
+pruefe('Zwei Abschnitte nebeneinander sind in Ordnung', () => {
+  const w = edGruppenWiederholt(gr(['Grundlagen', 'Grundlagen', 'Anleitung']));
+  assert.deepEqual([...w], [], 'nebeneinander ist genau der richtige Aufbau');
+});
+pruefe('Ohne Gruppen gibt es nichts zu melden', () => {
+  assert.deepEqual([...edGruppenWiederholt(gr(['', '', '']))], []);
+  assert.deepEqual([...edGruppenWiederholt([])], []);
+  /* Eine Luecke zwischen zwei gleichen Gruppen zaehlt: dazwischen steht dann
+     ein Abschnitt ohne Ueberschrift, und die Ueberschrift kommt wieder. */
+  assert.deepEqual([...edGruppenWiederholt(gr(['A', '', 'A']))], [2]);
+});
+pruefe('Mehrere Wiederholungen werden alle gemeldet', () => {
+  const w = edGruppenWiederholt(gr(['A', 'B', 'A', 'B', 'A']));
+  assert.deepEqual([...w], [2, 3, 4]);
 });
 
 console.log('');

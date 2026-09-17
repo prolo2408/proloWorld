@@ -1206,6 +1206,60 @@ Versuch, den neuen Weg wirklich zu gehen.
 
 ---
 
+## N-24 — Dieselbe Gruppe stand zweimal im Verzeichnis
+
+### Befund
+
+Gefunden an der Seite, die ich nach meinem eigenen KI-Prompt gebaut habe.
+Ihre vier Abschnitte tragen die Gruppen:
+
+```
+Grundlagen · Anleitung · Grundlagen · Wenn es klemmt
+```
+
+Das Verzeichnis links zeigte daraufhin gemessen:
+
+```
+Grundlagen → Was du vorher brauchst
+Anleitung  → Drucker anmelden
+Grundlagen → Aufwand und Kosten      ← dieselbe Überschrift zum zweiten Mal
+Wenn es klemmt → Wenn es klemmt
+```
+
+Das ist kein Fehler der Anzeige. `abschnittsleiste` fasst bewusst nur
+**aufeinanderfolgende** Abschnitte unter eine Überschrift, weil die
+Reihenfolge der Abschnitte die Aussage des Autors ist — sie umzusortieren
+wäre schlimmer. Der Aufbau ist also so gemeint, wie er dasteht. Nur hat ihn
+niemand so gemeint.
+
+### Behoben, wo es hingehört: beim Schreiben
+
+Der Editor sagt es jetzt beim Anlegen, an dem Abschnitt, der die Überschrift
+ein zweites Mal aufmacht:
+
+> „Grundlagen" kommt weiter oben schon vor, und dazwischen steht eine andere
+> Gruppe. Im Verzeichnis erscheint die Überschrift dann zweimal. Verschiebe
+> die Abschnitte nebeneinander — mit ↑ und ↓ oben.
+
+Warm, nicht rot, und **ohne Sperre**: Der Aufbau ist erlaubt, nur selten
+gewollt. Der Hinweis steht nur an der Wiederholung, nicht am ersten
+Abschnitt der Gruppe — dort wäre der Satz „kommt weiter oben schon vor"
+schlicht falsch. Dieselbe Regel steht auch im KI-Prompt, damit sie gar nicht
+erst entsteht.
+
+Ein Abschnitt **ohne** Gruppe zählt dabei als Trennung: Im Verzeichnis steht
+dort eine Lücke, und danach fängt die Überschrift wieder an. „A, ohne, A"
+zeigt „A" also genauso zweimal wie „A, B, A". Der erste Entwurf der Funktion
+hatte die leeren Gruppen weggefiltert und diesen Fall verschluckt — aufgefallen
+ist es an einem Test, den ich vorher von Hand berechnet hatte.
+
+Fünf Tests in `wiki/tests/test_editor.mjs`, drei Mutationsproben: falsche
+Nummer gemeldet → 3 rot, leere Gruppen wieder wegfiltern → 1 rot,
+Nachbarschaft ignorieren → 1 rot. Im Browser nachgesehen: genau ein Hinweis,
+an „Abschnitt 3 · Aufwand und Kosten".
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
