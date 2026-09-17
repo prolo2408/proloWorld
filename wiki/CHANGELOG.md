@@ -160,6 +160,45 @@ In der Verwaltung gab es eine Ablage zum Einspielen und in der Seitenleiste
 eine HTML-Datei" auf. Die Verwaltung ist für alle Seiten, Freigaben,
 Fassungen und Löschen da.
 
+### Neu: die Suche findet auch, was eine Seite beschreibt
+Gesucht wird jetzt zusätzlich im **Titel, im Satz darunter, im Pfad, in den
+Gruppen des Inhaltsverzeichnisses und in der Adresse** einer Seite. Vorher war
+eine Seite nur über ihren Inhalt zu finden — „Haushalt" oder „Grundlagen"
+ergaben nichts, obwohl beides oben auf der Seite steht.
+
+Die Trefferliste ist nach Seite gruppiert: Titel und Pfad als Kopf, darunter
+die Stellen (Seite, Abschnitte, Text, PDF-Anhänge) mit Marke, woher sie kommen.
+Der Fuß sagt, wie viele Seiten und Stellen es sind.
+
+Ein **leeres Suchfeld zeigt alle Seiten**, die du sehen darfst — alphabetisch.
+Dieselbe Liste liegt hinter *Alle Seiten* unter jeder Trefferliste. Wer das
+Wort nicht weiß, kommt so trotzdem hin.
+
+### Geändert: das Inhaltsverzeichnis hat Gruppen
+Jeder Abschnitt kann eine **Gruppe** bekommen („Grundlagen", „Adressierung").
+Links stehen dann Seitentitel, der Satz darunter und die Abschnitte unter
+ihren Gruppenüberschriften — der Aufbau, den eine gut gemachte Inhaltsseite
+selbst benutzt. Ohne Gruppen bleibt es eine einfache Liste.
+
+### Geändert: Seiten anlegen, mit vier Feldern statt elf
+Der Editor fragt zuerst nur nach **Titel** und **wohin die Seite gehört**.
+Adresse, Freigabe und der Satz darunter liegen unter *Mehr einstellen*;
+Gruppe, Stichworte und Anker unter *Mehr zu diesem Abschnitt*. **Speichern**
+klebt am unteren Rand und ist immer erreichbar, mit einer Zeile daneben, die
+sagt, was fehlt oder dass es bereit ist. Fehlende Pflichtfelder werden am Feld
+markiert und angesprungen.
+
+### Behoben: ein Titel ohne Längengrenze
+Ein Titel von 376 Zeichen machte den Kopf der Anwendung am Handy 523 Pixel
+hoch. Jetzt gilt: Titel und Abschnittstitel höchstens 120 Zeichen, der Satz
+300, Pfadebene und Stichwort je 60 — mit klarer Meldung statt stiller
+Kürzung. Und die Anzeige hält auch Seiten aus, die vorher schon da waren.
+
+### Behoben: der leere Zustand
+Ein frisches Wiki schickte den Nutzer „über die Verwaltung" — einen Knopf, den
+ein normaler Nutzer nicht hat, und einen Weg, den es nicht mehr gibt. Jetzt
+steht dort **Erste Seite anlegen**.
+
 ### Geprüft
 - Suche: reproduziert (null Treffer für „tcp" an einer Seite, die ihre
   Tabelle im Skript baut), behoben, beide Quellen einzeln nachgemessen.
@@ -181,7 +220,13 @@ Fassungen und Löschen da.
 - Kompletter Durchlauf als **normaler** Nutzer: Seite mit Rechner-Baustein
   anlegen, eigene Gruppe vergeben, speichern, lesen, suchen. Keine
   JS-Fehler.
-- 55 Editortests und 26 Servertests (`./tests/alle.sh`).
+- Suche: 22 Begriffe mit handgeschriebener Erwartung gegen fünf Seiten —
+  vorher 16, jetzt 22 Treffer wie erwartet.
+- Bedienung: sechs Ansichten × zwei Themen × drei Breiten (360, 768, 1920) =
+  36 Messungen ohne Überlauf, ohne Kontrastverletzung; 67 Klicks durch alle
+  Ansichten ohne Konsolenfehler; der Weg „neue Seite anlegen" als Nutzer ohne
+  Verwalterrechte durchgefahren.
+- 83 Editortests und 67 Servertests (`./tests/alle.sh`).
 
 ## Fassung 1.1.0
 

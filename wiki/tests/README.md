@@ -28,6 +28,7 @@ Oder beides zusammen:
 | `test_urheber.py` | Wer eine Seite ändern darf, und das Nachtragen der Spalte `urheber` in einer älteren Datenbank | N-13, N-15 |
 | `test_index.py` | Dass der Suchindex an Resten gelöschter Seiten nicht scheitert, und dass das Aufräumen nur Verwaistes trifft | N-16 |
 | `test_anhaenge.py` | Dass ein markierter Anhang ausgegliedert wird und beim Bearbeiten seine Registrierung behält | N-18 |
+| `test_suche.py` | Was die Suche finden muss — mit echtem Indexaufbau gegen eine kleine Datenbank | Suche, N-16 |
 | `test_editor.mjs` | Auszeichnung, Suchtext, Kennungen, Bausteine, Rechenwerk und die erzeugte Seite des Editors | Editor, N-14 |
 
 `test_seiten.py` prüft **die eigenen Dateien des Repositorys** mit derselben
@@ -80,6 +81,12 @@ zeigen, dass ein Test rot wird. Geprüft wurde so:
 | PDF: vorhandener Anhang wird nicht mehr genannt | 1 Test rot |
 | PDF: Dateiname nicht aus der Marke gelesen | 1 Test rot |
 | Anhänge: Marke beim Ausgliedern ignoriert | 1 Test rot |
+| Seitenkopf kommt nicht in den Index | 2 Tests rot |
+| Pfad fehlt im Kopftreffer | 1 Test rot |
+| Satz der Seite fehlt im Kopftreffer | 1 Test rot |
+| Gruppe fehlt am Abschnitt | 2 Tests rot |
+| Kopfschnipsel zeigt wieder den Suchstoff | 1 Test rot |
+| Titel-, Satz-, Pfad- und Stichwortgrenze ausgehebelt | je 1–3 Tests rot |
 
 Was die Tests hier **nicht** leisten, zeigt `N-15`: Die Reihenfolge von
 Handlungen am laufenden Server — anlegen, fremd speichern, wieder selbst
@@ -91,6 +98,28 @@ Die Mutationsprobe hat selbst einen Fehler gefunden: Der Kennungstest prüfte
 nur U- und O-Umlaut. Ohne die Zeile für den A-Umlaut wäre aus „Zählerstände"
 ein `zahlerstande` geworden, und der Test blieb grün. Der Fall steht jetzt
 drin.
+
+## Der Durchgang durch die Oberfläche
+
+Regelblatt §14a verlangt, jede Ansicht in beiden Themen bei drei Breiten
+anzusehen. Das lief mit Chromium über einen Stellvertreter, der die
+Authentik-Kopfzeilen setzt, und ist in den Commits belegt: sechs Ansichten ×
+zwei Themen × drei Breiten = 36 Messungen auf Überlauf, waagerechtes Scrollen
+und Kontrast, dazu 67 Klicks durch alle Ansichten.
+
+Wichtig dabei: **der Prüfer wurde gegengeprobt.** Ein absichtlich schlecht
+lesbarer Text (Kontrast 1,23) und ein absichtlich 3000 px breiter Kasten
+wurden gemeldet — ohne diese Gegenprobe hätte „keine Verletzung gefunden"
+auch heißen können, dass der Prüfer nichts ansieht.
+
+Zwei Lehren aus dem Durchgang für den nächsten:
+
+- Chrome legt den Inhalt eines geschlossenen `<details>` weiter aus
+  (`content-visibility` statt `display:none`). `getBoundingClientRect()`
+  allein sagt also nicht, ob ein Feld sichtbar ist.
+- Ein Überlauf **innerhalb** eines Bereichs mit `overflow-y:auto` erzeugt
+  kein waagerechtes Scrollen des Dokuments. Wer nur `scrollWidth` des
+  Dokuments prüft, sieht ihn nicht.
 
 ## Was hier **nicht** geprüft wird
 
