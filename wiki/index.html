@@ -731,7 +731,7 @@ function baumZeichnen(){
 
   if(!ZUSTAND.baum.length){
     ziel.innerHTML = `<div style="padding:14px 10px;font-size:13px;color:var(--ink-3)">
-      Noch keine Seite eingespielt.</div>`;
+      Noch keine Seite. Über <strong>Neue Seite</strong> geht es los.</div>`;
     return;
   }
   ZUSTAND.baum.forEach(k => ziel.appendChild(knoten(k, 0, [k.name])));
@@ -999,6 +999,13 @@ function trefferZeichnen(q, ms, statt){
   ziel.dataset.offen = '1';
   $('suchfeld').setAttribute('aria-expanded', 'true');
 }
+function ersteSeiteVerdrahten(){
+  const k = $('erste-seite');
+  if(k) k.onclick = () => {
+    history.pushState(null, '', '#/neu');
+    editor(null);
+  };
+}
 function alleSeitenZeigen(){
   /* Wer das Wort nicht weiss, soll trotzdem hinkommen: die vollstaendige
      Liste aller Seiten, die dieser Nutzer sehen darf - aus dem Themenbaum,
@@ -1026,7 +1033,8 @@ function alleSeitenZeigen(){
       ${s.kurz ? `<span class="aus">${schuetzen(s.kurz)}</span>` : ''}
     </button>`).join('') ||
     `<div style="padding:16px 14px;font-size:13px;color:var(--ink-3)">
-      Noch keine Seite da. Über <strong>Neue Seite</strong> geht es los.</div>`;
+      Noch keine Seite da. Über <strong>Neue Seite</strong> in der linken
+      Leiste geht es los.</div>`;
   ziel.querySelectorAll('.treffer-zeile').forEach(b =>
     b.onclick = () => trefferWaehlen(+b.dataset.i));
   ziel.dataset.offen = '1';
@@ -1140,7 +1148,13 @@ async function start(){
       <div>
         <div class="label" style="margin-bottom:8px">Themen</div>
         <div class="raster" style="grid-template-columns:repeat(auto-fill,minmax(210px,1fr))">
-          ${themen || '<div class="karte"><h3>Noch leer</h3><div class="kontext">Spiel über die Verwaltung die erste Seite ein.</div></div>'}
+          ${themen || `<div class="karte">
+            <h3>Noch keine Seite</h3>
+            <div class="kontext">Eine Wissenssammlung fängt mit einer Seite an.
+              Titel, ein Abschnitt, speichern — der Rest kommt später.</div>
+            <div style="margin-top:14px">
+              <button class="knopf" id="erste-seite">Erste Seite anlegen</button>
+            </div></div>`}
         </div>
       </div>
       <div class="raster" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
@@ -1155,6 +1169,7 @@ async function start(){
     b.onclick = () => oeffnen(b.dataset.slug, b.dataset.anker || ''));
   $('flaeche').querySelectorAll('[data-thema]').forEach(b =>
     b.onclick = () => { $('suchfeld').focus(); });
+  ersteSeiteVerdrahten();
 }
 function zaehlen(k){
   return (k.seiten||[]).length + (k.kinder||[]).reduce((s,x) => s + zaehlen(x), 0);
