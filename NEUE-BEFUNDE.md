@@ -1260,6 +1260,38 @@ an „Abschnitt 3 · Aufwand und Kosten".
 
 ---
 
+## N-25 — Eine Klasse wurde benutzt, hatte aber keine Regel
+
+### Befund
+
+Die Erfolgsmeldung im PDF-Baustein — *„kompendium.pdf ausgewählt, wird beim
+Speichern angehängt"* — steht in `<span class="ed-gut">`. Zu dieser Klasse gab
+es im ganzen Stilblock keine Regel. Gemessen im Browser:
+
+| | Farbe | Größe | Fett |
+|---|---|---|---|
+| `.ed-gut` | `oklch(0.3 0.01 250)` | 14 px | 400 |
+| `body` | `oklch(0.3 0.01 250)` | 14 px | 400 |
+| `.ed-merke` (der Hinweis daneben) | `oklch(0.52 0.01 250)` | 11,5 px | 400 |
+
+Zeichen für Zeichen dasselbe wie gewöhnlicher Fließtext — und **größer und
+dunkler** als die Hinweise ringsherum. Die eine Zeile, die den Erfolg bestätigt,
+sah damit aus wie ein Satz, der vergessen wurde, und drängte sich optisch vor
+die Erklärungen. Eine Prüfung im Browser hätte sie auch gefunden; gesucht habe
+ich sie erst, weil im Quelltext eine Klasse ohne Regel stand.
+
+### Behoben
+
+`.ed-gut{font-size:12px;color:var(--good);font-weight:500}` — grün, etwas
+kleiner als Fließtext, halbfett. Nachgemessen: `oklch(0.45 0.14 158)`, 12 px,
+500. Damit liest sich die Zeile als Bestätigung, nicht als Absatz.
+
+Geprüft wurde beides mit derselben Messung, vor und nach der Änderung, und
+zusätzlich, ob überhaupt eine Regel für den Selektor existiert
+(`regelVorhanden`: vorher `false`, nachher `true`).
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
