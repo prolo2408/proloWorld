@@ -436,6 +436,10 @@ GRENZE_TITEL = 120
 GRENZE_KURZ = 300
 GRENZE_PFADTEIL = 60
 GRENZE_STICHWORT = 60
+# Wie viel sichtbarer Text im Koerper mindestens stehen muss, damit eine Seite
+# als Seite gilt (N-23). Vierzig Zeichen sind eine halbe Zeile - darunter
+# bekommt der Leser nichts, egal wie voll der Meta-Block ist.
+GRENZE_SICHTBAR = 40
 
 SKRIPT_TEXT_GRENZE = 60000
 # Wie viel Text eine Seite von sich selbst melden darf. 200 000 Zeichen sind
@@ -749,7 +753,45 @@ def regeln_pruefen(html, meta):
         warnungen.append("Der Pflichtblock aus Regelblatt 8.1 fehlt "
                          "(focus-visible, prefers-reduced-motion).")
 
+    # Steht im Koerper ueberhaupt etwas? Ein voller Meta-Block mit leerem
+    # <body> ging vorher fehlerfrei durch (N-23): die Seite landete im
+    # Themenbaum, die Suche fand ihre Abschnitte - und der Leser bekam eine
+    # weisse Flaeche. Gemessen: 3703 Byte Datei, 0 Zeichen sichtbarer Text.
+    #
+    # Eine Ausnahme braucht es: Seiten, die ihren Inhalt erst im Browser
+    # bauen, sind ausdruecklich erlaubt (siehe N-11). Traegt die Seite also
+    # einen ausfuehrbaren Skriptblock, wird nichts beanstandet - lieber keine
+    # Beanstandung als eine falsche.
+    sichtbar = re.sub(r"(?is)<(script|style|template)\b[^>]*>.*?</\1\s*>", " ", koerper_von(html))
+    sichtbar = re.sub(r"(?s)<!--.*?-->", " ", sichtbar)
+    sichtbar = re.sub(r"(?s)<[^>]*>", " ", sichtbar)
+    sichtbar = re.sub(r"\s+", " ", sichtbar).strip()
+    baut_selbst = any(
+        inhalt.strip() and not re.search(
+            r'(?i)type\s*=\s*["\']?(?:application/(?:ld\+)?json|text/plain)', attr)
+        for attr, inhalt in re.findall(r"(?is)<script\b([^>]*)>(.*?)</script\s*>", html))
+    if len(sichtbar) < GRENZE_SICHTBAR and not baut_selbst:
+        fehler.append(
+            f"Im <body> steht fast kein sichtbarer Text ({len(sichtbar)} Zeichen). "
+            "Der Meta-Block allein ist keine Seite: Themenbaum und Suche haetten "
+            "Eintraege, der Leser eine leere Flaeche. Wenn die Datei nur als "
+            "Entwurf gedacht war, lade sie in den Editor - er baut die Seite "
+            "aus dem Meta-Block.")
+
     return fehler, warnungen
+
+
+def koerper_von(html):
+    """Der Inhalt zwischen <body> und </body>, oder alles, wenn es kein body gibt.
+
+    Ohne <body> ist die Datei kein vollstaendiges HTML - dann wird sie ganz
+    betrachtet, statt sie durchzuwinken.
+    """
+    m = re.search(r"(?is)<body[^>]*>(.*)</body\s*>", html)
+    if m:
+        return m.group(1)
+    m = re.search(r"(?is)<body[^>]*>(.*)$", html)
+    return m.group(1) if m else html
 
 
 def sicherheit_pruefen(html):

@@ -1580,6 +1580,22 @@ function berichtZeichnen(b){
     teile.push(`<div class="meldung fehler"><strong>Nicht übernehmbar</strong><ul
       style="margin:6px 0 0 18px;padding:0">${b.fehler.map(f =>
       `<li>${schuetzen(f)}</li>`).join('')}</ul></div>`);
+    /* Die Datei lässt sich nicht einspielen, WIE SIE IST. Ihr Inhalt ist
+       aber lesbar, sobald der Meta-Block steht - und der Editor baut
+       Gestaltung, Pflichtteil und Farben selbst neu. Genau dafür ist der
+       Weg über den Editor da: Er räumt die meisten dieser Fehler auf,
+       ohne dass jemand HTML anfassen muss. Vorher endete hier die Strecke -
+       und genau das trifft jeden Entwurf, der noch keine Seite ist (N-23). */
+    if(b.meta){
+      teile.push(`<div class="meldung"><strong>Aber der Inhalt ist
+        lesbar</strong>
+        <div style="margin-top:4px">Titel, Abschnitte und Text stehen in der
+        Datei. Wenn du sie in den Editor lädst, baut das Wiki Gestaltung und
+        Technik selbst — die Fehler oben betreffen genau diesen Teil und
+        sind danach weg.</div>
+        <div style="margin-top:12px"><button class="knopf"
+          id="editor-knopf">In den Editor laden</button></div></div>`);
+    }
   } else {
     const gespart = b.groesse_vorher_b - b.groesse_nachher_b;
     teile.push(`<div class="meldung gut"><strong>${schuetzen(m.titel||'')}</strong>

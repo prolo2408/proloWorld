@@ -1130,6 +1130,82 @@ weil niemand ihn melden kann.
 
 ---
 
+## N-23 — Ein voller Meta-Block mit leerem `<body>` galt als fehlerfreie Seite
+
+### Befund
+
+Gefunden beim Bau des KI-Prompts: Ich habe eine Datei geschrieben, wie sie
+eine KI liefern würde — Meta-Block mit Titel, vier Abschnitten, Markup,
+Stichworten, und ein leerer `<body>`. Die Prüfung sagte:
+
+```
+fehler: []
+warnungen: [6 Hinweise]
+```
+
+Und `/api/import` sagte `"ok": true`. Danach:
+
+| Was | Ergebnis |
+|---|---|
+| Datei auf dem Server | 3703 Byte |
+| Sichtbarer Text im Körper | **0 Zeichen** |
+| Im Themenbaum | ja, unter Technik / Geräte |
+| Suche nach „Buchse" | ein Treffer, mit Schnipsel |
+| Was der Leser sieht | eine weiße Fläche |
+
+Das ist der schlechteste Zustand von allen: Die Seite ist **auffindbar und
+leer**. Wer den Treffer anklickt, denkt, das Wiki sei kaputt.
+
+Die Ursache ist eine Lücke in `regeln_pruefen`: Sie prüft den Meta-Block sehr
+genau (Slug, Titellänge, Anker, Stichwortlängen, Farben, externe Verweise) —
+aber nie, ob im Körper überhaupt etwas steht. Die Prüfung nimmt den Meta-Block
+für die Seite.
+
+### Behoben
+
+**Der Körper muss etwas hergeben.** Weniger als 40 Zeichen sichtbarer Text
+(ohne Skripte, Stile, Kommentare und Marken) ist jetzt ein Fehler, nicht eine
+Warnung — mit der Zahl in der Meldung und dem Weg heraus: *„Wenn die Datei nur
+als Entwurf gedacht war, lade sie in den Editor — er baut die Seite aus dem
+Meta-Block."*
+
+**Eine Ausnahme, bewusst:** Seiten, die ihren Inhalt erst im Browser bauen,
+sind ausdrücklich erlaubt — genau darum ging `N-11`. Trägt die Datei einen
+ausführbaren Skriptblock, wird nichts beanstandet. Der Meta-Block
+(`application/json`) und ein Anhang (`text/plain`) zählen dabei **nicht** als
+Code, sonst würde die Ausnahme jede Datei decken: der Meta-Block ist in jeder
+drin. Lieber keine Beanstandung als eine falsche.
+
+**Und der Weg heraus wurde erst gebaut.** Vorher bot der Bericht *In den
+Editor laden* nur an, wenn die Prüfung **keine** Fehler fand. Das ist genau
+verkehrt: Der Editor baut Gestaltung, Pflichtteil und Farben selbst neu — er
+räumt diese Fehler auf. Jetzt steht der Knopf da, sobald der Meta-Block
+lesbar ist, mit der Erklärung, warum die Fehler danach weg sind.
+
+### Ausgeführt
+
+Der ganze Weg im Browser, nicht im Kopf: Entwurf hochgeladen → *Nicht
+übernehmbar* mit dem neuen Fehler, kein *Übernehmen*-Knopf → *In den Editor
+laden* → 4 Abschnitte, 7 Blöcke (Text, Schritte, Kennzahlen, Rechner, Text,
+PDF, Text), Titel, Pfad, Kennung und Satz gefüllt → PDF ausgewählt →
+gespeichert → das Verzeichnis links zeigt die Abschnitte → der PDF-Knopf in
+der Seite öffnet `anhang-kompendium.pdf#page=12`. Der Rechnerblock zeigte in
+der lebenden Vorschau **20** — 500 × 0,04 = 20, von Hand nachgerechnet.
+
+Neun Tests in `wiki/tests/test_seiten.py`, vier Mutationsproben: Prüfung aus
+→ 7 rot, Grenze um eins verschoben → der Grenzfall rot, Ausnahme für
+Aufbaucode entfernt → die JS-Seite rot, jede Skriptart als Aufbaucode → 7 rot.
+
+### Was daraus folgt
+
+Die Prüfung war gründlich in allem, was im Meta-Block steht — und blind für
+die Frage, ob die Seite eine Seite ist. Dasselbe Muster wie `N-05`, `N-06`,
+`N-08` und `N-10`: Jede einzelne Prüfung war richtig, keine hat gefragt, was
+am Ende beim Menschen ankommt. Gefunden hat es nicht die Prüfung, sondern der
+Versuch, den neuen Weg wirklich zu gehen.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
