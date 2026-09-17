@@ -26,13 +26,27 @@ const quellen = [
   hol(/const ED_BAUSTEINE = \{[\s\S]*?\n\};/, 'ED_BAUSTEINE'),
   hol(/function edBaustein\(art, titel, zeilen\)\{[\s\S]*?\n\}/, 'edBaustein'),
   hol(/const ED_STIL_BAUSTEINE = \[[\s\S]*?\]\.join\('\\n'\);/, 'ED_STIL_BAUSTEINE'),
-  hol(/const ED_RECHENWERK = \[[\s\S]*?\]\.join\('\\n'\);/, 'ED_RECHENWERK'),
+  /* Das Rechenwerk steht seit der CSP-Probe als echte Funktion in der Huelle
+     (kein new Function mehr, das verbietet die CSP). ED_RECHENWERK baut sich
+     daraus mit toString() - also muessen hier beide Teile herausgeholt
+     werden, sonst faellt die Auswertung auf eine leere Zeichenkette. */
+  hol(/function bkRechnen\(formel, werte\)\{[\s\S]*?\n\}/, 'bkRechnen'),
+  hol(/function bkZahl\(x\)\{[\s\S]*?\n\}/, 'bkZahl'),
+  hol(/function bkRechnerStarten\(wurzel\)\{[\s\S]*?\n\}/, 'bkRechnerStarten'),
+  hol(/const ED_RECHENWERK = \[[\s\S]*?\}\)\)\.join\('\\n'\);/, 'ED_RECHENWERK'),
   hol(/const ED_HALT = [^\n]+/, 'ED_HALT'),
   hol(/function edEscape\(s\)\{[\s\S]*?\n\}/, 'edEscape'),
   hol(/function edInline\(s\)\{[\s\S]*?\n\}/, 'edInline'),
   hol(/function edBloecke\(text\)\{[\s\S]*?\n\}/, 'edBloecke'),
   hol(/function edNurText\(text\)\{[\s\S]*?\n\}/, 'edNurText'),
   hol(/function edSlug\(s\)\{[\s\S]*?\n\}/, 'edSlug'),
+  hol(/const ED_FORM = \{[\s\S]*?\n\};/, 'ED_FORM'),
+  hol(/function edBlockNeu\(art\)\{[\s\S]*?\n\}/, 'edBlockNeu'),
+  hol(/function edMarkupZuBloecken\(markup\)\{[\s\S]*?\n\}/, 'edMarkupZuBloecken'),
+  hol(/function edBlockLesen\(art, titel, zeilen\)\{[\s\S]*?\n\}/, 'edBlockLesen'),
+  hol(/function edBlockZuZeilen\(b\)\{[\s\S]*?\n\}/, 'edBlockZuZeilen'),
+  hol(/function edBloeckeZuMarkup\(bloecke\)\{[\s\S]*?\n\}/, 'edBloeckeZuMarkup'),
+  hol(/function edBlockHtml\(b\)\{[\s\S]*?\n\}/, 'edBlockHtml'),
   /* ED_STIL endet seit den Bausteinen nicht mehr mit join, sondern haengt
      ED_STIL_BAUSTEINE an - das Muster muss das treffen, sonst frisst es den
      naechsten Block mit und der wird doppelt erklaert. */
@@ -45,11 +59,15 @@ const quellen = [
 
 const { edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
         ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
-        edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE } =
+        edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
+        ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
+        edBlockZuZeilen, edBlockHtml } =
   new Function(quellen + `
     return {edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
             ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
-            edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE};`)();
+            edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
+            ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
+            edBlockZuZeilen, edBlockHtml};`)();
 
 /* Das Rechenwerk der erzeugten Seite - hier einzeln herausgeholt, damit die
    Formelauswertung geprueft werden kann, ohne einen Browser zu starten. */
@@ -397,6 +415,129 @@ pruefe('Die erzeugte Seite bringt Stil und Rechenwerk mit', () => {
   assert.ok(s.includes('bkRechnen'), 'ohne Rechenwerk rechnet nichts');
   assert.ok(s.includes('bkRechnerStarten()'), 'das Rechenwerk wird nicht gestartet');
   assert.ok(s.includes('.bk-erg-wert'), 'der Stil der Bausteine fehlt');
+});
+
+/* ------------------------------------------------ Blockmodell des Editors
+   Der Editor arbeitet blockweise, gespeichert wird weiter Markup. Beide
+   Richtungen muessen stimmen, sonst ist "Bearbeiten" ein Datenverlust. */
+pruefe('Text ohne Baustein wird ein Textblock', () => {
+  const b = edMarkupZuBloecken('Satz eins.\n\nSatz zwei.');
+  assert.equal(b.length, 1);
+  assert.equal(b[0].art, 'text');
+  assert.equal(b[0].text, 'Satz eins.\n\nSatz zwei.');
+});
+pruefe('Leeres Markup ergibt trotzdem einen Block', () => {
+  // Sonst stuende der Editor ohne Eingabefeld da.
+  const b = edMarkupZuBloecken('');
+  assert.equal(b.length, 1);
+  assert.equal(b[0].art, 'text');
+  assert.equal(b[0].text, '');
+});
+pruefe('Text und Baustein werden getrennt', () => {
+  const b = edMarkupZuBloecken('Davor.\n\n:::klapp Warum?\nWeil.\n:::\n\nDanach.');
+  assert.deepEqual(b.map(x => x.art), ['text', 'klapp', 'text']);
+  assert.equal(b[0].text, 'Davor.');
+  assert.equal(b[1].titel, 'Warum?');
+  assert.equal(b[1].text, 'Weil.');
+  assert.equal(b[2].text, 'Danach.');
+});
+pruefe('Schritte werden Zeilen mit zwei Spalten', () => {
+  const b = edMarkupZuBloecken(
+    ':::schritte Anschliessen\nStrom | Kabel rein.\nNetz | Dose links.\n:::');
+  assert.equal(b[0].art, 'schritte');
+  assert.deepEqual(b[0].zeilen, [['Strom', 'Kabel rein.'], ['Netz', 'Dose links.']]);
+});
+pruefe('Kennzahlen haben drei Spalten, fehlende werden leer', () => {
+  const b = edMarkupZuBloecken(':::kennzahlen Blick\nMTU | 1500\n:::');
+  assert.deepEqual(b[0].zeilen, [['MTU', '1500', '']]);
+});
+pruefe('Rechner wird in Felder, Formel und Einheit zerlegt', () => {
+  const b = edMarkupZuBloecken(':::rechner Kosten\nVerbrauch in kWh = 18\n' +
+    'Preis je kWh = 0,32\n= Verbrauch * Preis\nEinheit: \u20ac\nEin Hinweis.\n:::');
+  assert.equal(b[0].art, 'rechner');
+  assert.deepEqual(b[0].felder, [{name: 'Verbrauch in kWh', wert: '18'},
+                                 {name: 'Preis je kWh', wert: '0,32'}]);
+  assert.equal(b[0].formel, 'Verbrauch * Preis');
+  assert.equal(b[0].einheit, '\u20ac');
+  assert.equal(b[0].hinweis, 'Ein Hinweis.');
+});
+pruefe('Unbekannte Art bleibt als Text erhalten', () => {
+  // Nichts darf beim Bearbeiten verschluckt werden.
+  const b = edMarkupZuBloecken(':::flugzeug Titel\nInhalt\n:::');
+  assert.equal(b[0].art, 'text');
+  assert.ok(b[0].text.includes('Inhalt'), b[0].text);
+  assert.ok(b[0].text.includes(':::flugzeug Titel'), b[0].text);
+});
+pruefe('Rundlauf: Markup bleibt Markup', () => {
+  const m = 'Davor.\n\n:::schritte Anschliessen\nStrom | Kabel rein.\n' +
+            'Netz | Dose links.\n:::\n\n:::rechner Kosten\nkWh = 18\n' +
+            '= kWh * 2\nEinheit: \u20ac\n:::\n\nDanach.';
+  assert.equal(edBloeckeZuMarkup(edMarkupZuBloecken(m)), m);
+});
+pruefe('Leere Zeilen und Felder fallen beim Speichern weg', () => {
+  const b = edBlockNeu('schritte');          // zwei leere Zeilen
+  b.titel = 'Titel';
+  b.zeilen[0] = ['Strom', 'Kabel rein.'];
+  const m = edBloeckeZuMarkup([b]);
+  assert.equal(m, ':::schritte Titel\nStrom | Kabel rein.\n:::');
+});
+pruefe('Ein leerer Block erzeugt kein leeres Markup', () => {
+  assert.equal(edBloeckeZuMarkup([edBlockNeu('text')]), '');
+});
+pruefe('Ein leerer Block zwischen zwei vollen hinterlaesst keine Luecke', () => {
+  /* Die Mutationsprobe hat gezeigt, dass der Test oben allein nichts
+     beweist: ein einzelner leerer Block ergibt so oder so eine leere
+     Zeichenkette. Erst in der Mitte faellt auf, ob er wirklich wegfaellt. */
+  const a = edBlockNeu('text'); a.text = 'Davor.';
+  const c = edBlockNeu('text'); c.text = 'Danach.';
+  assert.equal(edBloeckeZuMarkup([a, edBlockNeu('text'), c]), 'Davor.\n\nDanach.');
+});
+pruefe('Jede Blockart im Kasten hat Name und Hilfe', () => {
+  for (const [art, f] of Object.entries(ED_FORM)) {
+    assert.ok(f.name && f.hilfe, art + ' unvollstaendig');
+    // Die Zeilenarten brauchen Spaltennamen, sonst steht im Formular nichts.
+    if (!['text', 'klapp', 'rechner'].includes(art))
+      assert.ok((f.spalten || []).length >= 2, art + ' ohne Spalten');
+  }
+});
+pruefe('Die Vorschau benutzt denselben Erzeuger wie die Seite', () => {
+  const b = edBlockNeu('schritte');
+  b.zeilen = [['Strom', 'Kabel rein.'], ['Netz', 'Dose links.']];
+  const h = edBlockHtml(b);
+  assert.equal(h, edBaustein('schritte', '', ['Strom | Kabel rein.', 'Netz | Dose links.']));
+  assert.equal((h.match(/<li>/g) || []).length, 2);
+  /* Ein Satz allein taugt als Beweis nicht: den bekommt auch ein
+     selbstgebautes <p> hin (Mutationsprobe). Also Text, bei dem sich der
+     echte Erzeuger zeigen MUSS - Titel, Auszeichnung, und ein <b>, das
+     Text bleiben muss. */
+  const t = edBlockNeu('text');
+  t.text = '## Titel\n\nEin <b>Satz</b> mit **fett**.';
+  const ht = edBlockHtml(t);
+  assert.equal(ht, edBloecke(t.text));
+  assert.ok(ht.includes('<h3'), 'kein Titel: ' + ht);
+  assert.ok(ht.includes('<b>fett</b>'), 'nicht ausgezeichnet: ' + ht);
+  assert.ok(ht.includes('&lt;b&gt;Satz&lt;/b&gt;'), 'HTML nicht geschuetzt: ' + ht);
+});
+pruefe('Das Rechenwerk der Seite ist dasselbe wie hier', () => {
+  /* ED_RECHENWERK entsteht aus toString() der echten Funktionen. Waere es
+     eine zweite, abgeschriebene Fassung, koennte die Vorschau anders
+     rechnen als die Seite. */
+  assert.ok(ED_RECHENWERK.includes('function bkRechnen'), 'bkRechnen fehlt');
+  assert.ok(ED_RECHENWERK.includes('function bkZahl'), 'bkZahl fehlt');
+  assert.ok(ED_RECHENWERK.includes('function bkRechnerStarten'), 'Starter fehlt');
+  const zweit = new Function(ED_RECHENWERK + '\nreturn bkRechnen;')();
+  assert.equal(zweit('18 * 0,32', {}), bkRechnen('18 * 0,32', {}));
+  assert.equal(zweit('18 * 0,32', {}), 5.76);
+});
+pruefe('Die Huelle wertet nichts mit eval oder new Function aus', () => {
+  /* Der Browser hat genau das abgelehnt: die CSP der Huelle hat kein
+     "unsafe-eval", und das soll so bleiben. Eine Vorschau ist kein Grund,
+     sie aufzuweichen. Geprueft wird die Datei, nicht der Gedanke. */
+  const ohneKommentare = quelle
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^\s*\/\/.*$/gm, ' ');
+  const treffer = ohneKommentare.match(/new Function\s*\(|[^.\w]eval\s*\(/g) || [];
+  assert.deepEqual(treffer, [], 'in der Huelle steht: ' + treffer.join(', '));
 });
 
 console.log('');

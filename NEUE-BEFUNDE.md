@@ -855,6 +855,57 @@ leerem Stand prüft die halbe Welt.
 
 ---
 
+## N-17 — `new Function` in der Hülle: die eigene CSP hat es verboten, zu Recht
+
+**Stufe:** hoch, aber nur in meinem eigenen Zwischenstand
+**Datei:** `wiki/index.html`
+**Gefunden bei:** Browserprobe des Blockeditors
+
+Die lebende Vorschau im Editor soll einen Rechner-Baustein wirklich rechnen
+lassen. Das Rechenwerk lag als Liste von Zeichenketten vor (es wird in die
+erzeugte Seite geschrieben), und der naheliegende Griff war:
+
+```js
+const BK = new Function(ED_RECHENWERK + 'return {bkRechnen, bkZahl};')();
+```
+
+Der Browser hat das sofort abgelehnt:
+
+```
+Uncaught EvalError: Refused to evaluate a string as JavaScript because
+'unsafe-eval' is not an allowed source of script in the following Content
+Security Policy directive: "script-src 'self' 'unsafe-inline'"
+```
+
+Das ist die CSP, die die Hülle aus der Prüfung vom 14.09.2026 mitbekommen
+hat — sie ist keine Formsache. Und die Folge war dieselbe wie bei `N-14`:
+Der Fehler steht auf oberster Ebene, das ganze Skript stirbt beim Laden, das
+Wiki zeigt **nichts**. Danach kam nur noch ein Folgefehler
+(`Cannot access 'ED_FORM' before initialization`), der nichts erklärte.
+
+Die naheliegende Reparatur wäre `'unsafe-eval'` in die CSP gewesen — für eine
+Vorschau. Das ist die falsche Richtung: Die Hülle darf die Wiki-API im eigenen
+Origin benutzen; sie ist genau der Ort, an dem `eval` nichts zu suchen hat.
+
+**Behoben, und dabei besser geworden:** Das Rechenwerk steht jetzt **einmal**
+als echte Funktion in der Hülle. Die Hülle ruft sie direkt auf, und die
+erzeugte Seite bekommt ihren Quelltext über `toString()`. Damit rechnet die
+Vorschau nicht nur genauso wie die Seite — es ist derselbe Code, und das lässt
+sich prüfen (ein Test wertet `ED_RECHENWERK` aus und vergleicht das Ergebnis
+mit dem der Funktion in der Hülle).
+
+Dazu eine Prüflinie auf die Datei selbst: In `wiki/index.html` darf
+`new Function(` oder `eval(` **nicht** vorkommen. Kommentare zählen nicht mit,
+sonst wäre dieser Absatz sein eigener Fehler.
+
+**Was daraus folgt:** Zweimal in dieser Reihe (`N-14`, `N-17`) hat ein Fehler
+auf oberster Skriptebene die ganze Oberfläche gekostet, und zweimal war das
+Ergebnis der Tests grün. Eine Oberfläche ist erst geprüft, wenn sie im Browser
+**geladen** wurde. Und: Eine Regel, die im Weg steht, ist erst einmal ein
+Hinweis — nicht ein Hindernis, das man wegräumt.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

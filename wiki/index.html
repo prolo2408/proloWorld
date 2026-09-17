@@ -344,12 +344,50 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
 .ed-kopf{display:flex;align-items:center;gap:10px;margin-bottom:10px}
 .ed-zeile{display:flex;gap:10px;flex-wrap:wrap}
 .ed-klein{height:30px;padding:0 9px;font-size:13px;line-height:1}
-/* Bausteinkasten: die Knopfreihe unter dem Textfeld. Mit viel Text allein
-   kommt man nicht weit - hier steht, was die Seite noch kann. */
+/* Bausteinkasten: die Knopfreihe, die einen neuen Block anhaengt. */
 .ed-kasten{display:flex;flex-wrap:wrap;gap:6px;align-items:center;
-  margin-top:8px;padding:8px 10px;border-radius:10px;background:var(--bg);
+  margin-top:10px;padding:8px 10px;border-radius:10px;background:var(--bg);
   border:1px solid var(--line-soft)}
 .ed-kasten .label{margin-right:4px}
+
+/* ---------- Blockkarten im Editor ----------
+   Links das Formular, rechts das fertige Ergebnis. Der Sinn der Aufteilung:
+   man sieht sofort, was entsteht, statt sich Markup vorzustellen. */
+.ed-bloecke{display:grid;gap:10px;margin-top:12px}
+.ed-block{border:1px solid var(--line);border-radius:12px;background:var(--bg);
+  overflow:hidden}
+.ed-block-kopf{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:8px 12px;background:var(--surface);
+  border-bottom:1px solid var(--line)}
+.ed-art{font-size:12.5px;font-weight:600;color:var(--ink)}
+.ed-block-hilfe{font-size:12px;color:var(--ink-3);min-width:0;flex:1 1 140px}
+.ed-block-knoepfe{display:flex;gap:4px;margin-left:auto;flex:0 0 auto}
+.ed-block-leib{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  gap:0}
+.ed-block-form{padding:12px;min-width:0}
+.ed-block-erg{padding:12px;min-width:0;border-left:1px solid var(--line);
+  background:var(--surface)}
+.ed-erg{margin-top:6px}
+/* Das Ergebnis ist die fertige Seite im Kleinen: die Bausteinklassen gelten
+   hier genauso, damit die Vorschau nicht anders aussieht als die Seite. */
+.ed-erg > :first-child{margin-top:0}
+.ed-erg > :last-child{margin-bottom:0}
+.ed-reihe{display:flex;gap:6px;align-items:center;margin-top:6px}
+.ed-reihe input{min-width:0;flex:1 1 90px}
+.ed-reihe .ed-schmal{flex:0 0 84px;max-width:84px;text-align:right}
+.ed-merke{font-size:11.5px;color:var(--ink-3);margin-top:4px;line-height:1.45}
+.ed-einsetzer{display:flex;flex-wrap:wrap;gap:5px;align-items:center;
+  margin-top:8px}
+.ed-kurzhilfe{margin-top:8px}
+.ed-kurzhilfe summary{cursor:pointer;font-size:12.5px;color:var(--accent-ink)}
+.ed-kurzhilfe table{border-collapse:collapse;margin-top:8px;font-size:12.5px}
+.ed-kurzhilfe th{text-align:left;font-weight:400;color:var(--ink-2);
+  padding:3px 12px 3px 0;white-space:nowrap;font-size:12px}
+.ed-kurzhilfe td{color:var(--ink-3);padding:3px 0}
+@media (max-width:860px){
+  .ed-block-leib{grid-template-columns:minmax(0,1fr)}
+  .ed-block-erg{border-left:0;border-top:1px solid var(--line)}
+}
 .flaeche textarea{width:100%;box-sizing:border-box;
   font-family:'JetBrains Mono',ui-monospace,Consolas,monospace;
   font-size:13px;line-height:1.6;padding:10px 12px;border-radius:10px;
@@ -1771,84 +1809,107 @@ const ED_STIL_BAUSTEINE = [
 '}'
 ].join('\n');
 
+/* ---------------------------------------------------- Rechenwerk
+   Der Auswerter fuer den Baustein "rechner". KEIN eval: er kennt Zahlen,
+   Feldnamen, + - * / ( ) und nichts weiter. Damit kann aus einer Formel
+   niemals Code werden - auch dann nicht, wenn die Seite aus fremder Quelle
+   kommt.
+
+   Die drei Funktionen stehen EINMAL hier, als echte Funktionen:
+   - die Huelle ruft sie direkt auf, fuer die lebende Vorschau im Editor,
+   - die erzeugte Seite bekommt ihren Quelltext ueber toString().
+
+   Vorher war das Rechenwerk eine Liste von Zeichenketten, die die Huelle
+   mit new Function() zum Leben gebracht haette. Das verbietet ihre CSP zu
+   Recht ("unsafe-eval" steht nicht drin und soll nicht hinein) - der
+   Browser hat es beim ersten Versuch sofort abgelehnt und damit das ganze
+   Skript umgeworfen. Eine Vorschau ist kein Grund, die CSP aufzuweichen. */
+
+function bkRechnen(formel, werte){
+  var t = String(formel || ""), pos = 0;
+  function raum(){ while(pos < t.length && /\s/.test(t[pos])) pos++; }
+  function wert(){
+    raum();
+    var m = /^[0-9]+(?:[.,][0-9]+)?/.exec(t.slice(pos));
+    if(m){ pos += m[0].length; return parseFloat(m[0].replace(",", ".")); }
+    m = /^[A-Za-zÄÖÜäöüß_][A-Za-z0-9ÄÖÜäöüß_]*/.exec(t.slice(pos));
+    if(m){
+      pos += m[0].length;
+      var w = werte[m[0]];
+      return (w === undefined || w === null || w === "") ? NaN : w;
+    }
+    return NaN;
+  }
+  function klammer(){
+    raum();
+    if(t[pos] === "("){ pos++; var w = summe(); raum(); if(t[pos] === ")") pos++; return w; }
+    if(t[pos] === "-"){ pos++; return -klammer(); }
+    if(t[pos] === "+"){ pos++; return klammer(); }
+    return wert();
+  }
+  function produkt(){
+    var w = klammer();
+    for(;;){
+      raum();
+      if(t[pos] === "*"){ pos++; w = w * klammer(); }
+      else if(t[pos] === "/"){ pos++; var d = klammer(); w = (d === 0) ? NaN : w / d; }
+      else return w;
+    }
+  }
+  function summe(){
+    var w = produkt();
+    for(;;){
+      raum();
+      if(t[pos] === "+"){ pos++; w = w + produkt(); }
+      else if(t[pos] === "-"){ pos++; w = w - produkt(); }
+      else return w;
+    }
+  }
+  var erg = summe();
+  raum();
+  /* Bleibt Text uebrig, war die Formel nicht zu lesen - dann lieber nichts
+     zeigen als eine halbe Rechnung. */
+  if(pos < t.length) return NaN;
+  return erg;
+}
+
+function bkZahl(x){
+  if(!isFinite(x)) return "—";
+  var n = Math.abs(x);
+  var stellen = n < 1 ? 3 : (n < 100 ? 2 : (n < 10000 ? 1 : 0));
+  return x.toLocaleString("de-DE", {minimumFractionDigits: 0,
+                                    maximumFractionDigits: stellen});
+}
+
+function bkRechnerStarten(wurzel){
+  (wurzel || document).querySelectorAll(".bk-rechner").forEach(function(k){
+    var felder = [].slice.call(k.querySelectorAll("[data-feld]"));
+    var ziel = k.querySelector(".bk-erg-wert");
+    function neu(){
+      var werte = {};
+      felder.forEach(function(f){
+        var roh = String(f.value || "").trim().replace(",", ".");
+        var z = parseFloat(roh);
+        werte[f.dataset.feld] = isFinite(z) ? z : "";
+        f.setAttribute("aria-invalid", (roh !== "" && !isFinite(z)) ? "true" : "false");
+      });
+      if(ziel) ziel.textContent = bkZahl(bkRechnen(k.dataset.formel, werte));
+    }
+    felder.forEach(function(f){ f.addEventListener("input", neu); });
+    neu();
+  });
+}
+
+/* Derselbe Quelltext fuer die erzeugte Seite. toString() gibt genau das,
+   was oben steht - damit rechnet die Seite mit demselben Code wie die
+   Vorschau, ohne dass er zweimal dasteht. */
 const ED_RECHENWERK = [
-'  /* Rechenwerk fuer den Baustein "rechner". Ein eigener kleiner Auswerter,',
-'     kein eval: er kennt Zahlen, Feldnamen, + - * / ( ) und nichts weiter.',
-'     Damit kann aus einer Formel niemals Code werden - auch dann nicht, wenn',
-'     die Seite aus fremder Quelle kommt. */',
-'  function bkRechnen(formel, werte){',
-'    var t = String(formel || ""), pos = 0;',
-'    function raum(){ while(pos < t.length && /\\s/.test(t[pos])) pos++; }',
-'    function wert(){',
-'      raum();',
-'      var m = /^[0-9]+(?:[.,][0-9]+)?/.exec(t.slice(pos));',
-'      if(m){ pos += m[0].length; return parseFloat(m[0].replace(",", ".")); }',
-'      m = /^[A-Za-z\\u00c4\\u00d6\\u00dc\\u00e4\\u00f6\\u00fc\\u00df_][A-Za-z0-9\\u00c4\\u00d6\\u00dc\\u00e4\\u00f6\\u00fc\\u00df_]*/.exec(t.slice(pos));',
-'      if(m){',
-'        pos += m[0].length;',
-'        var w = werte[m[0]];',
-'        return (w === undefined || w === null || w === "") ? NaN : w;',
-'      }',
-'      return NaN;',
-'    }',
-'    function klammer(){',
-'      raum();',
-'      if(t[pos] === "("){ pos++; var w = summe(); raum(); if(t[pos] === ")") pos++; return w; }',
-'      if(t[pos] === "-"){ pos++; return -klammer(); }',
-'      if(t[pos] === "+"){ pos++; return klammer(); }',
-'      return wert();',
-'    }',
-'    function produkt(){',
-'      var w = klammer();',
-'      for(;;){',
-'        raum();',
-'        if(t[pos] === "*"){ pos++; w = w * klammer(); }',
-'        else if(t[pos] === "/"){ pos++; var d = klammer(); w = (d === 0) ? NaN : w / d; }',
-'        else return w;',
-'      }',
-'    }',
-'    function summe(){',
-'      var w = produkt();',
-'      for(;;){',
-'        raum();',
-'        if(t[pos] === "+"){ pos++; w = w + produkt(); }',
-'        else if(t[pos] === "-"){ pos++; w = w - produkt(); }',
-'        else return w;',
-'      }',
-'    }',
-'    var erg = summe();',
-'    raum();',
-'    /* Bleibt Text uebrig, war die Formel nicht zu lesen - dann lieber nichts',
-'       zeigen als eine halbe Rechnung. */',
-'    if(pos < t.length) return NaN;',
-'    return erg;',
-'  }',
-'  function bkZahl(x){',
-'    if(!isFinite(x)) return "\\u2014";',
-'    var n = Math.abs(x);',
-'    var stellen = n < 1 ? 3 : (n < 100 ? 2 : (n < 10000 ? 1 : 0));',
-'    return x.toLocaleString("de-DE", {minimumFractionDigits: 0,',
-'                                      maximumFractionDigits: stellen});',
-'  }',
-'  function bkRechnerStarten(){',
-'    document.querySelectorAll(".bk-rechner").forEach(function(k){',
-'      var felder = [].slice.call(k.querySelectorAll("[data-feld]"));',
-'      var ziel = k.querySelector(".bk-erg-wert");',
-'      function neu(){',
-'        var werte = {};',
-'        felder.forEach(function(f){',
-'          var roh = String(f.value || "").trim().replace(",", ".");',
-'          var z = parseFloat(roh);',
-'          werte[f.dataset.feld] = isFinite(z) ? z : "";',
-'          f.setAttribute("aria-invalid", (roh !== "" && !isFinite(z)) ? "true" : "false");',
-'        });',
-'        if(ziel) ziel.textContent = bkZahl(bkRechnen(k.dataset.formel, werte));',
-'      }',
-'      felder.forEach(function(f){ f.addEventListener("input", neu); });',
-'      neu();',
-'    });',
-'  }'
-].join('\n');
+  '  /* Rechenwerk der Bausteine (aus der Huelle uebernommen): ein eigener',
+  '     kleiner Auswerter, KEIN eval. Er kennt Zahlen, Feldnamen und',
+  '     + - * / ( ) - nichts weiter. */'
+].concat([bkRechnen, bkZahl, bkRechnerStarten].map(function(f){
+  return f.toString().split('\n').map(function(z){ return '  ' + z; }).join('\n');
+})).join('\n');
 
 /* ---------------------------------------------------- Vorlage der Seite
    Ein Stil fuer alle Seiten aus dem Editor. Farben ausschliesslich als
@@ -2076,13 +2137,380 @@ const ED_HILFE = [
   ['?&gt; Text', 'grüner Kasten „gut zu wissen"'],
   ['| A | B |', 'Tabelle, zweite Zeile <code>|---|---|</code>'],
   ['[[kennung]]', 'Verweis auf eine andere Wiki-Seite'],
-  [':::rechner …', 'Baustein — die Knöpfe unter dem Textfeld setzen ihn ein']
+  ['Bausteine', 'stehen als eigene Blöcke darunter: <em>Block hinzufügen</em>']
 ];
+
+/* ---------------------------------------------------- Blockmodell
+   Der Editor arbeitet blockweise: ein Abschnitt ist eine Liste von Bloecken,
+   jeder Block hat ein kleines Formular und direkt daneben sein fertiges
+   Ergebnis. Gespeichert wird trotzdem das Markup mit den drei Doppelpunkten
+   (:::art ... :::) - damit bleibt die Seite lesbar, der Rundlauf ueber
+   "Bearbeiten" gilt weiter, und der Erzeuger der Seite bleibt unveraendert.
+
+   Hier stehen nur die beiden Uebersetzungen zwischen den zwei Formen. */
+
+const ED_FORM = {
+  text:      {name:'Text', hilfe:'Absätze, Titel, Listen, Kästen, Tabellen.'},
+  rechner:   {name:'Rechner', hilfe:'Felder und eine Formel. Rechnet beim Leser mit.'},
+  schritte:  {name:'Schritte', hilfe:'Nummerierte Abfolge.',
+              spalten:['Schritt', 'Erklärung']},
+  kennzahlen:{name:'Kennzahlen', hilfe:'Werte groß nebeneinander.',
+              spalten:['Name', 'Wert', 'Zusatz']},
+  gegenueber:{name:'Gegenüberstellung', hilfe:'Zwei bis vier Seiten nebeneinander.',
+              spalten:['Seite', 'Inhalt']},
+  begriffe:  {name:'Begriffsliste', hilfe:'Wort und Erklärung zum Nachschlagen.',
+              spalten:['Begriff', 'Erklärung']},
+  klapp:     {name:'Klapptext', hilfe:'Überschrift, die man aufklappt.'}
+};
+
+function edBlockNeu(art){
+  const b = {art: art, titel: '', text: '', zeilen: [], felder: [],
+             formel: '', einheit: '', hinweis: ''};
+  const f = ED_FORM[art] || {};
+  if(f.spalten) b.zeilen = [f.spalten.map(() => ''), f.spalten.map(() => '')];
+  if(art === 'rechner'){
+    b.felder = [{name: '', wert: ''}, {name: '', wert: ''}];
+  }
+  return b;
+}
+
+function edMarkupZuBloecken(markup){
+  /* Markup einlesen. Alles, was kein :::-Baustein ist, wird ein Textblock -
+     und zwar zusammenhaengend, damit Absaetze nicht zerfallen. */
+  const zeilen = String(markup || '').split('\n');
+  const aus = [];
+  let text = [];
+  const textAbschliessen = () => {
+    const t = text.join('\n').replace(/^\s+|\s+$/g, '');
+    if(t){ const b = edBlockNeu('text'); b.text = t; aus.push(b); }
+    text = [];
+  };
+  for(let i = 0; i < zeilen.length; i++){
+    const m = zeilen[i].match(/^:::([a-zäöüß]+)\s*(.*)$/i);
+    if(!m){ text.push(zeilen[i]); continue; }
+    textAbschliessen();
+    const inhalt = [];
+    i++;
+    while(i < zeilen.length && zeilen[i].trim() !== ':::'){ inhalt.push(zeilen[i]); i++; }
+    aus.push(edBlockLesen(m[1].toLowerCase(), m[2] || '', inhalt));
+  }
+  textAbschliessen();
+  return aus.length ? aus : [edBlockNeu('text')];
+}
+
+function edBlockLesen(art, titel, zeilen){
+  /* Aus den Zeilen eines Bausteins wieder Formularfelder machen. Eine
+     unbekannte Art bleibt als Text erhalten, statt beim Bearbeiten
+     verschluckt zu werden. */
+  if(!ED_FORM[art]){
+    const b = edBlockNeu('text');
+    b.text = ':::' + art + (titel ? ' ' + titel : '') + '\n' +
+             zeilen.join('\n') + '\n:::';
+    return b;
+  }
+  const b = edBlockNeu(art);
+  b.titel = titel.trim();
+  const echt = zeilen.filter(z => z.trim() !== '');
+  if(art === 'klapp'){ b.text = zeilen.join('\n').replace(/^\s+|\s+$/g, ''); return b; }
+  if(art === 'rechner'){
+    b.felder = [];
+    echt.forEach(z => {
+      const roh = z.trim();
+      if(roh.startsWith('=')){ b.formel = roh.slice(1).trim(); return; }
+      const e = roh.match(/^Einheit\s*:\s*(.+)$/i);
+      if(e){ b.einheit = e[1].trim(); return; }
+      const f = roh.match(/^(.+?)=(.*)$/);
+      if(f){ b.felder.push({name: f[1].trim(), wert: f[2].trim()}); return; }
+      b.hinweis = (b.hinweis ? b.hinweis + ' ' : '') + roh;
+    });
+    if(!b.felder.length) b.felder = [{name: '', wert: ''}];
+    return b;
+  }
+  const breite = (ED_FORM[art].spalten || []).length;
+  b.zeilen = echt.map(z => {
+    const teile = z.split('|').map(x => x.trim());
+    while(teile.length < breite) teile.push('');
+    return teile.slice(0, breite);
+  });
+  if(!b.zeilen.length) b.zeilen = [ED_FORM[art].spalten.map(() => '')];
+  return b;
+}
+
+function edBlockZuZeilen(b){
+  /* Die Zeilen, die zwischen den drei Doppelpunkten stehen. */
+  if(b.art === 'klapp') return String(b.text || '').split('\n');
+  if(b.art === 'rechner'){
+    const z = (b.felder || []).filter(f => String(f.name || '').trim())
+      .map(f => f.name.trim() + ' = ' + String(f.wert || '').trim());
+    if(String(b.formel || '').trim()) z.push('= ' + b.formel.trim());
+    if(String(b.einheit || '').trim()) z.push('Einheit: ' + b.einheit.trim());
+    if(String(b.hinweis || '').trim()) z.push(b.hinweis.trim());
+    return z;
+  }
+  return (b.zeilen || [])
+    .filter(r => r.some(x => String(x || '').trim()))
+    .map(r => r.map(x => String(x || '').trim()).join(' | '));
+}
+
+function edBloeckeZuMarkup(bloecke){
+  return (bloecke || []).map(b => {
+    if(b.art === 'text') return String(b.text || '');
+    const zeilen = edBlockZuZeilen(b);
+    return ':::' + b.art + (String(b.titel || '').trim() ? ' ' + b.titel.trim() : '') +
+           '\n' + zeilen.join('\n') + '\n:::';
+  }).filter(x => x.trim()).join('\n\n');
+}
+
+function edBlockHtml(b){
+  /* Das fertige Ergebnis eines Blocks - mit GENAU dem Erzeuger, der auch die
+     Seite baut. Ein zweiter Weg waere eine Vorschau, die luegen kann. */
+  if(b.art === 'text') return edBloecke(String(b.text || ''));
+  return edBaustein(b.art, String(b.titel || ''), edBlockZuZeilen(b));
+}
+
+/* ---------------------------------------------------- Blockkarten
+   Eine Karte je Block: links das Formular, rechts das fertige Ergebnis. Die
+   Vorschau entsteht mit demselben Erzeuger wie die Seite (edBlockHtml), und
+   ein Rechner rechnet in ihr wirklich - mit demselben Rechenwerk, das die
+   Seite mitbekommt. */
+
+const ED_EINSETZER = [
+  ['tabelle', 'Tabelle', '| Spalte | Spalte |\n|---|---|\n| Wert | Wert |'],
+  ['merk', 'Merkkasten', '> **Merke** Der Satz, der hängen bleiben soll.'],
+  ['warn', 'Warnung', '!> **Achtung** Was schiefgehen kann.'],
+  ['gut', 'Gut zu wissen', '?> **Gut zu wissen** Der Zusatz, der hilft.'],
+  ['code', 'Codeblock', '```\nbefehl --mit-schalter\n```'],
+  ['liste', 'Liste', '- erster Punkt\n- zweiter Punkt']
+];
+
+function edStilSicherstellen(){
+  /* Die Vorschau soll aussehen wie die Seite. Genau derselbe Stil, der in
+     die erzeugte Seite wandert, wird dafuer einmal in die Huelle gehaengt -
+     eine zweite, nachgebaute Fassung waere eine Vorschau, die luegt. */
+  if($('ed-bausteinstil')) return;
+  const st = document.createElement('style');
+  st.id = 'ed-bausteinstil';
+  st.textContent = '.ed-erg{--line-soft:var(--line)}\n' + ED_STIL_BAUSTEINE;
+  document.head.appendChild(st);
+}
+function edBlockFormular(i, j, b){
+  const kn = (was, text, titel, aus) =>
+    `<button type="button" class="knopf rahmen ed-klein" data-bt="${was}"
+       data-bi="${i}" data-bj="${j}" title="${schuetzen(titel || '')}"
+       ${aus ? 'disabled' : ''}>${text}</button>`;
+  const titelfeld = (platz) => `
+    <label class="label" for="ed-btitel-${i}-${j}">Titel des Bausteins</label>
+    <input type="text" id="ed-btitel-${i}-${j}" data-bfeld="titel"
+           value="${schuetzen(b.titel || '')}" placeholder="${schuetzen(platz)}">`;
+
+  if(b.art === 'text'){
+    return `
+      <label class="label" for="ed-btext-${i}-${j}">Text</label>
+      <textarea id="ed-btext-${i}-${j}" data-bfeld="text" rows="9" spellcheck="true"
+        placeholder="Einfach schreiben. Leerzeile = neuer Absatz."
+        >${schuetzen(b.text || '')}</textarea>
+      <div class="ed-einsetzer">
+        <span class="label">Einsetzen</span>
+        ${ED_EINSETZER.map(([k, t]) => kn('einsetzen-' + k, schuetzen(t))).join('')}
+      </div>
+      <details class="ed-kurzhilfe">
+        <summary>Was hier noch geht</summary>
+        <table><tbody>${ED_HILFE.map(([a, c]) =>
+          `<tr><th class="mono">${a}</th><td>${c}</td></tr>`).join('')}</tbody></table>
+      </details>`;
+  }
+  if(b.art === 'klapp'){
+    return titelfeld('z. B. Warum ist das so?') + `
+      <label class="label" for="ed-btext-${i}-${j}" style="margin-top:10px"
+        >Inhalt, der aufgeklappt wird</label>
+      <textarea id="ed-btext-${i}-${j}" data-bfeld="text" rows="6" spellcheck="true"
+        placeholder="Der Hintergrund, der nicht stören soll."
+        >${schuetzen(b.text || '')}</textarea>`;
+  }
+  if(b.art === 'rechner'){
+    const felder = (b.felder || []).map((f, k) => `
+      <div class="ed-reihe">
+        <input type="text" data-bfeldname="${k}" value="${schuetzen(f.name || '')}"
+               placeholder="Verbrauch in kWh/100 km">
+        <input type="text" data-bfeldwert="${k}" class="mono ed-schmal"
+               value="${schuetzen(f.wert || '')}" placeholder="18">
+        ${kn('feld-weg', '✕', 'Feld entfernen', (b.felder || []).length < 2)}
+      </div>
+      <div class="ed-merke">in der Formel: <span class="mono">${
+        schuetzen(String(f.name || '').trim().split(/\s+/)[0] || '…')}</span></div>`).join('');
+    return titelfeld('z. B. Stromkosten je 100 km') + `
+      <div class="label" style="margin-top:10px">Felder, die der Leser ausfüllt</div>
+      ${felder}
+      <div style="margin-top:6px">${kn('feld-neu', 'Feld hinzufügen')}</div>
+      <div class="ed-zeile" style="margin-top:12px">
+        <div style="flex:2 1 220px">
+          <label class="label" for="ed-bformel-${i}-${j}">Formel</label>
+          <input type="text" id="ed-bformel-${i}-${j}" data-bfeld="formel" class="mono"
+                 value="${schuetzen(b.formel || '')}" placeholder="Verbrauch * Preis">
+        </div>
+        <div style="flex:1 1 90px">
+          <label class="label" for="ed-beinheit-${i}-${j}">Einheit</label>
+          <input type="text" id="ed-beinheit-${i}-${j}" data-bfeld="einheit"
+                 value="${schuetzen(b.einheit || '')}" placeholder="€">
+        </div>
+      </div>
+      <div class="ed-merke">Erlaubt sind Zahlen, Feldnamen und
+        <span class="mono">+ - * / ( )</span>. Mehr nicht — damit aus einer
+        Formel niemals Code werden kann.</div>
+      <label class="label" for="ed-bhinweis-${i}-${j}" style="margin-top:10px"
+        >Hinweis darunter, freiwillig</label>
+      <input type="text" id="ed-bhinweis-${i}-${j}" data-bfeld="hinweis"
+             value="${schuetzen(b.hinweis || '')}"
+             placeholder="Woher die Zahlen kommen, was sie nicht enthalten">`;
+  }
+  /* Die Zeilenarten: Schritte, Kennzahlen, Gegenueberstellung, Begriffe. */
+  const spalten = (ED_FORM[b.art] || {}).spalten || ['Inhalt'];
+  const reihen = (b.zeilen || []).map((r, k) => `
+    <div class="ed-reihe">
+      ${spalten.map((sp, c) => `<input type="text" data-bzeile="${k}" data-bspalte="${c}"
+          value="${schuetzen(r[c] || '')}" placeholder="${schuetzen(sp)}"
+          aria-label="${schuetzen(sp)} in Zeile ${k + 1}">`).join('')}
+      ${kn('zeile-weg', '✕', 'Zeile entfernen', (b.zeilen || []).length < 2)}
+    </div>`).join('');
+  return titelfeld('Titel, freiwillig') + `
+    <div class="label" style="margin-top:10px">${spalten.map(schuetzen).join(' · ')}</div>
+    ${reihen}
+    <div style="margin-top:6px">${kn('zeile-neu', 'Zeile hinzufügen')}</div>`;
+}
+
+function edBlockKarte(i, j, b, anzahl){
+  const f = ED_FORM[b.art] || {name: b.art, hilfe: ''};
+  const kn = (was, text, titel, aus) =>
+    `<button type="button" class="knopf still ed-klein" data-bt="${was}"
+       data-bi="${i}" data-bj="${j}" title="${schuetzen(titel)}"
+       ${aus ? 'disabled' : ''}>${text}</button>`;
+  return `
+    <div class="ed-block" id="ed-block-${i}-${j}">
+      <div class="ed-block-kopf">
+        <span class="ed-art">${schuetzen(f.name)}</span>
+        <span class="ed-block-hilfe">${schuetzen(f.hilfe || '')}</span>
+        <div class="ed-block-knoepfe">
+          ${kn('hoch', '↑', 'nach oben', j === 0)}
+          ${kn('runter', '↓', 'nach unten', j === anzahl - 1)}
+          ${kn('weg', '✕', 'Block entfernen', anzahl < 2)}
+        </div>
+      </div>
+      <div class="ed-block-leib">
+        <div class="ed-block-form">${edBlockFormular(i, j, b)}</div>
+        <div class="ed-block-erg">
+          <span class="label">So sieht es aus</span>
+          <div class="ed-erg" id="ed-erg-${i}-${j}"></div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function edBlockLesenAusDerSeite(i, j){
+  /* Ein Blockformular ins Modell zuruecklesen. Nur dieser eine Block -
+     damit die Schreibmarke bleibt, wo sie ist. */
+  const e = ZUSTAND.editor;
+  const a = e && e.abschnitte[i];
+  const b = a && a.bloecke && a.bloecke[j];
+  const karte = $('ed-block-' + i + '-' + j);
+  if(!b || !karte) return null;
+  karte.querySelectorAll('[data-bfeld]').forEach(f => { b[f.dataset.bfeld] = f.value; });
+  karte.querySelectorAll('[data-bzeile]').forEach(f => {
+    const r = +f.dataset.bzeile, c = +f.dataset.bspalte;
+    if(!b.zeilen[r]) b.zeilen[r] = [];
+    b.zeilen[r][c] = f.value;
+  });
+  karte.querySelectorAll('[data-bfeldname]').forEach(f => {
+    const k = +f.dataset.bfeldname;
+    if(!b.felder[k]) b.felder[k] = {name: '', wert: ''};
+    b.felder[k].name = f.value;
+  });
+  karte.querySelectorAll('[data-bfeldwert]').forEach(f => {
+    const k = +f.dataset.bfeldwert;
+    if(!b.felder[k]) b.felder[k] = {name: '', wert: ''};
+    b.felder[k].wert = f.value;
+  });
+  return b;
+}
+
+function edErgebnisMalen(i, j){
+  const b = ZUSTAND.editor.abschnitte[i].bloecke[j];
+  const ziel = $('ed-erg-' + i + '-' + j);
+  if(!b || !ziel) return;
+  const html = edBlockHtml(b);
+  ziel.innerHTML = html.trim()
+    ? html
+    : '<div class="ed-merke">Noch nichts eingetragen.</div>';
+  /* Ein Rechner in der Vorschau soll rechnen - dieselbe Funktion, die auch
+     in der fertigen Seite laeuft, hier nur auf diesen einen Block angesetzt. */
+  if(b.art === 'rechner') bkRechnerStarten(ziel);
+}
+
+function edBlockTun(was, i, j, knopf){
+  const e = ZUSTAND.editor;
+  const a = e && e.abschnitte[i];
+  if(!a) return;
+  edBlockLesenAusDerSeite(i, j);
+  const b = a.bloecke[j];
+  if(was === 'weg'){
+    if(a.bloecke.length < 2) return einblenden('Ein Block muss bleiben.');
+    const leer = !edBloeckeZuMarkup([b]).trim();
+    if(!leer && !confirm('Diesen Block entfernen?')) return;
+    a.bloecke.splice(j, 1);
+    return editorZeichnen();
+  }
+  if(was === 'hoch' && j > 0){
+    a.bloecke.splice(j - 1, 0, a.bloecke.splice(j, 1)[0]);
+    return editorZeichnen();
+  }
+  if(was === 'runter' && j < a.bloecke.length - 1){
+    a.bloecke.splice(j + 1, 0, a.bloecke.splice(j, 1)[0]);
+    return editorZeichnen();
+  }
+  if(was === 'zeile-neu'){
+    const breite = ((ED_FORM[b.art] || {}).spalten || ['']).length;
+    b.zeilen.push(new Array(breite).fill(''));
+    return editorZeichnen({fokus: 'ed-block-' + i + '-' + j});
+  }
+  if(was === 'zeile-weg'){
+    /* Die letzte gefuellte Zeile darf weg, die letzte ueberhaupt nicht. */
+    if(b.zeilen.length < 2) return;
+    const r = +((knopf.previousElementSibling || {}).dataset || {}).bzeile;
+    b.zeilen.splice(isFinite(r) ? r : b.zeilen.length - 1, 1);
+    return editorZeichnen({fokus: 'ed-block-' + i + '-' + j});
+  }
+  if(was === 'feld-neu'){
+    b.felder.push({name: '', wert: ''});
+    return editorZeichnen({fokus: 'ed-block-' + i + '-' + j});
+  }
+  if(was === 'feld-weg'){
+    if(b.felder.length < 2) return;
+    const k = +((knopf.previousElementSibling || {}).dataset || {}).bfeldwert;
+    b.felder.splice(isFinite(k) ? k : b.felder.length - 1, 1);
+    return editorZeichnen({fokus: 'ed-block-' + i + '-' + j});
+  }
+  if(was.startsWith('einsetzen-')){
+    const eintrag = ED_EINSETZER.find(x => x[0] === was.slice(10));
+    if(eintrag) edEinsetzen(i, j, eintrag[2]);
+    return;
+  }
+}
+
+function edBlockAnhaengen(i, art){
+  const e = ZUSTAND.editor;
+  const a = e && e.abschnitte[i];
+  if(!a) return;
+  edFelderLesen();
+  a.bloecke.push(edBlockNeu(art));
+  const j = a.bloecke.length - 1;
+  editorZeichnen({fokus: 'ed-block-' + i + '-' + j});
+}
 
 function edLeer(){
   return {neu:true, slug:'', titel:'', kurz:'', pfad:'', gruppen:'', stand:'',
-          quelle:null, abschnitte:[{anker:'', titel:'', stichworte:'', markup:''}],
-          slugGetippt:false};
+          quelle:null, abschnitte:[edAbschnittNeu()], slugGetippt:false};
+}
+function edAbschnittNeu(){
+  return {anker:'', titel:'', stichworte:'', markup:'', bloecke:[edBlockNeu('text')]};
 }
 function edFelderLesen(){
   const e = ZUSTAND.editor;
@@ -2091,8 +2519,15 @@ function edFelderLesen(){
   ['titel','slug','kurz','pfad','gruppen'].forEach(k => {
     const v = w('ed-' + k); if(v !== undefined) e[k] = v; });
   e.abschnitte.forEach((a, i) => {
-    ['titel','anker','stichworte','markup'].forEach(k => {
+    ['titel','anker','stichworte'].forEach(k => {
       const v = w('ed-a-' + k + '-' + i); if(v !== undefined) a[k] = v; });
+    /* Die Bloecke sind die Wahrheit im Editor, das Markup entsteht daraus -
+       gespeichert wird weiter Markup, damit die Seite lesbar bleibt und
+       "Bearbeiten" sie wieder aufklappen kann. */
+    if(a.bloecke){
+      a.bloecke.forEach((b, j) => edBlockLesenAusDerSeite(i, j));
+      a.markup = edBloeckeZuMarkup(a.bloecke);
+    }
   });
 }
 function abschnittsleiste(slug, abschnitte){
@@ -2216,12 +2651,16 @@ async function editor(slug){
     }))
   };
   if(!ZUSTAND.editor.abschnitte.length)
-    ZUSTAND.editor.abschnitte = [{anker:'', titel:'', stichworte:'', markup:''}];
+    ZUSTAND.editor.abschnitte = [edAbschnittNeu()];
+  /* Aus dem gespeicherten Markup wieder Bloecke machen - sonst waere
+     "Bearbeiten" eine Textwand und der Editor nur beim Neuanlegen blockweise. */
+  ZUSTAND.editor.abschnitte.forEach(a => { a.bloecke = edMarkupZuBloecken(a.markup); });
   editorZeichnen();
 }
-function editorZeichnen(){
+function editorZeichnen(opt){
   const e = ZUSTAND.editor;
   if(!e) return verwaltung();
+  opt = opt || {};
   $('rahmen').hidden = true; $('flaeche').hidden = false;
   $('vorschau-leiste').hidden = true;
   $('kopftitel').textContent = e.neu ? 'Neue Seite' : 'Seite bearbeiten';
@@ -2269,22 +2708,16 @@ function editorZeichnen(){
         <input type="text" id="ed-a-stichworte-${i}" value="${schuetzen(a.stichworte)}"
                placeholder="freiwillig">
       </div>
-      <div style="margin-top:10px">
-        <label class="label" for="ed-a-markup-${i}">Text</label>
-        <textarea id="ed-a-markup-${i}" rows="10" spellcheck="true"
-          placeholder="Einfach schreiben. Leerzeile = neuer Absatz.">${schuetzen(a.markup)}</textarea>
-        <div class="ed-kasten">
-          <span class="label">Baustein einsetzen</span>
-          ${Object.entries(ED_BAUSTEINE).map(([k, b]) =>
-            `<button type="button" class="knopf rahmen ed-klein" data-ed="baustein"
-               data-art="${k}" data-i="${i}" title="${schuetzen(b.hilfe)}"
-               >${schuetzen(b.name)}</button>`).join('')}
-          ${[['tabelle','Tabelle'],['merk','Merkkasten'],['warn','Warnung'],
-             ['gut','Gut zu wissen'],['code','Codeblock'],['liste','Liste']]
-            .map(([k, t]) =>
-            `<button type="button" class="knopf rahmen ed-klein" data-ed="einfach"
-               data-art="${k}" data-i="${i}">${t}</button>`).join('')}
-        </div>
+      <div class="ed-bloecke">
+        ${(a.bloecke || []).map((b, j) =>
+            edBlockKarte(i, j, b, a.bloecke.length)).join('')}
+      </div>
+      <div class="ed-kasten">
+        <span class="label">Block hinzufügen</span>
+        ${Object.entries(ED_FORM).map(([k, f]) =>
+          `<button type="button" class="knopf rahmen ed-klein" data-ed="block"
+             data-art="${k}" data-i="${i}" title="${schuetzen(f.hilfe)}"
+             >${schuetzen(f.name)}</button>`).join('')}
       </div>
     </div>`).join('');
 
@@ -2347,19 +2780,6 @@ function editorZeichnen(){
       </div>
 
       <details class="karte">
-        <summary style="cursor:pointer;font-weight:600">Wie schreibe ich hier?</summary>
-        <div style="overflow-x:auto;margin-top:12px">
-          <table class="tabelle"><thead><tr><th>Eingabe</th><th>Ergebnis</th></tr></thead>
-          <tbody>${ED_HILFE.map(([a, b]) =>
-            `<tr><td class="mono">${a}</td><td>${b}</td></tr>`).join('')}</tbody></table>
-        </div>
-        <div style="font-size:12.5px;color:var(--ink-3);margin-top:10px">
-          Mehr gibt es nicht — und das ist Absicht. Wer HTML schreiben will,
-          spielt weiter eine Datei ein; beides führt zur selben Seite.
-        </div>
-      </details>
-
-      <details class="karte">
         <summary style="cursor:pointer;font-weight:600">Ich habe schon eine
           HTML-Datei</summary>
         <div class="kontext" style="margin-top:8px">Eine fertige Seite mit
@@ -2405,6 +2825,31 @@ function editorZeichnen(){
 
   $('flaeche').querySelectorAll('[data-ed]').forEach(b =>
     b.onclick = () => edTun(b.dataset.ed, +b.dataset.i, b));
+
+  edStilSicherstellen();
+  /* Die Blockkarten: Knoepfe verdrahten, Ergebnis malen, und bei jeder
+     Eingabe nur DIESES eine Ergebnis neu malen - kein Neuzeichnen, sonst
+     springt die Schreibmarke. */
+  $('flaeche').querySelectorAll('[data-bt]').forEach(b =>
+    b.onclick = () => edBlockTun(b.dataset.bt, +b.dataset.bi, +b.dataset.bj, b));
+  e.abschnitte.forEach((a, i) => (a.bloecke || []).forEach((b, j) => {
+    const karte = $('ed-block-' + i + '-' + j);
+    if(!karte) return;
+    edErgebnisMalen(i, j);
+    karte.querySelectorAll('input, textarea').forEach(f =>
+      f.addEventListener('input', () => {
+        edBlockLesenAusDerSeite(i, j);
+        edErgebnisMalen(i, j);
+      }));
+  }));
+  if(opt.fokus){
+    const z = $(opt.fokus);
+    if(z){
+      z.scrollIntoView({block:'nearest'});
+      const f = z.querySelector('textarea, input');
+      if(f) f.focus();
+    }
+  }
   /* Die Dateiablage steht jetzt im Editor - dieselbe Strecke wie vorher in
      der Verwaltung (pruefen -> Vorschau -> uebernehmen). */
   ablageVerdrahten();
@@ -2413,12 +2858,13 @@ function edTun(was, i, knopf){
   edFelderLesen();
   const e = ZUSTAND.editor;
   if(was === 'neu'){
-    e.abschnitte.push({anker:'', titel:'', stichworte:'', markup:''});
+    e.abschnitte.push(edAbschnittNeu());
     editorZeichnen();
     const f = $('ed-a-titel-' + (e.abschnitte.length - 1));
     if(f) f.focus();
     return;
   }
+  if(was === 'block') return edBlockAnhaengen(i, (knopf && knopf.dataset.art) || 'text');
   if(was === 'weg'){
     if(e.abschnitte.length < 2) return einblenden('Ein Abschnitt muss bleiben.');
     const a = e.abschnitte[i];
@@ -2441,23 +2887,6 @@ function edTun(was, i, knopf){
     history.pushState(null, '', '#/verwaltung');
     return verwaltung();
   }
-  if(was === 'baustein' || was === 'einfach'){
-    const art = (knopf && knopf.dataset.art) || '';
-    const EINFACH = {
-      tabelle: '| Spalte | Spalte |\n|---|---|\n| Wert | Wert |',
-      merk:    '> **Merke** Der Satz, der haengen bleiben soll.',
-      warn:    '!> **Achtung** Was schiefgehen kann.',
-      gut:     '?> **Gut zu wissen** Der Zusatz, der hilft.',
-      code:    '```\nbefehl --mit-schalter\n```',
-      liste:   '- erster Punkt\n- zweiter Punkt'
-    };
-    const text = was === 'baustein'
-      ? ((ED_BAUSTEINE[art] || {}).vorlage || '')
-      : (EINFACH[art] || '');
-    if(!text) return;
-    edEinsetzen(i, text);
-    return;
-  }
   if(was === 'gruppe'){
     const g = (knopf && knopf.dataset.g) || '';
     const f = $('ed-gruppen');
@@ -2472,11 +2901,12 @@ function edTun(was, i, knopf){
   if(was === 'vorschau') return edVorschau();
   if(was === 'speichern') return edSpeichern();
 }
-function edEinsetzen(i, text){
+function edEinsetzen(i, j, text){
   /* An der Schreibmarke einsetzen, mit Leerzeile davor und danach - ein
-     Baustein ist ein eigener Block und darf nicht in einen Absatz rutschen.
-     Ohne Neuzeichnen: der Text soll stehen bleiben, wo er steht. */
-  const f = $('ed-a-markup-' + i);
+     Kasten oder eine Tabelle ist ein eigener Absatz und darf nicht in einen
+     Satz rutschen. Ohne Neuzeichnen: der Text soll stehen bleiben, wo er
+     steht. */
+  const f = $('ed-btext-' + i + '-' + j);
   if(!f) return;
   const vor = f.value.slice(0, f.selectionStart);
   const nach = f.value.slice(f.selectionEnd);
@@ -2487,7 +2917,8 @@ function edEinsetzen(i, text){
   const ziel = vor.length + neu.length;
   f.focus();
   f.setSelectionRange(ziel, ziel);
-  ZUSTAND.editor.abschnitte[i].markup = f.value;
+  edBlockLesenAusDerSeite(i, j);
+  edErgebnisMalen(i, j);
 }
 function edPruefbar(){
   /* Was der Editor selbst schon weiß - bevor der Server es sagt. Die
