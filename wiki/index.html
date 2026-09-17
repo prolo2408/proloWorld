@@ -231,12 +231,20 @@ header{height:76px;flex:0 0 76px;background:var(--chrome);
 #finden-stand{flex:0 1 auto;font-size:12.5px;color:var(--ink-3);min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #finden-stand[data-leer="1"]{color:var(--warm-ink)}
+.treffer-eingrenzung{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:8px 12px;border-bottom:1px solid var(--line-soft);
+  background:var(--chrome)}
+.treffer-eingrenzung button{border:0;cursor:pointer;font:inherit;font-size:11.5px;
+  font-weight:600;min-height:32px;padding:4px 10px}
+.treffer-eingrenzung button:hover{background:var(--accent);color:var(--on-accent)}
 /* Schmal: die Beschriftung bleibt fuer Vorleser, nimmt aber keine Zeile
    mehr weg - der Platzhalter im Feld sagt dasselbe. Feld und die drei
    Knoepfe passen dann in eine Reihe, die Standzeile kommt darunter.
    Gemessen bei 360 Pixeln: vorher 113 Pixel Leiste, jetzt 90 - und der
    Rahmen fuer die Seite gewinnt genau diese 23 zurueck. */
 @media (max-width:860px){
+  /* Regelblatt 9: am Finger 44 Pixel. */
+  .treffer-eingrenzung button{min-height:44px;padding:8px 12px}
   #finden{padding:8px 16px;gap:8px}
   #finden .label{position:absolute;left:-9999px;width:1px;height:1px;
     overflow:hidden}
@@ -1020,6 +1028,9 @@ async function suchen(q){
   ZUSTAND.treffer = trefferGruppieren(d.treffer);
   ZUSTAND.aktiv = ZUSTAND.treffer.length ? 0 : -1;
   ZUSTAND.statt = d.statt || null;
+  /* Was der Server als Einschraenkung gelesen hat. Ohne das sucht jemand
+     nach "bereich:Tehcnik" und sieht nur, dass nichts kommt. */
+  ZUSTAND.eingrenzung = d.eingrenzung || {};
   ZUSTAND.trefferSeiten = new Set(ZUSTAND.treffer.map(t => t.slug)).size;
   trefferZeichnen(d.statt || q, d.dauer_ms, d.statt ? q : null);
 }
@@ -1030,13 +1041,67 @@ function hervorheben(text, q){
   if(!worte.length) return roh;
   return roh.replace(new RegExp('(' + worte.join('|') + ')', 'gi'), '<mark>$1</mark>');
 }
-function trefferZeichnen(q, ms, statt){
+/* Die Zeichen, die im Suchfeld eine Bedeutung haben. Sie stehen dort, wo
+   jemand sie braucht: wenn nichts gefunden wurde. */
+const SUCH_ZEICHEN = [
+  ['"zwei worte"', 'genau diese Folge'],
+  ['-wort', 'darf nicht vorkommen'],
+  ['bereich:Technik', 'nur unter diesem Pfad'],
+  ['gruppe:wiki-technik', 'nur mit dieser Freigabe'],
+  ['seite:kennung', 'nur in dieser einen Seite']
+];
+const SUCH_HILFE = `
+  <details style="margin-top:10px">
+    <summary style="cursor:pointer;font-size:12.5px;color:var(--accent-ink)"
+      >Genauer suchen</summary>
+    <table style="margin-top:6px;font-size:12px;color:var(--ink-3);
+                  border-collapse:collapse"><tbody>${SUCH_ZEICHEN.map(
+      ([z, w]) => `<tr><th class="mono" style="text-align:left;font-weight:500;
+        color:var(--ink-2);padding:2px 10px 2px 0;white-space:nowrap"
+        >${schuetzen(z)}</th><td style="padding:2px 0">${schuetzen(w)}</td></tr>`
+    ).join('')}</tbody></table>
+  </details>`;
+const SUCH_FELDNAME = {bereich:'Bereich', gruppe:'Gruppe', seite:'Seite'};
+function eingrenzungszeile(){
+  /* Was der Server als Einschraenkung gelesen hat - und ein Weg, sie
+     wieder loszuwerden, ohne im Feld herumzustreichen. */
+  const e = ZUSTAND.eingrenzung || {};
+  const felder = Object.keys(e);
+  if(!felder.length) return '';
+  return `<div class="treffer-eingrenzung">
+    <span class="label">Eingeschränkt auf</span>
+    ${felder.map(f => `<button type="button" class="marke-badge"
+        data-weg="${schuetzen(f)}"
+        title="${schuetzen(SUCH_FELDNAME[f] || f)} wieder aufheben"
+        >${schuetzen(SUCH_FELDNAME[f] || f)}: ${schuetzen(e[f])}
+        <span aria-hidden="true">×</span></button>`).join('')}</div>`;
+}
+function sucheOhneFeld(feld){
+  /* Das feld:wert aus dem Suchfeld nehmen - mit und ohne
+     Anfuehrungszeichen - und neu suchen. */
+  const f = $('suchfeld');
+  const muster = new RegExp('(^|\\s)-?' + feld + ':("[^"]*"?|\\S*)', 'gi');
+  f.value = f.value.replace(muster, ' ').replace(/\s+/g, ' ').trim();
+  f.focus();
+  f.dispatchEvent(new Event('input', {bubbles:true}));
+}
+function eingrenzungVerdrahten(){
+  $('treffer').querySelectorAll('[data-weg]').forEach(b =>
+    b.onclick = (e) => { e.stopPropagation(); sucheOhneFeld(b.dataset.weg); });
+}
+function trefferZeichnen(gesucht, ms, getippt){
+  /* gesucht = das Wort, mit dem die Treffer gefunden wurden. getippt = was
+     der Mensch geschrieben hat, und nur gesetzt, wenn beides auseinander
+     geht (Rechtschreibvorschlag). Die beiden hiessen vorher q und statt -
+     bei diesen Namen liest man die Bedeutung genau verkehrt, und ich habe
+     die richtige Zeile deshalb einmal "korrigiert". */
+  const q = gesucht;
   const ziel = $('treffer');
-  const korrektur = statt
+  const korrektur = getippt
     ? `<div style="padding:8px 12px;font-size:12.5px;color:var(--ink-3);
          border-bottom:1px solid var(--line-soft)">Nichts zu
-         <span class="mono">${schuetzen(statt)}</span> — Treffer für
-         <strong style="color:var(--ink)">${schuetzen(q)}</strong></div>`
+         <span class="mono">${schuetzen(getippt)}</span> — Treffer für
+         <strong style="color:var(--ink)">${schuetzen(gesucht)}</strong></div>`
     : '';
   if(!ZUSTAND.treffer.length){
     ziel.innerHTML = `<div style="padding:14px">
@@ -1047,8 +1112,11 @@ function trefferZeichnen(q, ms, statt){
         im Pfad und in PDF-Anhängen.<br>
         Versuch einen <strong>kürzeren Wortteil</strong> — <span class="mono">netz</span>
         findet auch <span class="mono">Netzwerkkabel</span>.</div>
+      ${SUCH_HILFE}
       <button class="knopf rahmen ed-klein" id="alles-zeigen"
               style="margin-top:12px">Alle Seiten zeigen</button></div>`;
+    ziel.innerHTML = eingrenzungszeile() + ziel.innerHTML;
+    eingrenzungVerdrahten();
     const az = $('alles-zeigen');
     if(az) az.onclick = () => alleSeitenZeigen();
   } else {
@@ -1081,13 +1149,15 @@ function trefferZeichnen(q, ms, statt){
         <span class="aus">${hervorheben(t.schnipsel, q)}</span>
       </button>`);
     });
-    ziel.innerHTML = korrektur + zeilen.join('') + `<div class="treffer-fuss">
+    ziel.innerHTML = korrektur + eingrenzungszeile() + zeilen.join('') +
+      `<div class="treffer-fuss">
       <span class="label">${zahl(ZUSTAND.trefferSeiten || 0)}
         ${(ZUSTAND.trefferSeiten === 1 ? 'Seite' : 'Seiten')} ·
         ${zahl(ZUSTAND.treffer.length)} ${ZUSTAND.treffer.length === 1 ? 'Stelle' : 'Stellen'} ·
         ${String(ms).replace('.', ',')} ms</span>
       <button class="knopf still ed-klein" id="alles-zeigen"
               style="margin-left:auto">Alle Seiten</button></div>`;
+    eingrenzungVerdrahten();
     ziel.querySelectorAll('.treffer-zeile').forEach(b =>
       b.onclick = () => trefferWaehlen(+b.dataset.i));
     const az = $('alles-zeigen');

@@ -1350,12 +1350,117 @@ def index_neu_bauen(seite_id, html=None):
 
 # ---------------------------------------------------------------- Suche
 
-def fts_ausdruck(begriff, praefix=True):
-    worte = re.findall(r"[\wÄÖÜäöüß]{2,}", begriff, re.UNICODE)
-    if not worte:
+# Die Felder, die im Suchbegriff als "feld:wert" stehen duerfen. Bewusst
+# wenige: jedes weitere ist ein Wort, das nicht mehr als Wort gesucht wird.
+SUCH_FELDER = ("bereich", "gruppe", "seite")
+
+
+def suchbegriff_lesen(roh):
+    """Einen Suchbegriff in seine Teile zerlegen.
+
+    Erkannt werden:
+
+        wort              muss vorkommen, Wortanfang genuegt
+        "mehrere worte"   genau diese Folge
+        -wort             darf nicht vorkommen
+        bereich:Technik   nur Seiten unter diesem Pfad
+        gruppe:wiki-x     nur Seiten mit dieser Freigabe
+        seite:kennung     nur diese eine Seite
+
+    Alles andere bleibt ein gewoehnliches Wort - auch ein "feld:wert" mit
+    einem Feld, das es hier nicht gibt. Sonst verschwindet ein Doppelpunkt
+    im Text stillschweigend aus der Suche.
+    """
+    teile = {"worte": [], "phrasen": [], "ohne": [],
+             "bereich": "", "gruppe": "", "seite": ""}
+    s = roh or ""
+    i, n = 0, len(s)
+    while i < n:
+        if s[i].isspace():
+            i += 1
+            continue
+        minus = False
+        if s[i] == "-" and i + 1 < n and not s[i + 1].isspace():
+            minus = True
+            i += 1
+        feld = ""
+        m = re.match(r"([a-zA-ZäöüÄÖÜ]+):", s[i:])
+        if m and m.group(1).lower() in SUCH_FELDER:
+            feld = m.group(1).lower()
+            i += m.end()
+        if i < n and s[i] == '"':
+            ende = s.find('"', i + 1)
+            if ende < 0:
+                ende = n
+            wert, i, phrase = s[i + 1:ende], ende + 1, True
+        else:
+            ende = i
+            while ende < n and not s[ende].isspace():
+                ende += 1
+            wert, i, phrase = s[i:ende], ende, False
+        wert = wert.strip()
+        if not wert:
+            continue
+        if feld:
+            # Ein Minus vor einem Feld waere ein Ausschluss von Seiten - das
+            # gibt es hier nicht, und stillschweigend etwas anderes tun ist
+            # schlimmer als es zu ignorieren.
+            teile[feld] = wert
+        elif minus:
+            teile["ohne"].append(wert)
+        elif phrase:
+            teile["phrasen"].append(wert)
+        else:
+            teile["worte"].append(wert)
+    return teile
+
+
+def fts_wort(text, praefix):
+    """Ein Stueck Suchbegriff in ein FTS5-Wort verwandeln.
+
+    Alles, was FTS5 als Operator lesen koennte, fliegt heraus - uebrig
+    bleiben Woerter in Anfuehrungszeichen. Ohne das wirft ein Suchbegriff
+    mit Klammer oder Stern einen Fehler, und die Suche liefert nichts.
+    """
+    kern = " ".join(re.findall(r"[\wÄÖÜäöüß]+", text, re.UNICODE))
+    if not kern:
         return None
-    teile = [f'"{w}"*' if praefix else f'"{w}"' for w in worte]
-    return " AND ".join(teile)
+    # Ein Stern hinter einer Wortfolge gilt in FTS5 nur fuer das letzte Wort.
+    # Das ist genau richtig: "netz karte" soll "netzwerkkarte" nicht finden,
+    # aber "netzwerk kar" darf auf "karte" hinauslaufen.
+    return '"%s"%s' % (kern, "*" if praefix else "")
+
+
+def fts_ausdruck_aus_teilen(teile, praefix=True, wortverbund="AND"):
+    """Aus den Teilen eines Suchbegriffs einen FTS5-Ausdruck bauen.
+
+    wortverbund entscheidet, wie die einzelnen WOERTER verbunden werden:
+    "AND" verlangt alle, "OR" genuegt eines. Phrasen bleiben in beiden
+    Faellen Pflicht - wer Anfuehrungszeichen setzt, meint sie. Vorher wurde
+    fuer den weiten Durchgang " AND " in " OR " getauscht; das traf auch die
+    Phrase, und "kabel \"rotes kabel\"" fand wieder beide Seiten.
+    """
+    phrasen = [a for a in (fts_wort(p, False) for p in teile["phrasen"]) if a]
+    worte = [a for a in (fts_wort(w, praefix) for w in teile["worte"]) if a]
+    if not phrasen and not worte:
+        return None
+    stuecke = list(phrasen)
+    if worte:
+        verbund = (" %s " % wortverbund).join(worte)
+        # Klammern nur, wenn sie etwas aendern: neben einer Pflicht-Phrase
+        # muss ein OR zusammenbleiben, sonst waere die Phrase mit oder-bar.
+        stuecke.append("(%s)" % verbund if phrasen and len(worte) > 1 else verbund)
+    aus = " AND ".join(stuecke)
+    nein = [a for a in (fts_wort(w, praefix) for w in teile["ohne"]) if a]
+    if nein:
+        # NOT ist in FTS5 ein zweistelliger Operator: links das Gesuchte,
+        # rechts das Unerwuenschte.
+        aus = "(%s) NOT (%s)" % (aus, " OR ".join(nein))
+    return aus
+
+
+def fts_ausdruck(begriff, praefix=True):
+    return fts_ausdruck_aus_teilen(suchbegriff_lesen(begriff), praefix)
 
 
 def schnipsel(text, begriffe, laenge=170):
@@ -1447,7 +1552,30 @@ def suchen(nutzer, begriff, grenze=40, mit_anhaengen=True):
     begriff = (begriff or "").strip()
     if len(begriff) < 2:
         return []
+    teile = suchbegriff_lesen(begriff)
     erlaubt = {z["id"]: z for z in sichtbare_seiten(nutzer)}
+
+    # Die Einschraenkungen greifen VOR der Suche, auf der Menge der Seiten:
+    # damit bleibt die Abfrage selbst unveraendert, und "bereich:Technik"
+    # ohne weiteres Wort kann trotzdem etwas liefern.
+    if teile["seite"]:
+        gesucht = teile["seite"].strip().lower()
+        erlaubt = {i: z for i, z in erlaubt.items()
+                   if z["slug"].lower() == gesucht}
+    if teile["bereich"]:
+        stufen = [x.strip().lower() for x in teile["bereich"].split("/") if x.strip()]
+
+        def im_bereich(z):
+            pfad = [str(x).strip().lower()
+                    for x in json.loads(z["pfad_json"] or "[]")]
+            return pfad[:len(stufen)] == stufen
+
+        erlaubt = {i: z for i, z in erlaubt.items() if im_bereich(z)}
+    if teile["gruppe"]:
+        gesucht = teile["gruppe"].strip().lower()
+        erlaubt = {i: z for i, z in erlaubt.items()
+                   if gesucht in [str(x).strip().lower()
+                                  for x in json.loads(z["gruppen_json"] or "[]")]}
     if not erlaubt:
         return []
     v = db()
@@ -1460,10 +1588,27 @@ def suchen(nutzer, begriff, grenze=40, mit_anhaengen=True):
         if vorher is None or punkte > vorher[0]:
             gefunden[tid] = (punkte, quelle)
 
-    aus = fts_ausdruck(begriff, praefix=True)
+    aus = fts_ausdruck_aus_teilen(teile, praefix=True)
+    # Nur eine Einschraenkung, kein Wort: dann ist die Frage "was steht
+    # ueberhaupt da" - und die Antwort sind die Seiten selbst, nicht nichts.
+    if not aus and (teile["bereich"] or teile["gruppe"] or teile["seite"]):
+        arten = ("kopf", "abschnitt") if teile["seite"] else ("kopf",)
+        platz3 = ",".join("?" * len(arten))
+        for z in v.execute(
+                f"SELECT id AS tid FROM treffer WHERE art IN ({platz3}) "
+                f"AND seite_id IN ({platz}) LIMIT ?",
+                list(arten) + ids + [grenze * 3]).fetchall():
+            aufnehmen(z["tid"], 1.0, "eingrenzung")
     if aus:
         for modus in ("und", "oder"):
-            frage = aus if modus == "und" else aus.replace(" AND ", " OR ")
+            # Der zweite Durchgang laesst EIN Wort genuegen. Gebaut wird er
+            # neu, nicht durch Ersetzen im fertigen Ausdruck: ein " AND ",
+            # das zu einer Phrase oder zu einem Ausschluss gehoert, darf
+            # dabei nicht mitwandern.
+            frage = (aus if modus == "und"
+                     else fts_ausdruck_aus_teilen(teile, True, "OR"))
+            if not frage:
+                continue
             try:
                 zeilen = v.execute(
                     f"SELECT t.id AS tid, bm25(suche, 12.0, 8.0, 1.0) AS rang "
@@ -1478,8 +1623,19 @@ def suchen(nutzer, begriff, grenze=40, mit_anhaengen=True):
                 break
 
     # Teilwortsuche als zweites Netz: greift bei Komposita und Tippfehlern.
-    if len(gefunden) < grenze:
-        kern = max(re.findall(r"[\wÄÖÜäöüß]{3,}", begriff, re.UNICODE) or [""], key=len)
+    # Das zweite Netz greift bei Komposita und Tippfehlern - und es sucht
+    # dafuer nur mit dem LAENGSTEN Wort. Bei einer Phrase in
+    # Anfuehrungszeichen ist das genau falsch: gemessen wurde aus
+    # "TCP und UDP" (3 Stellen auf 1 Seite) ueber dieses Netz 5 Stellen auf
+    # 2 Seiten - das Gegenteil dessen, was die Anfuehrungszeichen sagen.
+    #
+    # Ausschluesse braucht es hier NICHT abzufangen: die haelt der Nachfilter
+    # weiter unten, und zwar fuer jede Quelle. Zwei Riegel fuer dieselbe
+    # Sache waeren zwei, von denen keiner geprueft werden kann.
+    if len(gefunden) < grenze and aus and not teile["phrasen"]:
+        # Nur die gesuchten Woerter, nicht die Werte der Felder.
+        positiv = " ".join(teile["worte"])
+        kern = max(re.findall(r"[\wÄÖÜäöüß]{3,}", positiv, re.UNICODE) or [""], key=len)
         if len(kern) >= 3:
             try:
                 zeilen = v.execute(
@@ -1503,7 +1659,15 @@ def suchen(nutzer, begriff, grenze=40, mit_anhaengen=True):
         f"FROM treffer t JOIN suche s ON s.rowid = t.id WHERE t.id IN ({platz2})",
         tids).fetchall()
 
-    worte = re.findall(r"[\wÄÖÜäöüß]{2,}", begriff, re.UNICODE)
+    # Hervorgehoben wird, was gesucht war - nicht, was ausgeschlossen wurde,
+    # und nicht "Technik" aus bereich:Technik.
+    worte = re.findall(r"[\wÄÖÜäöüß]{2,}",
+                       " ".join(teile["worte"] + teile["phrasen"]), re.UNICODE)
+    # Ausschluesse gelten fuer das, was in der Zeile WIRKLICH steht. Das
+    # FTS-NOT allein hat sie nur aus dem einen Netz genommen - ein zweiter
+    # Weg (oder eine kuenftige dritte Quelle) haette sie wieder hereingeholt.
+    # Hier steht die Regel einmal, am Ende, fuer jede Quelle.
+    ohne = [w for w in (entwerten(x) for x in teile["ohne"]) if w]
     ergebnis = []
     for z in zeilen:
         if z["art"] == "anhang" and not mit_anhaengen:
@@ -1511,7 +1675,10 @@ def suchen(nutzer, begriff, grenze=40, mit_anhaengen=True):
         seite = erlaubt[z["seite_id"]]
         punkte, quelle = gefunden[z["id"]]
         titel = z["abschnittstitel"] or seite["titel"]
-        if entwerten(begriff) in entwerten(titel):
+        # Der Bonus gilt fuer die gesuchten Woerter, nicht fuer den Rohtext:
+        # "tcp bereich:Technik" steht in keinem Titel.
+        gesuchter_text = " ".join(teile["worte"] + teile["phrasen"]).strip()
+        if gesuchter_text and entwerten(gesuchter_text) in entwerten(titel):
             punkte += 25
         # Der Kopftreffer zeigt den Satz der Seite, nicht seinen Suchstoff.
         # Im Index stehen dort auch Pfad, Gruppen und alle Abschnittstitel -
@@ -1520,6 +1687,12 @@ def suchen(nutzer, begriff, grenze=40, mit_anhaengen=True):
         stoff = z["s_text"] or z["s_stich"] or ""
         if z["art"] == "kopf":
             stoff = seite["kurz"] or stoff
+        if ohne:
+            heuhaufen = entwerten(" ".join([
+                titel or "", z["s_titel"] or "", z["s_stich"] or "",
+                z["s_text"] or ""]))
+            if any(w in heuhaufen for w in ohne):
+                continue
         ergebnis.append({
             "slug": seite["slug"], "seitentitel": seite["titel"],
             "pfad": json.loads(seite["pfad_json"] or "[]"),
@@ -1860,15 +2033,36 @@ class Handler(BaseHTTPRequestHandler):
             t0 = time.time()
             mit_a = einstellungen_lesen(n.kennung)["pdf_treffer"] == "1"
             treffer = suchen(n, q, mit_anhaengen=mit_a)
+            zerlegt = suchbegriff_lesen(q)
             statt = None
             if not treffer:
-                statt = wortvorschlag(q)
-                if statt:
-                    treffer = suchen(n, statt, mit_anhaengen=mit_a)
-                    if not treffer:
-                        statt = None
-            return self.json_senden({"q": q, "statt": statt, "treffer": treffer,
-                                     "dauer_ms": round((time.time() - t0) * 1000, 1)})
+                # Der Rechtschreibvorschlag gilt fuer die gesuchten Woerter.
+                # Mit "bereich:Technik" im Begriff waere sonst "Technik" das
+                # falsch geschriebene Wort.
+                positiv = " ".join(zerlegt["worte"] + zerlegt["phrasen"])
+                vorschlag = wortvorschlag(positiv) if positiv else None
+                if vorschlag and vorschlag != positiv:
+                    # Die Einschraenkungen bleiben stehen - nur die Woerter
+                    # werden ersetzt.
+                    rest = " ".join(
+                        ["%s:%s" % (f, zerlegt[f]) for f in SUCH_FELDER if zerlegt[f]]
+                        + ["-" + w for w in zerlegt["ohne"]])
+                    treffer = suchen(n, (vorschlag + " " + rest).strip(),
+                                     mit_anhaengen=mit_a)
+                    if treffer:
+                        # statt = das Wort, mit dem die Treffer gefunden
+                        # wurden. Die Oberflaeche sagt damit "Nichts zu
+                        # <q> - Treffer fuer <statt>" (N-27).
+                        statt = vorschlag
+            return self.json_senden({
+                "q": q, "statt": statt, "treffer": treffer,
+                # Was von dem Begriff als Einschraenkung gelesen wurde. Die
+                # Oberflaeche zeigt es an - sonst sucht jemand nach
+                # "bereich:Tehcnik" und sieht nur, dass nichts kommt.
+                "eingrenzung": {f: zerlegt[f] for f in SUCH_FELDER if zerlegt[f]},
+                "ohne": zerlegt["ohne"],
+                "phrasen": zerlegt["phrasen"],
+                "dauer_ms": round((time.time() - t0) * 1000, 1)})
 
         if len(teile) == 2 and teile[0] == "seite":
             slug = teile[1]

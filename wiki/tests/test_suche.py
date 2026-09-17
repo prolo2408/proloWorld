@@ -190,6 +190,191 @@ class SucheMitSeitenkopf(unittest.TestCase):
             v.commit()
 
 
+class MaechtigereSuche(unittest.TestCase):
+    """Anfuehrungszeichen, Minus und die drei Felder im Suchbegriff.
+
+    Erwartungen von Hand: die beiden Seiten unten sind so gebaut, dass jede
+    Frage genau eine Antwort hat.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.ordner = tempfile.mkdtemp(prefix="wiki-suche2-")
+        server.DATEN = os.path.join(cls.ordner, "daten")
+        server.SEITEN = os.path.join(cls.ordner, "seiten")
+        server.DB_DATEI = os.path.join(server.DATEN, "wiki.db")
+        os.makedirs(server.DATEN, exist_ok=True)
+        os.makedirs(server.SEITEN, exist_ok=True)
+        server.db_freigeben()
+        server.datenbank_anlegen()
+        cls.nutzer = server.Nutzer("artur", "Artur", "", ["wiki-admin"])
+        # Seite 1: Technik / Netzwerke, Freigabe wiki-technik.
+        #   enthaelt "rotes Kabel" (als Folge) und das Wort "Stecker"
+        cls.anlegen("kabel-farben", "Kabel und Farben", "Welches Kabel wohin.",
+                    ["Technik", "Netzwerke"], ["wiki-technik"],
+                    [("farben", "Die Farben", "Grundlagen", "Kabel",
+                      "Ein rotes Kabel geht zum Stecker am Schrank.")])
+        # Seite 2: Buero / Ablage, keine Freigabe.
+        #   enthaelt "rotes" und "Kabel", aber NICHT als Folge
+        cls.anlegen("ablage-ordnung", "Ablage und Ordnung", "Wohin die Mappen.",
+                    ["Buero", "Ablage"], [],
+                    [("mappen", "Die Mappen", "Grundlagen", "Ablage",
+                      "Ein rotes Schild markiert das Kabel im Schrank nicht.")])
+
+    @classmethod
+    def tearDownClass(cls):
+        server.db_freigeben()
+        shutil.rmtree(cls.ordner, ignore_errors=True)
+
+    @classmethod
+    def anlegen(cls, slug, titel, kurz, pfad, gruppen, abschnitte):
+        v = server.db()
+        v.execute("INSERT INTO seite(slug,titel,kurz,pfad_json,gruppen_json,stand,"
+                  "fassung,nutzer_id,urheber) VALUES(?,?,?,?,?,'2026-09-17',1,"
+                  "'artur','artur')",
+                  (slug, titel, kurz, json.dumps(pfad, ensure_ascii=False),
+                   json.dumps(gruppen, ensure_ascii=False)))
+        sid = v.execute("SELECT id FROM seite WHERE slug=?", (slug,)).fetchone()["id"]
+        for i, (anker, atitel, gruppe, stich, text) in enumerate(abschnitte):
+            v.execute("INSERT INTO abschnitt(seite_id,anker,titel,ebene,stichworte,"
+                      "text,gruppe,reihenfolge) VALUES(?,?,?,1,?,?,?,?)",
+                      (sid, anker, atitel, stich, text, gruppe, i))
+        v.commit()
+        server.index_neu_bauen(
+            sid, "<html><body><p>%s</p><p>%s</p></body></html>"
+                 % (kurz, abschnitte[0][4]))
+
+    def seiten(self, begriff):
+        aus = []
+        for t in server.suchen(self.nutzer, begriff):
+            if t["slug"] not in aus:
+                aus.append(t["slug"])
+        return sorted(aus)
+
+    # ------------------------------------------------ der Begriff selbst
+    def test_zerlegen_erkennt_alle_teile(self):
+        t = server.suchbegriff_lesen(
+            'kabel "rotes kabel" -schild bereich:Technik gruppe:wiki-technik '
+            'seite:kabel-farben')
+        self.assertEqual(t["worte"], ["kabel"])
+        self.assertEqual(t["phrasen"], ["rotes kabel"])
+        self.assertEqual(t["ohne"], ["schild"])
+        self.assertEqual(t["bereich"], "Technik")
+        self.assertEqual(t["gruppe"], "wiki-technik")
+        self.assertEqual(t["seite"], "kabel-farben")
+
+    def test_ein_unbekanntes_feld_bleibt_ein_wort(self):
+        # Sonst verschwindet ein Doppelpunkt im Text stillschweigend aus der
+        # Suche - und niemand versteht, warum nichts kommt.
+        t = server.suchbegriff_lesen("farbe:rot")
+        self.assertEqual(t["worte"], ["farbe:rot"])
+        self.assertEqual(t["bereich"], "")
+
+    def test_ein_offenes_anfuehrungszeichen_bricht_nicht(self):
+        t = server.suchbegriff_lesen('kabel "rotes kabel')
+        self.assertEqual(t["worte"], ["kabel"])
+        self.assertEqual(t["phrasen"], ["rotes kabel"])
+
+    def test_klammern_und_sterne_werden_zu_woertern(self):
+        # FTS5 liest ( ) * NOT als Operatoren. Kommt so etwas ungefiltert
+        # durch, wirft die Abfrage einen Fehler und die Suche liefert nichts.
+        self.assertEqual(server.fts_ausdruck("kabel*"), '"kabel"*')
+        self.assertEqual(server.fts_ausdruck("(kabel OR schild)"),
+                         '"kabel"* AND "OR"* AND "schild"*')
+
+    def test_der_ausdruck_setzt_not_zweistellig(self):
+        self.assertEqual(server.fts_ausdruck("kabel -schild"),
+                         '("kabel"*) NOT ("schild"*)')
+
+    def test_nur_ausschluss_ergibt_keinen_ausdruck(self):
+        # "alles ausser X" kann FTS5 nicht, und etwas anderes still zu tun
+        # waere schlimmer als nichts zu finden.
+        self.assertIsNone(server.fts_ausdruck("-schild"))
+
+    # ------------------------------------------------ und die Wirkung
+    def test_eine_phrase_findet_nur_die_folge(self):
+        # "rotes Kabel" steht nur auf Seite 1. Auf Seite 2 stehen beide
+        # Woerter, aber nicht hintereinander.
+        self.assertEqual(self.seiten('"rotes kabel"'), ["kabel-farben"])
+        # Ohne Anfuehrungszeichen sind es beide Seiten - Gegenprobe, damit
+        # der Test nicht nur bestaetigt, dass irgendwas eingeschraenkt wird.
+        self.assertEqual(self.seiten("rotes kabel"),
+                         ["ablage-ordnung", "kabel-farben"])
+
+    def test_eine_phrase_gilt_auch_neben_einem_wort(self):
+        # Der schwierigere Fall: ein gewoehnliches Wort UND eine Phrase.
+        # Das zweite Netz (Teilwortsuche) sucht nur mit dem laengsten Wort -
+        # hier "kabel" - und wuerde die Seite zurueckholen, welche die
+        # Phrase gerade ausgeschlossen hat.
+        self.assertEqual(self.seiten('kabel "rotes kabel"'), ["kabel-farben"])
+
+    def test_der_weite_durchgang_laesst_die_phrase_nicht_fallen(self):
+        # Zwei Woerter und eine Phrase. Im zweiten Durchgang genuegt EIN
+        # Wort - die Phrase bleibt Pflicht. Von Hand aufgeschrieben:
+        #     "rotes kabel" AND ("kabel"* OR "schrank"*)
+        # Ohne die Klammer waere es
+        #     ("rotes kabel" AND "kabel"*) OR "schrank"*
+        # denn AND bindet in FTS5 staerker als OR - und "Schrank" steht auf
+        # BEIDEN Seiten. Die Phrase waere damit nur noch ein Vorschlag.
+        t = server.suchbegriff_lesen('kabel schrank "rotes kabel"')
+        self.assertEqual(server.fts_ausdruck_aus_teilen(t, True, "OR"),
+                         '"rotes kabel" AND ("kabel"* OR "schrank"*)')
+        self.assertEqual(self.seiten('kabel schrank "rotes kabel"'),
+                         ["kabel-farben"])
+
+    def test_minus_nimmt_die_seite_heraus(self):
+        self.assertEqual(self.seiten("rotes"),
+                         ["ablage-ordnung", "kabel-farben"])
+        self.assertEqual(self.seiten("rotes -schild"), ["kabel-farben"])
+
+    def test_der_ausschluss_haelt_auch_gegen_das_zweite_netz(self):
+        # Die Teilwortsuche kennt die Ausschluesse nicht. Gemessen: bei
+        # "netzwerk -tcp" holte sie genau die drei Zeilen zurueck, die das
+        # NOT gerade herausgenommen hatte. Darum wird am Ende noch einmal
+        # gegen den Inhalt der Zeile geprueft.
+        for t in server.suchen(self.nutzer, "rotes -schild"):
+            zeile = (t["titel"] + " " + t["schnipsel"]).lower()
+            self.assertNotIn("schild", zeile, t)
+
+    def test_bereich_grenzt_auf_den_pfad_ein(self):
+        self.assertEqual(self.seiten("kabel bereich:Technik"), ["kabel-farben"])
+        self.assertEqual(self.seiten("kabel bereich:Buero"), ["ablage-ordnung"])
+        self.assertEqual(self.seiten("kabel bereich:Keller"), [])
+
+    def test_bereich_zaehlt_von_vorn(self):
+        # Ein Pfadstueck aus der Mitte ist kein Bereich.
+        self.assertEqual(self.seiten("kabel bereich:Netzwerke"), [])
+        self.assertEqual(self.seiten("kabel bereich:Technik/Netzwerke"),
+                         ["kabel-farben"])
+
+    def test_bereich_allein_zeigt_die_seiten_des_bereichs(self):
+        # Ohne Wort ist die Frage "was steht da ueberhaupt" - und die
+        # Antwort sind die Seiten, nicht nichts.
+        self.assertEqual(self.seiten("bereich:Buero"), ["ablage-ordnung"])
+
+    def test_gruppe_grenzt_auf_die_freigabe_ein(self):
+        self.assertEqual(self.seiten("kabel gruppe:wiki-technik"),
+                         ["kabel-farben"])
+        self.assertEqual(self.seiten("kabel gruppe:wiki-chefs"), [])
+
+    def test_seite_grenzt_auf_eine_seite_ein(self):
+        self.assertEqual(self.seiten("kabel seite:ablage-ordnung"),
+                         ["ablage-ordnung"])
+        self.assertEqual(self.seiten("seite:kabel-farben"), ["kabel-farben"])
+
+    def test_die_eingrenzung_wird_nicht_hervorgehoben(self):
+        # "Technik" aus bereich:Technik ist kein Suchwort. Stuende es in der
+        # Hervorhebung, waere auf jeder Seite der Pfad angemalt.
+        treffer = server.suchen(self.nutzer, "kabel bereich:Technik")
+        self.assertTrue(treffer)
+        for t in treffer:
+            self.assertIn("slug", t)
+        # Der Schnipsel kommt aus dem Text; geprueft wird der Weg darueber:
+        # die Wortliste fuer die Hervorhebung.
+        t = server.suchbegriff_lesen("kabel bereich:Technik")
+        self.assertEqual(t["worte"], ["kabel"])
+
+
 class PflichtteilGehoertNichtInDenIndex(unittest.TestCase):
     """N-28: Der Pflichtteil steht in jeder Seite - und stand im Index.
 

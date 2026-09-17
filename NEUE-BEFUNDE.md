@@ -1375,6 +1375,38 @@ langsam durchsickert.
 
 ---
 
+## N-27 — *(zurückgezogen)* Meine „Korrektur" der Korrekturzeile war der Fehler
+
+Beim Umbau der Suche hielt ich diese Zeile für vertauscht:
+
+```js
+Nichts zu <span class="mono">${statt}</span> — Treffer für <strong>${q}</strong>
+```
+
+Der Aufruf lautet `trefferZeichnen(d.statt || q, ms, d.statt ? q : null)` —
+also steht im Parameter `q` das **wirksame** Wort und in `statt` das
+**getippte**. Genau umgekehrt, als die Namen vermuten lassen. Die Zeile war
+richtig; ich habe sie gedreht und damit falsch gemacht.
+
+Aufgefallen ist es, weil ich die Ausgabe danach im Browser nachgelesen habe
+statt im Quelltext:
+
+```
+Nichts zu Netzwek — Treffer für netzwerk
+```
+
+Das ist die richtige Aussage — mit der zurückgedrehten Zeile. Die Namen im
+Funktionskopf heißen jetzt `gesucht` und `getippt`, damit die Verwechslung
+nicht noch einmal passiert.
+
+**Was daraus folgt:** Regelblatt §14 („tatsächlich ausprobiert, nicht nur
+gedanklich") gilt auch für das Lesen von Code, nicht nur für das Prüfen von
+Funktionen. Zwei Variablennamen, die das Gegenteil von dem bedeuten, was sie
+sagen, haben mich in eine Änderung geführt, die alle Tests bestanden hätte —
+weil es für diese Zeile keinen Test gab.
+
+---
+
 ## N-28 — Der Pflichtteil jeder Seite stand im Suchindex
 
 ### Befund

@@ -23,6 +23,16 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
 
 ## Noch nicht veroeffentlicht
 
+- **Genauer suchen.** Im Suchfeld gelten jetzt fuenf Zeichen: `"zwei worte"`
+  fuer genau diese Folge, `-wort` fuer "darf nicht vorkommen",
+  `bereich:Technik`, `gruppe:wiki-technik` und `seite:kennung` fuer die
+  Einschraenkung. Was als Einschraenkung gelesen wurde, steht ueber der
+  Trefferliste und laesst sich dort mit einem Klick aufheben. Steht nur eine
+  Einschraenkung und kein Wort da, kommen die Seiten dieses Bereichs.
+- **Der Pflichtteil steht nicht mehr im Suchindex** (`N-28`). Vorher fanden
+  `dark`, `light`, `prefers`, `section`, `details` und `warn` jeweils alle
+  Seiten - sechs Woerter, die auf alles passen.
+
 - **In einer einzelnen Seite suchen.** Strg+F oder der Knopf *Finden* oeffnet
   eine Leiste ueber der Seite: Wort eingeben, "3 von 17" lesen, mit Eingabe
   weiterspringen, mit Esc schliessen. Die Leiste nennt auch den Abschnitt, in

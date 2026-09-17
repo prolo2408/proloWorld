@@ -259,6 +259,42 @@ Abschnitt:
 Eine Gruppe ist außerdem **durchsuchbar**: „Adressierung" findet die Seite und
 springt an den Abschnitt.
 
+## Genauer suchen: Zeichen im Suchfeld
+
+Fünf Zeichen haben im Suchfeld eine Bedeutung. Sie stehen auch in der
+Trefferliste, unter *Genauer suchen*, wenn nichts gefunden wurde:
+
+| Eingabe | Wirkung |
+|---|---|
+| `netz kabel` | beide Wörter, Wortanfang genügt (`netz` findet `Netzwerkkabel`) |
+| `"rotes kabel"` | genau diese Folge |
+| `netzwerk -tcp` | `netzwerk`, aber keine Stelle, in der `tcp` steht |
+| `bereich:Technik` | nur Seiten unter diesem Pfad, von oben gezählt |
+| `bereich:"Technik / Geräte"` | auch mehrstufig |
+| `gruppe:wiki-technik` | nur Seiten mit dieser Freigabe |
+| `seite:drucker-einrichten` | nur in dieser einen Seite |
+
+Ein `feld:wert` mit einem Feld, das es nicht gibt (`farbe:rot`), bleibt ein
+gewöhnliches Wort — sonst verschwände ein Doppelpunkt aus dem Text
+stillschweigend aus der Suche.
+
+Steht nur eine Einschränkung da und kein Wort (`bereich:Buero`), ist die Frage
+„was liegt da überhaupt" — und die Antwort sind die Seiten dieses Bereichs.
+Was die Suche als Einschränkung gelesen hat, steht über der Trefferliste und
+lässt sich dort mit einem Klick wieder aufheben.
+
+Zwei Dinge, die dabei wichtig waren:
+
+- **Die Anführungszeichen gelten auch im zweiten Durchgang.** Die Suche
+  probiert erst „alle Wörter", dann „ein Wort genügt". Der zweite Durchgang
+  wird neu gebaut und nicht durch Textersetzung aus dem ersten — sonst würde
+  aus `"rotes kabel" AND "kabel"*` ein `OR` mitten in der Phrase.
+- **Ausgeschlossene Wörter werden am Ende noch einmal gegen den Inhalt der
+  Fundstelle geprüft.** Die Teilwortsuche (das zweite Netz gegen Komposita
+  und Tippfehler) kennt die Ausschlüsse nicht; gemessen holte sie bei
+  `netzwerk -tcp` genau die drei Zeilen zurück, die gerade herausgenommen
+  worden waren.
+
 ## In einer einzelnen Seite suchen
 
 `Strg+F` in einer offenen Seite (oder der Knopf **Finden** im Kopf) öffnet eine
