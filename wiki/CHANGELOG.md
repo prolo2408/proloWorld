@@ -21,6 +21,26 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
   Fehler - aber sie stehen vor dem "Uebernehmen"-Knopf, nicht dahinter
   (B-07).
 
+## Noch nicht veroeffentlicht
+
+- **Eine KI kann die Seite schreiben.** Im Editor steht unter *Eine KI
+  schreiben lassen* ein Prompt zum Kopieren (rund 5,8 kB). Er verlangt keinen
+  fertigen Seitenaufbau, sondern einen Entwurf: Meta-Block mit Abschnitten und
+  Markup. Gestaltung, Pflichtteil und Farbtokens baut der Editor daraus selbst
+  - die muessen stimmen, und ein Meta-Block ist kurz genug, um richtig zu sein.
+  Der Weg: Datei waehlen, *In den Editor laden*, PDF auswaehlen, speichern.
+- **Ein Entwurf ist keine Seite mehr** (`N-23`). Ein Meta-Block mit leerem
+  Koerper ging vorher fehlerfrei durch und lag danach als auffindbare, leere
+  Seite im Wiki. Jetzt ist er ein Fehler - mit dem Weg heraus in derselben
+  Meldung.
+- **Der Weg in den Editor steht auch bei Fehlern offen.** Er raeumt genau die
+  Fehler auf, die eine solche Datei hat.
+- **Ein PDF-Knopf ohne PDF** wird nicht mehr gespeichert und sagt in einer
+  eingespielten Seite, was fehlt (`N-22`).
+- **Dieselbe Gruppe zweimal im Verzeichnis** wird beim Schreiben gemeldet
+  (`N-24`).
+- **`.ed-gut` hat jetzt einen Stil** (`N-25`).
+
 ## Fassung 1.2.0
 
 ### Behoben: die Suche fand nicht, was auf der Seite steht

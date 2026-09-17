@@ -472,13 +472,9 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
 .ed-reihe input{min-width:0;flex:1 1 90px}
 .ed-reihe .ed-schmal{flex:0 0 84px;max-width:84px;text-align:right}
 .ed-merke{font-size:11.5px;color:var(--ink-3);margin-top:4px;line-height:1.45}
-/* Die Erfolgsmeldung eines Bausteins - "Datei ausgewaehlt", "liegt als
-   Anhang bei". Die Klasse wurde benutzt, hatte aber keine Regel: die
-   Zeile sah aus wie gewoehnlicher Fliesstext, gemessen Zeichen fuer
-   Zeichen gleich wie body (N-25). */
-.ed-gut{font-size:12px;color:var(--good);font-weight:500}
 /* Ein Hinweis, der kein Fehler ist: der Aufbau geht so, ist aber kaum
    gemeint (N-24). Darum warm statt rot, und ohne Sperre. */
+.ed-gut{font-size:12px;color:var(--good);font-weight:500}
 .ed-warn{font-size:11.5px;color:var(--warm-ink);background:var(--warm-soft);
   border-left:3px solid var(--warm-ink);border-radius:0 8px 8px 0;
   padding:7px 10px;margin-top:6px;line-height:1.45}
@@ -1594,8 +1590,8 @@ function berichtZeichnen(b){
        aber lesbar, sobald der Meta-Block steht - und der Editor baut
        Gestaltung, Pflichtteil und Farben selbst neu. Genau dafür ist der
        Weg über den Editor da: Er räumt die meisten dieser Fehler auf,
-       ohne dass jemand HTML anfassen muss. Vorher endete hier die Strecke -
-       und genau das trifft jeden Entwurf, der noch keine Seite ist (N-23). */
+       ohne dass jemand HTML anfassen muss. Vorher endete hier die Strecke,
+       und genau das trifft jede Datei, die eine KI geschrieben hat. */
     if(b.meta){
       teile.push(`<div class="meldung"><strong>Aber der Inhalt ist
         lesbar</strong>
@@ -2582,6 +2578,251 @@ function edSeiteBauen(e){
 }
 
 
+/* ---------------------------------------------------- Prompt fuer eine KI
+   Wer eine Seite nicht selbst schreiben will, laesst sie schreiben.
+
+   Der Prompt beschreibt bewusst NICHT eine fertig gestaltete Seite, sondern
+   die Datei, die der Editor wieder einlesen kann: Meta-Block plus das
+   Markup der Abschnitte. Gestaltung, Pflichtteil, Farben und CSP-Regeln
+   macht der Editor - und die muessen stimmen. Eine KI, die 300 Zeilen CSS
+   nachbaut, trifft sie irgendwann nicht mehr; ein Meta-Block ist kurz genug,
+   um richtig zu sein. */
+function kiPrompt(thema){
+  const t = String(thema || '').trim() || '<HIER DEIN THEMA EINTRAGEN>';
+  const heute = new Date().toISOString().slice(0, 10);
+  const auf = '<' + 'script type="application/json" id="wiki-meta">';
+  const zu = '<' + '/script>';
+  const strich = w => '────────  ' + w;
+  return [
+'Du bist Fachautor fuer ein internes Firmen-Wiki. Schreibe eine Seite zu',
+'diesem Thema:',
+'',
+'THEMA: ' + t,
+'',
+'Antworte mit genau einer HTML-Datei und nichts weiter — kein Vorwort, keine',
+'Erklaerung danach. Die Datei ist ein Entwurf fuer den Wiki-Editor: Das Wiki',
+'baut daraus die fertige Seite in seinem eigenen Design.',
+'',
+'Schreibe deshalb KEIN CSS, KEIN JavaScript und keine eigene Gestaltung \u2014',
+'nur das Geruest unten, sauber gefuellt.',
+'',
+strich('DAS GERUEST'),
+'',
+'<!DOCTYPE html>',
+'<html lang="de">',
+'<head>',
+'<meta charset="utf-8">',
+'<title>Drucker einrichten</title>',
+auf,
+'{',
+'  "slug": "drucker-einrichten",',
+'  "titel": "Drucker einrichten",',
+'  "kurz": "Wie ein Netzwerkdrucker in zehn Minuten laeuft.",',
+'  "pfad": ["Technik", "Geraete"],',
+'  "gruppen": [],',
+'  "stand": "' + heute + '",',
+'  "werkzeug": "' + EDITOR_WERKZEUG + '",',
+'  "abschnitte": [',
+'    {',
+'      "anker": "vorbereitung",',
+'      "titel": "Was du vorher brauchst",',
+'      "gruppe": "Grundlagen",',
+'      "stichworte": ["drucker", "netzwerk", "treiber"],',
+'      "text": "Derselbe Inhalt ohne Auszeichnung, nur fuer die Suche.",',
+'      "markup": "Erster Absatz.\\n\\n- Punkt eins\\n- Punkt zwei"',
+'    }',
+'  ]',
+'}',
+zu,
+'</head>',
+'<body>',
+'</body>',
+'</html>',
+'',
+strich('DIE FELDER'),
+'',
+'slug        Adresse der Seite: nur Kleinbuchstaben, Ziffern, Bindestriche.',
+'            Aus dem Titel gebildet, ae fuer ä, oe fuer ö, ue fuer ü, ss fuer ß.',
+'titel       Hoechstens 120 Zeichen.',
+'kurz        Ein Satz, hoechstens 300 Zeichen. Steht in der Uebersicht, im',
+'            Verzeichnis und in den Suchtreffern.',
+'pfad        Wo die Seite im Themenbaum haengt, von grob nach fein. Eine bis',
+'            drei Ebenen.',
+'gruppen     Leer lassen. Wer die Seite sehen darf, setze ich selbst.',
+'stand       Heutiges Datum, JJJJ-MM-TT.',
+'werkzeug    Genau "' + EDITOR_WERKZEUG + '". Nicht aendern — daran erkennt der',
+'            Editor, dass er das Markup lesen darf.',
+'abschnitte  Drei bis sechs. Jeder wird ein Kapitel und steht links im',
+'            Verzeichnis.',
+'  anker       kurz, klein, mit Bindestrichen, je Seite nur einmal.',
+'  titel       Ueberschrift des Kapitels.',
+'  gruppe      Ueberschrift, unter der links mehrere Kapitel zusammenstehen',
+'              (z. B. "Grundlagen", "Anleitung", "Wenn es klemmt"). Gleiche',
+'              Schreibweise = gleiche Gruppe. Weglassen ist erlaubt.',
+'              WICHTIG: Abschnitte derselben Gruppe muessen direkt',
+'              aufeinander folgen. Sonst steht die Ueberschrift links',
+'              zweimal.',
+'  stichworte  Drei bis sechs Woerter, nach denen jemand suchen wuerde.',
+'  text        Der Inhalt als reiner Text, ohne Auszeichnung — nur fuer die',
+'              Suche. Kein zusaetzlicher Inhalt.',
+'  markup      Der eigentliche Inhalt. Die Auszeichnung steht unten.',
+'              Das ist JSON: Zeilenumbruch als \\n, Anfuehrungszeichen als \\".',
+'',
+strich('DIE AUSZEICHNUNG IN "markup"'),
+'',
+'Leerzeile          neuer Absatz',
+'## Zwischentitel   Ueberschrift innerhalb des Kapitels',
+'- Punkt            Aufzaehlung',
+'1. Punkt           nummerierte Liste',
+'**fett**           hervorgehoben',
+'`Befehl`           Code im Satz',
+'```                Codeblock, mit einer Zeile ``` davor und danach',
+'> Text             blauer Merkkasten; erste Zeile **fett** wird sein Titel',
+'!> Text            gelber Warnkasten',
+'?> Text            gruener Kasten "gut zu wissen"',
+'| A | B |          Tabelle; die zweite Zeile ist | --- | --- |',
+'[[kennung]]        Verweis auf eine andere Wiki-Seite',
+'[[kennung|Text]]   derselbe Verweis mit eigener Beschriftung',
+'',
+'Mehr gibt es nicht. HTML im markup wird als Text angezeigt, nicht als HTML —',
+'das ist Absicht und keine Einschraenkung, die du umgehen sollst.',
+'',
+strich('BAUSTEINE'),
+'',
+'Groessere Dinge stehen als eigener Baustein zwischen drei Doppelpunkten. Die',
+'Zeile mit ::: schliesst ihn. Spalten trennt ein senkrechter Strich.',
+'',
+':::schritte Drucker anmelden',
+'Geraet einschalten | Netzwerkkabel zuerst, dann Strom.',
+'Adresse notieren | Steht im Display unter Netzwerk.',
+':::',
+'',
+':::kennzahlen Auf einen Blick',
+'Aufwand | 10 min | einmalig',
+'Kosten | 0 Euro | im Haus',
+':::',
+'',
+':::begriffe Woerter, die hier vorkommen',
+'Treiber | Das Programm, mit dem der Rechner mit dem Drucker redet.',
+'Warteschlange | Die Liste der Auftraege, die noch nicht gedruckt sind.',
+':::',
+'',
+':::gegenueber USB oder Netzwerk',
+'USB | Ein Rechner, kein Aufwand.',
+'Netzwerk | Alle Rechner, einmal einrichten.',
+':::',
+'',
+':::klapp Warum es zwei Treiber gibt',
+'Der Hintergrund, der nicht jeden interessiert.',
+':::',
+'',
+':::rechner Kosten je Monat',
+'Seiten pro Monat=500',
+'Preis je Seite=0.04',
+'=Seiten * Preis',
+'Einheit: Euro',
+'Die Preise stehen im Rahmenvertrag.',
+':::',
+'',
+'Beim Rechner gilt: Feldname=Vorbelegung, die Formel beginnt mit "=" und darf',
+'nur Feldnamen, Zahlen und + - * / ( ) enthalten. In der Formel zaehlt das',
+'ERSTE WORT des Feldnamens — oben also "Seiten" und "Preis".',
+'',
+strich('EIN PDF DAZU'),
+'',
+'Gehoert zu dem Thema ein PDF, schreibe diesen Baustein — mit Sprungzielen auf',
+'einzelne Seiten, damit niemand ein 200-Seiten-Papier durchblaettern muss:',
+'',
+':::pdf Handbuch des Herstellers',
+'datei: handbuch',
+'Einrichtung | 12',
+'Fehlersuche | 88',
+':::',
+'',
+'Die Datei selbst kannst du nicht mitschicken; lass den Baustein genau so',
+'stehen. Ich waehle das PDF danach im Editor mit einem Klick aus. Kennst du',
+'die echten Seitenzahlen nicht, schreibe keine — erfundene Sprungziele sind',
+'schlimmer als keine.',
+'',
+strich('REGELN'),
+'',
+'1. Nur die Datei ausgeben, in einem Codeblock.',
+'2. Gueltiges JSON im Meta-Block. Im Zweifel kurze Zeilen statt kaputter',
+'   Escapes.',
+'3. Kein CSS, kein Skript, keine Bilder, keine Adressen nach draussen.',
+'4. Nichts erfinden. Was du nicht weisst, laesst du weg.',
+'5. Jeder Abschnitt beginnt mit einem Satz, der ihn erklaert — nicht mit',
+'   einer Aufzaehlung.',
+'6. "text" und "markup" enthalten denselben Inhalt.',
+'',
+strich('WAS ICH DAMIT MACHE'),
+'',
+'Im Wiki: Neue Seite → "Ich habe schon eine HTML-Datei" → Datei waehlen →',
+'"In den Editor laden". Dann stehe ich mit deinem Inhalt im Editor, waehle',
+'bei Bedarf das PDF aus und speichere. Die fertige Seite baut das Wiki.',
+''
+  ].join('\n');
+}
+
+/* Der Kasten dazu: Thema eintippen, Prompt kopieren. Das Kopieren laeuft
+   ueber die Zwischenablage; wo der Browser das verweigert (kein sicherer
+   Kontext, Berechtigung abgelehnt), wird der Text sichtbar und markiert -
+   dann geht es von Hand weiter, statt still zu scheitern. */
+function kiKasten(){
+  return `
+    <details class="karte" id="ki-karte">
+      <summary style="cursor:pointer;font-weight:600">Eine KI schreiben
+        lassen</summary>
+      <div class="kontext" style="margin-top:8px">Du bekommst einen Prompt
+        zum Kopieren. Gib ihn einer KI, und sie antwortet mit einer Datei,
+        die hier oben unter <em>Ich habe schon eine HTML-Datei</em> hineinpasst.
+        Die Gestaltung macht das Wiki — die KI schreibt nur den Inhalt.</div>
+      <div style="margin-top:12px">
+        <label class="label" for="ki-thema">Worum soll es gehen?</label>
+        <input type="text" id="ki-thema" maxlength="200"
+               placeholder="z. B. Drucker im zweiten Stock einrichten">
+        <div class="ed-merke">Freiwillig. Ohne Thema steht im Prompt eine
+          Stelle, die du selbst ausfüllst.</div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+        <button type="button" class="knopf" id="ki-kopieren">Prompt
+          kopieren</button>
+        <button type="button" class="knopf rahmen" id="ki-zeigen">Prompt
+          ansehen</button>
+      </div>
+      <label class="label" for="ki-text" id="ki-text-label" hidden
+        style="margin-top:12px">Der Prompt — alles markieren und kopieren</label>
+      <textarea id="ki-text" class="mono" rows="14" readonly hidden
+        aria-labelledby="ki-text-label" spellcheck="false"></textarea>
+    </details>`;
+}
+function kiVerdrahten(){
+  const karte = $('ki-karte');
+  if(!karte) return;
+  const feld = $('ki-text'), marke = $('ki-text-label');
+  const fuellen = () => { feld.value = kiPrompt($('ki-thema').value); };
+  const zeigen = () => {
+    fuellen();
+    feld.hidden = false; marke.hidden = false;
+    feld.focus(); feld.select();
+  };
+  $('ki-zeigen').onclick = zeigen;
+  $('ki-kopieren').onclick = async () => {
+    fuellen();
+    const text = feld.value;
+    try {
+      if(!navigator.clipboard) throw new Error('keine Zwischenablage');
+      await navigator.clipboard.writeText(text);
+      einblenden('Prompt kopiert — ' + zahl(text.length) +
+                 ' Zeichen. Jetzt in die KI einfügen.');
+    } catch(e){
+      zeigen();
+      einblenden('Die Zwischenablage war nicht erreichbar. Der Prompt steht ' +
+                 'jetzt offen da und ist markiert — mit Strg+C kopieren.', 7000);
+    }
+  };
+}
+
 /* ---------------------------------------------------- Editor-Ansicht */
 const ED_HILFE = [
   ['Leerzeile', 'neuer Absatz'],
@@ -3497,6 +3738,8 @@ function editorZeichnen(opt){
         <div id="bericht" style="margin-top:14px"></div>
       </details>
 
+      ${kiKasten()}
+
       <div id="ed-bericht"></div>
     </div>`;
 
@@ -3587,6 +3830,7 @@ function editorZeichnen(opt){
   /* Die Dateiablage steht jetzt im Editor - dieselbe Strecke wie vorher in
      der Verwaltung (pruefen -> Vorschau -> uebernehmen). */
   ablageVerdrahten();
+  kiVerdrahten();
 }
 function edTun(was, i, knopf){
   edFelderLesen();

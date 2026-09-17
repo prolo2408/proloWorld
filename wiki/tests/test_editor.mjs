@@ -61,6 +61,7 @@ const quellen = [
      mit nurNachsehen=true - dann braucht es kein Dokument, nur ZUSTAND. */
   hol(/function edPruefbar\(nurNachsehen\)\{[\s\S]*?\n\}/, 'edPruefbar'),
   hol(/function edGruppenWiederholt\(abschnitte\)\{[\s\S]*?\n\}/, 'edGruppenWiederholt'),
+  hol(/function kiPrompt\(thema\)\{[\s\S]*?\n\}/, 'kiPrompt'),
   'var ZUSTAND = {editor:null};',
 ].join('\n');
 
@@ -69,14 +70,14 @@ const { edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
         edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
         ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
         edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, edGruppenWiederholt,
-        ZUSTAND } =
+        kiPrompt, ZUSTAND } =
   new Function(quellen + `
     return {edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
             ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
             edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
             ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
             edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, edGruppenWiederholt,
-            ZUSTAND};`)();
+            kiPrompt, ZUSTAND};`)();
 
 /* Das Rechenwerk der erzeugten Seite - hier einzeln herausgeholt, damit die
    Formelauswertung geprueft werden kann, ohne einen Browser zu starten. */
@@ -762,6 +763,60 @@ pruefe('Ohne Gruppen gibt es nichts zu melden', () => {
 pruefe('Mehrere Wiederholungen werden alle gemeldet', () => {
   const w = edGruppenWiederholt(gr(['A', 'B', 'A', 'B', 'A']));
   assert.deepEqual([...w], [2, 3, 4]);
+});
+
+/* ------------------------------------------------ Der Prompt fuer eine KI */
+pruefe('Das Geruest aus dem Prompt laesst sich wirklich in den Editor laden', () => {
+  /* Der wichtigste Test am Prompt: Was er einer KI vorgibt, muss der Editor
+     hinterher lesen koennen. Also wird das Geruest aus dem Prompt
+     herausgeschnitten und genau durch die Funktion geschickt, die auch
+     "In den Editor laden" benutzt. */
+  const p = kiPrompt('Drucker einrichten');
+  const von = p.indexOf('<!DOCTYPE html>');
+  const bis = p.indexOf('</html>');
+  assert.ok(von >= 0 && bis > von, 'im Prompt steht kein vollstaendiges Geruest');
+  const geruest = p.slice(von, bis + 7);
+  const e = edAusHtml(geruest, '', true);
+  assert.ok(e, 'edAusHtml kommt mit dem Geruest aus dem Prompt nicht zurecht');
+  assert.equal(e.titel, 'Drucker einrichten');
+  assert.equal(e.slug, 'drucker-einrichten');
+  assert.equal(e.pfad, 'Technik / Geraete');
+  assert.equal(e.quelle, 'editor',
+               'das Geruest nennt ein anderes Werkzeug - dann warnt der Editor');
+  assert.equal(e.abschnitte.length, 1);
+  assert.equal(e.abschnitte[0].anker, 'vorbereitung');
+  assert.equal(e.abschnitte[0].gruppe, 'Grundlagen');
+  assert.equal(e.abschnitte[0].stichworte, 'drucker, netzwerk, treiber');
+  /* Das Markup im Geruest ist ein Absatz und zwei Listenpunkte. Der Editor
+     macht daraus EINEN Textblock - Absaetze zerfallen nicht. */
+  assert.equal(e.abschnitte[0].bloecke.length, 1);
+  assert.equal(e.abschnitte[0].bloecke[0].art, 'text');
+  assert.equal(e.abschnitte[0].bloecke[0].text,
+               'Erster Absatz.\n\n- Punkt eins\n- Punkt zwei');
+});
+pruefe('Der Prompt nennt genau das Werkzeug, auf das der Editor hoert', () => {
+  /* Steht dort ein anderer Wert, halten der Editor und der Server jede
+     Antwort der KI fuer eine fremde Seite und werfen ihr Markup weg. */
+  const p = kiPrompt('');
+  assert.ok(p.includes('"werkzeug": "' + EDITOR_WERKZEUG + '"'),
+            'der Prompt nennt nicht ' + EDITOR_WERKZEUG);
+});
+pruefe('Jeder Baustein des Editors steht im Prompt', () => {
+  /* Sonst kennt die KI ihn nicht und schreibt Text, wo ein Baustein
+     gehoert hat. "text" ist kein :::-Baustein, sondern der Normalfall. */
+  const p = kiPrompt('');
+  const fehlen = Object.keys(ED_FORM)
+    .filter(k => k !== 'text' && !p.includes(':::' + k));
+  assert.deepEqual(fehlen, [], 'nicht im Prompt erklaert: ' + fehlen.join(', '));
+});
+pruefe('Ohne Thema bleibt eine Stelle zum Ausfuellen', () => {
+  const p = kiPrompt('   ');
+  assert.ok(p.includes('THEMA: <HIER DEIN THEMA EINTRAGEN>'),
+            'ohne Thema steht keine Stelle zum Ausfuellen im Prompt');
+});
+pruefe('Das Thema kommt unveraendert in den Prompt', () => {
+  const p = kiPrompt('  Drucker im 2. Stock  ');
+  assert.ok(p.includes('THEMA: Drucker im 2. Stock'), 'Thema fehlt oder ist entstellt');
 });
 
 console.log('');

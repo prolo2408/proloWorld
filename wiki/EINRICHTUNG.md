@@ -434,8 +434,12 @@ erreichbar.
 Verwaltung → Datei hineinziehen. Was dann passiert:
 
 1. **Geprüft.** Fehler verhindern die Übernahme und stehen im Klartext da:
-   fehlender Meta-Block, doppelte Anker, externe Verweise. Hinweise
+   fehlender Meta-Block, doppelte Anker, externe Verweise, ein Titel über 120
+   Zeichen — und seit `N-23` auch ein `<body>` ohne sichtbaren Text. Hinweise
    verhindern nichts, werden aber an der Seite vermerkt.
+   Ist der Meta-Block lesbar, steht neben den Fehlern **In den Editor laden**:
+   Der Editor baut Gestaltung, Pflichtteil und Farben selbst neu und räumt
+   damit genau diese Fehler auf.
 2. **Anhänge ausgelagert.** Base64-Blöcke über 200 kB werden Dateien. Bei
    PDFs wird zusätzlich der Text seitenweise indexiert — ein Suchtreffer
    nennt dann die Seitenzahl im Dokument.
@@ -445,6 +449,53 @@ Verwaltung → Datei hineinziehen. Was dann passiert:
 
 Gleiche `slug` noch einmal einspielen heißt: Seite ersetzen. Neue `slug`
 heißt: neue Seite. Mehr Regeln gibt es nicht.
+
+## Eine Seite von einer KI schreiben lassen
+
+Im Editor unter **Eine KI schreiben lassen** steht ein Prompt zum Kopieren.
+Thema eintippen, *Prompt kopieren*, in die KI einfügen — sie antwortet mit
+einer HTML-Datei.
+
+Der Prompt verlangt **keine fertige Seite**, sondern einen Entwurf: Meta-Block
+mit Titel, Pfad, Abschnitten und deren Markup, und ein leerer Körper. Das ist
+Absicht:
+
+- Gestaltung, Pflichtteil, Farbtokens und CSP-Regeln macht der **Editor**. Sie
+  müssen stimmen, und eine KI, die 300 Zeilen CSS nachbaut, trifft sie
+  irgendwann nicht mehr.
+- Ein Meta-Block ist kurz genug, um richtig zu sein. Der Prompt ist deshalb
+  rund 5,8 kB statt 40.
+
+Der Weg danach, vier Klicks:
+
+1. Editor → **Ich habe schon eine HTML-Datei** → Datei wählen.
+2. Die Prüfung sagt *Nicht übernehmbar* — richtig, der Entwurf ist noch keine
+   Seite (`N-23`). Darunter steht **In den Editor laden**.
+3. Der Editor ist gefüllt: Titel, Pfad, Kennung, Satz, alle Abschnitte mit
+   Gruppen und Stichworten, das Markup als Blöcke mit lebender Vorschau.
+4. **Speichern.** Erst jetzt entsteht die richtige Seite.
+
+Ein PDF kann die KI nicht mitschicken. Der Prompt lässt sie deshalb nur den
+Baustein mit den Sprungzielen schreiben:
+
+```
+:::pdf Handbuch des Herstellers
+datei: handbuch
+Einrichtung | 12
+Fehlersuche | 88
+:::
+```
+
+Die Datei wählst du danach im PDF-Baustein mit einem Klick aus. Ohne Datei
+lässt der Editor nicht speichern (`N-22`) — ein PDF-Knopf ohne PDF wäre ein
+Klick ins Leere.
+
+Zwei Regeln, die der Prompt mitgibt und die auch für Seiten von Hand gelten:
+
+- `werkzeug` muss genau `editor-1` sein. Steht dort etwas anderes, hält der
+  Editor die Datei für eine fremde Seite und wirft ihr Markup weg.
+- Abschnitte derselben Gruppe müssen **direkt aufeinander folgen**, sonst
+  steht die Überschrift links zweimal (`N-24`).
 
 ## Fertige Seiten im Repository
 
@@ -462,9 +513,8 @@ Repository nehmen.
 
 ## Was noch fehlt
 
-- Der Skill, mit dem Claude Seiten nach diesem Schema erzeugt. Bis dahin
-  reicht es, `test-seite.html` und diesen Abschnitt mitzugeben. Für Seiten
-  von Hand ist der Editor der kürzere Weg.
+- Ein Skill, der ganze Seitenreihen auf einmal erzeugt. Fuer eine einzelne
+  Seite gibt es jetzt den Prompt im Editor (siehe oben).
 - Weitere Bausteine: Bild mit Beschriftung, Ablaufdiagramm, Zeitleiste,
   Tabelle mit Summenzeile. Der Aufbau (`:::art`) trägt beliebig viele; jeder
   neue Baustein ist eine Funktion in `edBaustein()` plus ein Eintrag in
