@@ -1305,6 +1305,38 @@ class Handler(BaseHTTPRequestHandler):
                                "Authentik aufgerufen.")
         return n
 
+    def darf_schreiben(self, z, n):
+        """Darf dieser Nutzer diese bestehende Seite aendern? (N-13)
+
+        Jeder darf Seiten anlegen. Eine bestehende Seite aendert, wer sie
+        angelegt hat - und jeder Verwalter. Sonst koennte jeder die Arbeit
+        aller anderen ueberschreiben, und das waere in einem Wiki mit
+        Freigaben genau das falsche Signal.
+        """
+        if n.ist_admin:
+            return True
+        return (z["nutzer_id"] or "") == n.kennung
+
+    def gruppen_pruefen(self, meta, n):
+        """Eine Freigabe darf nur auf eigene Gruppen zeigen (N-13).
+
+        Wer eine Seite fuer 'wiki-technik' freigibt, muss selbst in
+        'wiki-technik' sein - sonst koennte man eine Seite in eine Gruppe
+        legen, die man nicht kennt, und sie sich damit selbst wegnehmen.
+        Verwalter duerfen jede Gruppe setzen.
+        """
+        if n.ist_admin:
+            return
+        gewuenscht = [g for g in (meta.get("gruppen") or []) if g]
+        fremd = [g for g in gewuenscht if g not in n.gruppen]
+        if fremd:
+            raise Antwort(403,
+                          "Diese Gruppen hast du selbst nicht: %s. Freigeben "
+                          "kannst du nur fuer Gruppen, in denen du bist - "
+                          "deine sind: %s."
+                          % (", ".join(sorted(fremd)),
+                             ", ".join(sorted(n.gruppen)) or "keine"))
+
     def admin(self):
         n = self.nutzer()
         if not n.ist_admin:
@@ -1514,8 +1546,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_senden(d)
 
         if len(teile) == 2 and teile[0] == "fassungen":
-            self.admin()
+            # Wer die Seite aendern darf, darf auch ihre Fassungen sehen
+            # (N-13) - sonst kann ein Urheber seine eigene Arbeit nicht
+            # zurueckholen.
+            nf = self.nutzer()
             z = db().execute("SELECT * FROM seite WHERE slug=?", (teile[1],)).fetchone()
+            if z and not self.darf_schreiben(z, nf):
+                raise Antwort(403, "Die Fassungen dieser Seite sieht ihr "
+                                   "Urheber oder ein Verwalter.")
             if not z:
                 raise Antwort(404, "Diese Seite gibt es nicht.")
             f = [dict(r) for r in db().execute(
@@ -1540,7 +1578,17 @@ class Handler(BaseHTTPRequestHandler):
             zweige = [dict(r) for r in db().execute("SELECT * FROM zweig").fetchall()]
             for z in zweige:
                 z["gruppen"] = json.loads(z.pop("gruppen_json") or "[]")
-            return self.json_senden({"seiten": zeilen, "zweige": zweige, "pfade": pfade})
+            # Alle Gruppen, die im Wiki schon vorkommen - als Vorschlagsliste
+            # fuer die Freigabe. Dazu die eigenen des Verwalters.
+            bekannt = set()
+            for z in zeilen:
+                bekannt |= set(z["gruppen"])
+            for z in zweige:
+                bekannt |= set(z["gruppen"])
+            bekannt |= self.nutzer().gruppen
+            return self.json_senden({"seiten": zeilen, "zweige": zweige,
+                                     "pfade": pfade,
+                                     "gruppen": sorted(g for g in bekannt if g)})
 
         raise Antwort(404, "Unbekannter Aufruf.")
 
@@ -1656,7 +1704,10 @@ class Handler(BaseHTTPRequestHandler):
         self.typ_pruefen(rest)
 
         if rest == ["pruefen"] or rest == ["import"]:
-            n = self.admin()
+            # Jeder Angemeldete darf Seiten anlegen (N-13). Wer eine
+            # BESTEHENDE Seite ersetzt, muss sie angelegt haben oder Verwalter
+            # sein - das wird unten geprueft, wenn die Kennung feststeht.
+            n = self.nutzer()
             roh = self.koerper_lesen()
             if not roh:
                 raise Antwort(400, "Es wurde keine Datei uebertragen.")
@@ -1675,6 +1726,17 @@ class Handler(BaseHTTPRequestHandler):
             geaendert = ueberschreiben(teile_d["meta"], frage)
             if geaendert:
                 html = meta_block_ersetzen(html, teile_d["meta"])
+            # Ab hier steht die endgueltige Kennung fest: Rechte pruefen.
+            self.gruppen_pruefen(teile_d["meta"], n)
+            vorhanden = db().execute("SELECT * FROM seite WHERE slug=?",
+                                     (teile_d["meta"]["slug"],)).fetchone()
+            if vorhanden and not self.darf_schreiben(vorhanden, n):
+                raise Antwort(403,
+                              "Die Seite '%s' hat %s angelegt. Aendern kann "
+                              "sie ihr Urheber oder ein Verwalter. Waehle eine "
+                              "andere Kennung, wenn du eine eigene Seite "
+                              "willst." % (teile_d["meta"]["slug"],
+                                           vorhanden["nutzer_id"] or "jemand anderes"))
             seite_id, nummer, indexfehler = uebernehmen(html, teile_d, n, kommentar)
             antwort = {"ok": True, "slug": teile_d["meta"]["slug"],
                        "fassung": nummer, "geaendert": geaendert,
@@ -1689,7 +1751,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_senden(antwort)
 
         if rest == ["loeschen"]:
-            n = self.admin()
+            n = self.nutzer()
             daten = json.loads(self.koerper_lesen() or b"{}")
             slug = (daten.get("slug") or "").strip()
             if daten.get("bestaetigt") is not True:
@@ -1697,6 +1759,9 @@ class Handler(BaseHTTPRequestHandler):
             z = db().execute("SELECT * FROM seite WHERE slug=?", (slug,)).fetchone()
             if not z:
                 raise Antwort(404, "Diese Seite gibt es nicht.")
+            if not self.darf_schreiben(z, n):
+                raise Antwort(403, "Loeschen kann diese Seite ihr Urheber "
+                                   "oder ein Verwalter.")
             db().execute("DELETE FROM seite WHERE id=?", (z["id"],))
             db().commit()
             # Dateien bleiben liegen - Datenverlust ist die einzige echte
@@ -1706,12 +1771,15 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_senden({"ok": True})
 
         if rest == ["zuruecksetzen"]:
-            n = self.admin()
+            n = self.nutzer()
             daten = json.loads(self.koerper_lesen() or b"{}")
             slug, nummer = (daten.get("slug") or "").strip(), int(daten.get("nummer") or 0)
             z = db().execute("SELECT * FROM seite WHERE slug=?", (slug,)).fetchone()
             if not z:
                 raise Antwort(404, "Diese Seite gibt es nicht.")
+            if not self.darf_schreiben(z, n):
+                raise Antwort(403, "Zuruecksetzen kann diese Seite ihr "
+                                   "Urheber oder ein Verwalter.")
             p = os.path.join(seitenordner(slug), "fassungen", f"{nummer:04d}-seite.html")
             if not os.path.exists(p):
                 raise Antwort(404, "Diese Fassung liegt nicht vor.")
@@ -1722,6 +1790,36 @@ class Handler(BaseHTTPRequestHandler):
                                    + "; ".join(bericht["fehler"][:2]))
             _, neu, _ = uebernehmen(html, teile_d, n, f"zurueck auf Fassung {nummer}")
             return self.json_senden({"ok": True, "fassung": neu})
+
+        if rest == ["rechte"]:
+            # Der Verwalter steuert die Freigabe einer Seite, ohne sie neu
+            # einzuspielen (N-13). Geaendert wird BEIDES: die Datenbank, die
+            # ueber die Sichtbarkeit entscheidet, und der Meta-Block in der
+            # Datei - sonst dreht das naechste Bearbeiten durch den Urheber
+            # die Freigabe wieder zurueck.
+            self.admin()
+            daten = json.loads(self.koerper_lesen() or b"{}")
+            slug = (daten.get("slug") or "").strip()
+            gruppen = [str(g).strip() for g in (daten.get("gruppen") or []) if str(g).strip()]
+            z = db().execute("SELECT * FROM seite WHERE slug=?", (slug,)).fetchone()
+            if not z:
+                raise Antwort(404, "Diese Seite gibt es nicht.")
+            pfad = os.path.join(seitenordner(slug), "seite.html")
+            if os.path.exists(pfad):
+                with open(pfad, encoding="utf-8") as f:
+                    html = f.read()
+                try:
+                    meta, _ = meta_block_lesen(html)
+                except ValueError:
+                    meta = None
+                if meta is not None:
+                    meta["gruppen"] = gruppen
+                    with open(pfad, "w", encoding="utf-8") as f:
+                        f.write(meta_block_ersetzen(html, meta))
+            db().execute("UPDATE seite SET gruppen_json=?, geaendert=? WHERE id=?",
+                         (json.dumps(gruppen, ensure_ascii=False), jetzt(), z["id"]))
+            db().commit()
+            return self.json_senden({"ok": True, "gruppen": gruppen})
 
         if rest == ["zweig"]:
             # Nach dem Schreiben ist der Zwischenspeicher ueberholt (B-47).

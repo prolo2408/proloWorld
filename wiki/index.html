@@ -585,7 +585,6 @@ function wegSetzen(slug, anker, begriff){
 async function oeffnen(slug, anker, begriff, ohneWeg){
   ZUSTAND.ansicht = 'seite';
   if(!slug) return start();
-  bearbeitenKnopf(slug);
   merkenKnopf(slug);
   $('vorschau-leiste').hidden = true;
   let daten;
@@ -598,6 +597,7 @@ async function oeffnen(slug, anker, begriff, ohneWeg){
   $('kopfkontext').textContent = (daten.pfad||[]).join(' › ') +
     (daten.stand ? '  ·  Stand ' + datum(daten.stand) : '');
   abschnittsleiste(slug, daten.abschnitte);
+  bearbeitenKnopf(slug, daten.nutzer_id);
   document.title = daten.titel + ' — Prolo Wiki';
 
   const f = $('rahmen');
@@ -984,9 +984,11 @@ async function verwaltung(){
     <td class="mono">${schuetzen(s.slug)}</td>
     <td class="mono" style="text-align:right">${bytes(s.groesse_b)}</td>
     <td class="mono" style="text-align:right">${s.fassung}</td>
-    <td>${s.gruppen.length
+    <td><button class="knopf still" style="height:auto;padding:0;text-align:left"
+        data-rechte="${schuetzen(s.slug)}" title="Freigabe ändern">${s.gruppen.length
       ? s.gruppen.map(g => `<span class="marke-badge">${schuetzen(g)}</span>`).join(' ')
-      : '<span style="color:var(--ink-3)">alle</span>'}</td>
+      : '<span style="color:var(--ink-3)">alle · ändern</span>'}</button></td>
+    <td class="mono" style="font-size:12px">${schuetzen(s.nutzer_id || '')}</td>
     <td>${s.hinweise.length
       ? `<span class="marke-badge warm">${s.hinweise.length} Hinweise</span>`
       : '<span class="marke-badge gut">sauber</span>'}</td>
@@ -1002,24 +1004,13 @@ async function verwaltung(){
   $('flaeche').innerHTML = `
     <div class="raster mitte">
       <div class="karte">
-        <h3>Seite schreiben</h3>
-        <div class="kontext">Im Editor, ohne HTML. Titel, Abschnitte, Text —
-          der Rest entsteht von selbst.</div>
+        <h3>Seiten entstehen unter „Neue Seite"</h3>
+        <div class="kontext">Schreiben im Editor oder eine fertige HTML-Datei
+          einspielen — beides an einem Ort, in der Seitenleiste. Hier geht es
+          um alle Seiten: wer sie sehen darf, welche Fassungen es gibt, und was
+          weg soll.</div>
         <button class="knopf" id="ed-neu-knopf" style="margin-top:12px">Neue Seite
           anlegen</button>
-      </div>
-
-      <div class="karte">
-        <h3>Seite einspielen</h3>
-        <div class="kontext">Fertige HTML-Datei mit Meta-Block. Sie wird erst
-          geprüft, dann kannst du sie ansehen und übernehmen.</div>
-        <div class="ablage" id="ablage" style="margin-top:14px">
-          <div style="font-size:13px;color:var(--ink-3)">Datei hierher ziehen</div>
-          <label for="datei" class="knopf" style="margin-top:12px">Datei auswählen</label>
-          <input type="file" id="datei" accept=".html,text/html"
-                 style="position:absolute;left:-9999px">
-        </div>
-        <div id="bericht" style="margin-top:14px"></div>
       </div>
 
       <div class="karte">
@@ -1028,9 +1019,10 @@ async function verwaltung(){
         <div style="overflow-x:auto;margin-top:12px">
           <table class="tabelle"><thead><tr>
             <th>Titel</th><th>Kennung</th><th style="text-align:right">Größe</th>
-            <th style="text-align:right">Fassung</th><th>Freigabe</th><th>Prüfung</th><th></th>
+            <th style="text-align:right">Fassung</th><th>Freigabe</th><th>Von</th>
+            <th>Prüfung</th><th></th>
           </tr></thead><tbody>${zeilen ||
-            '<tr><td colspan="7" style="color:var(--ink-3)">Noch nichts eingespielt.</td></tr>'}
+            '<tr><td colspan="8" style="color:var(--ink-3)">Noch keine Seite da.</td></tr>'}
           </tbody></table>
         </div>
       </div>
@@ -1064,6 +1056,8 @@ async function verwaltung(){
     b.onclick = () => oeffnen(b.dataset.slug));
   $('flaeche').querySelectorAll('[data-fassungen]').forEach(b =>
     b.onclick = () => fassungen(b.dataset.fassungen));
+  $('flaeche').querySelectorAll('[data-rechte]').forEach(b =>
+    b.onclick = () => rechteKasten(b.dataset.rechte, d));
   $('flaeche').querySelectorAll('[data-bearbeiten]').forEach(b =>
     b.onclick = () => {
       history.pushState(null, '', '#/bearbeiten/' + b.dataset.bearbeiten);
@@ -1093,7 +1087,13 @@ async function verwaltung(){
     } catch(e){ einblenden(e.message); }
   };
 
+  ablageVerdrahten();
+}
+function ablageVerdrahten(){
+  /* Dieselbe Ablage, egal wo sie steht (Editor). Fehlt sie, ist nichts zu
+     tun - dann zeigt die Ansicht sie gerade nicht. */
   const ablage = $('ablage'), datei = $('datei');
+  if(!ablage || !datei) return;
   ['dragenter','dragover'].forEach(t => ablage.addEventListener(t, e => {
     e.preventDefault(); ablage.dataset.ueber = '1'; }));
   ['dragleave','drop'].forEach(t => ablage.addEventListener(t, e => {
@@ -1101,6 +1101,57 @@ async function verwaltung(){
   ablage.addEventListener('drop', e => {
     if(e.dataTransfer.files.length) pruefen(e.dataTransfer.files[0]); });
   datei.onchange = () => { if(datei.files.length) pruefen(datei.files[0]); };
+}
+async function rechteKasten(slug, d){
+  /* Freigabe einer Seite aendern, ohne sie neu einzuspielen (N-13). Der
+     Verwalter sieht, welche Gruppen es im Wiki schon gibt, und klickt sie an. */
+  const seite = (d.seiten || []).find(x => x.slug === slug);
+  if(!seite) return;
+  const bekannt = d.gruppen || [];
+  const ziel = $('bericht') || $('flaeche');
+  const kasten = document.createElement('div');
+  kasten.className = 'karte';
+  kasten.style.marginTop = '14px';
+  kasten.innerHTML = `
+    <h3>Freigabe für „${schuetzen(seite.titel)}"</h3>
+    <div class="kontext">Leer heißt: alle Angemeldeten. Sonst sieht die Seite
+      nur, wer in einer der Gruppen ist. Die Gruppen selbst legst du in
+      Authentik an.</div>
+    <input type="text" id="rechte-feld" style="margin-top:12px"
+           value="${schuetzen((seite.gruppen || []).join(', '))}"
+           placeholder="leer = alle">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${
+      bekannt.map(g => `<button type="button" class="knopf rahmen ed-klein"
+        data-g="${schuetzen(g)}">${schuetzen(g)}</button>`).join('') ||
+      '<span style="font-size:12.5px;color:var(--ink-3)">Noch keine Gruppe im Wiki.</span>'}</div>
+    <div style="display:flex;gap:10px;margin-top:14px">
+      <button class="knopf" id="rechte-speichern">Freigabe setzen</button>
+      <button class="knopf still" id="rechte-abbrechen">Abbrechen</button>
+    </div>`;
+  const alt = $('rechte-kasten');
+  if(alt) alt.remove();
+  kasten.id = 'rechte-kasten';
+  ziel.parentElement.insertBefore(kasten, ziel.nextSibling);
+  kasten.scrollIntoView({block:'nearest'});
+  kasten.querySelectorAll('[data-g]').forEach(b => b.onclick = () => {
+    const f = $('rechte-feld');
+    const drin = f.value.split(',').map(x => x.trim()).filter(Boolean);
+    const i = drin.indexOf(b.dataset.g);
+    if(i >= 0) drin.splice(i, 1); else drin.push(b.dataset.g);
+    f.value = drin.join(', ');
+  });
+  $('rechte-abbrechen').onclick = () => kasten.remove();
+  $('rechte-speichern').onclick = async () => {
+    const gruppen = $('rechte-feld').value.split(',').map(x => x.trim()).filter(Boolean);
+    try {
+      await hole('/api/rechte', {method:'POST',
+        body:JSON.stringify({slug, gruppen})});
+      einblenden(gruppen.length
+        ? `„${seite.titel}" sieht jetzt nur: ${gruppen.join(', ')}.`
+        : `„${seite.titel}" ist jetzt für alle Angemeldeten da.`);
+      await baumLaden(); verwaltung();
+    } catch(e){ einblenden(e.message); }
+  };
 }
 
 let letzteDatei = null;
@@ -1742,12 +1793,15 @@ function merkenKnopf(slug){
     merkenKnopf(slug);
   };
 }
-function bearbeitenKnopf(slug){
-  /* Nur beim Lesen einer Seite und nur fuer Verwalter: schreiben darf, wer
-     einspielen darf (/api/import verlangt Verwalterrecht). */
+function bearbeitenKnopf(slug, urheber){
+  /* Beim Lesen einer Seite: aendern darf sie ihr Urheber und jeder
+     Verwalter (N-13). Wer nur liest, sieht den Knopf nicht - statt ihn
+     anzubieten und dann an einem 403 auflaufen zu lassen. */
   const k = $('bearbeiten-knopf');
   if(!k) return;
-  const darf = !!(slug && ZUSTAND.ich && ZUSTAND.ich.ist_admin);
+  const ich = ZUSTAND.ich || {};
+  const darf = !!(slug && (ich.ist_admin ||
+                  (urheber && urheber === ich.kennung)));
   k.hidden = !darf;
   k.onclick = darf ? () => {
     history.pushState(null, '', '#/bearbeiten/' + slug);
@@ -1817,6 +1871,10 @@ function editorZeichnen(){
   $('kopfkontext').textContent = e.titel || 'noch kein Titel';
   const pfade = (ZUSTAND.pfade || []).map(p =>
     `<option value="${schuetzen(p)}"></option>`).join('');
+  /* Die eigenen Gruppen: nur die darf ein Nutzer vergeben (N-13), und
+     getippt werden muessen sie schon gar nicht. */
+  const meine = ((ZUSTAND.ich && ZUSTAND.ich.gruppen) || [])
+    .filter(g => g && g !== 'wiki-admin');
   const warnFremd = e.quelle === 'fremd' ? `
     <div class="meldung warn"><strong>Diese Seite kommt nicht aus dem Editor</strong>
       <div style="margin-top:4px">Ihr Aufbau ist von Hand gemacht. Wenn du hier
@@ -1890,7 +1948,20 @@ function editorZeichnen(){
           <div style="flex:1 1 200px">
             <label class="label" for="ed-gruppen">Freigabe, leer = alle</label>
             <input type="text" id="ed-gruppen" value="${schuetzen(e.gruppen)}"
-                   placeholder="wiki-technik">
+                   list="ed-gruppenliste" placeholder="leer = alle Angemeldeten">
+            <datalist id="ed-gruppenliste">${meine.map(g =>
+              `<option value="${schuetzen(g)}"></option>`).join('')}</datalist>
+            ${meine.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;
+                 margin-top:6px">${meine.map(g =>
+                 `<button type="button" class="knopf rahmen ed-klein"
+                    data-ed="gruppe" data-g="${schuetzen(g)}">${schuetzen(g)}</button>`
+               ).join('')}</div>` : ''}
+            <div style="font-size:12px;color:var(--ink-3);margin-top:6px">${
+              ZUSTAND.ich && ZUSTAND.ich.ist_admin
+                ? 'Als Verwalter kannst du jede Gruppe eintragen.'
+                : (meine.length
+                   ? 'Nur Gruppen, in denen du selbst bist.'
+                   : 'Du bist in keiner Gruppe — die Seite ist dann für alle Angemeldeten da.')}</div>
           </div>
         </div>
         <div style="margin-top:10px">
@@ -1917,6 +1988,21 @@ function editorZeichnen(){
           Mehr gibt es nicht — und das ist Absicht. Wer HTML schreiben will,
           spielt weiter eine Datei ein; beides führt zur selben Seite.
         </div>
+      </details>
+
+      <details class="karte">
+        <summary style="cursor:pointer;font-weight:600">Ich habe schon eine
+          HTML-Datei</summary>
+        <div class="kontext" style="margin-top:8px">Eine fertige Seite mit
+          Meta-Block. Sie wird geprüft, du siehst sie an, dann übernimmst du
+          sie — der Editor oben wird dafür nicht gebraucht.</div>
+        <div class="ablage" id="ablage" style="margin-top:14px">
+          <div style="font-size:13px;color:var(--ink-3)">Datei hierher ziehen</div>
+          <label for="datei" class="knopf" style="margin-top:12px">Datei auswählen</label>
+          <input type="file" id="datei" accept=".html,text/html"
+                 style="position:absolute;left:-9999px">
+        </div>
+        <div id="bericht" style="margin-top:14px"></div>
       </details>
 
       <div class="karte">
@@ -1948,9 +2034,13 @@ function editorZeichnen(){
     if(a.anker) an.dataset.getippt = '1';
   });
 
-  $('flaeche').querySelectorAll('[data-ed]').forEach(b => b.onclick = () => edTun(b.dataset.ed, +b.dataset.i));
+  $('flaeche').querySelectorAll('[data-ed]').forEach(b =>
+    b.onclick = () => edTun(b.dataset.ed, +b.dataset.i, b));
+  /* Die Dateiablage steht jetzt im Editor - dieselbe Strecke wie vorher in
+     der Verwaltung (pruefen -> Vorschau -> uebernehmen). */
+  ablageVerdrahten();
 }
-function edTun(was, i){
+function edTun(was, i, knopf){
   edFelderLesen();
   const e = ZUSTAND.editor;
   if(was === 'neu'){
@@ -1981,6 +2071,16 @@ function edTun(was, i){
     ZUSTAND.editor = null;
     history.pushState(null, '', '#/verwaltung');
     return verwaltung();
+  }
+  if(was === 'gruppe'){
+    const g = (knopf && knopf.dataset.g) || '';
+    const f = $('ed-gruppen');
+    const drin = f.value.split(',').map(x => x.trim()).filter(Boolean);
+    const i = drin.indexOf(g);
+    if(i >= 0) drin.splice(i, 1); else drin.push(g);
+    f.value = drin.join(', ');
+    e.gruppen = f.value;
+    return;
   }
   if(was === 'datei') return edDatei();
   if(was === 'vorschau') return edVorschau();
@@ -2117,10 +2217,10 @@ async function baumLaden(){
     ZUSTAND.einst = ZUSTAND.ich.einstellungen || {};
     themaAnwenden(ZUSTAND.einst.thema || 'system');
     $('konto-knopf').textContent = ZUSTAND.ich.name;
-    if(ZUSTAND.ich.ist_admin){
-      $('verwaltung-knopf').hidden = false;
-      $('neu-knopf').hidden = false;
-    }
+    /* Seiten anlegen darf jeder (N-13). Die Verwaltung bleibt beim
+       Verwalter: dort geht es um alle Seiten und um Freigaben. */
+    $('neu-knopf').hidden = false;
+    if(ZUSTAND.ich.ist_admin) $('verwaltung-knopf').hidden = false;
     await baumLaden();
     if(!location.hash.replace(/^#\/?/, '') && ZUSTAND.einst.start === 'zuletzt'){
       const d = await hole('/api/baum');

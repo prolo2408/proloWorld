@@ -680,6 +680,44 @@ Seite subnetze: RuntimeError: Probe`).
 
 ---
 
+## N-13 — Seiten schreiben war Verwaltersache
+
+**Stufe:** mittel — eine Wissenssammlung, in die nur einer schreiben darf
+**Datei:** `wiki/server.py`, `wiki/index.html`
+**Gefunden bei:** Wunsch aus der Rückmeldung
+
+`/api/pruefen` und `/api/import` verlangten Verwalterrecht, „Neue Seite" und
+die Verwaltung waren nur für Verwalter sichtbar. Gefordert war: jeder darf
+Seiten anlegen, der Verwalter sieht alle und steuert die Rechte, und wer eine
+Gruppe vergibt, muss selbst darin sein.
+
+### Behoben
+
+| Wer | Darf |
+|---|---|
+| jeder Angemeldete | Seiten anlegen, eigene Seiten ändern, löschen, zurücksetzen |
+| jeder Angemeldete | Freigabe **nur** auf eigene Gruppen setzen |
+| Verwalter | alle Seiten sehen und ändern, Freigabe je Seite setzen, Themenzweige freigeben, Index neu bauen |
+
+Zwei Helfer an einer Stelle: `darf_schreiben(z, n)` (Urheber oder Verwalter)
+und `gruppen_pruefen(meta, n)` (nur eigene Gruppen). Dazu `/api/rechte`, mit
+dem der Verwalter die Freigabe ändert, ohne die Seite neu einzuspielen —
+geschrieben wird in die Datenbank **und** in den Meta-Block der Datei, sonst
+dreht das nächste Bearbeiten durch den Urheber die Freigabe zurück.
+
+**Prüfen (ausgeführt), vier Fälle am laufenden Server:**
+
+```
+max überschreibt lenas Seite   -> 403 "… hat lena angelegt. Aendern kann sie
+                                   ihr Urheber oder ein Verwalter."
+lena vergibt fremde Gruppe     -> 403 "Diese Gruppen hast du selbst nicht:
+                                   geschaeftsfuehrung … deine sind: wiki-technik."
+Verwalter setzt wiki-buero     -> ok; Datei und Datenbank tragen wiki-buero
+Sichtbarkeit danach            -> max: 1 Seite, lena: 0, Verwalter: 1
+```
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
