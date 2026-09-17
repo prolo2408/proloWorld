@@ -83,7 +83,10 @@ CREATE TABLE IF NOT EXISTS seite(
   groesse_b     INTEGER NOT NULL DEFAULT 0,
   regelkonform  INTEGER NOT NULL DEFAULT 1,
   hinweise_json TEXT NOT NULL DEFAULT '[]',
+  -- nutzer_id ist, wer ZULETZT gespeichert hat; urheber, wer die Seite
+  -- ANGELEGT hat. Der Unterschied entscheidet ueber das Schreibrecht (N-15).
   nutzer_id     TEXT NOT NULL DEFAULT '',
+  urheber       TEXT NOT NULL DEFAULT '',
   geaendert     TEXT NOT NULL DEFAULT ''
 );
 
@@ -236,6 +239,12 @@ def datenbank_anlegen():
     os.makedirs(SEITEN, exist_ok=True)
     v = db()
     v.executescript(SCHEMA)
+    if spalte_urheber_nachtragen(v):
+        sys.stderr.write(
+            "HINWEIS: Die Tabelle seite hat die Spalte urheber bekommen "
+            "(N-15) und wurde aus der Fassungsgeschichte gefuellt. Es wurde "
+            "nichts ueberschrieben; wer sichergehen will, legt vorher eine "
+            "Kopie von wiki.db an.\n")
     v.executescript(SCHEMA_FTS)
     try:
         v.execute("CREATE VIRTUAL TABLE IF NOT EXISTS vokabular "
@@ -763,6 +772,56 @@ def ueberschreiben(meta, frage):
     return geaendert
 
 
+def urheber_von(z):
+    """Wer die Seite angelegt hat (N-15).
+
+    seite.nutzer_id wird bei jeder Uebernahme neu geschrieben und bedeutet
+    darum "wer zuletzt gespeichert hat". Als Schreibrecht war das falsch:
+    sobald ein Verwalter eine Zeile richtete, stand er selbst drin - und der
+    Urheber kam an seine eigene Seite nicht mehr heran. Darum die eigene
+    Spalte, mit Rueckfall auf nutzer_id fuer Zeilen, die aus einer Datenbank
+    vor 1.2.0 stammen.
+    """
+    try:
+        u = z["urheber"]
+    except (KeyError, IndexError):
+        u = ""
+    return (u or "") or (z["nutzer_id"] or "")
+
+
+def darf_aendern(z, kennung, ist_admin):
+    """Darf dieser Nutzer diese bestehende Seite aendern? (N-13, N-15)
+
+    Jeder darf Seiten anlegen. Eine bestehende Seite aendert, wer sie
+    angelegt hat - und jeder Verwalter. Sonst koennte jeder die Arbeit aller
+    anderen ueberschreiben, und das waere in einem Wiki mit Freigaben genau
+    das falsche Signal.
+    """
+    if ist_admin:
+        return True
+    return bool(kennung) and urheber_von(z) == kennung
+
+
+def spalte_urheber_nachtragen(v):
+    """Aeltere Datenbank auf die Spalte urheber bringen (N-15).
+
+    Nur Hinzufuegen und Fuellen, nichts wird ueberschrieben. Gefuellt wird
+    aus der Fassungsgeschichte: die erste archivierte Fassung traegt die
+    Kennung dessen, der sie geschrieben hat - das ist der Urheber. Gibt es
+    keine, bleibt nutzer_id die beste vorhandene Auskunft.
+
+    Gibt True zurueck, wenn die Spalte angelegt wurde.
+    """
+    spalten = {z["name"] for z in v.execute("PRAGMA table_info(seite)").fetchall()}
+    if "urheber" in spalten:
+        return False
+    v.execute("ALTER TABLE seite ADD COLUMN urheber TEXT NOT NULL DEFAULT ''")
+    v.execute("UPDATE seite SET urheber = COALESCE("
+              "(SELECT f.nutzer_id FROM fassung f WHERE f.seite_id = seite.id "
+              "AND f.nutzer_id <> '' ORDER BY f.nummer LIMIT 1), nutzer_id)")
+    return True
+
+
 def seitenordner(slug):
     return os.path.join(SEITEN, slug)
 
@@ -897,14 +956,21 @@ def uebernehmen(html, teile, nutzer, kommentar=""):
              json.dumps(warnungen, ensure_ascii=False), nutzer.kennung, jetzt())
 
     if alt:
+        # nutzer_id wird neu geschrieben, urheber NICHT (N-15): wer die Seite
+        # angelegt hat, bleibt ihr Urheber, auch wenn ein Verwalter sie
+        # anfasst. Leer ist er nur bei Zeilen aus einer alten Datenbank ohne
+        # Fassungsgeschichte - dann wird er hier nachgetragen.
         v.execute("UPDATE seite SET titel=?,kurz=?,pfad_json=?,gruppen_json=?,stand=?,"
                   "fassung=?,groesse_b=?,regelkonform=?,hinweise_json=?,nutzer_id=?,"
                   "geaendert=? WHERE slug=?", daten + (slug,))
+        v.execute("UPDATE seite SET urheber=? WHERE slug=? AND urheber=''",
+                  (urheber_von(alt), slug))
         seite_id = alt["id"]
     else:
         v.execute("INSERT INTO seite(titel,kurz,pfad_json,gruppen_json,stand,fassung,"
-                  "groesse_b,regelkonform,hinweise_json,nutzer_id,geaendert,slug) "
-                  "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", daten + (slug,))
+                  "groesse_b,regelkonform,hinweise_json,nutzer_id,geaendert,slug,"
+                  "urheber) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  daten + (slug, nutzer.kennung))
         seite_id = v.execute("SELECT id FROM seite WHERE slug=?", (slug,)).fetchone()["id"]
 
     v.execute("DELETE FROM abschnitt WHERE seite_id=?", (seite_id,))
@@ -1306,16 +1372,8 @@ class Handler(BaseHTTPRequestHandler):
         return n
 
     def darf_schreiben(self, z, n):
-        """Darf dieser Nutzer diese bestehende Seite aendern? (N-13)
-
-        Jeder darf Seiten anlegen. Eine bestehende Seite aendert, wer sie
-        angelegt hat - und jeder Verwalter. Sonst koennte jeder die Arbeit
-        aller anderen ueberschreiben, und das waere in einem Wiki mit
-        Freigaben genau das falsche Signal.
-        """
-        if n.ist_admin:
-            return True
-        return (z["nutzer_id"] or "") == n.kennung
+        """Siehe darf_aendern - hier nur der Weg vom Nutzer zur Auskunft."""
+        return darf_aendern(z, n.kennung, n.ist_admin)
 
     def gruppen_pruefen(self, meta, n):
         """Eine Freigabe darf nur auf eigene Gruppen zeigen (N-13).
@@ -1566,7 +1624,7 @@ class Handler(BaseHTTPRequestHandler):
             self.admin()
             zeilen = [dict(r) for r in db().execute(
                 "SELECT slug,titel,pfad_json,gruppen_json,stand,fassung,groesse_b,"
-                "regelkonform,hinweise_json,nutzer_id,geaendert FROM seite "
+                "regelkonform,hinweise_json,nutzer_id,urheber,geaendert FROM seite "
                 "ORDER BY geaendert DESC").fetchall()]
             for z in zeilen:
                 z["pfad"] = json.loads(z.pop("pfad_json") or "[]")

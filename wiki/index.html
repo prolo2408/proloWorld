@@ -603,7 +603,7 @@ async function oeffnen(slug, anker, begriff, ohneWeg){
     (daten.stand ? '  ·  Stand ' + datum(daten.stand) : '');
   abschnittsleiste(slug, daten.abschnitte);
   if(anker) abschnittMarkieren(anker);
-  bearbeitenKnopf(slug, daten.nutzer_id);
+  bearbeitenKnopf(slug, daten.urheber || daten.nutzer_id);
   document.title = daten.titel + ' — Prolo Wiki';
 
   const f = $('rahmen');
@@ -994,7 +994,9 @@ async function verwaltung(){
         data-rechte="${schuetzen(s.slug)}" title="Freigabe ändern">${s.gruppen.length
       ? s.gruppen.map(g => `<span class="marke-badge">${schuetzen(g)}</span>`).join(' ')
       : '<span style="color:var(--ink-3)">alle · ändern</span>'}</button></td>
-    <td class="mono" style="font-size:12px">${schuetzen(s.nutzer_id || '')}</td>
+    <td class="mono" style="font-size:12px" title="zuletzt gespeichert von ${
+      schuetzen(s.nutzer_id || 'unbekannt')}">${
+      schuetzen(s.urheber || s.nutzer_id || '')}</td>
     <td>${s.hinweise.length
       ? `<span class="marke-badge warm">${s.hinweise.length} Hinweise</span>`
       : '<span class="marke-badge gut">sauber</span>'}</td>
@@ -2129,7 +2131,8 @@ function merkenKnopf(slug){
 }
 function bearbeitenKnopf(slug, urheber){
   /* Beim Lesen einer Seite: aendern darf sie ihr Urheber und jeder
-     Verwalter (N-13). Wer nur liest, sieht den Knopf nicht - statt ihn
+     Verwalter (N-13). Urheber ist, wer sie ANGELEGT hat - nicht, wer
+     zuletzt gespeichert hat (N-15). Wer nur liest, sieht den Knopf nicht - statt ihn
      anzubieten und dann an einem 403 auflaufen zu lassen. */
   const k = $('bearbeiten-knopf');
   if(!k) return;

@@ -748,6 +748,53 @@ Meldung anfangs verschluckt und nur „KEINE MESSUNG" geliefert.
 
 ---
 
+## N-15 — Nach der Korrektur des Verwalters kam der Urheber nicht mehr an seine eigene Seite
+
+**Stufe:** mittel — kein Datenverlust, aber es sperrt Leute aus ihrer eigenen
+Arbeit aus, und zwar unsichtbar
+**Datei:** `wiki/server.py` (`seite.nutzer_id`, `darf_schreiben`)
+**Gefunden bei:** dem ausgeführten Rechtedurchgang zu `N-13` — die
+fünfzehnte von fünfzehn Prüfungen
+
+`N-13` gibt das Schreibrecht an „den Urheber und jeden Verwalter". Gelesen
+wurde dafür `seite.nutzer_id`. Diese Spalte wird aber bei **jeder** Übernahme
+neu geschrieben; sie bedeutet „wer zuletzt gespeichert hat", nicht „wer die
+Seite angelegt hat".
+
+Folge: Sobald ein Verwalter eine fremde Seite anfasst — einen Tippfehler
+richtet, eine Freigabe nachzieht —, steht er selbst als Urheber drin, und der
+eigentliche Urheber wird ausgesperrt. Im Durchgang:
+
+```
+lena legt lenas-seite an                       HTTP 200
+der Verwalter ändert lenas Seite               HTTP 200, Fassung 3
+lena sieht ihre eigenen Fassungen              HTTP 403   <-- falsch
+```
+
+Das ist besonders unangenehm, weil es genau bei der Person passiert, die am
+meisten korrigiert: Wer das Wiki verwaltet, nimmt beim Aufräumen jeder Seite,
+die er anfasst, ihrem Urheber das Schreibrecht.
+
+**Behoben:** `seite` hat jetzt eine eigene Spalte `urheber`. Sie wird beim
+Anlegen gesetzt und bei einer Änderung **nicht** angefasst; `nutzer_id`
+behält seine Bedeutung („zuletzt gespeichert von") und steht in der
+Verwaltung als Kurzhinweis am Namen. Das Schreibrecht entscheidet
+`darf_aendern()` — eine Funktion auf Modulebene, damit sie ohne Anfrage
+geprüft werden kann.
+
+Bestehende Datenbanken bekommen die Spalte beim Start nachgetragen und aus
+der Fassungsgeschichte gefüllt: Die erste archivierte Fassung trägt die
+Kennung dessen, der sie geschrieben hat. Es wird nur hinzugefügt, nichts
+überschrieben, und das Protokoll sagt es (Regelblatt §15).
+
+**Was daraus folgt:** Ein Rechtemodell ist erst geprüft, wenn die *Reihenfolge*
+der Handlungen mitgeprüft wird. Jede einzelne Prüfung war richtig — anlegen,
+fremd überschreiben, Gruppen vergeben. Der Fehler saß im Zustand, den eine
+erlaubte Handlung hinterlässt. Der Durchgang hat ihn nur gefunden, weil er
+nach der Verwalteränderung noch einmal den Urheber gefragt hat.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
