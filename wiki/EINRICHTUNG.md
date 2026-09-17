@@ -193,10 +193,34 @@ Import prüft beides und meldet, was fehlt.
 
 - **Merken** im Kopf legt die Seite auf die Übersicht. Nochmal drücken nimmt
   sie wieder weg.
-- **Auf dieser Seite** — die Leiste unter dem Kopf — springt zu einem
-  Abschnitt, ohne die Seite neu zu laden. Sie erscheint ab zwei Abschnitten;
-  die Anker kommen aus dem Meta-Block.
-- **Bearbeiten** öffnet den Editor (nur für Verwalter).
+- **Auf dieser Seite** — in der Seitenleiste über dem Themenbaum — springt zu
+  einem Abschnitt, ohne die Seite neu zu laden. Erscheint ab zwei
+  Abschnitten; die Anker kommen aus dem Meta-Block, der offene Abschnitt ist
+  markiert.
+- **Bearbeiten** öffnet den Editor. Sichtbar für den Urheber der Seite und
+  für Verwalter.
+
+## Was die Suche findet
+
+Der Index hat vier Quellen, und die Reihenfolge ist Absicht:
+
+| Quelle | Woher |
+|---|---|
+| Abschnitte | `abschnitte[].text` und `stichworte` aus dem Meta-Block |
+| Seitentext | der sichtbare Text im HTML |
+| gemeldeter Text | was die Seite nach dem Laden selbst meldet — genau das, was der Leser sieht |
+| Skripttext | Zeichenketten aus den Skriptblöcken, wenn die Seite nichts gemeldet hat |
+
+Die dritte Quelle ist der Grund, warum eine Seite, die ihre Tabellen erst im
+Browser aufbaut, überhaupt durchsuchbar ist: **der Server kann kein
+JavaScript.** Dafür trägt der Pflichtteil drei Zeilen, die nach dem Laden
+`document.body.innerText` an die Hülle schicken; gleicher Text löst keinen
+Indexlauf aus.
+
+Für Seiten ohne den aktuellen Pflichtteil springt die vierte Quelle ein: die
+Zeichenketten der Skripte, gefiltert um alles, was nach Code aussieht. Grob,
+aber sofort da — nach einem **Index neu** in der Verwaltung findet die Suche
+auch dort.
 
 ---
 
@@ -212,6 +236,28 @@ dieselbe Berechtigung braucht wie Einspielen.
 Eingetragen werden Titel, Kennung, Ort im Themenbaum und die Abschnitte.
 Kennung und Anker schlägt der Editor aus dem Titel vor, solange man sie
 nicht selbst anfasst.
+
+## Wer darf was
+
+| Wer | Darf |
+|---|---|
+| jeder Angemeldete | Seiten anlegen; eigene Seiten ändern, zurücksetzen, löschen |
+| jeder Angemeldete | Freigabe setzen — aber nur auf **eigene** Gruppen |
+| Verwalter | alle Seiten sehen und ändern; Freigabe je Seite setzen; Themenzweige freigeben; Index neu bauen |
+
+„Eigene Seite" heißt: die, die man **angelegt** hat — nicht die, die man
+zuletzt gespeichert hat. Der Unterschied ist wichtig: Wenn du als Verwalter
+eine fremde Seite aufräumst, bleibt sie die Seite ihres Urhebers, und er kann
+sie weiter ändern. Die Verwaltung zeigt in der Spalte *Von* den Urheber; wer
+zuletzt gespeichert hat, steht als Hinweis am Namen.
+
+Wer eine fremde Seite überschreiben will, bekommt eine klare Absage mit dem
+Namen des Urhebers — und den Vorschlag, eine eigene Kennung zu nehmen.
+
+Die Freigabe einer Seite ändert der Verwalter in der Verwaltung mit einem
+Klick auf die Freigabe-Spalte. Geschrieben wird beides: die Datenbank, die
+über die Sichtbarkeit entscheidet, und der Meta-Block der Datei — sonst
+dreht das nächste Bearbeiten durch den Urheber die Freigabe zurück.
 
 ## Die Auszeichnung
 
@@ -237,6 +283,48 @@ Getippter Text wird immer zuerst geschützt: Wer `<script>` schreibt, sieht
 `<script>` auf der Seite stehen. Ein Verweis wird ein Knopf, der die Hülle
 bittet, die Seite zu öffnen — kein `href`, weil eine Seite im Rahmen nicht
 selbst navigieren darf.
+
+## Bausteine
+
+Unter jedem Textfeld steht ein Kasten mit Bausteinen. Ein Klick setzt die
+Vorlage an der Schreibmarke ein; danach füllt man sie wie normalen Text aus.
+Der Aufbau ist immer gleich:
+
+```
+:::art Titel
+Zeile
+Zeile
+:::
+```
+
+| Baustein | Was daraus wird | Zeilenform |
+|---|---|---|
+| `:::rechner` | Felder, Formel, Ergebnis — rechnet im Browser | `Name = Startwert`, dann `= Formel`, dazu `Einheit: €` |
+| `:::schritte` | nummerierte Abfolge | `Titel \| Erklärung` |
+| `:::kennzahlen` | Werte groß nebeneinander | `Name \| Wert \| Zusatz` |
+| `:::gegenueber` | zwei bis vier Seiten nebeneinander | `Titel \| Inhalt` |
+| `:::begriffe` | Wort und Erklärung als Tabelle | `Wort \| Erklärung` |
+| `:::klapp` | Überschrift, die man aufklappt | normaler Text |
+
+Der **Rechner** nimmt die Feldnamen aus dem ersten Wort jeder Feldzeile. Aus
+
+```
+:::rechner Stromkosten je 100 km
+Verbrauch in kWh/100 km = 18
+Preis je kWh in Euro = 0,32
+= Verbrauch * Preis
+Einheit: €
+:::
+```
+
+wird ein Kasten mit zwei Eingabefeldern und einem Ergebnis, das sich beim
+Tippen mitrechnet. Gerechnet wird von einem eigenen kleinen Rechenwerk —
+**kein `eval`**: es kennt Zahlen, Feldnamen und `+ - * / ( )`, und alles
+andere ergibt „keine Zahl". Ein Feld mit Text wird markiert, Teilen durch
+Null ergibt „—".
+
+Ein unbekannter Baustein wird nicht verschluckt, sondern als Warnkasten mit
+seinem Inhalt gezeigt.
 
 ## Was der Editor erzeugt
 
@@ -293,6 +381,10 @@ Repository nehmen.
 - Der Skill, mit dem Claude Seiten nach diesem Schema erzeugt. Bis dahin
   reicht es, `test-seite.html` und diesen Abschnitt mitzugeben. Für Seiten
   von Hand ist der Editor der kürzere Weg.
+- Weitere Bausteine: Bild mit Beschriftung, Ablaufdiagramm, Zeitleiste,
+  Tabelle mit Summenzeile. Der Aufbau (`:::art`) trägt beliebig viele; jeder
+  neue Baustein ist eine Funktion in `edBaustein()` plus ein Eintrag in
+  `ED_BAUSTEINE`.
 - Anhänge (Bilder, PDFs) kann der Editor noch nicht aufnehmen. Wer sie
   braucht, spielt eine Datei ein.
 - Die Netzwerk-Seite selbst: Tokens, Zustandsblock und das Nachladen des

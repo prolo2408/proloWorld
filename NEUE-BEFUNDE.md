@@ -801,6 +801,18 @@ nach der Verwalteränderung noch einmal den Urheber gefragt hat.
 sichtbar war — und der einzige, den keine Prüfung hier gefunden hätte,
 weil er erst mit echten Dateirechten auf einem echten Server entsteht.
 
+`N-11` bis `N-15` kamen aus der ersten Rückmeldung nach dem Einspielen von
+Wiki 1.1.0 — und `N-11` ist der Befund, der am meisten über Prüfungen sagt:
+Die Suche war technisch in Ordnung, der Index wurde gebaut, jede Prüfung war
+grün. Nur stand im Index nicht, was auf der Seite zu sehen ist. Gemerkt hat
+es der Mensch, der „tcp" eingetippt hat.
+
+`N-15` ist der Gegenbeweis zur bequemen Annahme, ein Befund käme immer von
+außen: Er steckte in der Lösung von `N-13`, wurde im selben Arbeitsschritt
+geschrieben und im selben Durchgang gefunden — aber erst, weil der Durchgang
+nach einer erlaubten Handlung noch einmal nachgefragt hat. Vierzehn von
+fünfzehn Prüfungen waren grün, und die vierzehn waren nicht falsch.
+
 `N-10` ist der schwerste Befund dieser Reihe: falsche Geldbeträge, die
 niemandem auffallen müssen, weil sie plausibel aussehen, solange man sie nicht
 mit der Datei vergleicht. Er zeigt dasselbe Muster wie `N-05` und `N-08` — die

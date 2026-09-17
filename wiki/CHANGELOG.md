@@ -21,6 +21,119 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
   Fehler - aber sie stehen vor dem "Uebernehmen"-Knopf, nicht dahinter
   (B-07).
 
+## Fassung 1.2.0
+
+### Behoben: die Suche fand nicht, was auf der Seite steht
+„tcp" ergab null Treffer, obwohl TCP in der Tabelle der Transportprotokolle
+sichtbar ist. Der Grund: Der Server kann kein JavaScript. Eine Seite, die
+ihre Tabellen, Glossare und Schrittfolgen erst im Browser aufbaut, hat diesen
+Inhalt nirgends im HTML — und der Index las nur das HTML.
+
+Der Index hat jetzt zwei zusätzliche Quellen:
+
+| Quelle | Woher | Für wen |
+|---|---|---|
+| gemeldeter Text | Die Seite schickt nach dem Laden, was sie anzeigt | Seiten mit dem aktuellen Pflichtteil |
+| Skripttext | Zeichenketten aus den Skriptblöcken, Code herausgefiltert | alle Seiten, ohne Änderung an der Seite |
+
+Die erste Quelle ist genau, die zweite ungenau aber sofort da. Wer eine alte
+Seite hat, spielt nichts neu ein: **Verwaltung › Index neu** genügt, danach
+findet die Suche auch den Inhalt aus den Skripten. Eine Seite, die den
+aktuellen Pflichtteil trägt, meldet ihren Text beim nächsten Öffnen selbst —
+dann verschwindet die ungenaue Quelle wieder.
+
+### Behoben: „Server Fehler" beim Einspielen, obwohl die Seite da war
+Der Suchindex wird nach dem Festschreiben gebaut. Ging dabei etwas schief —
+ein PDF-Anhang, den `pdftotext` nicht mochte, eine Eigenheit der
+Volltextsuche —, war die Seite gespeichert und die Antwort trotzdem ein
+Serverfehler. Wer neu lud, sah die Seite. Jetzt gilt: die Seite ist
+übernommen, und wenn der Index nicht gebaut werden konnte, steht genau das
+da, samt Weg (*Index neu*). Der Grund landet im Protokoll des Containers.
+
+### Neu: jeder darf Seiten schreiben
+- **Neue Seite** steht jetzt allen Angemeldeten offen, nicht nur Verwaltern.
+- Eine **bestehende** Seite ändert, wer sie angelegt hat — und jeder
+  Verwalter. Sonst überschreibt einer die Arbeit des anderen.
+- Eine **Freigabe** kann nur auf eigene Gruppen zeigen: wer eine Seite für
+  `wiki-technik` freigibt, muss selbst darin sein. Der Editor zeigt die
+  eigenen Gruppen als Knöpfe — getippt werden muss nichts.
+- Der **Verwalter** sieht in der Verwaltung alle Seiten mit Urheber und kann
+  die Freigabe je Seite ändern, ohne die Seite neu einzuspielen. Die Änderung
+  geht in die Datenbank **und** in den Meta-Block der Datei, damit das
+  nächste Bearbeiten sie nicht zurückdreht.
+- **Fassungen, Zurücksetzen und Löschen** darf ebenfalls der Urheber — sonst
+  könnte er seine eigene Arbeit nicht zurückholen.
+
+### Behoben: der Urheber verlor sein Recht, sobald der Verwalter die Seite anfasste
+Gefunden beim Durchspielen der Rechte von oben, als fünfzehnte von fünfzehn
+Prüfungen. „Urheber" wurde aus der Spalte gelesen, die bei **jeder** Übernahme
+neu geschrieben wird — sie heißt also eigentlich „zuletzt gespeichert von".
+Folge: Wer das Wiki verwaltet und beim Aufräumen eine fremde Seite anfasst,
+nahm ihrem Urheber damit das Schreibrecht. Jetzt merkt sich die Seite ihren
+Urheber getrennt; er bleibt, auch wenn ein Verwalter speichert.
+
+**Beim ersten Start nach dem Einspielen** trägt der Server die neue Spalte
+nach und füllt sie aus der Fassungsgeschichte: Die erste archivierte Fassung
+trägt die Kennung dessen, der sie geschrieben hat. Es wird nur hinzugefügt,
+nichts überschrieben, und das Protokoll des Containers sagt es. Seiten ohne
+Fassungsgeschichte behalten die bisherige Kennung.
+
+### Neu: Bausteine statt langer Textwüste
+Unter jedem Textfeld im Editor steht jetzt ein Kasten mit Bausteinen. Ein
+Klick setzt die Vorlage an der Schreibmarke ein:
+
+| Baustein | Was daraus wird |
+|---|---|
+| **Rechner** | Felder, Formel, Ergebnis — rechnet im Browser mit |
+| **Schritte** | nummerierte Abfolge, jeder Schritt mit Titel |
+| **Kennzahlen** | Werte groß nebeneinander, mit Beschriftung |
+| **Gegenüberstellung** | zwei bis vier Seiten nebeneinander |
+| **Begriffsliste** | Wort und Erklärung zum Nachschlagen |
+| **Klapptext** | Überschrift, die man aufklappt |
+
+Dazu die einfachen Knöpfe: Tabelle, Merkkasten, Warnung, Gut zu wissen,
+Codeblock, Liste.
+
+Der **Rechner** bringt ein eigenes kleines Rechenwerk mit — **kein `eval`**.
+Es kennt Zahlen, Feldnamen und `+ - * / ( )`, und nichts weiter. Alles andere
+ergibt „keine Zahl" statt eines Funktionsaufrufs; das ist geprüft, auch gegen
+`alert(1)`, `a.constructor` und `fetch("/")`.
+
+### Geändert: die Abschnitte stehen links
+„Auf dieser Seite" steht jetzt in der Seitenleiste über dem Themenbaum, nicht
+mehr als Leiste über dem Text — so wie es eine gut gemachte Inhaltsseite
+selbst macht. Der offene Abschnitt ist markiert.
+
+### Geändert: Seiten entstehen an einem Ort
+In der Verwaltung gab es eine Ablage zum Einspielen und in der Seitenleiste
+„Neue Seite" — zwei Wege für dieselbe Sache. Jetzt entsteht jede Seite unter
+**Neue Seite**; wer schon eine HTML-Datei hat, klappt dort „Ich habe schon
+eine HTML-Datei" auf. Die Verwaltung ist für alle Seiten, Freigaben,
+Fassungen und Löschen da.
+
+### Geprüft
+- Suche: reproduziert (null Treffer für „tcp" an einer Seite, die ihre
+  Tabelle im Skript baut), behoben, beide Quellen einzeln nachgemessen.
+- Einspielen mit absichtlich gesprengtem Indexaufbau: HTTP 200, Seite im
+  Baum, Hinweis statt Fehler, Grund im Protokoll.
+- Rechte: 15 Fälle am laufenden Server mit drei Nutzern — anlegen als
+  normaler Nutzer, fremde Seite überschreiben (403), eigene ändern, fremde
+  Gruppe vergeben (403), eigene Gruppe vergeben, Sichtbarkeit je Gruppe
+  (1 / 2 / 3 Seiten), fremde Fassungen (403), Verwalter ändert die Freigabe
+  (Datenbank **und** Datei), Verwaltung als normaler Nutzer (403).
+- Urheberspalte: auf der Datenbank nachgemessen, die der Rechtedurchgang
+  hinterlassen hat — Seite mit Fassungen von `lena`, zuletzt gespeichert von
+  `artur` → Urheber `lena`; danach kommt `lena` wieder an ihre Fassungen
+  (HTTP 200, vorher 403) und speichert (Fassung 4), `max` nicht.
+- Bausteine: Seite mit allen sechs erzeugt, 0 Fehler und 0 Warnungen in der
+  Importprüfung, 320–1200 px ohne seitliches Scrollen; der Rechner im Browser
+  gefahren (18 × 0,32 = 5,76, dann 20 × 0,45 = 9, Text im Feld → „—", mal
+  Null → 0).
+- Kompletter Durchlauf als **normaler** Nutzer: Seite mit Rechner-Baustein
+  anlegen, eigene Gruppe vergeben, speichern, lesen, suchen. Keine
+  JS-Fehler.
+- 55 Editortests und 26 Servertests (`./tests/alle.sh`).
+
 ## Fassung 1.1.0
 
 **Neu: der Seiten-Editor.** Seiten lassen sich jetzt im Wiki selbst

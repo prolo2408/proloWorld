@@ -34,7 +34,7 @@ from urllib.parse import unquote, urlparse, parse_qs
 # hatte VERSION, --version und /api/version, das Wiki gar nichts. Gelesen von
 # --version, /api/version und der image:-Zeile im docker-compose.yml; die
 # drei muessen zusammenpassen.
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 DATEN = os.environ.get("WIKI_DATEN", "/daten")
 SEITEN = os.environ.get("WIKI_SEITEN", "/seiten")
