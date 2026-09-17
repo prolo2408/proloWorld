@@ -26,13 +26,29 @@ const quellen = [
   hol(/const ED_BAUSTEINE = \{[\s\S]*?\n\};/, 'ED_BAUSTEINE'),
   hol(/function edBaustein\(art, titel, zeilen\)\{[\s\S]*?\n\}/, 'edBaustein'),
   hol(/const ED_STIL_BAUSTEINE = \[[\s\S]*?\]\.join\('\\n'\);/, 'ED_STIL_BAUSTEINE'),
-  hol(/const ED_RECHENWERK = \[[\s\S]*?\]\.join\('\\n'\);/, 'ED_RECHENWERK'),
+  /* Das Rechenwerk steht seit der CSP-Probe als echte Funktion in der Huelle
+     (kein new Function mehr, das verbietet die CSP). ED_RECHENWERK baut sich
+     daraus mit toString() - also muessen hier beide Teile herausgeholt
+     werden, sonst faellt die Auswertung auf eine leere Zeichenkette. */
+  hol(/function bkRechnen\(formel, werte\)\{[\s\S]*?\n\}/, 'bkRechnen'),
+  hol(/function bkZahl\(x\)\{[\s\S]*?\n\}/, 'bkZahl'),
+  hol(/function bkRechnerStarten\(wurzel\)\{[\s\S]*?\n\}/, 'bkRechnerStarten'),
+  hol(/const ED_RECHENWERK = \[[\s\S]*?\}\)\)\.join\('\\n'\);/, 'ED_RECHENWERK'),
   hol(/const ED_HALT = [^\n]+/, 'ED_HALT'),
   hol(/function edEscape\(s\)\{[\s\S]*?\n\}/, 'edEscape'),
   hol(/function edInline\(s\)\{[\s\S]*?\n\}/, 'edInline'),
   hol(/function edBloecke\(text\)\{[\s\S]*?\n\}/, 'edBloecke'),
   hol(/function edNurText\(text\)\{[\s\S]*?\n\}/, 'edNurText'),
   hol(/function edSlug\(s\)\{[\s\S]*?\n\}/, 'edSlug'),
+  hol(/const ED_FORM = \{[\s\S]*?\n\};/, 'ED_FORM'),
+  hol(/function edBlockNeu\(art\)\{[\s\S]*?\n\}/, 'edBlockNeu'),
+  hol(/function edMarkupZuBloecken\(markup\)\{[\s\S]*?\n\}/, 'edMarkupZuBloecken'),
+  hol(/function edBlockLesen\(art, titel, zeilen\)\{[\s\S]*?\n\}/, 'edBlockLesen'),
+  hol(/function edBlockZuZeilen\(b\)\{[\s\S]*?\n\}/, 'edBlockZuZeilen'),
+  hol(/function edBloeckeZuMarkup\(bloecke\)\{[\s\S]*?\n\}/, 'edBloeckeZuMarkup'),
+  hol(/function edBlockHtml\(b\)\{[\s\S]*?\n\}/, 'edBlockHtml'),
+  hol(/function edAbschnittNeu\(\)\{[\s\S]*?\n\}/, 'edAbschnittNeu'),
+  hol(/function edAusHtml\(roh, slug, neu\)\{[\s\S]*?\n\}/, 'edAusHtml'),
   /* ED_STIL endet seit den Bausteinen nicht mehr mit join, sondern haengt
      ED_STIL_BAUSTEINE an - das Muster muss das treffen, sonst frisst es den
      naechsten Block mit und der wird doppelt erklaert. */
@@ -45,11 +61,15 @@ const quellen = [
 
 const { edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
         ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
-        edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE } =
+        edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
+        ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
+        edBlockZuZeilen, edBlockHtml, edAusHtml } =
   new Function(quellen + `
     return {edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
             ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
-            edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE};`)();
+            edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
+            ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
+            edBlockZuZeilen, edBlockHtml, edAusHtml};`)();
 
 /* Das Rechenwerk der erzeugten Seite - hier einzeln herausgeholt, damit die
    Formelauswertung geprueft werden kann, ohne einen Browser zu starten. */
@@ -397,6 +417,270 @@ pruefe('Die erzeugte Seite bringt Stil und Rechenwerk mit', () => {
   assert.ok(s.includes('bkRechnen'), 'ohne Rechenwerk rechnet nichts');
   assert.ok(s.includes('bkRechnerStarten()'), 'das Rechenwerk wird nicht gestartet');
   assert.ok(s.includes('.bk-erg-wert'), 'der Stil der Bausteine fehlt');
+});
+
+/* ------------------------------------------------ Blockmodell des Editors
+   Der Editor arbeitet blockweise, gespeichert wird weiter Markup. Beide
+   Richtungen muessen stimmen, sonst ist "Bearbeiten" ein Datenverlust. */
+pruefe('Text ohne Baustein wird ein Textblock', () => {
+  const b = edMarkupZuBloecken('Satz eins.\n\nSatz zwei.');
+  assert.equal(b.length, 1);
+  assert.equal(b[0].art, 'text');
+  assert.equal(b[0].text, 'Satz eins.\n\nSatz zwei.');
+});
+pruefe('Leeres Markup ergibt trotzdem einen Block', () => {
+  // Sonst stuende der Editor ohne Eingabefeld da.
+  const b = edMarkupZuBloecken('');
+  assert.equal(b.length, 1);
+  assert.equal(b[0].art, 'text');
+  assert.equal(b[0].text, '');
+});
+pruefe('Text und Baustein werden getrennt', () => {
+  const b = edMarkupZuBloecken('Davor.\n\n:::klapp Warum?\nWeil.\n:::\n\nDanach.');
+  assert.deepEqual(b.map(x => x.art), ['text', 'klapp', 'text']);
+  assert.equal(b[0].text, 'Davor.');
+  assert.equal(b[1].titel, 'Warum?');
+  assert.equal(b[1].text, 'Weil.');
+  assert.equal(b[2].text, 'Danach.');
+});
+pruefe('Schritte werden Zeilen mit zwei Spalten', () => {
+  const b = edMarkupZuBloecken(
+    ':::schritte Anschliessen\nStrom | Kabel rein.\nNetz | Dose links.\n:::');
+  assert.equal(b[0].art, 'schritte');
+  assert.deepEqual(b[0].zeilen, [['Strom', 'Kabel rein.'], ['Netz', 'Dose links.']]);
+});
+pruefe('Kennzahlen haben drei Spalten, fehlende werden leer', () => {
+  const b = edMarkupZuBloecken(':::kennzahlen Blick\nMTU | 1500\n:::');
+  assert.deepEqual(b[0].zeilen, [['MTU', '1500', '']]);
+});
+pruefe('Rechner wird in Felder, Formel und Einheit zerlegt', () => {
+  const b = edMarkupZuBloecken(':::rechner Kosten\nVerbrauch in kWh = 18\n' +
+    'Preis je kWh = 0,32\n= Verbrauch * Preis\nEinheit: \u20ac\nEin Hinweis.\n:::');
+  assert.equal(b[0].art, 'rechner');
+  assert.deepEqual(b[0].felder, [{name: 'Verbrauch in kWh', wert: '18'},
+                                 {name: 'Preis je kWh', wert: '0,32'}]);
+  assert.equal(b[0].formel, 'Verbrauch * Preis');
+  assert.equal(b[0].einheit, '\u20ac');
+  assert.equal(b[0].hinweis, 'Ein Hinweis.');
+});
+pruefe('Unbekannte Art bleibt als Text erhalten', () => {
+  // Nichts darf beim Bearbeiten verschluckt werden.
+  const b = edMarkupZuBloecken(':::flugzeug Titel\nInhalt\n:::');
+  assert.equal(b[0].art, 'text');
+  assert.ok(b[0].text.includes('Inhalt'), b[0].text);
+  assert.ok(b[0].text.includes(':::flugzeug Titel'), b[0].text);
+});
+pruefe('Rundlauf: Markup bleibt Markup', () => {
+  const m = 'Davor.\n\n:::schritte Anschliessen\nStrom | Kabel rein.\n' +
+            'Netz | Dose links.\n:::\n\n:::rechner Kosten\nkWh = 18\n' +
+            '= kWh * 2\nEinheit: \u20ac\n:::\n\nDanach.';
+  assert.equal(edBloeckeZuMarkup(edMarkupZuBloecken(m)), m);
+});
+pruefe('Leere Zeilen und Felder fallen beim Speichern weg', () => {
+  const b = edBlockNeu('schritte');          // zwei leere Zeilen
+  b.titel = 'Titel';
+  b.zeilen[0] = ['Strom', 'Kabel rein.'];
+  const m = edBloeckeZuMarkup([b]);
+  assert.equal(m, ':::schritte Titel\nStrom | Kabel rein.\n:::');
+});
+pruefe('Ein leerer Block erzeugt kein leeres Markup', () => {
+  assert.equal(edBloeckeZuMarkup([edBlockNeu('text')]), '');
+});
+pruefe('Ein leerer Block zwischen zwei vollen hinterlaesst keine Luecke', () => {
+  /* Die Mutationsprobe hat gezeigt, dass der Test oben allein nichts
+     beweist: ein einzelner leerer Block ergibt so oder so eine leere
+     Zeichenkette. Erst in der Mitte faellt auf, ob er wirklich wegfaellt. */
+  const a = edBlockNeu('text'); a.text = 'Davor.';
+  const c = edBlockNeu('text'); c.text = 'Danach.';
+  assert.equal(edBloeckeZuMarkup([a, edBlockNeu('text'), c]), 'Davor.\n\nDanach.');
+});
+pruefe('Jede Blockart im Kasten hat Name und Hilfe', () => {
+  for (const [art, f] of Object.entries(ED_FORM)) {
+    assert.ok(f.name && f.hilfe, art + ' unvollstaendig');
+    // Die Zeilenarten brauchen Spaltennamen, sonst steht im Formular nichts.
+    if (!['text', 'klapp', 'rechner'].includes(art))
+      assert.ok((f.spalten || []).length >= 2, art + ' ohne Spalten');
+  }
+});
+pruefe('Die Vorschau benutzt denselben Erzeuger wie die Seite', () => {
+  const b = edBlockNeu('schritte');
+  b.zeilen = [['Strom', 'Kabel rein.'], ['Netz', 'Dose links.']];
+  const h = edBlockHtml(b);
+  assert.equal(h, edBaustein('schritte', '', ['Strom | Kabel rein.', 'Netz | Dose links.']));
+  assert.equal((h.match(/<li>/g) || []).length, 2);
+  /* Ein Satz allein taugt als Beweis nicht: den bekommt auch ein
+     selbstgebautes <p> hin (Mutationsprobe). Also Text, bei dem sich der
+     echte Erzeuger zeigen MUSS - Titel, Auszeichnung, und ein <b>, das
+     Text bleiben muss. */
+  const t = edBlockNeu('text');
+  t.text = '## Titel\n\nEin <b>Satz</b> mit **fett**.';
+  const ht = edBlockHtml(t);
+  assert.equal(ht, edBloecke(t.text));
+  assert.ok(ht.includes('<h3'), 'kein Titel: ' + ht);
+  assert.ok(ht.includes('<b>fett</b>'), 'nicht ausgezeichnet: ' + ht);
+  assert.ok(ht.includes('&lt;b&gt;Satz&lt;/b&gt;'), 'HTML nicht geschuetzt: ' + ht);
+});
+pruefe('Das Rechenwerk der Seite ist dasselbe wie hier', () => {
+  /* ED_RECHENWERK entsteht aus toString() der echten Funktionen. Waere es
+     eine zweite, abgeschriebene Fassung, koennte die Vorschau anders
+     rechnen als die Seite. */
+  assert.ok(ED_RECHENWERK.includes('function bkRechnen'), 'bkRechnen fehlt');
+  assert.ok(ED_RECHENWERK.includes('function bkZahl'), 'bkZahl fehlt');
+  assert.ok(ED_RECHENWERK.includes('function bkRechnerStarten'), 'Starter fehlt');
+  const zweit = new Function(ED_RECHENWERK + '\nreturn bkRechnen;')();
+  assert.equal(zweit('18 * 0,32', {}), bkRechnen('18 * 0,32', {}));
+  assert.equal(zweit('18 * 0,32', {}), 5.76);
+});
+pruefe('Die Huelle wertet nichts mit eval oder new Function aus', () => {
+  /* Der Browser hat genau das abgelehnt: die CSP der Huelle hat kein
+     "unsafe-eval", und das soll so bleiben. Eine Vorschau ist kein Grund,
+     sie aufzuweichen. Geprueft wird die Datei, nicht der Gedanke. */
+  const ohneKommentare = quelle
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^\s*\/\/.*$/gm, ' ');
+  const treffer = ohneKommentare.match(/new Function\s*\(|[^.\w]eval\s*\(/g) || [];
+  assert.deepEqual(treffer, [], 'in der Huelle steht: ' + treffer.join(', '));
+});
+
+/* ------------------------------------------------ PDF-Baustein */
+pruefe('PDF: Datei und Sprungziele gehen durch das Markup', () => {
+  const m = ':::pdf Kompendium\ndatei: anhang-kompendium\n' +
+            'Kapitel 1 | 10\nAnhang A | 88\n:::';
+  const b = edMarkupZuBloecken(m);
+  assert.equal(b[0].art, 'pdf');
+  assert.equal(b[0].kennung, 'anhang-kompendium');
+  assert.deepEqual(b[0].zeilen, [['Kapitel 1', '10'], ['Anhang A', '88']]);
+  assert.equal(edBloeckeZuMarkup(b), m);
+});
+pruefe('PDF: die Knoepfe nennen Kennung und Seite', () => {
+  const h = edBaustein('pdf', 'Kompendium',
+                       ['datei: anhang-kompendium', 'Kapitel 1 | 10']);
+  // Der Dateiname steht NICHT im HTML - er kommt zur Laufzeit aus der Marke.
+  assert.ok(!h.includes('.pdf'), 'der Dateiname darf nicht hier stehen: ' + h);
+  assert.ok(h.includes('data-wiki-pdf="anhang-kompendium"'));
+  assert.ok(h.includes('data-wiki-seite="10"'));
+  assert.ok(h.includes('Ganzes PDF'), 'der Knopf fuer das ganze PDF fehlt');
+  assert.equal((h.match(/data-wiki-pdf=/g) || []).length, 2);  // ganz + ein Ziel
+});
+pruefe('PDF: ohne Datei gibt es einen Hinweis, keine Stille', () => {
+  const h = edBaustein('pdf', 'Titel', ['Kapitel 1 | 10']);
+  assert.ok(h.includes('ohne Datei'), h);
+});
+pruefe('PDF: Text in Beschriftung und Kennung bleibt Text', () => {
+  const h = edBaustein('pdf', 'T', ['datei: a"><script>x</script>',
+                                    '<img onerror=x> | 1']);
+  assert.ok(!h.includes('<script>'), h);
+  assert.ok(!h.includes('<img'), h);
+});
+pruefe('PDF: die neue Datei geht als markierter Anhang in die Seite', () => {
+  const b = edBlockNeu('pdf');
+  b.kennung = 'anhang-kompendium'; b.daten64 = 'QUJD'; b.titel = 'K';
+  b.zeilen = [['Kapitel 1', '10']];
+  const seite = edSeiteBauen({titel:'T', slug:'t', pfad:'A', abschnitte:[
+    {anker:'x', titel:'X', markup:edBloeckeZuMarkup([b]), bloecke:[b]}]});
+  assert.ok(seite.includes('id="anhang-kompendium" data-wiki-anhang=""'),
+            'die Marke fehlt - der Server gliedert dann nichts aus');
+  assert.ok(seite.includes('>QUJD<'), 'die Daten fehlen');
+});
+pruefe('PDF: ein vorhandener Anhang wird weiter genannt (N-18)', () => {
+  /* Beim zweiten Speichern liegt die Datei schon auf dem Server. Die Seite
+     muss sie trotzdem NENNEN, sonst verliert der Anhang seine Zeile. */
+  const b = edBlockNeu('pdf');
+  b.kennung = 'anhang-kompendium'; b.dateiname = 'anhang-kompendium.pdf';
+  b.zeilen = [['Kapitel 1', '10']];
+  const seite = edSeiteBauen({titel:'T', slug:'t', pfad:'A', abschnitte:[
+    {anker:'x', titel:'X', markup:edBloeckeZuMarkup([b]), bloecke:[b]}]});
+  assert.ok(seite.includes('data-wiki-anhang="anhang-kompendium.pdf"'), seite.slice(-600));
+  assert.ok(!seite.includes('QUJD'));
+});
+pruefe('PDF: die Seite bittet die Huelle, sie zeigt nichts selbst', () => {
+  const b = edBlockNeu('pdf');
+  b.kennung = 'anhang-kompendium'; b.dateiname = 'anhang-kompendium.pdf';
+  const seite = edSeiteBauen({titel:'T', slug:'t', pfad:'A', abschnitte:[
+    {anker:'x', titel:'X', markup:edBloeckeZuMarkup([b]), bloecke:[b]}]});
+  assert.ok(seite.includes("typ:'wiki-pdf'"), 'die Nachricht an die Huelle fehlt');
+  /* Nicht nur, DASS beide Zeilen vorkommen, sondern dass sie zusammenhaengen:
+     der Name muss von dem Element kommen, das der Knopf nennt. Die
+     Mutationsprobe hat gezeigt, dass zwei getrennte includes() genau das
+     nicht sehen. */
+  assert.match(seite, /getElementById\(b\.dataset\.wikiPdf\)[\s\S]{0,240}getAttribute\('data-wiki-anhang'\)/,
+               'der Name wird nicht aus der Marke DIESES Anhangs gelesen');
+  // Kein iframe, kein embed, kein object: die CSP der Seite verbietet das,
+  // und die Seite soll es auch nicht versuchen.
+  assert.ok(!/<iframe|<embed|<object/i.test(seite), 'die Seite versucht es selbst');
+});
+
+/* ------------------------------------------------ Eine Datei in den Editor */
+pruefe('Eine erzeugte Seite laesst sich wieder in den Editor lesen', () => {
+  const b1 = edBlockNeu('text'); b1.text = 'Ein Satz mit **fett**.';
+  const b2 = edBlockNeu('schritte'); b2.titel = 'So gehts';
+  b2.zeilen = [['Strom', 'Kabel rein.'], ['Netz', 'Dose links.']];
+  const seite = edSeiteBauen({
+    titel:'Drucker', slug:'drucker', pfad:'Technik / Geräte',
+    kurz:'Kurz gesagt.', gruppen:'wiki-technik',
+    abschnitte:[{anker:'los', titel:'Loslegen', stichworte:'Drucker, Papier',
+                 markup:edBloeckeZuMarkup([b1, b2]), bloecke:[b1, b2]}]});
+  const e = edAusHtml(seite, '', false);
+  assert.ok(e, 'kein Zustand gelesen');
+  assert.equal(e.titel, 'Drucker');
+  assert.equal(e.slug, 'drucker');
+  assert.equal(e.pfad, 'Technik / Geräte');
+  assert.equal(e.kurz, 'Kurz gesagt.');
+  assert.equal(e.gruppen, 'wiki-technik');
+  assert.equal(e.quelle, 'editor');
+  assert.equal(e.abschnitte.length, 1);
+  assert.equal(e.abschnitte[0].titel, 'Loslegen');
+  assert.equal(e.abschnitte[0].stichworte, 'Drucker, Papier');
+  assert.deepEqual(e.abschnitte[0].bloecke.map(x => x.art), ['text', 'schritte']);
+  assert.deepEqual(e.abschnitte[0].bloecke[1].zeilen,
+                   [['Strom', 'Kabel rein.'], ['Netz', 'Dose links.']]);
+});
+pruefe('Ohne Meta-Block gibt es kein Ergebnis, keine halbe Seite', () => {
+  assert.equal(edAusHtml('<html><body>Nur Text</body></html>', '', true), null);
+  assert.equal(edAusHtml('', '', true), null);
+});
+pruefe('Kaputter Meta-Block wird nicht geraten', () => {
+  const h = '<script type="application/json" id="wiki-meta">{kaputt</' + 'script>';
+  assert.equal(edAusHtml(h, '', true), null);
+});
+pruefe('Eine Seite von Hand: Suchtext wird Anfangstext, Quelle ist fremd', () => {
+  const meta = {slug:'handarbeit', titel:'Handarbeit', pfad:['Technik'],
+                gruppen:[], stand:'2026-09-17',
+                abschnitte:[{anker:'a', titel:'A', text:'Der sichtbare Text.'}]};
+  const h = '<script type="application/json" id="wiki-meta">' +
+            JSON.stringify(meta) + '</' + 'script>';
+  const e = edAusHtml(h, '', false);
+  assert.equal(e.quelle, 'fremd', 'sonst fehlt die Warnung vor dem Ersetzen');
+  assert.equal(e.abschnitte[0].bloecke[0].art, 'text');
+  assert.equal(e.abschnitte[0].bloecke[0].text, 'Der sichtbare Text.');
+});
+pruefe('Der Name eines vorhandenen Anhangs kommt aus der Marke', () => {
+  const b = edBlockNeu('pdf');
+  b.kennung = 'anhang-handbuch'; b.dateiname = 'anhang-handbuch.pdf';
+  b.zeilen = [['Kapitel 1', '7']];
+  const seite = edSeiteBauen({titel:'T', slug:'t', pfad:'A', abschnitte:[
+    {anker:'x', titel:'X', markup:edBloeckeZuMarkup([b]), bloecke:[b]}]});
+  const e = edAusHtml(seite, '', false);
+  const pdf = e.abschnitte[0].bloecke.find(x => x.art === 'pdf');
+  assert.equal(pdf.kennung, 'anhang-handbuch');
+  assert.equal(pdf.dateiname, 'anhang-handbuch.pdf',
+               'ohne das wuerde die Seite den Anhang beim Speichern vergessen (N-18)');
+  assert.deepEqual(pdf.zeilen, [['Kapitel 1', '7']]);
+});
+pruefe('Ein Anhang, den kein Block kennt, wird trotzdem weiter genannt', () => {
+  /* Eine von Hand gebaute Seite mit einem Bild: der Editor kennt dafuer
+     keinen Block, darf den Anhang aber nicht verlieren (N-18). */
+  const meta = {slug:'mitbild', titel:'Mit Bild', pfad:['Technik'], gruppen:[],
+                stand:'2026-09-17',
+                abschnitte:[{anker:'a', titel:'A', text:'Text', markup:'Text'}]};
+  const h = '<script type="application/json" id="wiki-meta">' + JSON.stringify(meta) +
+            '</' + 'script><script id="bild-eins" data-wiki-anhang="bild-eins.png"></' +
+            'script>';
+  const e = edAusHtml(h, '', false);
+  assert.deepEqual(e.fremdeAnhaenge, [{kennung:'bild-eins', name:'bild-eins.png'}]);
+  const wieder = edSeiteBauen(e);
+  assert.ok(wieder.includes('data-wiki-anhang="bild-eins.png"'),
+            'der Anhang wird nicht mehr genannt');
 });
 
 console.log('');

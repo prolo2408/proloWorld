@@ -42,6 +42,20 @@ findet die Suche auch den Inhalt aus den Skripten. Eine Seite, die den
 aktuellen Pflichtteil trägt, meldet ihren Text beim nächsten Öffnen selbst —
 dann verschwindet die ungenaue Quelle wieder.
 
+### Behoben: eine gelöschte Seite legte die Suche für immer still
+Der eigentliche Grund, warum die Suche nichts fand. Der Suchindex nutzt
+dieselbe Zeilennummer wie die Trefferliste. Beim Löschen einer Seite wurden
+die Treffer entfernt, die Zeilen im Suchindex blieben aber liegen — und die
+nächste eingespielte Seite stieß darauf. Der Indexaufbau brach ab
+(`IntegrityError: constraint failed`), und zwar dauerhaft: auch **Index neu**
+lief in denselben Fehler. Wer einmal eine Seite gelöscht hatte, hatte danach
+eine Wissenssammlung ohne Suche.
+
+Jetzt nimmt das Löschen den Index mit; Reste werden beim Start weggeräumt
+(mit Zeile im Protokoll) und zusätzlich immer dann, wenn **Index neu**
+gedrückt wird. Für eine betroffene Datenbank heißt das: einspielen, starten,
+einmal **Index neu** — danach findet die Suche wieder alles.
+
 ### Behoben: „Server Fehler" beim Einspielen, obwohl die Seite da war
 Der Suchindex wird nach dem Festschreiben gebaut. Ging dabei etwas schief —
 ein PDF-Anhang, den `pdftotext` nicht mochte, eine Eigenheit der
@@ -98,6 +112,41 @@ Der **Rechner** bringt ein eigenes kleines Rechenwerk mit — **kein `eval`**.
 Es kennt Zahlen, Feldnamen und `+ - * / ( )`, und nichts weiter. Alles andere
 ergibt „keine Zahl" statt eines Funktionsaufrufs; das ist geprüft, auch gegen
 `alert(1)`, `a.constructor` und `fetch("/")`.
+
+### Neu: PDF anhängen und auf eine Seite darin verweisen
+Der Baustein **PDF**: Datei auswählen, Sprungziele eintragen
+(*Beschriftung · Seite*), fertig. Die Datei wird ein Anhang der Seite, und
+die Knöpfe öffnen sie im Wiki — rechts neben dem Text, damit man mitlesen
+kann. Bei großen Handbüchern ist die Seitenzahl der eigentliche Punkt.
+
+Anzeigen muss das die **Hülle**, nicht die Seite: Eine eingespielte Seite läuft
+in einem abgeschotteten Rahmen, dessen Regeln `frame-src` und `object-src` auf
+`none` setzen. Das bleibt so — die Seite bittet die Hülle über eine Nachricht,
+und die Hülle öffnet den Anhang. Der Dateiname steht nicht im Knopf, sondern
+wird zur Laufzeit aus der Marke gelesen, die der Server beim Ausgliedern setzt;
+so bleibt der Knopf richtig, auch wenn die Datei einen anderen Namen bekommt.
+
+Ein **Suchtreffer aus einem PDF** springt jetzt auch dorthin: Seite öffnen und
+das PDF auf der Fundseite aufmachen, statt nur zu melden, wo es steht.
+
+### Behoben: beim Bearbeiten verlor eine Seite ihre Anhänge
+Wurde eine Seite mit Anhang neu gespeichert, verschwand die Registrierung des
+Anhangs: Die Datei lag schon auf dem Server, die neue Fassung nannte sie nur
+noch — und `uebernehmen()` legte nur an, was mitgeschickt wurde. Folge: Der
+Abruf lieferte `application/octet-stream` statt `application/pdf` (der Browser
+lädt herunter statt anzuzeigen), die Seite meldete keine Anhänge mehr, und der
+Text des PDFs fiel aus der Suche. Jetzt bleiben die Anhänge, die die neue
+Fassung noch nennt und deren Datei noch da ist.
+
+### Neu: eine HTML-Datei in den Editor laden
+Wähle eine Datei aus („Ich habe schon eine HTML-Datei"), und im Prüfbericht
+steht jetzt neben *Übernehmen* auch **In den Editor laden**: Titel, Kennung,
+Pfad, Freigabe, Abschnitte und alle Blöcke landen in den Feldern, vorhandene
+Anhänge bleiben bekannt — und du änderst weiter, statt erst einzuspielen und
+dann zu bearbeiten.
+
+Der Knopf **„Als HTML-Datei laden"** hieß dabei irreführend: Er *lud herunter*.
+Er heißt jetzt **„Als Datei sichern"**.
 
 ### Geändert: die Abschnitte stehen links
 „Auf dieser Seite" steht jetzt in der Seitenleiste über dem Themenbaum, nicht

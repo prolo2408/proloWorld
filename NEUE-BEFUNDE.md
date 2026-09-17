@@ -795,6 +795,200 @@ nach der Verwalteränderung noch einmal den Urheber gefragt hat.
 
 ---
 
+## N-16 — Eine gelöschte Seite legte den Suchindex für immer still
+
+**Stufe:** hoch — die Suche fand danach **nichts** mehr, in einem Werkzeug,
+dessen Zweck das Finden ist
+**Datei:** `wiki/server.py` (`index_neu_bauen`, `/api/loeschen`)
+**Gefunden bei:** der Rückmeldung „die Suche geht nicht" — mit dem
+Fehlertext, den `N-12` überhaupt erst sichtbar gemacht hat
+
+Im Screenshot stand:
+
+```
+Die Seite ist gespeichert, aber der Suchindex wurde nicht gebaut
+(IntegrityError: constraint failed).
+```
+
+`constraint failed` ohne Spaltennamen ist in SQLite die Meldung für eine
+**doppelte rowid in einer FTS5-Tabelle**. Nachgemessen, nicht geraten:
+
+```python
+con.execute("INSERT INTO suche(rowid,...) VALUES(1,...)")   # geht
+con.execute("INSERT INTO suche(rowid,...) VALUES(1,...)")   # IntegrityError: constraint failed
+```
+
+Die Ursache ist eine Kopplung, die man leicht übersieht: `treffer.id` ist ein
+`rowid`-Alias und dient **gleichzeitig** als `rowid` in `suche` und
+`suche_tri`. Beim Löschen einer Seite räumte der Fremdschlüssel
+(`ON DELETE CASCADE`) die `treffer`-Zeilen weg — die FTS-Zeilen blieben
+liegen, weil kein Trigger sie mitnimmt. SQLite verwendet freigewordene
+`rowid`s wieder. Die nächste eingespielte Seite bekam also eine `id`, unter
+der in `suche` noch eine Leiche lag, und der Indexaufbau brach ab.
+
+Und zwar **dauerhaft**: Auch „Index neu" in der Verwaltung lief in denselben
+Fehler — ausgeführt, HTTP 500. Genau der Knopf, mit dem man es reparieren
+würde, war selbst blockiert. Wer einmal eine Seite gelöscht hatte, hatte
+danach eine Wissenssammlung ohne Suche, ohne Weg zurück.
+
+**Behoben:**
+
+- `index_leeren(v, seite_id)` räumt erst die FTS-Zeilen, dann `treffer` —
+  und wird beim Löschen einer Seite **vor** dem Löschen aufgerufen.
+- `verwaiste_indexzeilen_loeschen(v)` räumt Reste weg. Läuft beim Start
+  (mit Hinweis im Protokoll, wie viele es waren) **und** als erster Schritt
+  von „Index neu" — der Reparaturknopf muss sich selbst reparieren können.
+- `eintragen()` räumt die `rowid` vorher frei. Gürtel und Hosenträger: ein
+  Indexaufbau darf an Resten grundsätzlich nicht scheitern.
+
+**Was daraus folgt:** Zwei Sachen.
+
+Erstens: `N-12` war kein Nebenbefund. Ohne den Hinweis statt des
+Serverfehlers hätte diese Meldung niemand gesehen — die Rückmeldung wäre
+„die Suche geht halt nicht" geblieben, und die Ursache lag drei Schichten
+tiefer. Eine Fehlermeldung, die den Grund nennt, ist ein Werkzeug.
+
+Zweitens: Ich habe in `N-11` zwei neue Indexquellen gebaut und mit
+`tcp -> 1 Treffer` belegt — auf einem **frischen** Wiki. Der Fehler brauchte
+eine Datenbank mit Geschichte: eine gelöschte Seite. Eine Prüfung auf
+leerem Stand prüft die halbe Welt.
+
+---
+
+## N-17 — `new Function` in der Hülle: die eigene CSP hat es verboten, zu Recht
+
+**Stufe:** hoch, aber nur in meinem eigenen Zwischenstand
+**Datei:** `wiki/index.html`
+**Gefunden bei:** Browserprobe des Blockeditors
+
+Die lebende Vorschau im Editor soll einen Rechner-Baustein wirklich rechnen
+lassen. Das Rechenwerk lag als Liste von Zeichenketten vor (es wird in die
+erzeugte Seite geschrieben), und der naheliegende Griff war:
+
+```js
+const BK = new Function(ED_RECHENWERK + 'return {bkRechnen, bkZahl};')();
+```
+
+Der Browser hat das sofort abgelehnt:
+
+```
+Uncaught EvalError: Refused to evaluate a string as JavaScript because
+'unsafe-eval' is not an allowed source of script in the following Content
+Security Policy directive: "script-src 'self' 'unsafe-inline'"
+```
+
+Das ist die CSP, die die Hülle aus der Prüfung vom 14.09.2026 mitbekommen
+hat — sie ist keine Formsache. Und die Folge war dieselbe wie bei `N-14`:
+Der Fehler steht auf oberster Ebene, das ganze Skript stirbt beim Laden, das
+Wiki zeigt **nichts**. Danach kam nur noch ein Folgefehler
+(`Cannot access 'ED_FORM' before initialization`), der nichts erklärte.
+
+Die naheliegende Reparatur wäre `'unsafe-eval'` in die CSP gewesen — für eine
+Vorschau. Das ist die falsche Richtung: Die Hülle darf die Wiki-API im eigenen
+Origin benutzen; sie ist genau der Ort, an dem `eval` nichts zu suchen hat.
+
+**Behoben, und dabei besser geworden:** Das Rechenwerk steht jetzt **einmal**
+als echte Funktion in der Hülle. Die Hülle ruft sie direkt auf, und die
+erzeugte Seite bekommt ihren Quelltext über `toString()`. Damit rechnet die
+Vorschau nicht nur genauso wie die Seite — es ist derselbe Code, und das lässt
+sich prüfen (ein Test wertet `ED_RECHENWERK` aus und vergleicht das Ergebnis
+mit dem der Funktion in der Hülle).
+
+Dazu eine Prüflinie auf die Datei selbst: In `wiki/index.html` darf
+`new Function(` oder `eval(` **nicht** vorkommen. Kommentare zählen nicht mit,
+sonst wäre dieser Absatz sein eigener Fehler.
+
+**Was daraus folgt:** Zweimal in dieser Reihe (`N-14`, `N-17`) hat ein Fehler
+auf oberster Skriptebene die ganze Oberfläche gekostet, und zweimal war das
+Ergebnis der Tests grün. Eine Oberfläche ist erst geprüft, wenn sie im Browser
+**geladen** wurde. Und: Eine Regel, die im Weg steht, ist erst einmal ein
+Hinweis — nicht ein Hindernis, das man wegräumt.
+
+---
+
+## N-18 — Beim Bearbeiten verlor eine Seite ihre Anhänge
+
+**Stufe:** mittel bis hoch — kein Dateiverlust, aber der Anhang ist danach
+nicht mehr *als Anhang* bekannt: er wird heruntergeladen statt angezeigt und
+fällt aus der Suche
+**Datei:** `wiki/server.py` (`uebernehmen`)
+**Gefunden bei:** der Vorarbeit zum PDF-Baustein
+
+`uebernehmen()` löschte alle `anhang`-Zeilen einer Seite und legte danach nur
+die wieder an, die **mitgeschickt** wurden. Die Dateien selbst blieben liegen
+(der Kommentar sagte das auch), die Registrierung nicht.
+
+Genau das passiert, sobald eine Seite mit Anhang neu gespeichert wird: Die
+Datei liegt schon auf dem Server, die neue Fassung nennt sie nur noch (die
+Marke `data-wiki-anhang`, die das Ausgliedern hinterlässt). Also kommt nichts
+Neues an — und die Zeile ist weg.
+
+Ausgeführt, an einer Seite mit einem 196 KB großen PDF:
+
+```
+nach dem Einspielen    anhang: 1 Zeile (kompendium.pdf, application/pdf)
+                       Abruf: 200, application/pdf
+                       die Seite meldet 1 Anhang
+nach dem Neuspeichern  anhang: 0 Zeilen
+                       Abruf: 200, application/octet-stream
+                       die Seite meldet 0 Anhänge
+```
+
+`application/octet-stream` heißt: Der Browser lädt die Datei herunter,
+statt sie anzuzeigen. Dazu kommt, dass der seitenweise Text des PDFs aus dem
+Suchindex fällt — die Suche findet in PDF-Anhängen dann nichts mehr.
+
+**Behoben:** `uebernehmen()` behält die Zeilen der Anhänge, die die neue
+Fassung noch nennt und deren Datei noch da ist. Die Entscheidung trifft
+`genannte_anhaenge(html)` — sie liest die Marke und Verweise auf
+`anhaenge/<name>`, und lässt nur Namen durch, die das Dateinamenmuster
+erfüllen (sonst entschiede der Inhalt einer eingespielten Seite, welche Datei
+gemeint ist).
+
+**Gegenprobe ausgeführt:** Wird der Anhang aus der Seite entfernt, ist die
+Zeile danach auch weg — behalten heißt nicht festhalten.
+
+**Was daraus folgt:** Der Fehler stand im Weg, bevor das Feature begann, das
+ihn gebraucht hätte. Eine Funktion, die es ohne Anhänge im Editor nie gab
+(„Seite mit Anhang neu speichern"), war mit dem Editor plötzlich der
+Normalfall — und kein Test deckte sie ab, weil sie vorher niemand ausführen
+konnte.
+
+---
+
+## N-19 — Der Knopf hieß „laden" und lud herunter
+
+**Stufe:** niedrig in der Technik, hoch in der Wirkung — er hat genau das
+Gegenteil dessen getan, was sein Name sagt
+**Datei:** `wiki/index.html` (Editor)
+**Gefunden bei:** der Rückmeldung — „wenn ich unten auf *als HTML-Datei
+laden* klicke, kommt da ein Fehler, weil ich keine Seite geladen habe"
+
+Der Knopf hieß **„Als HTML-Datei laden"** und erzeugte einen Download der
+Seite, die gerade im Editor steht. Auf Deutsch heißt „laden" aber
+*hereinholen*, nicht *hinausgeben* — und weil er zuerst prüft, ob die Seite
+vollständig ist, bekam man bei einem leeren Editor die Liste „Das fehlt noch".
+Der Fehler war fachlich richtig und die Antwort auf eine Frage, die niemand
+gestellt hatte.
+
+**Behoben, zweifach:**
+
+- Der Knopf heißt jetzt **„Als Datei sichern"**. Das ist, was er tut.
+- Das, was der Name versprach, gibt es jetzt wirklich: Im Prüfbericht einer
+  ausgewählten HTML-Datei steht neben *Übernehmen* der Knopf **„In den Editor
+  laden"**. Er holt Titel, Kennung, Pfad, Freigabe, Abschnitte und alle Blöcke
+  in die Felder — samt der Namen vorhandener Anhänge — und man ändert weiter,
+  statt erst einzuspielen und dann zu bearbeiten.
+
+Beide Wege gehen durch dieselbe Übersetzung (`edAusHtml`) wie *Bearbeiten* an
+einer gespeicherten Seite. Ein zweiter Leser wäre eine zweite Wahrheit.
+
+**Was daraus folgt:** Ein Wort kann eine Funktion unbenutzbar machen. Der Knopf
+funktionierte tadellos und war trotzdem kaputt. Das ist nicht mit Tests zu
+finden — nur damit, dass jemand es benutzt und sagt, was er erwartet hat.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

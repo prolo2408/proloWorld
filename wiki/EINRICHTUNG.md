@@ -200,6 +200,35 @@ Import prüft beides und meldet, was fehlt.
 - **Bearbeiten** öffnet den Editor. Sichtbar für den Urheber der Seite und
   für Verwalter.
 
+## Ein PDF anhängen
+
+Im Editor der Baustein **PDF**:
+
+1. *Datei auswählen* — das PDF wird beim Speichern ein **Anhang** dieser Seite.
+2. **Sprungziele** eintragen: Beschriftung und Seitenzahl, eine Zeile je Ziel.
+   Bei einem Handbuch mit 200 Seiten ist das der eigentliche Nutzen.
+3. Speichern. Die Knöpfe öffnen das PDF rechts neben dem Text, auf der
+   genannten Seite.
+
+Wichtig zum Verständnis, falls du eigene Seiten von Hand schreibst: **Die
+Seite selbst darf kein PDF anzeigen.** Sie läuft in einem abgeschotteten
+Rahmen, dessen Regeln `frame-src 'none'` und `object-src 'none'` setzen — das
+ist die Grenze, die eine eingespielte Seite vom Rest des Wikis trennt. Statt es
+selbst zu versuchen, bittet die Seite die Hülle:
+
+```html
+<button data-wiki-pdf="anhang-handbuch" data-wiki-seite="10">Kapitel 1</button>
+```
+
+`data-wiki-pdf` ist die Kennung des Skriptblocks, in dem das PDF eingebettet
+war; der Pflichtteil liest daraus den echten Anhangsnamen und schickt die
+Nachricht `wiki-pdf` an die Hülle. Der Anhang selbst liegt unter
+`/seite/<kennung>/anhaenge/<datei>`, und die Hülle hängt `#page=N` an.
+
+Ein PDF-Anhang wird außerdem **seitenweise durchsuchbar** (dafür braucht der
+Container `pdftotext`, das Abbild bringt es mit). Ein Suchtreffer aus dem PDF
+öffnet die Seite und das PDF auf der Fundstelle.
+
 ## Was die Suche findet
 
 Der Index hat vier Quellen, und die Reihenfolge ist Absicht:
