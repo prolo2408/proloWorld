@@ -308,11 +308,26 @@ nicht selbst anfasst.
 
 ## Wer darf was
 
-| Wer | Darf |
-|---|---|
-| jeder Angemeldete | Seiten anlegen; eigene Seiten ändern, zurücksetzen, löschen |
-| jeder Angemeldete | Freigabe setzen — aber nur auf **eigene** Gruppen |
-| Verwalter | alle Seiten sehen und ändern; Freigabe je Seite setzen; Themenzweige freigeben; Index neu bauen |
+| Wer | Darf | Gruppe |
+|---|---|---|
+| jeder Angemeldete | lesen, was für ihn freigegeben ist; suchen; Merkzettel setzen | — |
+| **Editor** | Seiten anlegen; eigene Seiten ändern, zurücksetzen, löschen; Freigabe setzen, aber nur auf **eigene** Gruppen | `wiki-editor` |
+| **Verwalter** | alle Seiten sehen und ändern; Freigabe je Seite setzen; Themenzweige freigeben; Index neu bauen | `wiki-admin` |
+
+Ein Verwalter ist immer auch Editor. Die Gruppennamen sind einstellbar:
+
+```yaml
+environment:
+  WIKI_EDITOR_GRUPPE: wiki-editor     # Vorgabe
+  WIKI_ADMIN_GRUPPE: wiki-admin       # Vorgabe
+  WIKI_GRUPPEN_PRAEFIX: wiki          # Vorgabe
+```
+
+**Das Wiki beachtet nur Gruppen, die mit `wiki` anfangen.** In Authentik hängen
+an einem Nutzer die Gruppen aller Werkzeuge; `vertrieb` oder `bordbuch-admin`
+entscheiden hier nichts. Eine Freigabe auf eine Gruppe ohne dieses Präfix wird
+abgewiesen — sie würde die Seite allen wegnehmen und niemandem geben. In den
+Einstellungen steht, wie viele Gruppen aussortiert wurden.
 
 „Eigene Seite" heißt: die, die man **angelegt** hat — nicht die, die man
 zuletzt gespeichert hat. Der Unterschied ist wichtig: Wenn du als Verwalter

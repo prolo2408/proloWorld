@@ -1032,6 +1032,43 @@ der Blick in den Code, sondern Punkt 12 einer Liste, die genau dafür da ist.
 
 ---
 
+## N-21 — Entscheidung: Schreiben braucht eine Gruppe, und nur `wiki`-Gruppen zählen
+
+**Kein Befund, sondern eine Korrektur meiner Annahme.** In `N-13` habe ich
+„jeder Angemeldete darf Seiten anlegen" umgesetzt — das war die Antwort auf
+„es ist wichtig, dass jeder Seiten erstellen kann". Gemeint war: nicht nur der
+Verwalter. Nicht: jeder im Haus.
+
+**Jetzt drei Stufen:**
+
+| Wer | Darf | Gruppe |
+|---|---|---|
+| jeder Angemeldete | lesen, was für ihn freigegeben ist; suchen; Merkzettel | — |
+| Editor | Seiten anlegen, eigene ändern, zurücksetzen, löschen | `wiki-editor` |
+| Verwalter | alle Seiten, alle Freigaben, Verwaltung, Index | `wiki-admin` |
+
+Ein Verwalter ist immer auch Editor — sonst bräuchte man zwei Gruppen, um eine
+Seite anzulegen. Beide Namen stehen in Umgebungsvariablen
+(`WIKI_EDITOR_GRUPPE`, `WIKI_ADMIN_GRUPPE`).
+
+**Und: Das Wiki sieht nur Gruppen an, die mit `wiki` anfangen.** In Authentik
+hängen an einem Nutzer die Gruppen aller Werkzeuge. `vertrieb` oder
+`bordbuch-admin` haben hier nichts zu entscheiden — und eine **Freigabe** auf
+so eine Gruppe war vorher ein stiller Fehler: Sie nimmt die Seite allen weg
+und gibt sie niemandem. Das wird jetzt abgewiesen, mit Begründung. Das Präfix
+steht in `WIKI_GRUPPEN_PRAEFIX`.
+
+Wichtig dabei: Der Filter darf die Rollenprüfung nicht aushebeln. Eine Gruppe
+`admin` (ohne Präfix) macht niemanden zum Verwalter, eine Gruppe `wiki` auch
+nicht — geprüft wird auf den ganzen Namen. Dafür gibt es einen Test.
+
+**Was der Knopf nicht tut:** Wer nicht schreiben darf, sieht *Neue Seite* und
+*Bearbeiten* nicht. Ein Knopf, der in ein 403 führt, ist schlimmer als kein
+Knopf — und in den Einstellungen steht, welche Gruppe fehlt und wer sie
+vergibt.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

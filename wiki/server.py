@@ -40,6 +40,14 @@ DATEN = os.environ.get("WIKI_DATEN", "/daten")
 SEITEN = os.environ.get("WIKI_SEITEN", "/seiten")
 PORT = int(os.environ.get("WIKI_PORT", "8080"))
 ADMIN_GRUPPE = os.environ.get("WIKI_ADMIN_GRUPPE", "wiki-admin")
+# Wer schreiben darf: Seiten anlegen und die eigenen aendern. Lesen darf jeder
+# Angemeldete (im Rahmen der Freigaben), verwalten nur ADMIN_GRUPPE.
+EDITOR_GRUPPE = os.environ.get("WIKI_EDITOR_GRUPPE", "wiki-editor")
+# Das Wiki sieht nur Gruppen an, die so anfangen. In Authentik haengen an einem
+# Nutzer die Gruppen aller Tools; "vertrieb" oder "bordbuch-admin" haben hier
+# nichts zu entscheiden, und eine Freigabe auf so eine Gruppe waere ein stiller
+# Fehler - sie wuerde niemandem etwas geben.
+GRUPPEN_PRAEFIX = os.environ.get("WIKI_GRUPPEN_PRAEFIX", "wiki")
 # Notnagel fuer den allerersten Start, solange die Gruppe in Authentik fehlt.
 ADMIN_NUTZER = {n.strip() for n in os.environ.get("WIKI_ADMIN_NUTZER", "").split(",") if n.strip()}
 # Ab dieser Groesse wird ein eingebetteter Base64-Block zum Anhang.
@@ -314,14 +322,27 @@ def einstellung_setzen(kennung, schluessel, wert):
 
 # ---------------------------------------------------------------- Anmeldung
 
+def wiki_gruppen(gruppen):
+    """Nur die Gruppen, die dieses Wiki angehen."""
+    return {g for g in gruppen if g.startswith(GRUPPEN_PRAEFIX)}
+
+
 class Nutzer:
     def __init__(self, kennung, name, email, gruppen):
         self.kennung = kennung
         self.name = name or kennung
         self.email = email or ""
-        self.gruppen = set(gruppen)
+        alle = {g for g in gruppen if g}
+        self.gruppen = wiki_gruppen(alle)
+        # Was aussortiert wurde, bleibt zaehlbar: die Einstellungsseite sagt
+        # "3 Gruppen anderer Tools ignoriert", damit niemand raetselt, warum
+        # seine Gruppe hier nicht auftaucht.
+        self.gruppen_andere = sorted(alle - self.gruppen)
         self.gruppen_roh = ""
         self.ist_admin = (ADMIN_GRUPPE in self.gruppen) or (kennung in ADMIN_NUTZER)
+        # Verwalter duerfen alles, was ein Editor darf - sonst muesste man sich
+        # zwei Gruppen geben, um eine Seite anzulegen.
+        self.ist_editor = self.ist_admin or (EDITOR_GRUPPE in self.gruppen)
 
 
 def nutzer_aus_kopf(kopf):
@@ -866,17 +887,21 @@ def urheber_von(z):
     return (u or "") or (z["nutzer_id"] or "")
 
 
-def darf_aendern(z, kennung, ist_admin):
-    """Darf dieser Nutzer diese bestehende Seite aendern? (N-13, N-15)
+def darf_aendern(z, nutzer):
+    """Darf dieser Nutzer diese bestehende Seite aendern? (N-13, N-15, N-21)
 
-    Jeder darf Seiten anlegen. Eine bestehende Seite aendert, wer sie
-    angelegt hat - und jeder Verwalter. Sonst koennte jeder die Arbeit aller
-    anderen ueberschreiben, und das waere in einem Wiki mit Freigaben genau
-    das falsche Signal.
+    Drei Stufen:
+      lesen     jeder Angemeldete, im Rahmen der Freigaben
+      schreiben wer in EDITOR_GRUPPE ist - anlegen und die EIGENEN Seiten
+                aendern. Sonst koennte jeder die Arbeit aller anderen
+                ueberschreiben.
+      verwalten ADMIN_GRUPPE: alle Seiten, alle Freigaben, loeschen.
     """
-    if ist_admin:
+    if not getattr(nutzer, "ist_editor", False):
+        return False
+    if nutzer.ist_admin:
         return True
-    return bool(kennung) and urheber_von(z) == kennung
+    return bool(nutzer.kennung) and urheber_von(z) == nutzer.kennung
 
 
 def spalte_nachtragen(v, tabelle, spalte, bauart):
@@ -1557,7 +1582,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def darf_schreiben(self, z, n):
         """Siehe darf_aendern - hier nur der Weg vom Nutzer zur Auskunft."""
-        return darf_aendern(z, n.kennung, n.ist_admin)
+        return darf_aendern(z, n)
+
+    def editor(self):
+        """Der Nutzer, wenn er schreiben darf - sonst 403 mit dem Gruppennamen."""
+        n = self.nutzer()
+        if not n.ist_editor:
+            raise Antwort(403,
+                          "Zum Schreiben im Wiki brauchst du die Gruppe '%s'. "
+                          "Lesen darfst du alles, was fuer dich freigegeben "
+                          "ist. Die Gruppe vergibt ein Verwalter in Authentik."
+                          % EDITOR_GRUPPE)
+        return n
 
     def gruppen_pruefen(self, meta, n):
         """Eine Freigabe darf nur auf eigene Gruppen zeigen (N-13).
@@ -1567,9 +1603,20 @@ class Handler(BaseHTTPRequestHandler):
         legen, die man nicht kennt, und sie sich damit selbst wegnehmen.
         Verwalter duerfen jede Gruppe setzen.
         """
+        gewuenscht = [g for g in (meta.get("gruppen") or []) if g]
+        # Erst die Form, dann die Berechtigung: eine Freigabe auf eine Gruppe
+        # ohne das Praefix ist ein stiller Fehler - sie nimmt die Seite allen
+        # weg und gibt sie niemandem (N-21).
+        falsch = [g for g in gewuenscht if not g.startswith(GRUPPEN_PRAEFIX)]
+        if falsch:
+            raise Antwort(400,
+                          "Diese Gruppen gehoeren nicht zum Wiki: %s. Das Wiki "
+                          "beachtet nur Gruppen, die mit '%s' anfangen - alles "
+                          "andere gehoert anderen Werkzeugen und wuerde die "
+                          "Seite fuer alle unsichtbar machen."
+                          % (", ".join(sorted(falsch)), GRUPPEN_PRAEFIX))
         if n.ist_admin:
             return
-        gewuenscht = [g for g in (meta.get("gruppen") or []) if g]
         fremd = [g for g in gewuenscht if g not in n.gruppen]
         if fremd:
             raise Antwort(403,
@@ -1729,8 +1776,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_senden({
                 "kennung": n.kennung, "name": n.name, "email": n.email,
                 "gruppen": sorted(n.gruppen), "ist_admin": n.ist_admin,
+                "ist_editor": n.ist_editor,
+                "gruppen_andere": n.gruppen_andere,
+                "gruppen_praefix": GRUPPEN_PRAEFIX,
                 "gruppen_roh": n.gruppen_roh,
                 "admin_gruppe": ADMIN_GRUPPE,
+                "editor_gruppe": EDITOR_GRUPPE,
                 "einstellungen": einstellungen_lesen(n.kennung),
                 "abmelden": "/outpost.goauthentik.io/sign_out"})
 
@@ -1946,10 +1997,10 @@ class Handler(BaseHTTPRequestHandler):
         self.typ_pruefen(rest)
 
         if rest == ["pruefen"] or rest == ["import"]:
-            # Jeder Angemeldete darf Seiten anlegen (N-13). Wer eine
+            # Schreiben darf, wer in EDITOR_GRUPPE ist (N-21). Wer eine
             # BESTEHENDE Seite ersetzt, muss sie angelegt haben oder Verwalter
             # sein - das wird unten geprueft, wenn die Kennung feststeht.
-            n = self.nutzer()
+            n = self.editor()
             roh = self.koerper_lesen()
             if not roh:
                 raise Antwort(400, "Es wurde keine Datei uebertragen.")
@@ -1993,7 +2044,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_senden(antwort)
 
         if rest == ["loeschen"]:
-            n = self.nutzer()
+            n = self.editor()
             daten = json.loads(self.koerper_lesen() or b"{}")
             slug = (daten.get("slug") or "").strip()
             if daten.get("bestaetigt") is not True:
@@ -2016,7 +2067,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_senden({"ok": True})
 
         if rest == ["zuruecksetzen"]:
-            n = self.nutzer()
+            n = self.editor()
             daten = json.loads(self.koerper_lesen() or b"{}")
             slug, nummer = (daten.get("slug") or "").strip(), int(daten.get("nummer") or 0)
             z = db().execute("SELECT * FROM seite WHERE slug=?", (slug,)).fetchone()
@@ -2046,6 +2097,13 @@ class Handler(BaseHTTPRequestHandler):
             daten = json.loads(self.koerper_lesen() or b"{}")
             slug = (daten.get("slug") or "").strip()
             gruppen = [str(g).strip() for g in (daten.get("gruppen") or []) if str(g).strip()]
+            falsch = [g for g in gruppen if not g.startswith(GRUPPEN_PRAEFIX)]
+            if falsch:
+                raise Antwort(400,
+                              "Diese Gruppen gehoeren nicht zum Wiki: %s. Nur "
+                              "Gruppen, die mit '%s' anfangen, entscheiden hier "
+                              "ueber Sichtbarkeit." % (", ".join(sorted(falsch)),
+                                                       GRUPPEN_PRAEFIX))
             z = db().execute("SELECT * FROM seite WHERE slug=?", (slug,)).fetchone()
             if not z:
                 raise Antwort(404, "Diese Seite gibt es nicht.")

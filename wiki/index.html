@@ -1161,13 +1161,22 @@ async function start(){
       <div>
         <div class="label" style="margin-bottom:8px">Themen</div>
         <div class="raster" style="grid-template-columns:repeat(auto-fill,minmax(210px,1fr))">
-          ${themen || `<div class="karte">
-            <h3>Noch keine Seite</h3>
-            <div class="kontext">Eine Wissenssammlung fängt mit einer Seite an.
-              Titel, ein Abschnitt, speichern — der Rest kommt später.</div>
-            <div style="margin-top:14px">
-              <button class="knopf" id="erste-seite">Erste Seite anlegen</button>
-            </div></div>`}
+          ${themen || ((ZUSTAND.ich || {}).ist_editor
+            ? `<div class="karte">
+                 <h3>Noch keine Seite</h3>
+                 <div class="kontext">Eine Wissenssammlung fängt mit einer Seite
+                   an. Titel, ein Abschnitt, speichern — der Rest kommt
+                   später.</div>
+                 <div style="margin-top:14px">
+                   <button class="knopf" id="erste-seite">Erste Seite anlegen</button>
+                 </div></div>`
+            : `<div class="karte">
+                 <h3>Noch keine Seite</h3>
+                 <div class="kontext">Hier ist noch nichts, was für dich
+                   freigegeben wäre. Zum Schreiben brauchst du die Gruppe
+                   <span class="mono">${schuetzen((ZUSTAND.ich || {}).editor_gruppe
+                     || 'wiki-editor')}</span> — die vergibt ein Verwalter.</div>
+               </div>`)}
         </div>
       </div>
       <div class="raster" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
@@ -1281,12 +1290,35 @@ async function einstellungen(){
                 <td class="mono">${schuetzen(ich.kennung || '')}</td></tr>
             <tr><td style="color:var(--ink-3)">E-Mail</td>
                 <td>${schuetzen(ich.email || '—')}</td></tr>
+            <tr><td style="color:var(--ink-3)">Was du darfst</td>
+                <td>${ich.ist_admin
+                  ? '<span class="marke-badge gut">verwalten</span> alle Seiten, ' +
+                    'Freigaben, Löschen'
+                  : (ich.ist_editor
+                     ? '<span class="marke-badge gut">schreiben</span> Seiten anlegen ' +
+                       'und eigene ändern'
+                     : '<span class="marke-badge">lesen</span> alles, was für dich ' +
+                       'freigegeben ist')}</td></tr>
             <tr><td style="color:var(--ink-3)">Gruppen</td>
                 <td>${(ich.gruppen || []).length
                   ? ich.gruppen.map(g => `<span class="marke-badge">${schuetzen(g)}</span>`).join(' ')
                   : '<span style="color:var(--ink-3)">keine</span>'}</td></tr>
           </tbody>
         </table>
+        ${!ich.ist_editor ? `<div class="meldung" style="margin-top:12px">
+          <strong>Zum Schreiben fehlt eine Gruppe</strong>
+          <div style="margin-top:4px">Seiten anlegen und ändern darf, wer in der
+            Gruppe <span class="mono">${schuetzen(ich.editor_gruppe || 'wiki-editor')}</span>
+            ist. Die vergibt ein Verwalter in Authentik. Lesen darfst du alles,
+            was für dich freigegeben ist.</div></div>` : ''}
+        ${(ich.gruppen_andere || []).length ? `<div class="ed-merke"
+          style="margin-top:10px">${zahl(ich.gruppen_andere.length)}
+          ${ich.gruppen_andere.length === 1 ? 'Gruppe' : 'Gruppen'} anderer Werkzeuge
+          ${ich.gruppen_andere.length === 1 ? 'wird' : 'werden'} hier nicht beachtet
+          (${ich.gruppen_andere.map(schuetzen).join(', ')}). Das Wiki sieht nur
+          Gruppen an, die mit
+          <span class="mono">${schuetzen(ich.gruppen_praefix || 'wiki')}</span>
+          anfangen.</div>` : ''}
         <div style="margin-top:16px">
           <a class="knopf" href="/outpost.goauthentik.io/sign_out"
              style="text-decoration:none">Abmelden / neu laden</a>
@@ -3115,7 +3147,9 @@ function bearbeitenKnopf(slug, urheber){
   const k = $('bearbeiten-knopf');
   if(!k) return;
   const ich = ZUSTAND.ich || {};
-  const darf = !!(slug && (ich.ist_admin ||
+  /* Ohne Schreibrecht gar nicht erst anbieten (N-21) - auch dem Urheber
+     nicht, denn die Gruppe wird vergeben UND entzogen. */
+  const darf = !!(slug && ich.ist_editor && (ich.ist_admin ||
                   (urheber && urheber === ich.kennung)));
   k.hidden = !darf;
   k.onclick = darf ? () => {
@@ -3760,10 +3794,11 @@ async function baumLaden(){
     ZUSTAND.einst = ZUSTAND.ich.einstellungen || {};
     themaAnwenden(ZUSTAND.einst.thema || 'system');
     $('konto-knopf').textContent = ZUSTAND.ich.name;
-    /* Seiten anlegen darf jeder (N-13). Die Verwaltung bleibt beim
-       Verwalter: dort geht es um alle Seiten und um Freigaben. */
-    $('neu-knopf').hidden = false;
-    if(ZUSTAND.ich.ist_admin) $('verwaltung-knopf').hidden = false;
+    /* Drei Stufen (N-21): lesen darf jeder Angemeldete, schreiben wer in
+       der Editorgruppe ist, verwalten die Verwaltergruppe. Ein Knopf, der
+       zu einem 403 fuehrt, ist schlimmer als kein Knopf. */
+    $('neu-knopf').hidden = !ZUSTAND.ich.ist_editor;
+    $('verwaltung-knopf').hidden = !ZUSTAND.ich.ist_admin;
     await baumLaden();
     if(!location.hash.replace(/^#\/?/, '') && ZUSTAND.einst.start === 'zuletzt'){
       const d = await hole('/api/baum');
