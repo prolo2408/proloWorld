@@ -1375,6 +1375,70 @@ langsam durchsickert.
 
 ---
 
+## N-28 — Der Pflichtteil jeder Seite stand im Suchindex
+
+### Befund
+
+Der Suchindex hat ein drittes Netz für Inhalte, die erst im Browser
+entstehen (`N-11`): Zeichenketten aus den Skriptblöcken der Seite. Der
+Pflichtteil ist aber auch ein Skriptblock — und er steht **in jeder Seite**,
+mit demselben Inhalt. Gemessen an fünf eingespielten Seiten:
+
+| Suchbegriff | Treffer | von |
+|---|---|---|
+| `dark` | 5 Seiten | 5 |
+| `light` | 5 Seiten | 5 |
+| `prefers` | 5 Seiten | 5 |
+| `section` | 5 Seiten | 5 |
+| `details` | 5 Seiten | 5 |
+| `warn` | 5 Seiten | 5 |
+
+Sechs Wörter, die auf alles passen. Das ist das Gegenteil einer Suche. Im
+Index stand zum Beispiel:
+
+```
+(prefers-color-scheme: dark) · dark · light · gi · SCRIPT · start ·
+section[id] · h1,h2,h3 · details:not([open]) · warn bk-pdf-fehlt
+```
+
+`text_aus_skripten` filtert schon ordentlich — Kennungen mit Bindestrich oder
+Punkt, Selektoren, Adressen, eine Liste technischer Wörter. Aber
+`(prefers-color-scheme: dark)` hat ein Leerzeichen und fällt damit durch alle
+Einzelwort-Regeln, und `section[id]` kannte die Filterliste nicht. Jede neue
+Zeile im Pflichtteil hätte neue Wörter nachgeliefert — ein Wettlauf, den die
+Filterliste nicht gewinnt.
+
+### Behoben an der Wurzel
+
+Der Pflichtteil wird **ganz** aus dem HTML genommen, bevor Zeichenketten
+gesammelt werden. Erkannt wird er an seiner ersten Zeile
+(`/* Pflichtteil jeder Wiki-Seite: … */`) — dieselbe Marke, die auch
+`pflichtteil-nachziehen.mjs` benutzt.
+
+Danach gemessen: `dark`, `prefers`, `section`, `details` → **0 Treffer**.
+`warn` → 13 Stellen, aber aus `abschnitt` und `seite`, also aus sichtbarem
+Text. `tcp` (5), `netzwerk` (6) und `Gastnetz` (4) unverändert — die Heilung
+hat den Inhalt nicht mitgenommen.
+
+Zwei Wörter blieben zunächst übrig: `git-und-github.html` bringt einen
+**eigenen** Skriptblock mit, der dasselbe tut wie der Pflichtteil (ein
+Überrest aus `N-06`, bevor die Zeile dorthin wanderte). Dafür gibt es jetzt
+eine allgemeine Marke: `<script data-wiki-technik>` sagt „hier steht nichts
+zum Suchen". Damit sind es 0.
+
+Acht Tests, davon einer über die **echten** mitgelieferten Seiten mit dem
+**echten** Pflichtteil. Zwei Mutationsproben: Pflichtteil-Filter entfernt →
+8 rot, Technikmarke ohne Wirkung → 3 rot.
+
+### Was daraus folgt
+
+`N-11` war richtig, und diese Quelle bleibt nötig. Sie hat nur eine
+Nebenwirkung, die niemand nachgerechnet hat: Was in jeder Seite steht, taugt
+nicht zum Unterscheiden von Seiten. Ein Index, der auf alles passt, ist
+schlimmer als eine Lücke — eine Lücke merkt man.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

@@ -190,5 +190,64 @@ class SucheMitSeitenkopf(unittest.TestCase):
             v.commit()
 
 
+class PflichtteilGehoertNichtInDenIndex(unittest.TestCase):
+    """N-28: Der Pflichtteil steht in jeder Seite - und stand im Index.
+
+    Gemessen an fuenf eingespielten Seiten: "dark", "light", "prefers",
+    "section", "details" und "warn" fanden jeweils ALLE fuenf. Sechs
+    Woerter, die auf alles passen, sind das Gegenteil einer Suche.
+    """
+
+    PFLICHT = (
+        "<script>\n"
+        "/* Pflichtteil jeder Wiki-Seite: auf die Huelle hoeren. */\n"
+        "(function(){\n"
+        "  var a = '(prefers-color-scheme: dark)';\n"
+        "  var b = 'warn bk-pdf-fehlt';\n"
+        "  var c = 'Zu diesem Knopf liegt kein PDF bei';\n"
+        "})();\n"
+        "</script>")
+
+    def test_der_pflichtteil_kommt_nicht_in_den_suchstoff(self):
+        stoff = server.text_aus_skripten(
+            "<html><body>" + self.PFLICHT + "</body></html>")
+        self.assertEqual(stoff.strip(), "",
+                         "aus dem Pflichtteil wurde Suchstoff: %r" % stoff)
+
+    def test_ein_eigenes_skript_der_seite_kommt_weiter_hinein(self):
+        # N-11: Seiten, die ihren Inhalt erst im Browser bauen, muessen
+        # findbar bleiben. Sonst waere die Heilung schlimmer als das Leiden.
+        stoff = server.text_aus_skripten(
+            "<html><body>" + self.PFLICHT +
+            "<script>var t = 'TCP verliert keine Daten, aber Zeit';</script>"
+            "</body></html>")
+        self.assertIn("TCP verliert keine Daten", stoff)
+        self.assertNotIn("prefers", stoff)
+
+    def test_ein_als_technik_markiertes_skript_wird_uebersprungen(self):
+        stoff = server.text_aus_skripten(
+            "<html><body><script data-wiki-technik>"
+            "var a = 'prefers-color-scheme dark light';</script>"
+            "<script>var b = 'Das gehoert zum Inhalt';</script></body></html>")
+        self.assertIn("Das gehoert zum Inhalt", stoff)
+        self.assertNotIn("dark light", stoff)
+
+    def test_die_mitgelieferten_seiten_bringen_keinen_technikstoff_mit(self):
+        # Die starke Probe: der ECHTE Pflichtteil, in den echten Seiten.
+        import glob
+        pfade = sorted(glob.glob(os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "vorlagen", "*.html")))
+        self.assertGreaterEqual(len(pfade), 3, "keine Seiten gefunden")
+        for pfad in pfade:
+            with self.subTest(seite=os.path.basename(pfad)):
+                with open(pfad, encoding="utf-8") as f:
+                    stoff = server.text_aus_skripten(f.read())
+                for wort in ("prefers-color-scheme", "bk-pdf-fehlt",
+                             "wiki-springen", "section[id]"):
+                    self.assertNotIn(wort, stoff,
+                                     "%s steht im Suchstoff" % wort)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -461,10 +461,25 @@ def text_aus_skripten(html):
     Code aussieht (Klammern, Semikolon, Selektoren, Adressen), fliegt raus.
     Der Meta-Block bleibt aussen vor, der ist schon im Index.
     """
+    # Der Pflichtteil steht in JEDER Seite und ist Technik, kein Inhalt.
+    # Ohne diesen Schritt fand die Suche nach "dark", "light", "prefers",
+    # "section", "details" oder "warn" jeweils ALLE fuenf Seiten - sechs
+    # Woerter, die auf alles passen, sind das Gegenteil einer Suche (N-28).
+    # Erkannt wird der Block an seiner ersten Zeile; beide Schreibweisen,
+    # weil die zwei aeltesten Seiten noch "Shell" sagen.
+    html = re.sub(r"(?is)<script>\s*/\*\s*Pflichtteil jeder Wiki-Seite:"
+                  r"\s*auf die (?:Huelle|Shell) hoeren\.\s*\*/.*?</script>",
+                  " ", html)
     bloecke = re.findall(r"(?is)<script([^>]*)>(.*?)</script>", html)
     stuecke = []
     for attr, inhalt in bloecke:
         if "application/json" in attr.lower() or "wiki-meta" in attr.lower():
+            continue
+        # Ein Block, der ausdruecklich Technik ist und kein Inhalt. Damit
+        # kann eine von Hand gebaute Seite sagen: hier steht nichts zum
+        # Suchen. Der Pflichtteil braucht das nicht - der wird oben schon
+        # an seiner ersten Zeile erkannt.
+        if "data-wiki-technik" in attr.lower():
             continue
         for muster in (r"'((?:[^'\\\n]|\\.)*)'",
                        r'"((?:[^"\\\n]|\\.)*)"',
