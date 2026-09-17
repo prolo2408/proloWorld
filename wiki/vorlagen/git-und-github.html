@@ -474,6 +474,22 @@ git reset --hard HEAD~1   # Commit UND Änderungen weg</code></pre>
   });
   /* Zielorigin '*': aus einem opaken Origin heraus ist das der einzige Weg.
      Die Nachricht enthaelt nichts Schuetzenswertes. */
+  /* Dem Wiki melden, was auf dieser Seite wirklich steht (N-11). Der Server
+     kann kein JavaScript ausfuehren: Inhalte, die erst hier entstehen -
+     Tabellen, Glossare, Schrittfolgen -, waeren sonst nicht auffindbar. Zwei
+     Meldungen, kurz und etwas spaeter nach dem Laden, damit auch nachladende
+     Teile mitkommen; gleicher Text loest keinen Indexlauf aus. */
+  function textMelden(){
+    if(window.parent === window) return;
+    try {
+      var t = (document.body.innerText || '').replace(/\s+/g, ' ').trim();
+      if(t) window.parent.postMessage({typ:'wiki-text', text:t.slice(0, 200000)}, '*');
+    } catch(e){}
+  }
+  window.addEventListener('load', function(){
+    setTimeout(textMelden, 300);
+    setTimeout(textMelden, 2500);
+  });
   if(window.parent !== window)
     window.parent.postMessage({typ:'wiki-bereit'}, '*');
 })();

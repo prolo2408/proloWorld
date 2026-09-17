@@ -161,6 +161,16 @@ CREATE TABLE IF NOT EXISTS treffer(
   abschnittstitel TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_treffer_seite ON treffer(seite_id);
+
+-- Was eine Seite im Browser wirklich anzeigt (N-11). Der Server kann kein
+-- JavaScript; eine Seite, die ihre Inhalte erst dort aufbaut, meldet ihren
+-- sichtbaren Text selbst, und der wird hier aufbewahrt, damit der Index nach
+-- einem Neuaufbau nicht darauf warten muss, dass jemand die Seite oeffnet.
+CREATE TABLE IF NOT EXISTS ansichtstext(
+  seite_id  INTEGER PRIMARY KEY REFERENCES seite(id) ON DELETE CASCADE,
+  text      TEXT NOT NULL DEFAULT '',
+  stand     TEXT NOT NULL DEFAULT ''
+);
 """
 
 SCHEMA_FTS = """
@@ -359,6 +369,77 @@ def text_aus_html(bruchstueck):
           .replace("&rarr;", "->").replace("&mdash;", "-").replace("&ndash;", "-"))
     s = re.sub(r"&[a-zA-Z#0-9]{2,8};", " ", s)
     return re.sub(r"\s+", " ", s).strip()
+
+
+# Woerter, die in Skripten fast nur als Technik vorkommen und im Suchindex
+# nichts nuetzen. Kurz gehalten: ein paar Treffer zu viel kosten wenig, ein
+# aufgeblaehter Index dagegen macht die Schnipsel unbrauchbar.
+SKRIPT_MUELL = {
+    "none", "block", "flex", "grid", "auto", "hidden", "visible", "inline",
+    "absolute", "relative", "fixed", "sticky", "center", "left", "right",
+    "click", "change", "input", "submit", "load", "message", "keydown",
+    "div", "span", "button", "true", "false", "null", "undefined", "px",
+    "class", "style", "data", "text", "html", "json", "get", "post",
+}
+SKRIPT_TEXT_GRENZE = 60000
+# Wie viel Text eine Seite von sich selbst melden darf. 200 000 Zeichen sind
+# rund 30 000 Woerter - mehr hat keine Wiki-Seite, und die Grenze verhindert,
+# dass eine Seite die Datenbank vollschreibt.
+ANSICHT_GRENZE = 200000
+
+
+def text_aus_skripten(html):
+    """Zeichenketten aus den Skriptbloecken einer Seite (N-11).
+
+    Eine Seite, die ihren Inhalt erst im Browser aufbaut - Tabellen,
+    Glossare, Schrittfolgen -, hat diesen Inhalt nirgends im HTML. Die Suche
+    fand ihn darum nicht: "tcp" ergab null Treffer, obwohl TCP auf der Seite
+    steht und in der Liste der Transportprotokolle sichtbar ist.
+
+    Gelesen werden nur Zeichenketten, keine Anweisungen: was in
+    Anfuehrungszeichen steht, ist Inhalt oder Beschriftung. Alles, was nach
+    Code aussieht (Klammern, Semikolon, Selektoren, Adressen), fliegt raus.
+    Der Meta-Block bleibt aussen vor, der ist schon im Index.
+    """
+    bloecke = re.findall(r"(?is)<script([^>]*)>(.*?)</script>", html)
+    stuecke = []
+    for attr, inhalt in bloecke:
+        if "application/json" in attr.lower() or "wiki-meta" in attr.lower():
+            continue
+        for muster in (r"'((?:[^'\\\n]|\\.)*)'",
+                       r'"((?:[^"\\\n]|\\.)*)"',
+                       r"`((?:[^`\\]|\\.)*)`"):
+            for roh in re.findall(muster, inhalt):
+                t = roh.replace("\\n", " ").replace("\\t", " ").strip()
+                if len(t) < 2 or len(t) > 400:
+                    continue
+                if not re.search(r"[A-Za-zÄÖÜäöüß]", t):
+                    continue
+                if re.search(r"[<>{};=]|://", t):
+                    continue
+                if " " not in t:
+                    if t.startswith((".", "#", "/", "-", "&")):
+                        continue
+                    # Ein Wort mit Bindestrich oder Punkt und ohne Leerzeichen
+                    # ist eine Kennung, kein Inhalt: wiki-springen,
+                    # mark.wiki-fund, prefers-color-scheme.
+                    if "-" in t or "." in t:
+                        continue
+                    if t.lower() in SKRIPT_MUELL:
+                        continue
+                stuecke.append(t)
+    if not stuecke:
+        return ""
+    # Reihenfolge behalten, Doppelte weg (ein Wort steht oft in mehreren
+    # Zeilen und wuerde die Schnipsel zumuellen).
+    gesehen, sauber = set(), []
+    for t in stuecke:
+        k = t.lower()
+        if k in gesehen:
+            continue
+        gesehen.add(k)
+        sauber.append(t)
+    return re.sub(r"\s+", " ", " · ".join(sauber))[:SKRIPT_TEXT_GRENZE]
 
 
 def meta_block_lesen(html):
@@ -839,8 +920,25 @@ def uebernehmen(html, teile, nutzer, kommentar=""):
                   (seite_id, a["name"], a["typ"], len(a["daten"]), a["marke"]))
     v.commit()
 
-    index_neu_bauen(seite_id, html)
-    return seite_id, nummer
+    # Der Index wird NACH dem Festschreiben gebaut, und er darf die Uebernahme
+    # nicht mehr umwerfen (N-12). Vorher lief index_neu_bauen() ungeschuetzt:
+    # ging dort etwas schief - ein PDF-Anhang, den pdftotext nicht mochte, eine
+    # FTS-Eigenheit -, dann war die Seite gespeichert und die Antwort trotzdem
+    # ein Serverfehler. Der Nutzer sah "Server Fehler", lud neu, und die Seite
+    # war da. Genau dieser Widerspruch.
+    #
+    # Der Index ist abgeleitet und jederzeit neu baubar (Verwaltung > Index
+    # neu). Die Seite ist es nicht. Darum: Fehler einsammeln, weitergeben,
+    # protokollieren - aber die Uebernahme gilt.
+    indexfehler = ""
+    try:
+        index_neu_bauen(seite_id, html)
+    except Exception as e:                                    # noqa: BLE001
+        indexfehler = f"{type(e).__name__}: {e}"
+        sys.stderr.write("FEHLER beim Indexaufbau fuer Seite %s: %s\n"
+                         % (slug, indexfehler))
+        traceback.print_exc(file=sys.stderr)
+    return seite_id, nummer, indexfehler
 
 
 def index_neu_bauen(seite_id, html=None):
@@ -886,6 +984,30 @@ def index_neu_bauen(seite_id, html=None):
     if roh:
         for i in range(0, min(len(roh), 200000), 4000):
             eintragen("seite", "", "", 0, seite["titel"], "", roh[i:i + 4000])
+
+    # Drittes Netz: was die Seite erst im Browser aufbaut (N-11). Zwei
+    # Quellen, und die erste ist die genauere.
+    #
+    # 1. Der Text, den die Seite selbst gemeldet hat - genau das, was ein
+    #    Leser sieht. Gibt es nur, wenn die Seite den aktuellen Pflichtteil
+    #    traegt und schon einmal geoeffnet wurde.
+    # 2. Die Zeichenketten aus den Skripten. Ungenauer, aber ohne Mitwirkung
+    #    der Seite zu haben - und damit auch fuer aeltere Seiten.
+    gemeldet = v.execute("SELECT text FROM ansichtstext WHERE seite_id=?",
+                         (seite_id,)).fetchone()
+    gemeldet = (gemeldet["text"] if gemeldet else "") or ""
+    if gemeldet:
+        for i in range(0, len(gemeldet), 4000):
+            eintragen("ansicht", "", "", 0, seite["titel"], "", gemeldet[i:i + 4000])
+    # Die Zeichenketten aus den Skripten nur, wenn die Seite ihren Text NICHT
+    # gemeldet hat. Sonst stuende derselbe Inhalt zweimal im Index, und die
+    # Trefferliste zeigte jede Seite doppelt - einmal mit gutem Schnipsel,
+    # einmal mit einer Aufzaehlung von Zeichenketten.
+    if not gemeldet:
+        skript = text_aus_skripten(html)
+        if skript:
+            for i in range(0, len(skript), 4000):
+                eintragen("skript", "", "", 0, seite["titel"], "", skript[i:i + 4000])
 
     ordner = seitenordner(seite["slug"])
     for an in v.execute("SELECT * FROM anhang WHERE seite_id=?", (seite_id,)).fetchall():
@@ -1553,10 +1675,18 @@ class Handler(BaseHTTPRequestHandler):
             geaendert = ueberschreiben(teile_d["meta"], frage)
             if geaendert:
                 html = meta_block_ersetzen(html, teile_d["meta"])
-            seite_id, nummer = uebernehmen(html, teile_d, n, kommentar)
-            return self.json_senden({"ok": True, "slug": teile_d["meta"]["slug"],
-                                     "fassung": nummer, "geaendert": geaendert,
-                                     "bericht": bericht})
+            seite_id, nummer, indexfehler = uebernehmen(html, teile_d, n, kommentar)
+            antwort = {"ok": True, "slug": teile_d["meta"]["slug"],
+                       "fassung": nummer, "geaendert": geaendert,
+                       "bericht": bericht}
+            if indexfehler:
+                # Die Seite steht, nur die Suche kennt sie noch nicht (N-12).
+                # Das gehoert gesagt - und zwar als Hinweis, nicht als Fehler.
+                antwort["indexfehler"] = (
+                    "Die Seite ist gespeichert, aber der Suchindex wurde nicht "
+                    "gebaut (%s). Sie ist erreichbar und wird gefunden, sobald "
+                    "in der Verwaltung 'Index neu' gelaufen ist." % indexfehler)
+            return self.json_senden(antwort)
 
         if rest == ["loeschen"]:
             n = self.admin()
@@ -1590,7 +1720,7 @@ class Handler(BaseHTTPRequestHandler):
             if bericht["fehler"]:
                 raise Antwort(400, "Die alte Fassung ist nicht mehr gueltig: "
                                    + "; ".join(bericht["fehler"][:2]))
-            _, neu = uebernehmen(html, teile_d, n, f"zurueck auf Fassung {nummer}")
+            _, neu, _ = uebernehmen(html, teile_d, n, f"zurueck auf Fassung {nummer}")
             return self.json_senden({"ok": True, "fassung": neu})
 
         if rest == ["zweig"]:
@@ -1634,6 +1764,40 @@ class Handler(BaseHTTPRequestHandler):
                              (n.kennung, slug, anker, (daten.get("titel") or "")[:120], jetzt()))
             db().commit()
             return self.json_senden({"ok": True})
+
+        if rest == ["ansichtstext"]:
+            # Die Seite meldet, was sie tatsaechlich anzeigt (N-11). Der
+            # Server kann kein JavaScript ausfuehren; eine Seite, die ihre
+            # Tabellen im Browser aufbaut, hat ihren Inhalt nirgends im HTML.
+            # Darum schickt die Seite selbst ihren sichtbaren Text, sobald sie
+            # geladen ist - das ist die genaue Fassung dessen, was ein Leser
+            # sieht. Kein Verwalterrecht: es ist der Text einer Seite, die
+            # dieser Nutzer ohnehin sehen darf, und er ersetzt nichts anderes
+            # als seine eigene Indexquelle.
+            n = self.nutzer()
+            daten = json.loads(self.koerper_lesen() or b"{}")
+            slug = (daten.get("slug") or "").strip()
+            text = re.sub(r"\s+", " ", str(daten.get("text") or "")).strip()
+            z = db().execute("SELECT * FROM seite WHERE slug=?", (slug,)).fetchone()
+            if not z:
+                raise Antwort(404, "Diese Seite gibt es nicht.")
+            if not darf_sehen(n, z):
+                raise Antwort(403, "Fuer diese Seite fehlt dir die Freigabe.")
+            if len(text) > ANSICHT_GRENZE:
+                text = text[:ANSICHT_GRENZE]
+            alt_txt = db().execute(
+                "SELECT text FROM ansichtstext WHERE seite_id=?", (z["id"],)).fetchone()
+            if alt_txt and alt_txt["text"] == text:
+                # Nichts Neues - dann auch kein Indexlauf. Sonst wuerde jeder
+                # Seitenaufruf den Index neu bauen.
+                return self.json_senden({"ok": True, "geaendert": False})
+            db().execute("INSERT INTO ansichtstext(seite_id,text,stand) VALUES(?,?,?) "
+                         "ON CONFLICT(seite_id) DO UPDATE SET text=excluded.text, "
+                         "stand=excluded.stand", (z["id"], text, jetzt()))
+            db().commit()
+            index_neu_bauen(z["id"])
+            return self.json_senden({"ok": True, "geaendert": True,
+                                     "zeichen": len(text)})
 
         if rest == ["neuindex"]:
             self.admin()

@@ -68,6 +68,9 @@ class MitgelieferteSeiten(unittest.TestCase):
                               "N-06: ohne das blitzt die dunkle Fassung auf")
                 self.assertIn("FILTER_REJECT", html,
                               "N-07: der Textdurchlauf laeuft durch Skripte")
+                self.assertIn("wiki-text", html,
+                              "N-11: die Seite meldet nicht, was sie anzeigt - "
+                              "dann findet die Suche nur das rohe HTML")
 
     def test_keine_externen_verweise(self):
         for pfad in seiten():

@@ -585,6 +585,101 @@ gemerkt.
 
 ---
 
+## N-11 — Die Suche fand nicht, was auf der Seite steht
+
+**Stufe:** hoch — eine Wissenssammlung, in der man nichts findet, ist keine
+**Datei:** `wiki/server.py` (`index_neu_bauen`)
+**Gefunden bei:** Rückmeldung nach dem Einspielen von Fassung 1.1.0
+
+Gemeldet: „tcp" ergibt null Treffer, obwohl TCP auf der Netzwerkseite in der
+Tabelle der Transportprotokolle steht. Nachgestellt mit einer Seite, die wie
+die echte gebaut ist — Abschnitte im Meta-Block, die Tabelle erst im Skript:
+
+```
+tcp        -> 0 Treffer | NICHTS GEFUNDEN
+UDP        -> 0 Treffer | NICHTS GEFUNDEN
+Transport  -> 0 Treffer | NICHTS GEFUNDEN
+Schichten  -> 2 Treffer | Netzwerke / Schichten und Kapselung
+```
+
+Was im Meta-Block steht, wird gefunden. Was der Leser **sieht**, nicht.
+
+Der Grund steht seit Anfang an in `EINRICHTUNG.md`: „Bei deiner
+Netzwerk-Seite stehen Glossar, Portverzeichnis und TCP-Schritte in
+JavaScript. Ein Indexer, der nur den sichtbaren Text liest, findet davon
+nichts." Der Hinweis war richtig — nur hilft er niemandem, der die Seite
+nicht selbst umbaut. `text_aus_html()` schneidet `<script>` heraus, und damit
+war der halbe Inhalt unsichtbar.
+
+### Behoben mit zwei zusätzlichen Quellen
+
+| Quelle | Woher | Genauigkeit | Braucht |
+|---|---|---|---|
+| `ansicht` | Die Seite meldet nach dem Laden ihren sichtbaren Text an `/api/ansichtstext` | genau das, was der Leser sieht | den aktuellen Pflichtteil in der Seite |
+| `skript` | Zeichenketten aus den Skriptblöcken, Kennungen und Code herausgefiltert | grob, aber sofort | nichts |
+
+Die zweite Quelle war die wichtigere Entscheidung: sie hilft **bestehenden**
+Seiten, ohne dass jemand sie anfasst. Gefiltert wird konservativ — kein
+`<`, `{`, `;`, `=`, keine Adressen, keine Kennungen mit Bindestrich oder
+Punkt, keine Techniknamen wie `none` oder `click`. Von der Netzwerk-Probe
+bleibt genau der Inhalt:
+
+```
+Anwendung · Daten · HTTP, DNS, SMTP, SSH · Transport · Segment ·
+TCP, UDP, QUIC, SCTP · Vermittlung · Paket · IP, ICMP, Routing · …
+```
+
+Hat eine Seite ihren Text gemeldet, entfällt die Skriptquelle für sie — sonst
+stünde derselbe Inhalt zweimal im Index und jede Seite doppelt in der
+Trefferliste.
+
+**Prüfen (ausgeführt):** Nach `Index neu` findet die Suche `tcp`, `UDP`,
+`Transport`, `Ethernet`, `ICMP` — ohne jede Änderung an der Seite. Mit
+Pflichtteil in der Seite kommt der Treffer aus `ansicht` und der Schnipsel
+liest sich wie der Text auf der Seite.
+
+**Für den Server heißt das:** Einmal **Verwaltung › Index neu** drücken. Die
+alten Seiten sind danach durchsuchbar.
+
+---
+
+## N-12 — „Server Fehler" beim Einspielen, obwohl die Seite gespeichert war
+
+**Stufe:** mittel — die Meldung widersprach der Wirklichkeit
+**Datei:** `wiki/server.py` (`uebernehmen`)
+**Gefunden bei:** derselben Rückmeldung
+
+Gemeldet: „wenn ich eine HTML einfüge kommt eine Nachricht mit Server Fehler,
+aber wenn ich die Seite neu Lade ist die neue Seite da."
+
+Der Ablauf erklärt genau das:
+
+```python
+v.commit()                       # Seite ist gespeichert
+index_neu_bauen(seite_id, html)  # ungeschuetzt
+```
+
+Der Index wird **nach** dem Festschreiben gebaut. Geht dort etwas schief — ein
+PDF-Anhang, den `pdftotext` nicht mochte, eine Eigenheit der Volltextsuche —,
+dann wirft die Anfrage einen 500er, obwohl die Seite steht.
+
+**Behoben.** Der Indexaufbau läuft in einem `try`, der Fehler wird
+protokolliert und in der Antwort als **Hinweis** mitgegeben:
+
+> Die Seite ist gespeichert, aber der Suchindex wurde nicht gebaut
+> (RuntimeError: …). Sie ist erreichbar und wird gefunden, sobald in der
+> Verwaltung „Index neu" gelaufen ist.
+
+Die Begründung ist einfach: der Index ist abgeleitet und jederzeit neu baubar,
+die Seite ist es nicht.
+
+**Prüfen (ausgeführt):** Mit einer Kopie des Servers, in der
+`index_neu_bauen()` absichtlich wirft: HTTP 200, `ok: true`, Seite im Baum,
+Hinweis in der Antwort, Grund im Protokoll (`FEHLER beim Indexaufbau fuer
+Seite subnetze: RuntimeError: Probe`).
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

@@ -636,6 +636,14 @@ window.addEventListener('message', (e) => {
   if(e.data.typ === 'wiki-bereit') springen(($('rahmen')._auftrag||{}).anker,
                                             ($('rahmen')._auftrag||{}).begriff);
   if(e.data.typ === 'wiki-oeffnen' && e.data.slug) oeffnen(e.data.slug, e.data.anker);
+  if(e.data.typ === 'wiki-text' && typeof e.data.text === 'string'){
+    /* Die Seite hat gemeldet, was sie anzeigt - damit die Suche auch findet,
+       was erst im Browser entsteht. Still: wer eine Seite liest, soll davon
+       nichts merken, und ein Fehlschlag darf das Lesen nicht stoeren. */
+    const slug = ZUSTAND.slug;
+    if(slug) hole('/api/ansichtstext', {method:'POST',
+      body:JSON.stringify({slug, text:e.data.text})}).catch(() => {});
+  }
 });
 window.addEventListener('popstate', () => wegLesen(true));
 
@@ -1219,9 +1227,10 @@ function berichtZeichnen(b){
     try {
       const a = await hole('/api/import' + felderAlsFrage(), {method:'POST',
         body:letzteDatei, headers:{'Content-Type':'text/html; charset=utf-8'}});
-      einblenden(a.geaendert && a.geaendert.length
+      einblenden(a.indexfehler ? a.indexfehler
+        : (a.geaendert && a.geaendert.length
         ? `Übernommen als Fassung ${a.fassung} (${a.geaendert.join(', ')} angepasst).`
-        : `Übernommen als Fassung ${a.fassung}.`);
+        : `Übernommen als Fassung ${a.fassung}.`), a.indexfehler ? 9000 : 2600);
       await baumLaden(); verwaltung();
     } catch(e){
       uk.disabled = false; uk.textContent = 'Übernehmen';
@@ -1275,7 +1284,8 @@ $('vorschau-uebernehmen').onclick = async () => {
   try {
     const a = await hole('/api/import' + felderAlsFrage(), {method:'POST',
       body:letzteDatei, headers:{'Content-Type':'text/html; charset=utf-8'}});
-    einblenden(`Übernommen als Fassung ${a.fassung}.`);
+    einblenden(a.indexfehler || `Übernommen als Fassung ${a.fassung}.`,
+               a.indexfehler ? 9000 : 2600);
     await baumLaden();
     k.disabled = false; k.textContent = 'Übernehmen';
     oeffnen(a.slug);
@@ -1578,6 +1588,20 @@ const ED_PFLICHTTEIL = [
 '    if(!b) return;',
 '    if(window.parent !== window)',
 "      window.parent.postMessage({typ:'wiki-oeffnen', slug:b.dataset.slug}, '*');",
+'  });',
+'  /* Dem Wiki melden, was auf dieser Seite wirklich steht: der Server kann',
+'     kein JavaScript, Inhalte die erst hier entstehen waeren sonst nicht',
+'     auffindbar. Gleicher Text loest keinen Indexlauf aus. */',
+'  function textMelden(){',
+'    if(window.parent === window) return;',
+'    try {',
+"      var t = (document.body.innerText || '').replace(/\\s+/g, ' ').trim();",
+"      if(t) window.parent.postMessage({typ:'wiki-text', text:t.slice(0, 200000)}, '*');",
+'    } catch(e){}',
+'  }',
+"  window.addEventListener('load', function(){",
+'    setTimeout(textMelden, 300);',
+'    setTimeout(textMelden, 2500);',
 '  });',
 '  if(window.parent !== window)',
 "    window.parent.postMessage({typ:'wiki-bereit'}, '*');",
