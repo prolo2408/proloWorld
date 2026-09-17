@@ -195,7 +195,8 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible{
 header{height:76px;flex:0 0 76px;background:var(--chrome);
   border-bottom:1px solid var(--line);display:flex;align-items:center;
   gap:14px;padding:0 24px}
-#inhalt{flex:1;min-height:0;position:relative;background:var(--app)}
+#inhalt{flex:1;min-height:0;display:flex;background:var(--app)}
+#inhaltsspalte{flex:1;min-width:0;position:relative;height:100%}
 #rahmen{width:100%;height:100%;border:0;display:block;background:var(--app)}
 
 /* ------------------------------------------------ Bausteine */
@@ -305,20 +306,37 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
   #kopftitel{font-size:16px}
 }
 /* ---------- Abschnitte der offenen Seite ----------
-   Links, ueber dem Themenbaum - so wie eine gut gemachte Inhaltsseite es
-   selbst tut. Lange Seiten (die Git-Anleitung hat sieben Abschnitte) waren
-   sonst nur mit Scrollen zu ueberblicken. Die Anker stehen im Meta-Block,
-   der Sprung laeuft ueber denselben Weg wie ein Suchtreffer. */
-#seitenteile{padding:6px 10px 10px;border-bottom:1px solid var(--line)}
+   Eine eigene Spalte LINKS VOM TEXT, nicht in der aeussersten Leiste: dort
+   gehoert der Themenbaum hin (wo bin ich im Wiki), hier steht, wo ich in
+   DIESER Seite bin. Genau die Aufteilung, die eine gut gemachte
+   Inhaltsseite selbst benutzt. Die Anker stehen im Meta-Block, der Sprung
+   laeuft ueber denselben Weg wie ein Suchtreffer. */
+#seitenteile{flex:0 0 232px;width:232px;height:100%;overflow-y:auto;
+  padding:22px 12px 40px;border-right:1px solid var(--line);
+  background:var(--app);scrollbar-width:thin}
 #seitenteile[hidden]{display:none}
-#seitenteile .wo{display:block;padding:6px 10px 4px}
+#seitenteile .wo{display:block;padding:0 10px 8px}
 #seitenteile button{display:block;width:100%;text-align:left;border:0;
   background:none;font:inherit;font-size:13px;color:var(--ink-2);
-  padding:6px 10px;border-radius:8px;cursor:pointer;
+  padding:7px 10px;border-radius:8px;cursor:pointer;line-height:1.35;
   border-left:2px solid transparent}
 #seitenteile button:hover{background:var(--hover);color:var(--ink)}
 #seitenteile button[aria-current="true"]{background:var(--accent-soft);
   color:var(--accent-ink);border-left-color:var(--accent);font-weight:600}
+@media (max-width:1100px){
+  /* Zu schmal fuer zwei Spalten neben dem Text: dann wird daraus wieder
+     eine Zeile ueber dem Inhalt - lieber schmal als gar kein Inhalt. */
+  #inhalt{flex-direction:column}
+  #seitenteile{flex:0 0 auto;width:auto;height:auto;display:flex;gap:6px;
+    overflow-x:auto;overflow-y:hidden;padding:8px 16px;border-right:0;
+    border-bottom:1px solid var(--line);scrollbar-width:none}
+  #seitenteile::-webkit-scrollbar{width:0;height:0}
+  #seitenteile .wo{align-self:center;flex:0 0 auto;padding:0 4px 0 0}
+  #seitenteile button{flex:0 0 auto;width:auto;height:30px;padding:0 11px;
+    border-radius:999px;border:1px solid var(--line);white-space:nowrap;
+    border-left-width:1px}
+  #seitenteile button[aria-current="true"]{border-color:var(--accent)}
+}
 
 /* ---------- Seiten-Editor ---------- */
 .ed-abschnitt{background:var(--surface);border:1px solid var(--line);
@@ -363,7 +381,6 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
       <button class="blatt" id="neu-knopf" hidden>Neue Seite</button>
       <button class="blatt" id="verwaltung-knopf" hidden>Verwaltung</button>
     </nav>
-    <nav id="seitenteile" hidden aria-label="Abschnitte dieser Seite"></nav>
     <nav class="baum" id="baum" data-noscroll aria-label="Themenbaum"></nav>
     <div class="leiste-fuss">
       <button class="blatt" id="einstellungen-knopf">Einstellungen</button>
@@ -422,9 +439,12 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
            laeuft die Seite in einem opaken Origin. Den Riegel setzt der
            Server zusaetzlich per CSP-sandbox, damit er nicht an diesem
            Attribut haengt. -->
-      <iframe id="rahmen" title="Wiki-Seite" hidden
-              sandbox="allow-scripts allow-popups allow-downloads"></iframe>
-      <div class="flaeche" id="flaeche" data-noscroll></div>
+      <nav id="seitenteile" hidden aria-label="Abschnitte dieser Seite"></nav>
+      <div id="inhaltsspalte">
+        <iframe id="rahmen" title="Wiki-Seite" hidden
+                sandbox="allow-scripts allow-popups allow-downloads"></iframe>
+        <div class="flaeche" id="flaeche" data-noscroll></div>
+      </div>
     </main>
   </div>
 </div>
