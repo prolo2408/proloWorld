@@ -2173,6 +2173,7 @@ const ED_STIL_BAUSTEINE = [
 '  background:var(--surface);color:var(--ink);font:inherit;font-size:13px;',
 '  cursor:pointer}',
 '.bk-pdf-knopf:hover{border-color:var(--accent);color:var(--accent-ink)}',
+'.bk-pdf-fehlt{margin-top:10px}',
 ".bk-pdf-seite{font-family:'JetBrains Mono',ui-monospace,monospace;",
 '  font-size:11.5px;color:var(--ink-3)}',
 '@media (max-width:432px){',
@@ -2442,7 +2443,22 @@ ED_RECHENWERK,
 '    if(!b) return;',
 '    var quelle = document.getElementById(b.dataset.wikiPdf);',
 "    var name = quelle ? (quelle.getAttribute('data-wiki-anhang') || '') : '';",
-'    if(!name || window.parent === window) return;',
+'    /* Kein Anhang unter dieser Kennung: der Knopf tat vorher gar nichts',
+'       (N-22). Ein Klick ohne Antwort ist schlimmer als eine Absage - darum',
+'       sagt die Seite jetzt, was fehlt. */',
+'    if(!name){',
+"      var wo = b.closest ? b.closest('.bk-pdf') : null;",
+'      wo = wo || b.parentElement;',
+"      if(wo && !wo.querySelector('.bk-pdf-fehlt')){",
+"        var hin = document.createElement('div');",
+"        hin.className = 'warn bk-pdf-fehlt';",
+"        hin.textContent = 'Zu diesem Knopf liegt kein PDF bei. Die Seite ruft \\u201e' +",
+"          (b.dataset.wikiPdf || '') + '\\u201c auf, aber diese Datei ist nicht angeh\\u00e4ngt.';",
+'        wo.appendChild(hin);',
+'      }',
+'      return;',
+'    }',
+'    if(window.parent === window) return;',
 "    window.parent.postMessage({typ:'wiki-pdf', datei:name,",
 "                               seite:b.dataset.wikiSeite || ''}, '*');",
 '  });',
@@ -3615,6 +3631,16 @@ function edPruefbar(nurNachsehen){
     if(!String(a.markup || '').trim())
       m.push(t ? 'Im Abschnitt „' + t + '" steht noch nichts.'
                 : 'Im Abschnitt ' + (i + 1) + ' steht noch nichts.');
+    /* Ein PDF-Baustein ohne Datei baut einen Knopf, der auf einen Anhang
+       zeigt, den die Seite nicht mitbringt - ein Klick ins Leere (N-22).
+       Lieber hier abfangen als den Leser ratlos lassen. */
+    (a.bloecke || []).forEach((b, j) => {
+      if(b.art !== 'pdf') return;
+      if(b.daten64 || b.dateiname) return;
+      const wo = t ? '„' + t + '"' : 'Abschnitt ' + (i + 1);
+      m.push('Im PDF-Baustein ' + (j + 1) + ' in ' + wo +
+             ' ist keine Datei ausgewählt — seine Knöpfe würden ins Leere führen.');
+    });
   });
   return m;
 }

@@ -1069,6 +1069,67 @@ vergibt.
 
 ---
 
+## N-22 — Ein PDF-Knopf ohne PDF tat gar nichts
+
+### Befund
+
+Der PDF-Baustein baut Knöpfe, die die Hülle bitten, ein Anhang-PDF zu öffnen.
+Welche Datei gemeint ist, steht nicht im Knopf, sondern in der Marke
+`data-wiki-anhang` an dem Anhangsblock, auf den der Knopf zeigt — genau so
+soll es sein (siehe `N-18`: nur so übersteht der Knopf eine Umbenennung).
+
+Fehlt dieser Anhangsblock, war die Zeile im Pflichtteil jeder Seite:
+
+```js
+if(!name || window.parent === window) return;
+```
+
+Der Leser klickt, und **nichts** passiert. Keine Meldung, kein Hinweis, kein
+Eintrag in der Leiste. Das kommt auf zwei Wegen zustande:
+
+1. Im Editor einen PDF-Baustein anlegen, Sprungziele eintragen, aber keine
+   Datei auswählen und speichern. Der Editor hat das erlaubt.
+2. Eine von Hand oder von einer KI geschriebene Seite mit `datei: handbuch`
+   im Baustein einspielen, ohne den Anhang mitzuschicken.
+
+### Ausgeführt, nicht überlegt
+
+`scratchpad/n22/probe.mjs` baut mit `edSeiteBauen` genau so eine Seite und
+liest das Ergebnis:
+
+```
+Knopf mit data-wiki-pdf="handbuch" im HTML: true
+Skriptblock id="handbuch" im HTML:         false
+=> Der Knopf zeigt auf einen Block, den es nicht gibt: true
+Pflichtteil bricht bei fehlendem Namen still ab: true
+```
+
+### Behoben an beiden Enden
+
+**Im Editor:** `edPruefbar` beanstandet jetzt jeden PDF-Baustein ohne Datei —
+mit Abschnitt und Nummer: *„Im PDF-Baustein 1 in „Netzwerke" ist keine Datei
+ausgewählt — seine Knöpfe würden ins Leere führen."* Damit kommt Weg 1 gar
+nicht mehr bis zum Speichern.
+
+**In der Seite:** Weg 2 kann der Editor nicht verhindern — eine eingespielte
+Seite bringt ihr HTML selbst mit. Darum sagt der Pflichtteil beim Klick, was
+fehlt, statt zu schweigen: ein Warnkasten unter den Knöpfen nennt die
+gesuchte Kennung.
+
+Drei Tests in `wiki/tests/test_editor.mjs`, jeder mit einer Mutationsprobe
+belegt: Prüfung entfernt → Test 1 rot, `||` zu `&&` → Test 2 rot, alte stille
+Zeile zurück → Test 3 rot.
+
+### Was daraus folgt
+
+Der Baustein war für sich richtig, die Marke war richtig, `N-18` war richtig.
+Falsch war nur die Annahme, dass die beiden immer zusammen in einer Seite
+ankommen. Ein `return` ohne Meldung ist im Zweifel die schlechteste von drei
+Möglichkeiten — schlechter als eine Absage und schlechter als ein Absturz,
+weil niemand ihn melden kann.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

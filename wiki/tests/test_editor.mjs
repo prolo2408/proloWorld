@@ -57,19 +57,23 @@ const quellen = [
   hol(/function edListe\(s\)\{[\s\S]*?\n\}/, 'edListe'),
   hol(/function edPfadListe\(s\)\{[\s\S]*?\n\}/, 'edPfadListe'),
   hol(/function edSeiteBauen\(e\)\{[\s\S]*?\n\}/, 'edSeiteBauen'),
+  /* edPruefbar liest im Normalfall die Felder der Seite. Hier laeuft es nur
+     mit nurNachsehen=true - dann braucht es kein Dokument, nur ZUSTAND. */
+  hol(/function edPruefbar\(nurNachsehen\)\{[\s\S]*?\n\}/, 'edPruefbar'),
+  'var ZUSTAND = {editor:null};',
 ].join('\n');
 
 const { edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
         ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
         edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
         ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
-        edBlockZuZeilen, edBlockHtml, edAusHtml } =
+        edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, ZUSTAND } =
   new Function(quellen + `
     return {edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
             ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
             edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
             ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
-            edBlockZuZeilen, edBlockHtml, edAusHtml};`)();
+            edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, ZUSTAND};`)();
 
 /* Das Rechenwerk der erzeugten Seite - hier einzeln herausgeholt, damit die
    Formelauswertung geprueft werden kann, ohne einen Browser zu starten. */
@@ -681,6 +685,49 @@ pruefe('Ein Anhang, den kein Block kennt, wird trotzdem weiter genannt', () => {
   const wieder = edSeiteBauen(e);
   assert.ok(wieder.includes('data-wiki-anhang="bild-eins.png"'),
             'der Anhang wird nicht mehr genannt');
+});
+
+/* ------------------------------------------------ N-22: PDF ohne Datei */
+function nurPdfSeite(zusatz){
+  /* Eine Seite mit genau einem PDF-Baustein. zusatz setzt daten64 oder
+     dateiname - damit sich beide Richtungen pruefen lassen. */
+  const markup = ':::pdf Das Handbuch\ndatei: handbuch\nInstallation | 4\n:::';
+  const bloecke = edMarkupZuBloecken(markup);
+  Object.assign(bloecke[0], zusatz || {});
+  return {neu:true, slug:'probe', titel:'Probe', kurz:'', pfad:'Technik',
+          gruppen:'', abschnitte:[{anker:'a', titel:'A', stichworte:'',
+          gruppe:'', markup:markup, bloecke:bloecke}]};
+}
+pruefe('Ein PDF-Baustein ohne Datei wird nicht gespeichert', () => {
+  ZUSTAND.editor = nurPdfSeite(null);
+  const m = edPruefbar(true);
+  /* Genau ein Mangel, und der nennt den Baustein - nicht "Abschnitt leer". */
+  assert.equal(m.length, 1, 'erwartet genau einen Mangel, bekommen: ' + m.join(' / '));
+  assert.ok(/PDF-Baustein 1 in „A"/.test(m[0]), 'Mangel benennt den Baustein nicht: ' + m[0]);
+  assert.ok(/keine Datei/.test(m[0]), 'Mangel sagt nicht, dass die Datei fehlt: ' + m[0]);
+});
+pruefe('Ein PDF-Baustein mit Datei auf dem Server ist in Ordnung', () => {
+  ZUSTAND.editor = nurPdfSeite({dateiname:'handbuch.pdf'});
+  assert.deepEqual(edPruefbar(true), [], 'ein beiliegendes PDF wird beanstandet');
+  ZUSTAND.editor = nurPdfSeite({daten64:'JVBERi0x'});
+  assert.deepEqual(edPruefbar(true), [], 'ein neu gewaehltes PDF wird beanstandet');
+});
+pruefe('Die fertige Seite sagt, wenn zu einem PDF-Knopf nichts beiliegt', () => {
+  /* Gebaut wird eine Seite, deren PDF-Knopf auf eine Kennung zeigt, zu der
+     kein Anhangsblock im HTML steht. Vorher tat dieser Knopf gar nichts. */
+  const html = edSeiteBauen(nurPdfSeite(null));
+  assert.ok(html.includes('data-wiki-pdf="handbuch"'), 'kein PDF-Knopf gebaut');
+  assert.ok(!/id="handbuch"/.test(html), 'unerwartet doch ein Anhangsblock dabei');
+  assert.ok(html.includes('bk-pdf-fehlt'),
+            'die Seite hat keinen Hinweis fuer den Fall ohne Anhang');
+  assert.ok(!html.includes('if(!name || window.parent === window) return;'),
+            'der Pflichtteil bricht noch still ab');
+  /* Der Hinweis muss beim Leser lesbar ankommen: die Anfuehrung steht im
+     Pflichtteil als \u-Escape, nicht roh. */
+  const zeile = html.split('\n').find(z => z.includes('liegt kein PDF bei'));
+  assert.ok(zeile, 'der Hinweistext steht nicht in der Seite');
+  assert.ok(zeile.includes('\\u201e'),
+            'die Anfuehrung ist nicht als Escape gesetzt: ' + zeile);
 });
 
 console.log('');
