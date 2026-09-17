@@ -47,6 +47,8 @@ const quellen = [
   hol(/function edBlockZuZeilen\(b\)\{[\s\S]*?\n\}/, 'edBlockZuZeilen'),
   hol(/function edBloeckeZuMarkup\(bloecke\)\{[\s\S]*?\n\}/, 'edBloeckeZuMarkup'),
   hol(/function edBlockHtml\(b\)\{[\s\S]*?\n\}/, 'edBlockHtml'),
+  hol(/function edAbschnittNeu\(\)\{[\s\S]*?\n\}/, 'edAbschnittNeu'),
+  hol(/function edAusHtml\(roh, slug, neu\)\{[\s\S]*?\n\}/, 'edAusHtml'),
   /* ED_STIL endet seit den Bausteinen nicht mehr mit join, sondern haengt
      ED_STIL_BAUSTEINE an - das Muster muss das treffen, sonst frisst es den
      naechsten Block mit und der wird doppelt erklaert. */
@@ -61,13 +63,13 @@ const { edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
         ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
         edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
         ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
-        edBlockZuZeilen, edBlockHtml } =
+        edBlockZuZeilen, edBlockHtml, edAusHtml } =
   new Function(quellen + `
     return {edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
             ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
             edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
             ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
-            edBlockZuZeilen, edBlockHtml};`)();
+            edBlockZuZeilen, edBlockHtml, edAusHtml};`)();
 
 /* Das Rechenwerk der erzeugten Seite - hier einzeln herausgeholt, damit die
    Formelauswertung geprueft werden kann, ohne einen Browser zu starten. */
@@ -606,6 +608,79 @@ pruefe('PDF: die Seite bittet die Huelle, sie zeigt nichts selbst', () => {
   // Kein iframe, kein embed, kein object: die CSP der Seite verbietet das,
   // und die Seite soll es auch nicht versuchen.
   assert.ok(!/<iframe|<embed|<object/i.test(seite), 'die Seite versucht es selbst');
+});
+
+/* ------------------------------------------------ Eine Datei in den Editor */
+pruefe('Eine erzeugte Seite laesst sich wieder in den Editor lesen', () => {
+  const b1 = edBlockNeu('text'); b1.text = 'Ein Satz mit **fett**.';
+  const b2 = edBlockNeu('schritte'); b2.titel = 'So gehts';
+  b2.zeilen = [['Strom', 'Kabel rein.'], ['Netz', 'Dose links.']];
+  const seite = edSeiteBauen({
+    titel:'Drucker', slug:'drucker', pfad:'Technik / Geräte',
+    kurz:'Kurz gesagt.', gruppen:'wiki-technik',
+    abschnitte:[{anker:'los', titel:'Loslegen', stichworte:'Drucker, Papier',
+                 markup:edBloeckeZuMarkup([b1, b2]), bloecke:[b1, b2]}]});
+  const e = edAusHtml(seite, '', false);
+  assert.ok(e, 'kein Zustand gelesen');
+  assert.equal(e.titel, 'Drucker');
+  assert.equal(e.slug, 'drucker');
+  assert.equal(e.pfad, 'Technik / Geräte');
+  assert.equal(e.kurz, 'Kurz gesagt.');
+  assert.equal(e.gruppen, 'wiki-technik');
+  assert.equal(e.quelle, 'editor');
+  assert.equal(e.abschnitte.length, 1);
+  assert.equal(e.abschnitte[0].titel, 'Loslegen');
+  assert.equal(e.abschnitte[0].stichworte, 'Drucker, Papier');
+  assert.deepEqual(e.abschnitte[0].bloecke.map(x => x.art), ['text', 'schritte']);
+  assert.deepEqual(e.abschnitte[0].bloecke[1].zeilen,
+                   [['Strom', 'Kabel rein.'], ['Netz', 'Dose links.']]);
+});
+pruefe('Ohne Meta-Block gibt es kein Ergebnis, keine halbe Seite', () => {
+  assert.equal(edAusHtml('<html><body>Nur Text</body></html>', '', true), null);
+  assert.equal(edAusHtml('', '', true), null);
+});
+pruefe('Kaputter Meta-Block wird nicht geraten', () => {
+  const h = '<script type="application/json" id="wiki-meta">{kaputt</' + 'script>';
+  assert.equal(edAusHtml(h, '', true), null);
+});
+pruefe('Eine Seite von Hand: Suchtext wird Anfangstext, Quelle ist fremd', () => {
+  const meta = {slug:'handarbeit', titel:'Handarbeit', pfad:['Technik'],
+                gruppen:[], stand:'2026-09-17',
+                abschnitte:[{anker:'a', titel:'A', text:'Der sichtbare Text.'}]};
+  const h = '<script type="application/json" id="wiki-meta">' +
+            JSON.stringify(meta) + '</' + 'script>';
+  const e = edAusHtml(h, '', false);
+  assert.equal(e.quelle, 'fremd', 'sonst fehlt die Warnung vor dem Ersetzen');
+  assert.equal(e.abschnitte[0].bloecke[0].art, 'text');
+  assert.equal(e.abschnitte[0].bloecke[0].text, 'Der sichtbare Text.');
+});
+pruefe('Der Name eines vorhandenen Anhangs kommt aus der Marke', () => {
+  const b = edBlockNeu('pdf');
+  b.kennung = 'anhang-handbuch'; b.dateiname = 'anhang-handbuch.pdf';
+  b.zeilen = [['Kapitel 1', '7']];
+  const seite = edSeiteBauen({titel:'T', slug:'t', pfad:'A', abschnitte:[
+    {anker:'x', titel:'X', markup:edBloeckeZuMarkup([b]), bloecke:[b]}]});
+  const e = edAusHtml(seite, '', false);
+  const pdf = e.abschnitte[0].bloecke.find(x => x.art === 'pdf');
+  assert.equal(pdf.kennung, 'anhang-handbuch');
+  assert.equal(pdf.dateiname, 'anhang-handbuch.pdf',
+               'ohne das wuerde die Seite den Anhang beim Speichern vergessen (N-18)');
+  assert.deepEqual(pdf.zeilen, [['Kapitel 1', '7']]);
+});
+pruefe('Ein Anhang, den kein Block kennt, wird trotzdem weiter genannt', () => {
+  /* Eine von Hand gebaute Seite mit einem Bild: der Editor kennt dafuer
+     keinen Block, darf den Anhang aber nicht verlieren (N-18). */
+  const meta = {slug:'mitbild', titel:'Mit Bild', pfad:['Technik'], gruppen:[],
+                stand:'2026-09-17',
+                abschnitte:[{anker:'a', titel:'A', text:'Text', markup:'Text'}]};
+  const h = '<script type="application/json" id="wiki-meta">' + JSON.stringify(meta) +
+            '</' + 'script><script id="bild-eins" data-wiki-anhang="bild-eins.png"></' +
+            'script>';
+  const e = edAusHtml(h, '', false);
+  assert.deepEqual(e.fremdeAnhaenge, [{kennung:'bild-eins', name:'bild-eins.png'}]);
+  const wieder = edSeiteBauen(e);
+  assert.ok(wieder.includes('data-wiki-anhang="bild-eins.png"'),
+            'der Anhang wird nicht mehr genannt');
 });
 
 console.log('');

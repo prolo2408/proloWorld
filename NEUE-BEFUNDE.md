@@ -956,6 +956,39 @@ konnte.
 
 ---
 
+## N-19 — Der Knopf hieß „laden" und lud herunter
+
+**Stufe:** niedrig in der Technik, hoch in der Wirkung — er hat genau das
+Gegenteil dessen getan, was sein Name sagt
+**Datei:** `wiki/index.html` (Editor)
+**Gefunden bei:** der Rückmeldung — „wenn ich unten auf *als HTML-Datei
+laden* klicke, kommt da ein Fehler, weil ich keine Seite geladen habe"
+
+Der Knopf hieß **„Als HTML-Datei laden"** und erzeugte einen Download der
+Seite, die gerade im Editor steht. Auf Deutsch heißt „laden" aber
+*hereinholen*, nicht *hinausgeben* — und weil er zuerst prüft, ob die Seite
+vollständig ist, bekam man bei einem leeren Editor die Liste „Das fehlt noch".
+Der Fehler war fachlich richtig und die Antwort auf eine Frage, die niemand
+gestellt hatte.
+
+**Behoben, zweifach:**
+
+- Der Knopf heißt jetzt **„Als Datei sichern"**. Das ist, was er tut.
+- Das, was der Name versprach, gibt es jetzt wirklich: Im Prüfbericht einer
+  ausgewählten HTML-Datei steht neben *Übernehmen* der Knopf **„In den Editor
+  laden"**. Er holt Titel, Kennung, Pfad, Freigabe, Abschnitte und alle Blöcke
+  in die Felder — samt der Namen vorhandener Anhänge — und man ändert weiter,
+  statt erst einzuspielen und dann zu bearbeiten.
+
+Beide Wege gehen durch dieselbe Übersetzung (`edAusHtml`) wie *Bearbeiten* an
+einer gespeicherten Seite. Ein zweiter Leser wäre eine zweite Wahrheit.
+
+**Was daraus folgt:** Ein Wort kann eine Funktion unbenutzbar machen. Der Knopf
+funktionierte tadellos und war trotzdem kaputt. Das ist nicht mit Tests zu
+finden — nur damit, dass jemand es benutzt und sagt, was er erwartet hat.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

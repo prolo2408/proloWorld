@@ -1407,10 +1407,17 @@ function berichtZeichnen(b){
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
         <button class="knopf" id="uebernehmen-knopf">Übernehmen</button>
         <button class="knopf rahmen" id="vorschau-knopf">Vorschau ansehen</button>
-      </div>`);
+        <button class="knopf rahmen" id="editor-knopf">In den Editor laden</button>
+      </div>
+      <div style="font-size:12px;color:var(--ink-3);margin-top:6px">
+        <em>Übernehmen</em> spielt die Datei ein, wie sie ist.
+        <em>In den Editor laden</em> öffnet ihren Inhalt in den Feldern oben —
+        zum Ändern, Ergänzen und erst dann Speichern.</div>`);
   }
   ziel.innerHTML = teile.join('');
 
+  const ek = $('editor-knopf');
+  if(ek) ek.onclick = () => edAusDatei();
   const vk = $('vorschau-knopf');
   if(vk) vk.onclick = () => {
     $('flaeche').hidden = true; $('rahmen').hidden = false;
@@ -2248,6 +2255,13 @@ function edSeiteBauen(e){
         '" data-wiki-anhang="' + edEscape(b.dateiname) + '"><' + '/script>');
     }
   }));
+  /* Anhaenge, die aus einer geladenen Datei stammen und zu keinem Block
+     gehoeren - z. B. Bilder einer von Hand gebauten Seite. Sie muessen
+     weiter genannt werden, sonst verlieren sie beim Speichern ihre Zeile
+     (N-18). */
+  (e.fremdeAnhaenge || []).forEach(a =>
+    anhaenge.push('<' + 'script type="text/plain" id="' + edEscape(a.kennung) +
+      '" data-wiki-anhang="' + edEscape(a.name) + '"><' + '/script>'));
   return [
     '<!DOCTYPE html>',
     '<html lang="de">',
@@ -2882,16 +2896,27 @@ async function editor(slug){
       schuetzen(err.message) + '</div>';
     return;
   }
-  let meta = null;
-  const m = roh.match(/<script[^>]+id=["']wiki-meta["'][^>]*>([\s\S]*?)<\/script>/i);
-  if(m){ try { meta = JSON.parse(m[1]); } catch(e){ meta = null; } }
-  if(!meta){
+  const gelesen = edAusHtml(roh, slug);
+  if(!gelesen){
     $('flaeche').innerHTML = '<div class="meldung fehler">In dieser Seite ist ' +
       'kein lesbarer Meta-Block. Sie lässt sich nur als Datei ersetzen.</div>';
     return;
   }
-  ZUSTAND.editor = {
-    neu:false, slug: meta.slug || slug, titel: meta.titel || '',
+  ZUSTAND.editor = gelesen;
+  editorZeichnen();
+}
+function edAusHtml(roh, slug, neu){
+  /* Eine fertige Seite in den Zustand des Editors uebersetzen. Denselben Weg
+     gehen beide Wege dorthin: "Bearbeiten" an einer gespeicherten Seite und
+     "HTML-Datei oeffnen" im Editor. Gibt null zurueck, wenn die Seite keinen
+     lesbaren Meta-Block hat. */
+  let meta = null;
+  const m = String(roh || '').match(
+    /<script[^>]+id=["']wiki-meta["'][^>]*>([\s\S]*?)<\/script>/i);
+  if(m){ try { meta = JSON.parse(m[1]); } catch(e){ meta = null; } }
+  if(!meta) return null;
+  const e = {
+    neu: !!neu, slug: meta.slug || slug || '', titel: meta.titel || '',
     kurz: meta.kurz || '', pfad: (meta.pfad || []).join(' / '),
     gruppen: (meta.gruppen || []).join(', '), stand: '',
     quelle: meta.werkzeug === EDITOR_WERKZEUG ? 'editor' : 'fremd',
@@ -2905,24 +2930,32 @@ async function editor(slug){
       markup: a.markup !== undefined ? a.markup : (a.text || '')
     }))
   };
-  if(!ZUSTAND.editor.abschnitte.length)
-    ZUSTAND.editor.abschnitte = [edAbschnittNeu()];
+  if(!e.abschnitte.length) e.abschnitte = [edAbschnittNeu()];
   /* Aus dem gespeicherten Markup wieder Bloecke machen - sonst waere
      "Bearbeiten" eine Textwand und der Editor nur beim Neuanlegen blockweise. */
-  ZUSTAND.editor.abschnitte.forEach(a => { a.bloecke = edMarkupZuBloecken(a.markup); });
+  e.abschnitte.forEach(a => { a.bloecke = edMarkupZuBloecken(a.markup); });
   /* Die Namen der schon vorhandenen Anhaenge stehen in der Seite selbst, in
      der Marke, die der Server beim Ausgliedern gesetzt hat. Ohne sie wuesste
      der PDF-Block nicht, dass seine Datei schon auf dem Server liegt - und
      die Seite wuerde ihn beim Speichern nicht mehr nennen (N-18). */
   const marken = {};
-  roh.replace(/<script[^>]*\bid=["']([^"']+)["'][^>]*\bdata-wiki-anhang=["']([^"']*)["']/gi,
-              (_, kennung, name) => { if(name) marken[kennung] = name; return ''; });
-  roh.replace(/<script[^>]*\bdata-wiki-anhang=["']([^"']*)["'][^>]*\bid=["']([^"']+)["']/gi,
-              (_, name, kennung) => { if(name) marken[kennung] = name; return ''; });
-  ZUSTAND.editor.abschnitte.forEach(a => (a.bloecke || []).forEach(b => {
+  const merken = (kennung, name) => { if(name) marken[kennung] = name; };
+  String(roh).replace(
+    /<script[^>]*\bid=["']([^"']+)["'][^>]*\bdata-wiki-anhang=["']([^"']*)["']/gi,
+    (_, kennung, name) => { merken(kennung, name); return ''; });
+  String(roh).replace(
+    /<script[^>]*\bdata-wiki-anhang=["']([^"']*)["'][^>]*\bid=["']([^"']+)["']/gi,
+    (_, name, kennung) => { merken(kennung, name); return ''; });
+  e.abschnitte.forEach(a => (a.bloecke || []).forEach(b => {
     if(b.art === 'pdf' && b.kennung && marken[b.kennung]) b.dateiname = marken[b.kennung];
   }));
-  editorZeichnen();
+  /* Anhaenge, die kein Block kennt (Bilder in eigenem HTML): merken, damit
+     die gespeicherte Seite sie weiter nennt. */
+  e.fremdeAnhaenge = Object.entries(marken)
+    .filter(([k]) => !e.abschnitte.some(a => (a.bloecke || [])
+      .some(b => b.art === 'pdf' && b.kennung === k)))
+    .map(([kennung, name]) => ({kennung, name}));
+  return e;
 }
 function editorZeichnen(opt){
   const e = ZUSTAND.editor;
@@ -3050,8 +3083,10 @@ function editorZeichnen(opt){
         <summary style="cursor:pointer;font-weight:600">Ich habe schon eine
           HTML-Datei</summary>
         <div class="kontext" style="margin-top:8px">Eine fertige Seite mit
-          Meta-Block. Sie wird geprüft, du siehst sie an, dann übernimmst du
-          sie — der Editor oben wird dafür nicht gebraucht.</div>
+          Meta-Block. Sie wird zuerst geprüft. Danach hast du die Wahl:
+          <em>Übernehmen</em> spielt sie ein, wie sie ist, oder
+          <em>In den Editor laden</em> holt ihren Inhalt in die Felder oben
+          und du änderst sie hier weiter.</div>
         <div class="ablage" id="ablage" style="margin-top:14px">
           <div style="font-size:13px;color:var(--ink-3)">Datei hierher ziehen</div>
           <label for="datei" class="knopf" style="margin-top:12px">Datei auswählen</label>
@@ -3066,7 +3101,7 @@ function editorZeichnen(opt){
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px">
           <button class="knopf" data-ed="speichern">Speichern</button>
           <button class="knopf rahmen" data-ed="vorschau">Prüfen und ansehen</button>
-          <button class="knopf rahmen" data-ed="datei">Als HTML-Datei laden</button>
+          <button class="knopf rahmen" data-ed="datei">Als Datei sichern</button>
           <button class="knopf still" data-ed="abbrechen">Abbrechen</button>
         </div>
       </div>
@@ -3285,6 +3320,53 @@ async function edSpeichern(){
   einblenden('Gespeichert als Fassung ' + a.fassung + '.');
   history.pushState(null, '', '#/' + a.slug);
   oeffnen(a.slug);
+}
+function edTextLesen(datei){
+  /* Ueber FileReader, nicht ueber Blob.text(): derselbe Weg, den der
+     PDF-Baustein schon geht, und im Browsertest der einzige, der zuverlaessig
+     zurueckkam. */
+  return new Promise((fertig, schief) => {
+    const leser = new FileReader();
+    leser.onload = () => fertig(String(leser.result || ''));
+    leser.onerror = () => schief(new Error('nicht lesbar'));
+    leser.readAsText(datei);
+  });
+}
+async function edAusDatei(){
+  /* Eine geprueffte HTML-Datei in den Editor holen. Vorher lief hier nur
+     "Uebernehmen" - einspielen, wie die Datei ist. Wer sie aendern wollte,
+     musste sie erst einspielen und dann bearbeiten. */
+  if(!letzteDatei) return einblenden('Erst eine Datei auswählen.');
+  let roh;
+  try { roh = await edTextLesen(letzteDatei); }
+  catch(err){ return einblenden('Die Datei ließ sich nicht lesen.'); }
+  /* Gibt es die Kennung schon, ist das ein Bearbeiten - sonst eine neue
+     Seite. Das entscheidet nur, was im Kopf steht; gespeichert wird in
+     beiden Faellen ueber dieselbe Pruefung. */
+  const vorlaeufig = edAusHtml(roh, '', true);
+  if(!vorlaeufig)
+    return einblenden('In dieser Datei ist kein lesbarer Meta-Block.');
+  const bekannt = edSlugBekannt(vorlaeufig.slug);
+  vorlaeufig.neu = !bekannt;
+  ZUSTAND.editor = vorlaeufig;
+  ZUSTAND.ansicht = 'editor';
+  ZUSTAND.slug = bekannt ? vorlaeufig.slug : null;
+  history.pushState(null, '', bekannt ? '#/bearbeiten/' + vorlaeufig.slug : '#/neu');
+  editorZeichnen();
+  const anzahl = vorlaeufig.abschnitte.length;
+  const bloecke = vorlaeufig.abschnitte.reduce((n, a) => n + (a.bloecke || []).length, 0);
+  einblenden('Geladen: ' + zahl(anzahl) + (anzahl === 1 ? ' Abschnitt' : ' Abschnitte') +
+             ', ' + zahl(bloecke) + (bloecke === 1 ? ' Block' : ' Blöcke') +
+             (bekannt ? ' — ersetzt die vorhandene Seite beim Speichern.'
+                      : ' — neue Seite.'));
+}
+function edSlugBekannt(slug){
+  /* Der Themenbaum besteht aus Zweigen mit kinder UND seiten - die Seiten
+     haengen an den Zweigen, nicht im Baum selbst. */
+  if(!slug) return false;
+  const suchen = (zweige) => (zweige || []).some(z =>
+    (z.seiten || []).some(x => x.slug === slug) || suchen(z.kinder));
+  return suchen(ZUSTAND.baum);
 }
 function edDatei(){
   const m = edPruefbar();

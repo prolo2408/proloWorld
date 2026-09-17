@@ -138,6 +138,16 @@ lädt herunter statt anzuzeigen), die Seite meldete keine Anhänge mehr, und der
 Text des PDFs fiel aus der Suche. Jetzt bleiben die Anhänge, die die neue
 Fassung noch nennt und deren Datei noch da ist.
 
+### Neu: eine HTML-Datei in den Editor laden
+Wähle eine Datei aus („Ich habe schon eine HTML-Datei"), und im Prüfbericht
+steht jetzt neben *Übernehmen* auch **In den Editor laden**: Titel, Kennung,
+Pfad, Freigabe, Abschnitte und alle Blöcke landen in den Feldern, vorhandene
+Anhänge bleiben bekannt — und du änderst weiter, statt erst einzuspielen und
+dann zu bearbeiten.
+
+Der Knopf **„Als HTML-Datei laden"** hieß dabei irreführend: Er *lud herunter*.
+Er heißt jetzt **„Als Datei sichern"**.
+
 ### Geändert: die Abschnitte stehen links
 „Auf dieser Seite" steht jetzt in der Seitenleiste über dem Themenbaum, nicht
 mehr als Leiste über dem Text — so wie es eine gut gemachte Inhaltsseite
