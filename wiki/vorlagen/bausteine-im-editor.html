@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bausteine im Editor</title>
+
+<script type="application/json" id="wiki-meta">
+{
+  "slug": "bausteine-im-editor",
+  "titel": "Bausteine im Editor",
+  "kurz": "Was der Editor kann: Rechner, Schritte, Kennzahlen, Vergleiche, PDF.",
+  "pfad": [
+    "Wiki"
+  ],
+  "gruppen": [],
+  "stand": "2026-09-17",
+  "werkzeug": "editor-1",
+  "abschnitte": [
+    {
+      "anker": "ueberblick",
+      "titel": "Wozu Bausteine",
+      "stichworte": [
+        "Bausteine",
+        "Editor",
+        "Blöcke"
+      ],
+      "text": "Eine Seite entsteht im Editor blockweise : Du wählst, was der nächste Block sein soll, füllst ein kleines Formular, und daneben steht sofort das fertige Ergebnis. Diese Seite ist selbst so gebaut — sie lässt sich über Bearbeiten aufklappen und weiterschreiben. Der Kasten heute Blockarten 8 Text, Rechner, PDF und fünf weitere eval 0 der Rechner ist ein eigener Auswerter Tests 129 Server und Oberfläche zusammen Gut zu wissen Gespeichert wird weiter eine gewöhnliche Wiki-Seite. Die Quelle der Blöcke steht im Meta-Block — deshalb lässt sich jede Editorseite später wieder blockweise bearbeiten.",
+      "markup": "Eine Seite entsteht im Editor **blockweise**: Du wählst, was der nächste Block sein soll, füllst ein kleines Formular, und daneben steht sofort das fertige Ergebnis. Diese Seite ist selbst so gebaut — sie lässt sich über *Bearbeiten* aufklappen und weiterschreiben.\n\n:::kennzahlen Der Kasten heute\nBlockarten | 8 | Text, Rechner, PDF und fünf weitere\neval | 0 | der Rechner ist ein eigener Auswerter\nTests | 129 | Server und Oberfläche zusammen\n:::\n\n?> **Gut zu wissen** Gespeichert wird weiter eine gewöhnliche Wiki-Seite. Die Quelle der Blöcke steht im Meta-Block — deshalb lässt sich jede Editorseite später wieder blockweise bearbeiten."
+    },
+    {
+      "anker": "rechnen",
+      "titel": "Rechnen",
+      "stichworte": [
+        "Rechner",
+        "Formel",
+        "Stromkosten"
+      ],
+      "text": "Ein Rechner hat Felder, eine Formel und ein Ergebnis. Er rechnet im Browser des Lesers mit — ändere die Zahlen und sieh zu. Stromkosten je 100 km Verbrauch in kWh/100 km = 18 Preis je kWh in Euro = 0,32 = Verbrauch Preis Einheit: € Der Ladeverlust steckt schon im Verbrauch, wenn du ihn an der Säule ablist. Was eine Tankfüllung kostet Liter = 45 Preis je Liter = 1,74 = Liter Preis Einheit: € Achtung In der Formel stehen die ersten Wörter der Feldnamen: Verbrauch Preis . Erlaubt sind Zahlen, Feldnamen und + - / ( ) — mehr nicht. Damit kann aus einer Formel nie Code werden.",
+      "markup": "Ein **Rechner** hat Felder, eine Formel und ein Ergebnis. Er rechnet im Browser des Lesers mit — ändere die Zahlen und sieh zu.\n\n:::rechner Stromkosten je 100 km\nVerbrauch in kWh/100 km = 18\nPreis je kWh in Euro = 0,32\n= Verbrauch * Preis\nEinheit: €\nDer Ladeverlust steckt schon im Verbrauch, wenn du ihn an der Säule ablist.\n:::\n\n:::rechner Was eine Tankfüllung kostet\nLiter = 45\nPreis je Liter = 1,74\n= Liter * Preis\nEinheit: €\n:::\n\n!> **Achtung** In der Formel stehen die **ersten Wörter** der Feldnamen: `Verbrauch * Preis`. Erlaubt sind Zahlen, Feldnamen und `+ - * / ( )` — mehr nicht. Damit kann aus einer Formel nie Code werden."
+    },
+    {
+      "anker": "anleiten",
+      "titel": "Anleiten",
+      "stichworte": [
+        "Schritte",
+        "Anleitung",
+        "Klapptext"
+      ],
+      "text": "Drucker anschließen Strom Netzkabel in die Steckdose, Schalter auf ein. Netzwerk Kabel in die Dose links, bis es klickt. Treiber Aus dem Netz laden und installieren. Testseite Drucken, und zwar bevor jemand anders es probiert. Warum nicht über WLAN? Weil der Drucker dann im Gastnetz landet und nur sichtbar ist, solange das Gerät daneben steht. Mit Kabel ist er immer da. Ein Klapptext ist für Hintergrund, der nicht stören soll.",
+      "markup": ":::schritte Drucker anschließen\nStrom | Netzkabel in die Steckdose, Schalter auf ein.\nNetzwerk | Kabel in die Dose links, bis es klickt.\nTreiber | Aus dem Netz laden und installieren.\nTestseite | Drucken, und zwar bevor jemand anders es probiert.\n:::\n\n:::klapp Warum nicht über WLAN?\nWeil der Drucker dann im Gastnetz landet und nur sichtbar ist, solange das Gerät daneben steht. Mit Kabel ist er immer da.\n\nEin Klapptext ist für Hintergrund, der nicht stören soll.\n:::"
+    },
+    {
+      "anker": "nachschlagen",
+      "titel": "Nachschlagen",
+      "stichworte": [
+        "Begriffe",
+        "Vergleich",
+        "TCP",
+        "UDP"
+      ],
+      "text": "Begriffe MTU Größtes Paket, das ohne Zerlegen durchgeht. Latenz Zeit, bis das erste Bit ankommt. Durchsatz Wie viel pro Sekunde ankommt — etwas anderes als Latenz. TCP gegen UDP TCP gesichert, Reihenfolge, Verbindung, langsamer beim Aufbau UDP schnell, verbindungslos, ohne Garantie",
+      "markup": ":::begriffe Begriffe\nMTU | Größtes Paket, das ohne Zerlegen durchgeht.\nLatenz | Zeit, bis das erste Bit ankommt.\nDurchsatz | Wie viel pro Sekunde ankommt — etwas anderes als Latenz.\n:::\n\n:::gegenueber TCP gegen UDP\nTCP | gesichert, Reihenfolge, Verbindung, langsamer beim Aufbau\nUDP | schnell, verbindungslos, ohne Garantie\n:::"
+    },
+    {
+      "anker": "anhaenge",
+      "titel": "PDF anhängen",
+      "stichworte": [
+        "PDF",
+        "Anhang",
+        "Seitenzahl"
+      ],
+      "text": "Der Baustein PDF hängt eine Datei an die Seite und legt Knöpfe an, die sie öffnen — auf einer bestimmten Seite. Bei einem Handbuch mit 200 Seiten ist die Seitenzahl der eigentliche Nutzen. So geht es Block hinzufügen Unten im Abschnitt auf PDF . Datei auswählen Sie wird beim Speichern ein Anhang dieser Seite. Sprungziele Beschriftung und Seitenzahl, eine Zeile je Ziel. Merke Die Seite selbst zeigt das PDF nicht an — das macht die Hülle. Eine eingespielte Seite läuft in einem abgeschotteten Rahmen ohne frame-src , und das bleibt so. Sie bittet die Hülle, und die öffnet den Anhang rechts neben dem Text. Ein PDF-Anhang wird außerdem seitenweise durchsuchbar: Ein Suchtreffer daraus öffnet das PDF auf der Fundstelle.",
+      "markup": "Der Baustein **PDF** hängt eine Datei an die Seite und legt Knöpfe an, die sie öffnen — auf einer bestimmten Seite. Bei einem Handbuch mit 200 Seiten ist die Seitenzahl der eigentliche Nutzen.\n\n:::schritte So geht es\nBlock hinzufügen | Unten im Abschnitt auf **PDF**.\nDatei auswählen | Sie wird beim Speichern ein Anhang dieser Seite.\nSprungziele | Beschriftung und Seitenzahl, eine Zeile je Ziel.\n:::\n\n> **Merke** Die Seite selbst zeigt das PDF nicht an — das macht die Hülle. Eine eingespielte Seite läuft in einem abgeschotteten Rahmen ohne `frame-src`, und das bleibt so. Sie bittet die Hülle, und die öffnet den Anhang rechts neben dem Text.\n\nEin PDF-Anhang wird außerdem seitenweise durchsuchbar: Ein Suchtreffer daraus öffnet das PDF auf der Fundstelle."
+    }
+  ]
+}
+</script>
+
+<style>
+:root{
+  --bg:oklch(0.96 0.004 250); --surface:#fff; --line:oklch(0.92 0.004 250);
+  --line-soft:oklch(0.96 0.002 250); --hover:oklch(0.96 0.003 250);
+  --ink:oklch(0.2 0.01 250); --ink-2:oklch(0.3 0.01 250); --ink-3:oklch(0.52 0.01 250);
+  --accent:oklch(0.52 0.17 262); --accent-soft:oklch(0.94 0.02 262);
+  --accent-ink:oklch(0.38 0.13 262); --on-accent:oklch(0.99 0.002 250);
+  --good:oklch(0.45 0.14 158); --good-soft:oklch(0.97 0.01 158);
+  --warm-soft:oklch(0.94 0.01 60); --warm-ink:oklch(0.45 0.08 60);
+}
+body[data-theme="dark"]{
+  --bg:oklch(0.2 0.012 258); --surface:oklch(0.235 0.013 258);
+  --line:oklch(0.31 0.014 258); --line-soft:oklch(0.27 0.012 258);
+  --hover:oklch(0.27 0.013 258);
+  --ink:oklch(0.96 0.004 250); --ink-2:oklch(0.87 0.006 250); --ink-3:oklch(0.69 0.01 250);
+  --accent:oklch(0.62 0.16 262); --accent-soft:oklch(0.33 0.06 262);
+  --accent-ink:oklch(0.85 0.09 262); --on-accent:oklch(0.16 0.012 258);
+  --good:oklch(0.8 0.14 158); --good-soft:oklch(0.29 0.05 158);
+  --warm-soft:oklch(0.33 0.05 60); --warm-ink:oklch(0.86 0.08 60);
+}
+body{margin:0;background:var(--bg);color:var(--ink-2);
+  font-family:'Instrument Sans',system-ui,-apple-system,sans-serif;
+  font-size:14px;line-height:1.6;padding:28px 32px 60px}
+h2{font-family:'Sora','Instrument Sans',system-ui,sans-serif;font-size:20px;
+  color:var(--ink);letter-spacing:-0.02em;margin:0 0 10px;font-weight:600}
+h3{font-size:15px;color:var(--ink);margin:20px 0 6px;font-weight:600}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 12px;padding-left:22px}
+li{margin:3px 0}
+section{max-width:760px;margin:0 0 26px;padding:18px;border-radius:14px;
+  background:var(--surface);border:1px solid var(--line)}
+code{font-family:'JetBrains Mono',ui-monospace,Consolas,monospace;font-size:12.5px;
+  background:var(--hover);border:1px solid var(--line-soft);border-radius:5px;
+  padding:1px 5px;overflow-wrap:break-word}
+pre{font-family:'JetBrains Mono',ui-monospace,Consolas,monospace;font-size:12.5px;
+  background:var(--hover);border:1px solid var(--line-soft);border-radius:10px;
+  padding:12px 14px;overflow-x:auto;line-height:1.55}
+pre code{background:none;border:0;padding:0;font-size:inherit}
+.tabelle{overflow-x:auto;margin:0 0 14px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line-soft);
+  vertical-align:top}
+th{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;
+  letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-3);font-weight:500}
+.merk,.warn,.gut{padding:11px 14px;border-radius:0 10px 10px 0;margin:14px 0;
+  border-left:3px solid var(--accent)}
+.merk{background:var(--accent-soft);color:var(--accent-ink)}
+.warn{border-left-color:var(--warm-ink);background:var(--warm-soft);color:var(--warm-ink)}
+.gut{border-left-color:var(--good);background:var(--good-soft);color:var(--good)}
+.merk b,.warn b,.gut b{display:block;margin-bottom:3px}
+.verweis{font:inherit;color:var(--accent-ink);background:var(--accent-soft);
+  border:1px solid var(--accent);border-radius:6px;padding:0 6px;cursor:pointer}
+mark.wiki-fund{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){ *{transition:none!important;animation:none!important} }
+@media (max-width:432px){
+  body{padding:18px 18px 40px}
+  section{padding:15px}
+  table{font-size:12px}
+  th,td{padding:6px 5px}
+}
+/* ---------- Bausteine ---------- */
+.bk{margin:16px 0;padding:14px 16px;border-radius:12px;
+  border:1px solid var(--line);background:var(--bg)}
+.bk-kopf{font-weight:600;color:var(--ink);margin-bottom:10px}
+.bk-klapp{padding:0;border:1px solid var(--line);overflow:hidden}
+.bk-klapp summary{cursor:pointer;padding:12px 16px;font-weight:600;
+  color:var(--ink);background:var(--surface)}
+.bk-klapp summary::marker{color:var(--accent)}
+.bk-klapp .bk-innen{padding:4px 16px 14px}
+.bk-schritte ol{margin:0;padding-left:0;list-style:none;counter-reset:bk}
+.bk-schritte li{counter-increment:bk;position:relative;
+  padding:8px 0 8px 40px;border-bottom:1px solid var(--line-soft)}
+.bk-schritte li:last-child{border-bottom:0}
+.bk-schritte li::before{content:counter(bk);position:absolute;left:0;top:8px;
+  width:26px;height:26px;border-radius:8px;background:var(--accent);
+  color:var(--on-accent);display:grid;place-items:center;font-size:13px;
+  font-weight:600}
+.bk-schritte li b{display:block;color:var(--ink)}
+.bk-schritte li span{color:var(--ink-3)}
+.bk-zahlen{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+  gap:10px}
+.bk-zahl{padding:12px;border-radius:10px;background:var(--surface);
+  border:1px solid var(--line);display:flex;flex-direction:column;gap:2px}
+.bk-wert{font-size:22px;font-weight:600;color:var(--ink);line-height:1.1}
+.bk-name{font-size:12.5px;color:var(--ink-2)}
+.bk-klein{font-size:11.5px;color:var(--ink-3)}
+.bk-paar{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:10px}
+.bk-seite{padding:12px;border-radius:10px;background:var(--surface);
+  border:1px solid var(--line)}
+.bk-seite b{display:block;color:var(--ink);margin-bottom:4px}
+.bk-begriffe th{text-align:left;color:var(--ink);font-family:inherit;
+  font-size:13px;text-transform:none;letter-spacing:0;font-weight:600;
+  white-space:nowrap;padding-right:14px}
+.bk-felder{display:grid;gap:8px}
+.bk-felder label{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.bk-felder label span{flex:1 1 180px;font-size:13px}
+.bk-felder input{flex:0 0 110px;width:110px;padding:7px 9px;border-radius:8px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  font-family:'JetBrains Mono',ui-monospace,monospace;font-size:13px;
+  text-align:right}
+.bk-ergebnis{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);
+  display:flex;align-items:baseline;gap:6px}
+.bk-erg-wert{font-size:24px;font-weight:600;color:var(--accent-ink)}
+.bk-erg-einheit{font-size:14px;color:var(--ink-3)}
+.bk-formel{margin-top:6px;font-family:'JetBrains Mono',ui-monospace,monospace;
+  font-size:11.5px;color:var(--ink-3)}
+.bk-hinweis{margin-top:8px;font-size:12.5px;color:var(--ink-3)}
+.bk-pdf-reihe{display:flex;flex-wrap:wrap;gap:8px}
+.bk-pdf-knopf{display:inline-flex;align-items:center;gap:8px;min-height:36px;
+  padding:0 13px;border-radius:9px;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink);font:inherit;font-size:13px;
+  cursor:pointer}
+.bk-pdf-knopf:hover{border-color:var(--accent);color:var(--accent-ink)}
+.bk-pdf-seite{font-family:'JetBrains Mono',ui-monospace,monospace;
+  font-size:11.5px;color:var(--ink-3)}
+@media (max-width:432px){
+  .bk{padding:12px}
+  .bk-felder input{flex:1 1 100%;width:auto;text-align:left}
+}
+</style>
+</head>
+<body data-theme="dark">
+
+    <section id="ueberblick">
+      <h2>Wozu Bausteine</h2>
+      <p>Eine Seite entsteht im Editor <b>blockweise</b>: Du wählst, was der nächste Block sein soll, füllst ein kleines Formular, und daneben steht sofort das fertige Ergebnis. Diese Seite ist selbst so gebaut — sie lässt sich über *Bearbeiten* aufklappen und weiterschreiben.</p>
+      <div class="bk bk-kennzahlen"><div class="bk-kopf">Der Kasten heute</div><div class="bk-zahlen"><div class="bk-zahl"><span class="bk-wert">8</span><span class="bk-name">Blockarten</span><span class="bk-klein">Text, Rechner, PDF und fünf weitere</span></div><div class="bk-zahl"><span class="bk-wert">0</span><span class="bk-name">eval</span><span class="bk-klein">der Rechner ist ein eigener Auswerter</span></div><div class="bk-zahl"><span class="bk-wert">129</span><span class="bk-name">Tests</span><span class="bk-klein">Server und Oberfläche zusammen</span></div></div></div>
+      <div class="gut"><b>Gut zu wissen</b> Gespeichert wird weiter eine gewöhnliche Wiki-Seite. Die Quelle der Blöcke steht im Meta-Block — deshalb lässt sich jede Editorseite später wieder blockweise bearbeiten.</div>
+    </section>
+
+    <section id="rechnen">
+      <h2>Rechnen</h2>
+      <p>Ein <b>Rechner</b> hat Felder, eine Formel und ein Ergebnis. Er rechnet im Browser des Lesers mit — ändere die Zahlen und sieh zu.</p>
+      <div class="bk bk-rechner" data-rechner="rmeqhs3" data-formel="Verbrauch * Preis" data-einheit="€"><div class="bk-kopf">Stromkosten je 100 km</div><div class="bk-felder"><label><span>Verbrauch in kWh/100 km</span><input type="text" inputmode="decimal" data-feld="Verbrauch" value="18"></label><label><span>Preis je kWh in Euro</span><input type="text" inputmode="decimal" data-feld="Preis" value="0,32"></label></div><div class="bk-ergebnis"><span class="bk-erg-wert">—</span><span class="bk-erg-einheit">€</span></div><div class="bk-formel">Verbrauch * Preis</div><div class="bk-hinweis">Der Ladeverlust steckt schon im Verbrauch, wenn du ihn an der Säule ablist.</div></div>
+      <div class="bk bk-rechner" data-rechner="r0w945d" data-formel="Liter * Preis" data-einheit="€"><div class="bk-kopf">Was eine Tankfüllung kostet</div><div class="bk-felder"><label><span>Liter</span><input type="text" inputmode="decimal" data-feld="Liter" value="45"></label><label><span>Preis je Liter</span><input type="text" inputmode="decimal" data-feld="Preis" value="1,74"></label></div><div class="bk-ergebnis"><span class="bk-erg-wert">—</span><span class="bk-erg-einheit">€</span></div><div class="bk-formel">Liter * Preis</div></div>
+      <div class="warn"><b>Achtung</b> In der Formel stehen die <b>ersten Wörter</b> der Feldnamen: <code>Verbrauch * Preis</code>. Erlaubt sind Zahlen, Feldnamen und <code>+ - * / ( )</code> — mehr nicht. Damit kann aus einer Formel nie Code werden.</div>
+    </section>
+
+    <section id="anleiten">
+      <h2>Anleiten</h2>
+      <div class="bk bk-schritte"><div class="bk-kopf">Drucker anschließen</div><ol><li><b>Strom</b><span>Netzkabel in die Steckdose, Schalter auf ein.</span></li><li><b>Netzwerk</b><span>Kabel in die Dose links, bis es klickt.</span></li><li><b>Treiber</b><span>Aus dem Netz laden und installieren.</span></li><li><b>Testseite</b><span>Drucken, und zwar bevor jemand anders es probiert.</span></li></ol></div>
+      <details class="bk bk-klapp"><summary>Warum nicht über WLAN?</summary><div class="bk-innen"><p>Weil der Drucker dann im Gastnetz landet und nur sichtbar ist, solange das Gerät daneben steht. Mit Kabel ist er immer da.</p>
+      <p>Ein Klapptext ist für Hintergrund, der nicht stören soll.</p></div></details>
+    </section>
+
+    <section id="nachschlagen">
+      <h2>Nachschlagen</h2>
+      <div class="bk bk-begriffe"><div class="bk-kopf">Begriffe</div><div class="tabelle"><table><tbody><tr><th scope="row">MTU</th><td>Größtes Paket, das ohne Zerlegen durchgeht.</td></tr><tr><th scope="row">Latenz</th><td>Zeit, bis das erste Bit ankommt.</td></tr><tr><th scope="row">Durchsatz</th><td>Wie viel pro Sekunde ankommt — etwas anderes als Latenz.</td></tr></tbody></table></div></div>
+      <div class="bk bk-gegenueber"><div class="bk-kopf">TCP gegen UDP</div><div class="bk-paar"><div class="bk-seite"><b>TCP</b><div>gesichert, Reihenfolge, Verbindung, langsamer beim Aufbau</div></div><div class="bk-seite"><b>UDP</b><div>schnell, verbindungslos, ohne Garantie</div></div></div></div>
+    </section>
+
+    <section id="anhaenge">
+      <h2>PDF anhängen</h2>
+      <p>Der Baustein <b>PDF</b> hängt eine Datei an die Seite und legt Knöpfe an, die sie öffnen — auf einer bestimmten Seite. Bei einem Handbuch mit 200 Seiten ist die Seitenzahl der eigentliche Nutzen.</p>
+      <div class="bk bk-schritte"><div class="bk-kopf">So geht es</div><ol><li><b>Block hinzufügen</b><span>Unten im Abschnitt auf <b>PDF</b>.</span></li><li><b>Datei auswählen</b><span>Sie wird beim Speichern ein Anhang dieser Seite.</span></li><li><b>Sprungziele</b><span>Beschriftung und Seitenzahl, eine Zeile je Ziel.</span></li></ol></div>
+      <div class="merk"><b>Merke</b> Die Seite selbst zeigt das PDF nicht an — das macht die Hülle. Eine eingespielte Seite läuft in einem abgeschotteten Rahmen ohne <code>frame-src</code>, und das bleibt so. Sie bittet die Hülle, und die öffnet den Anhang rechts neben dem Text.</div>
+      <p>Ein PDF-Anhang wird außerdem seitenweise durchsuchbar: Ein Suchtreffer daraus öffnet das PDF auf der Fundstelle.</p>
+    </section>
+
+
+<script>
+/* Pflichtteil jeder Wiki-Seite: auf die Huelle hoeren. */
+(function(){
+  /* Rechenwerk der Bausteine (aus der Huelle uebernommen): ein eigener
+     kleiner Auswerter, KEIN eval. Er kennt Zahlen, Feldnamen und
+     + - * / ( ) - nichts weiter. */
+  function bkRechnen(formel, werte){
+    var t = String(formel || ""), pos = 0;
+    function raum(){ while(pos < t.length && /\s/.test(t[pos])) pos++; }
+    function wert(){
+      raum();
+      var m = /^[0-9]+(?:[.,][0-9]+)?/.exec(t.slice(pos));
+      if(m){ pos += m[0].length; return parseFloat(m[0].replace(",", ".")); }
+      m = /^[A-Za-zÄÖÜäöüß_][A-Za-z0-9ÄÖÜäöüß_]*/.exec(t.slice(pos));
+      if(m){
+        pos += m[0].length;
+        var w = werte[m[0]];
+        return (w === undefined || w === null || w === "") ? NaN : w;
+      }
+      return NaN;
+    }
+    function klammer(){
+      raum();
+      if(t[pos] === "("){ pos++; var w = summe(); raum(); if(t[pos] === ")") pos++; return w; }
+      if(t[pos] === "-"){ pos++; return -klammer(); }
+      if(t[pos] === "+"){ pos++; return klammer(); }
+      return wert();
+    }
+    function produkt(){
+      var w = klammer();
+      for(;;){
+        raum();
+        if(t[pos] === "*"){ pos++; w = w * klammer(); }
+        else if(t[pos] === "/"){ pos++; var d = klammer(); w = (d === 0) ? NaN : w / d; }
+        else return w;
+      }
+    }
+    function summe(){
+      var w = produkt();
+      for(;;){
+        raum();
+        if(t[pos] === "+"){ pos++; w = w + produkt(); }
+        else if(t[pos] === "-"){ pos++; w = w - produkt(); }
+        else return w;
+      }
+    }
+    var erg = summe();
+    raum();
+    /* Bleibt Text uebrig, war die Formel nicht zu lesen - dann lieber nichts
+       zeigen als eine halbe Rechnung. */
+    if(pos < t.length) return NaN;
+    return erg;
+  }
+  function bkZahl(x){
+    if(!isFinite(x)) return "—";
+    var n = Math.abs(x);
+    var stellen = n < 1 ? 3 : (n < 100 ? 2 : (n < 10000 ? 1 : 0));
+    return x.toLocaleString("de-DE", {minimumFractionDigits: 0,
+                                      maximumFractionDigits: stellen});
+  }
+  function bkRechnerStarten(wurzel){
+    (wurzel || document).querySelectorAll(".bk-rechner").forEach(function(k){
+      var felder = [].slice.call(k.querySelectorAll("[data-feld]"));
+      var ziel = k.querySelector(".bk-erg-wert");
+      function neu(){
+        var werte = {};
+        felder.forEach(function(f){
+          var roh = String(f.value || "").trim().replace(",", ".");
+          var z = parseFloat(roh);
+          werte[f.dataset.feld] = isFinite(z) ? z : "";
+          f.setAttribute("aria-invalid", (roh !== "" && !isFinite(z)) ? "true" : "false");
+        });
+        if(ziel) ziel.textContent = bkZahl(bkRechnen(k.dataset.formel, werte));
+      }
+      felder.forEach(function(f){ f.addEventListener("input", neu); });
+      neu();
+    });
+  }
+  /* Bis die Nachricht der Huelle kommt, gilt die Einstellung des Geraets -
+     sonst blitzt bei hellem Wiki kurz die dunkle Fassung auf. */
+  document.body.dataset.theme =
+    (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+      ? 'dark' : 'light';
+  function springen(anker, begriff){
+    if(anker){
+      var el = document.getElementById(anker);
+      if(el) el.scrollIntoView({block:'start'});
+    }
+    document.querySelectorAll('mark.wiki-fund').forEach(function(m){
+      m.replaceWith(document.createTextNode(m.textContent));
+    });
+    if(!begriff || begriff.length < 2) return;
+    var worte = begriff.split(/\s+/).filter(function(w){ return w.length > 1; });
+    if(!worte.length) return;
+    var re = new RegExp('(' + worte.map(function(w){
+      return w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|') + ')', 'gi');
+    /* script und style ueberspringen: deren Text ist kein Inhalt, und eine
+       Marke darin hat kein Layout - scrollIntoView tut dann nichts und der
+       Sprung landet oben auf der Seite statt an der Fundstelle. */
+    var lauf = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode: function(k){
+        var e = k.parentElement;
+        while(e){
+          if(e.tagName === 'SCRIPT' || e.tagName === 'STYLE')
+            return NodeFilter.FILTER_REJECT;
+          e = e.parentElement;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }});
+    var knoten = [], n;
+    while((n = lauf.nextNode())) if(re.test(n.nodeValue)) knoten.push(n);
+    knoten.forEach(function(k){
+      var h = document.createElement('span');
+      h.innerHTML = k.nodeValue.replace(/[&<>]/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; })
+        .replace(re, '<mark class="wiki-fund">$1</mark>');
+      k.replaceWith(h);
+    });
+    var erst = document.querySelector('mark.wiki-fund');
+    if(erst && !anker) erst.scrollIntoView({block:'center'});
+  }
+  window.addEventListener('message', function(e){
+    /* Die Seite laeuft in einem opaken Origin (Sandbox ohne
+       allow-same-origin). location.origin ist darum "null" und taugt nicht
+       als Vergleich - geprueft wird, dass die Nachricht vom eigenen
+       Elternfenster kommt. */
+    if(e.source !== window.parent || !e.data) return;
+    if(e.data.typ === 'wiki-springen') springen(e.data.anker, e.data.begriff);
+    if(e.data.thema) document.body.dataset.theme = e.data.thema;
+  });
+  /* Verweis auf eine andere Wiki-Seite. */
+  document.addEventListener('click', function(e){
+    var b = e.target.closest ? e.target.closest('button.verweis[data-slug]') : null;
+    if(!b) return;
+    if(window.parent !== window)
+      window.parent.postMessage({typ:'wiki-oeffnen', slug:b.dataset.slug}, '*');
+  });
+  /* Dem Wiki melden, was auf dieser Seite wirklich steht: der Server kann
+     kein JavaScript, Inhalte die erst hier entstehen waeren sonst nicht
+     auffindbar. Gleicher Text loest keinen Indexlauf aus. */
+  function textMelden(){
+    if(window.parent === window) return;
+    try {
+      var t = (document.body.innerText || '').replace(/\s+/g, ' ').trim();
+      if(t) window.parent.postMessage({typ:'wiki-text', text:t.slice(0, 200000)}, '*');
+    } catch(e){}
+  }
+  window.addEventListener('load', function(){
+    setTimeout(textMelden, 300);
+    setTimeout(textMelden, 2500);
+  });
+  bkRechnerStarten();
+  /* PDF-Knoepfe: die Seite kann ein PDF nicht selbst zeigen (frame-src
+'     'none'), darum bittet sie die Huelle. Der Dateiname kommt aus der
+     Marke, die der Server beim Ausgliedern gesetzt hat - so bleibt der
+     Knopf richtig, auch wenn die Datei einen anderen Namen bekam. */
+  document.addEventListener('click', function(e){
+    var b = e.target.closest ? e.target.closest('[data-wiki-pdf]') : null;
+    if(!b) return;
+    var quelle = document.getElementById(b.dataset.wikiPdf);
+    var name = quelle ? (quelle.getAttribute('data-wiki-anhang') || '') : '';
+    if(!name || window.parent === window) return;
+    window.parent.postMessage({typ:'wiki-pdf', datei:name,
+                               seite:b.dataset.wikiSeite || ''}, '*');
+  });
+  if(window.parent !== window)
+    window.parent.postMessage({typ:'wiki-bereit'}, '*');
+})();
+</script>
+</body>
+</html>
