@@ -275,7 +275,12 @@ mark.wiki-fund{background:var(--accent-soft);color:var(--accent-ink);border-radi
       if(el) el.scrollIntoView({block:'start'});
     }
     document.querySelectorAll('mark.wiki-fund').forEach(function(m){
+      var eltern = m.parentNode;
       m.replaceWith(document.createTextNode(m.textContent));
+      /* Nachbarn wieder zusammenlegen. Ohne das zerfaellt der Text mit
+         jedem Lauf in mehr Knoten, und ein Wort, das ueber eine alte
+         Marke hinweggeht, waere danach nicht mehr zu finden. */
+      if(eltern) eltern.normalize();
     });
     if(!begriff || begriff.length < 2) return;
     var worte = begriff.split(/\s+/).filter(function(w){ return w.length > 1; });
@@ -296,13 +301,26 @@ mark.wiki-fund{background:var(--accent-soft);color:var(--accent-ink);border-radi
         return NodeFilter.FILTER_ACCEPT;
       }});
     var knoten = [], n;
-    while((n = lauf.nextNode())) if(re.test(n.nodeValue)) knoten.push(n);
+    /* lastIndex zuruecksetzen: ein Muster mit /g merkt sich, wo es zuletzt
+       getroffen hat, und test() sucht beim naechsten Aufruf erst dahinter.
+       Zwei benachbarte Textknoten mit demselben Wort - ohne Leerraumknoten
+       dazwischen - verlieren so den zweiten Treffer (N-26). Gemessen an
+       einer Seite mit <b>... tcp</b>tcp: zwei Vorkommen, eine Marke. */
+    while((n = lauf.nextNode())){
+      re.lastIndex = 0;
+      if(re.test(n.nodeValue)) knoten.push(n);
+    }
     knoten.forEach(function(k){
       var h = document.createElement('span');
       h.innerHTML = k.nodeValue.replace(/[&<>]/g, function(c){
         return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; })
         .replace(re, '<mark class="wiki-fund">$1</mark>');
-      k.replaceWith(h);
+      /* Die Marken kommen OHNE Huelle in den Text: ein zusaetzliches
+         <span> um jede Fundstelle bliebe nach dem Aufraeumen stehen und
+         zerschnitte den Text dauerhaft. */
+      var stueck = document.createDocumentFragment();
+      while(h.firstChild) stueck.appendChild(h.firstChild);
+      k.replaceWith(stueck);
     });
     var erst = document.querySelector('mark.wiki-fund');
     if(erst && !anker) erst.scrollIntoView({block:'center'});
@@ -347,7 +365,22 @@ mark.wiki-fund{background:var(--accent-soft);color:var(--accent-ink);border-radi
     if(!b) return;
     var quelle = document.getElementById(b.dataset.wikiPdf);
     var name = quelle ? (quelle.getAttribute('data-wiki-anhang') || '') : '';
-    if(!name || window.parent === window) return;
+    /* Kein Anhang unter dieser Kennung: der Knopf tat vorher gar nichts
+       (N-22). Ein Klick ohne Antwort ist schlimmer als eine Absage - darum
+       sagt die Seite jetzt, was fehlt. */
+    if(!name){
+      var wo = b.closest ? b.closest('.bk-pdf') : null;
+      wo = wo || b.parentElement;
+      if(wo && !wo.querySelector('.bk-pdf-fehlt')){
+        var hin = document.createElement('div');
+        hin.className = 'warn bk-pdf-fehlt';
+        hin.textContent = 'Zu diesem Knopf liegt kein PDF bei. Die Seite ruft \u201e' +
+          (b.dataset.wikiPdf || '') + '\u201c auf, aber diese Datei ist nicht angeh\u00e4ngt.';
+        wo.appendChild(hin);
+      }
+      return;
+    }
+    if(window.parent === window) return;
     window.parent.postMessage({typ:'wiki-pdf', datei:name,
                                seite:b.dataset.wikiSeite || ''}, '*');
   });

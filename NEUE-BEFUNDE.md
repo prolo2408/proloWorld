@@ -1292,6 +1292,89 @@ zusätzlich, ob überhaupt eine Regel für den Selektor existiert
 
 ---
 
+## N-26 — Die Suchhervorhebung übersprang Fundstellen, weil das Muster mitzählte
+
+### Befund
+
+Im Pflichtteil jeder Seite stand, um die Textknoten mit einem Treffer zu
+sammeln:
+
+```js
+var re = new RegExp('(' + worte.join('|') + ')', 'gi');
+while((n = lauf.nextNode())) if(re.test(n.nodeValue)) knoten.push(n);
+```
+
+Ein Muster mit `/g` **merkt sich seine Position**. `test()` sucht beim nächsten
+Aufruf erst hinter dem letzten Treffer weiter — auch wenn der nächste Aufruf
+eine völlig andere Zeichenkette prüft. Nachgemessen in Node:
+
+```
+mit /g, so wie im Pflichtteil:   gefunden in Knoten [ 0, 2 ]
+mit lastIndex=0 vor jedem Test:  gefunden in Knoten [ 0, 1, 2 ]
+Erwartet (von Hand): alle drei Knoten enthalten tcp -> [ 0, 1, 2 ]
+```
+
+### Die Falle an diesem Befund
+
+Auf `netzwerk-grundlagen.html` war **nichts** zu sehen: vier Vorkommen von
+„TCP", vier Marken. Ich hatte drei vorhergesagt und lag falsch — zwischen zwei
+Absätzen steht im HTML ein Textknoten aus Zeilenumbruch und Einrückung, der
+nicht trifft, und ein **fehlgeschlagener** `test()` setzt `lastIndex` wieder
+auf 0. Der Leerraum hat den Fehler verdeckt.
+
+Er bricht erst, wenn zwei treffende Textknoten **direkt** benachbart sind.
+Dafür habe ich eine Seite gebaut, deren Körper von Hand so aussieht:
+
+```html
+<p><b>Ein Absatz, der lang genug ist, damit die Fundstelle weit hinten liegt: tcp</b>tcp</p>
+```
+
+Gemessen im Browser, an der eingespielten Seite:
+
+| | Vorkommen im Text | gesetzte Marken |
+|---|---|---|
+| vorher | 2 | **1** |
+| nachher | 2 | 2 |
+
+Das ist genau die Lage, die `edInline` erzeugt: `**fett**` wird ein `<b>`, und
+unmittelbar danach geht der Text weiter — ohne Leerraum dazwischen.
+
+### Behoben, mit einer zweiten Sache gleich dazu
+
+- `re.lastIndex = 0` vor jedem `test()`.
+- Die Marken kommen jetzt über ein `DocumentFragment` **ohne zusätzliches
+  `<span>`** in den Text. Vorher wurde jeder treffende Textknoten durch ein
+  `<span>` ersetzt, und das blieb nach dem Aufräumen stehen. Nach einigen
+  Suchläufen war der Text dauerhaft zerschnitten, und ein Wort über eine alte
+  Schnittstelle hinweg war nicht mehr zu finden.
+- Beim Entfernen der Marken wird `normalize()` auf dem Elternknoten gerufen,
+  damit die Textknoten wieder zusammenwachsen.
+
+### Und der Grund, warum das allein nicht reicht
+
+Jede Seite trägt ihren Pflichtteil **selbst** — das ist der Kern der
+Architektur und soll so bleiben. Der Preis: Eine Korrektur am Pflichtteil
+erreicht bestehende Seiten nicht. Eine gespeicherte Seite behält den Code, mit
+dem sie gebaut wurde.
+
+Für die Seiten im Repository macht das jetzt `wiki/pflichtteil-nachziehen.mjs`
+— es ersetzt **nur** den Pflichtteil und lässt Inhalt, Meta-Block und Stil in
+Ruhe. Darum geht es auch bei `git-und-github.html`, die von Hand gebaut ist und
+kein `markup` im Meta-Block hat; ein Rundlauf durch den Editor hätte ihre
+Struktur verloren. Sechs Seiten nachgezogen, danach im Browser gegengeprüft:
+2/2, 4/4 und 0/0 Marken, keine Fehler auf der Konsole.
+
+Ein Test in `wiki/tests/test_editor.mjs` vergleicht den Pflichtteil jeder
+mitgelieferten Seite mit dem der Hülle und wird rot, sobald einer
+zurückfällt. Vier Mutationsproben, alle vier erkannt.
+
+**Für Seiten, die schon im Betrieb liegen,** gilt das nicht automatisch. Sie
+bekommen den korrigierten Pflichtteil beim nächsten Speichern über den Editor.
+Das ist kein Datenverlust und keine Wanderung — nur eine Korrektur, die
+langsam durchsickert.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

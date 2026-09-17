@@ -6,7 +6,7 @@
  *
  * Aufruf:  node tests/test_editor.mjs
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -817,6 +817,44 @@ pruefe('Ohne Thema bleibt eine Stelle zum Ausfuellen', () => {
 pruefe('Das Thema kommt unveraendert in den Prompt', () => {
   const p = kiPrompt('  Drucker im 2. Stock  ');
   assert.ok(p.includes('THEMA: Drucker im 2. Stock'), 'Thema fehlt oder ist entstellt');
+});
+
+/* --------------------------------- N-26 und der Stand des Pflichtteils */
+pruefe('Das Fundmuster wird vor jedem Test zurueckgesetzt', () => {
+  /* Ein Muster mit /g merkt sich, wo es zuletzt getroffen hat; test() sucht
+     dann erst dahinter. Zwei benachbarte Textknoten mit demselben Wort
+     verlieren so den zweiten Treffer (N-26). Im Browser gemessen: zwei
+     Vorkommen, eine Marke. */
+  assert.ok(ED_PFLICHTTEIL.includes('re.lastIndex = 0'),
+            'der Pflichtteil setzt lastIndex nicht zurueck');
+  assert.ok(!/while\(\(n = lauf\.nextNode\(\)\)\) if\(re\.test/.test(ED_PFLICHTTEIL),
+            'die alte, zustandsbehaftete Zeile steht noch drin');
+});
+pruefe('Die Marken kommen ohne zusaetzliche Huelle in den Text', () => {
+  /* Ein <span> um jede Fundstelle bliebe nach dem Aufraeumen stehen und
+     zerschnitte den Text dauerhaft - der naechste Lauf faende ein Wort
+     ueber die Schnittstelle hinweg nicht mehr. */
+  assert.ok(ED_PFLICHTTEIL.includes('createDocumentFragment'),
+            'die Fundstellen werden noch in ein Element gehuellt');
+  assert.ok(ED_PFLICHTTEIL.includes('eltern.normalize()'),
+            'nach dem Aufraeumen werden die Textknoten nicht zusammengelegt');
+});
+pruefe('Jede mitgelieferte Seite traegt den Pflichtteil der Huelle', () => {
+  /* Eine Seite behaelt den Code, mit dem sie gebaut wurde - eine Korrektur
+     am Pflichtteil erreicht sie nicht von selbst. Dieser Test ist die
+     Bremse dagegen; nachziehen: node pflichtteil-nachziehen.mjs
+     --schreiben */
+  const namen = [join(HIER, '..', 'test-seite.html')].concat(
+    readdirSync(join(HIER, '..', 'vorlagen')).sort()
+      .filter(n => n.endsWith('.html'))
+      .map(n => join(HIER, '..', 'vorlagen', n)));
+  assert.ok(namen.length >= 3, 'keine Seiten gefunden - der Test waere leer gruen');
+  const alt = [];
+  for(const pfad of namen){
+    const html = readFileSync(pfad, 'utf8');
+    if(!html.includes(ED_PFLICHTTEIL)) alt.push(pfad.split('/').slice(-2).join('/'));
+  }
+  assert.deepEqual(alt, [], 'Pflichtteil nicht auf dem Stand: ' + alt.join(', '));
 });
 
 console.log('');
