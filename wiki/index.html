@@ -304,21 +304,21 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
   .knopf{height:44px}
   #kopftitel{font-size:16px}
 }
-/* ---------- Abschnittsleiste einer Seite ----------
-   Lange Seiten (die Git-Anleitung hat sieben Abschnitte) waren nur mit
-   Scrollen zu ueberblicken. Die Anker stehen im Meta-Block, der Sprung
-   laeuft ueber denselben Weg wie ein Suchtreffer. */
-#abschnittsleiste{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;
-  padding:8px 24px;background:var(--surface);
-  border-bottom:1px solid var(--line)}
-#abschnittsleiste::-webkit-scrollbar{display:none}
-#abschnittsleiste[hidden]{display:none}
-#abschnittsleiste button{flex:0 0 auto;height:28px;padding:0 11px;
-  border-radius:999px;border:1px solid var(--line);background:var(--bg);
-  color:var(--ink-2);font:inherit;font-size:12.5px;cursor:pointer;
-  white-space:nowrap}
-#abschnittsleiste button:hover{background:var(--hover);color:var(--ink)}
-#abschnittsleiste .wo{align-self:center;margin-right:4px;flex:0 0 auto}
+/* ---------- Abschnitte der offenen Seite ----------
+   Links, ueber dem Themenbaum - so wie eine gut gemachte Inhaltsseite es
+   selbst tut. Lange Seiten (die Git-Anleitung hat sieben Abschnitte) waren
+   sonst nur mit Scrollen zu ueberblicken. Die Anker stehen im Meta-Block,
+   der Sprung laeuft ueber denselben Weg wie ein Suchtreffer. */
+#seitenteile{padding:6px 10px 10px;border-bottom:1px solid var(--line)}
+#seitenteile[hidden]{display:none}
+#seitenteile .wo{display:block;padding:6px 10px 4px}
+#seitenteile button{display:block;width:100%;text-align:left;border:0;
+  background:none;font:inherit;font-size:13px;color:var(--ink-2);
+  padding:6px 10px;border-radius:8px;cursor:pointer;
+  border-left:2px solid transparent}
+#seitenteile button:hover{background:var(--hover);color:var(--ink)}
+#seitenteile button[aria-current="true"]{background:var(--accent-soft);
+  color:var(--accent-ink);border-left-color:var(--accent);font-weight:600}
 
 /* ---------- Seiten-Editor ---------- */
 .ed-abschnitt{background:var(--surface);border:1px solid var(--line);
@@ -326,6 +326,12 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
 .ed-kopf{display:flex;align-items:center;gap:10px;margin-bottom:10px}
 .ed-zeile{display:flex;gap:10px;flex-wrap:wrap}
 .ed-klein{height:30px;padding:0 9px;font-size:13px;line-height:1}
+/* Bausteinkasten: die Knopfreihe unter dem Textfeld. Mit viel Text allein
+   kommt man nicht weit - hier steht, was die Seite noch kann. */
+.ed-kasten{display:flex;flex-wrap:wrap;gap:6px;align-items:center;
+  margin-top:8px;padding:8px 10px;border-radius:10px;background:var(--bg);
+  border:1px solid var(--line-soft)}
+.ed-kasten .label{margin-right:4px}
 .flaeche textarea{width:100%;box-sizing:border-box;
   font-family:'JetBrains Mono',ui-monospace,Consolas,monospace;
   font-size:13px;line-height:1.6;padding:10px 12px;border-radius:10px;
@@ -357,6 +363,7 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
       <button class="blatt" id="neu-knopf" hidden>Neue Seite</button>
       <button class="blatt" id="verwaltung-knopf" hidden>Verwaltung</button>
     </nav>
+    <nav id="seitenteile" hidden aria-label="Abschnitte dieser Seite"></nav>
     <nav class="baum" id="baum" data-noscroll aria-label="Themenbaum"></nav>
     <div class="leiste-fuss">
       <button class="blatt" id="einstellungen-knopf">Einstellungen</button>
@@ -393,8 +400,6 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
                 style="font-weight:600;color:var(--ink)">…</button>
       </div>
     </header>
-
-    <nav id="abschnittsleiste" hidden aria-label="Abschnitte dieser Seite"></nav>
 
     <div id="vorschau-leiste" hidden
          style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;
@@ -585,7 +590,6 @@ function wegSetzen(slug, anker, begriff){
 async function oeffnen(slug, anker, begriff, ohneWeg){
   ZUSTAND.ansicht = 'seite';
   if(!slug) return start();
-  bearbeitenKnopf(slug);
   merkenKnopf(slug);
   $('vorschau-leiste').hidden = true;
   let daten;
@@ -598,6 +602,8 @@ async function oeffnen(slug, anker, begriff, ohneWeg){
   $('kopfkontext').textContent = (daten.pfad||[]).join(' › ') +
     (daten.stand ? '  ·  Stand ' + datum(daten.stand) : '');
   abschnittsleiste(slug, daten.abschnitte);
+  if(anker) abschnittMarkieren(anker);
+  bearbeitenKnopf(slug, daten.urheber || daten.nutzer_id);
   document.title = daten.titel + ' — Prolo Wiki';
 
   const f = $('rahmen');
@@ -636,6 +642,14 @@ window.addEventListener('message', (e) => {
   if(e.data.typ === 'wiki-bereit') springen(($('rahmen')._auftrag||{}).anker,
                                             ($('rahmen')._auftrag||{}).begriff);
   if(e.data.typ === 'wiki-oeffnen' && e.data.slug) oeffnen(e.data.slug, e.data.anker);
+  if(e.data.typ === 'wiki-text' && typeof e.data.text === 'string'){
+    /* Die Seite hat gemeldet, was sie anzeigt - damit die Suche auch findet,
+       was erst im Browser entsteht. Still: wer eine Seite liest, soll davon
+       nichts merken, und ein Fehlschlag darf das Lesen nicht stoeren. */
+    const slug = ZUSTAND.slug;
+    if(slug) hole('/api/ansichtstext', {method:'POST',
+      body:JSON.stringify({slug, text:e.data.text})}).catch(() => {});
+  }
 });
 window.addEventListener('popstate', () => wegLesen(true));
 
@@ -976,9 +990,13 @@ async function verwaltung(){
     <td class="mono">${schuetzen(s.slug)}</td>
     <td class="mono" style="text-align:right">${bytes(s.groesse_b)}</td>
     <td class="mono" style="text-align:right">${s.fassung}</td>
-    <td>${s.gruppen.length
+    <td><button class="knopf still" style="height:auto;padding:0;text-align:left"
+        data-rechte="${schuetzen(s.slug)}" title="Freigabe ändern">${s.gruppen.length
       ? s.gruppen.map(g => `<span class="marke-badge">${schuetzen(g)}</span>`).join(' ')
-      : '<span style="color:var(--ink-3)">alle</span>'}</td>
+      : '<span style="color:var(--ink-3)">alle · ändern</span>'}</button></td>
+    <td class="mono" style="font-size:12px" title="zuletzt gespeichert von ${
+      schuetzen(s.nutzer_id || 'unbekannt')}">${
+      schuetzen(s.urheber || s.nutzer_id || '')}</td>
     <td>${s.hinweise.length
       ? `<span class="marke-badge warm">${s.hinweise.length} Hinweise</span>`
       : '<span class="marke-badge gut">sauber</span>'}</td>
@@ -994,24 +1012,13 @@ async function verwaltung(){
   $('flaeche').innerHTML = `
     <div class="raster mitte">
       <div class="karte">
-        <h3>Seite schreiben</h3>
-        <div class="kontext">Im Editor, ohne HTML. Titel, Abschnitte, Text —
-          der Rest entsteht von selbst.</div>
+        <h3>Seiten entstehen unter „Neue Seite"</h3>
+        <div class="kontext">Schreiben im Editor oder eine fertige HTML-Datei
+          einspielen — beides an einem Ort, in der Seitenleiste. Hier geht es
+          um alle Seiten: wer sie sehen darf, welche Fassungen es gibt, und was
+          weg soll.</div>
         <button class="knopf" id="ed-neu-knopf" style="margin-top:12px">Neue Seite
           anlegen</button>
-      </div>
-
-      <div class="karte">
-        <h3>Seite einspielen</h3>
-        <div class="kontext">Fertige HTML-Datei mit Meta-Block. Sie wird erst
-          geprüft, dann kannst du sie ansehen und übernehmen.</div>
-        <div class="ablage" id="ablage" style="margin-top:14px">
-          <div style="font-size:13px;color:var(--ink-3)">Datei hierher ziehen</div>
-          <label for="datei" class="knopf" style="margin-top:12px">Datei auswählen</label>
-          <input type="file" id="datei" accept=".html,text/html"
-                 style="position:absolute;left:-9999px">
-        </div>
-        <div id="bericht" style="margin-top:14px"></div>
       </div>
 
       <div class="karte">
@@ -1020,9 +1027,10 @@ async function verwaltung(){
         <div style="overflow-x:auto;margin-top:12px">
           <table class="tabelle"><thead><tr>
             <th>Titel</th><th>Kennung</th><th style="text-align:right">Größe</th>
-            <th style="text-align:right">Fassung</th><th>Freigabe</th><th>Prüfung</th><th></th>
+            <th style="text-align:right">Fassung</th><th>Freigabe</th><th>Von</th>
+            <th>Prüfung</th><th></th>
           </tr></thead><tbody>${zeilen ||
-            '<tr><td colspan="7" style="color:var(--ink-3)">Noch nichts eingespielt.</td></tr>'}
+            '<tr><td colspan="8" style="color:var(--ink-3)">Noch keine Seite da.</td></tr>'}
           </tbody></table>
         </div>
       </div>
@@ -1056,6 +1064,8 @@ async function verwaltung(){
     b.onclick = () => oeffnen(b.dataset.slug));
   $('flaeche').querySelectorAll('[data-fassungen]').forEach(b =>
     b.onclick = () => fassungen(b.dataset.fassungen));
+  $('flaeche').querySelectorAll('[data-rechte]').forEach(b =>
+    b.onclick = () => rechteKasten(b.dataset.rechte, d));
   $('flaeche').querySelectorAll('[data-bearbeiten]').forEach(b =>
     b.onclick = () => {
       history.pushState(null, '', '#/bearbeiten/' + b.dataset.bearbeiten);
@@ -1085,7 +1095,13 @@ async function verwaltung(){
     } catch(e){ einblenden(e.message); }
   };
 
+  ablageVerdrahten();
+}
+function ablageVerdrahten(){
+  /* Dieselbe Ablage, egal wo sie steht (Editor). Fehlt sie, ist nichts zu
+     tun - dann zeigt die Ansicht sie gerade nicht. */
   const ablage = $('ablage'), datei = $('datei');
+  if(!ablage || !datei) return;
   ['dragenter','dragover'].forEach(t => ablage.addEventListener(t, e => {
     e.preventDefault(); ablage.dataset.ueber = '1'; }));
   ['dragleave','drop'].forEach(t => ablage.addEventListener(t, e => {
@@ -1093,6 +1109,57 @@ async function verwaltung(){
   ablage.addEventListener('drop', e => {
     if(e.dataTransfer.files.length) pruefen(e.dataTransfer.files[0]); });
   datei.onchange = () => { if(datei.files.length) pruefen(datei.files[0]); };
+}
+async function rechteKasten(slug, d){
+  /* Freigabe einer Seite aendern, ohne sie neu einzuspielen (N-13). Der
+     Verwalter sieht, welche Gruppen es im Wiki schon gibt, und klickt sie an. */
+  const seite = (d.seiten || []).find(x => x.slug === slug);
+  if(!seite) return;
+  const bekannt = d.gruppen || [];
+  const ziel = $('bericht') || $('flaeche');
+  const kasten = document.createElement('div');
+  kasten.className = 'karte';
+  kasten.style.marginTop = '14px';
+  kasten.innerHTML = `
+    <h3>Freigabe für „${schuetzen(seite.titel)}"</h3>
+    <div class="kontext">Leer heißt: alle Angemeldeten. Sonst sieht die Seite
+      nur, wer in einer der Gruppen ist. Die Gruppen selbst legst du in
+      Authentik an.</div>
+    <input type="text" id="rechte-feld" style="margin-top:12px"
+           value="${schuetzen((seite.gruppen || []).join(', '))}"
+           placeholder="leer = alle">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${
+      bekannt.map(g => `<button type="button" class="knopf rahmen ed-klein"
+        data-g="${schuetzen(g)}">${schuetzen(g)}</button>`).join('') ||
+      '<span style="font-size:12.5px;color:var(--ink-3)">Noch keine Gruppe im Wiki.</span>'}</div>
+    <div style="display:flex;gap:10px;margin-top:14px">
+      <button class="knopf" id="rechte-speichern">Freigabe setzen</button>
+      <button class="knopf still" id="rechte-abbrechen">Abbrechen</button>
+    </div>`;
+  const alt = $('rechte-kasten');
+  if(alt) alt.remove();
+  kasten.id = 'rechte-kasten';
+  ziel.parentElement.insertBefore(kasten, ziel.nextSibling);
+  kasten.scrollIntoView({block:'nearest'});
+  kasten.querySelectorAll('[data-g]').forEach(b => b.onclick = () => {
+    const f = $('rechte-feld');
+    const drin = f.value.split(',').map(x => x.trim()).filter(Boolean);
+    const i = drin.indexOf(b.dataset.g);
+    if(i >= 0) drin.splice(i, 1); else drin.push(b.dataset.g);
+    f.value = drin.join(', ');
+  });
+  $('rechte-abbrechen').onclick = () => kasten.remove();
+  $('rechte-speichern').onclick = async () => {
+    const gruppen = $('rechte-feld').value.split(',').map(x => x.trim()).filter(Boolean);
+    try {
+      await hole('/api/rechte', {method:'POST',
+        body:JSON.stringify({slug, gruppen})});
+      einblenden(gruppen.length
+        ? `„${seite.titel}" sieht jetzt nur: ${gruppen.join(', ')}.`
+        : `„${seite.titel}" ist jetzt für alle Angemeldeten da.`);
+      await baumLaden(); verwaltung();
+    } catch(e){ einblenden(e.message); }
+  };
 }
 
 let letzteDatei = null;
@@ -1219,9 +1286,10 @@ function berichtZeichnen(b){
     try {
       const a = await hole('/api/import' + felderAlsFrage(), {method:'POST',
         body:letzteDatei, headers:{'Content-Type':'text/html; charset=utf-8'}});
-      einblenden(a.geaendert && a.geaendert.length
+      einblenden(a.indexfehler ? a.indexfehler
+        : (a.geaendert && a.geaendert.length
         ? `Übernommen als Fassung ${a.fassung} (${a.geaendert.join(', ')} angepasst).`
-        : `Übernommen als Fassung ${a.fassung}.`);
+        : `Übernommen als Fassung ${a.fassung}.`), a.indexfehler ? 9000 : 2600);
       await baumLaden(); verwaltung();
     } catch(e){
       uk.disabled = false; uk.textContent = 'Übernehmen';
@@ -1275,7 +1343,8 @@ $('vorschau-uebernehmen').onclick = async () => {
   try {
     const a = await hole('/api/import' + felderAlsFrage(), {method:'POST',
       body:letzteDatei, headers:{'Content-Type':'text/html; charset=utf-8'}});
-    einblenden(`Übernommen als Fassung ${a.fassung}.`);
+    einblenden(a.indexfehler || `Übernommen als Fassung ${a.fassung}.`,
+               a.indexfehler ? 9000 : 2600);
     await baumLaden();
     k.disabled = false; k.textContent = 'Übernehmen';
     oeffnen(a.slug);
@@ -1353,10 +1422,20 @@ function edBloecke(text){
   const aus = [];
   let i = 0;
   const istTabelle = z => /^\s*\|.*\|\s*$/.test(z);
-  const sonderfall = z => /^(```|##\s|!>|\?>|>|\s*[-*]\s|\s*\d+[.)]\s)/.test(z) || istTabelle(z);
+  const sonderfall = z => /^(```|:::|##\s|!>|\?>|>|\s*[-*]\s|\s*\d+[.)]\s)/.test(z) || istTabelle(z);
   while(i < zeilen.length){
     const z = zeilen[i];
     if(!z.trim()){ i++; continue; }
+    /* Baustein: :::art Titel ... ::: */
+    const bs = z.match(/^:::([a-zäöüß]+)\s*(.*)$/i);
+    if(bs){
+      const inhalt = [];
+      i++;
+      while(i < zeilen.length && zeilen[i].trim() !== ':::'){ inhalt.push(zeilen[i]); i++; }
+      i++;
+      aus.push(edBaustein(bs[1].toLowerCase(), bs[2] || '', inhalt));
+      continue;
+    }
     if(/^```/.test(z.trim())){
       const inhalt = [];
       i++;
@@ -1429,6 +1508,9 @@ function edNurText(text){
      und Zaeune im Suchtext und stoeren die Treffer. */
   return String(text || '')
     .replace(/```/g, ' ')
+    /* Bausteine: Art und Zaeune weg, Titel und Zeilen bleiben Suchstoff. */
+    .replace(/^:::([a-zäöüß]+)[ \t]*/gim, '')
+    .replace(/^:::\s*$/gm, ' ')
     /* Trennzeile einer Tabelle (|---|---|) ist kein Inhalt. */
     .replace(/^\s*\|[\s|:-]+\|\s*$/gm, ' ')
     .replace(/^\s*(##|!>|\?>|>|[-*]|\d+[.)])\s+/gm, '')
@@ -1444,6 +1526,309 @@ function edSlug(s){
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
 }
 
+
+
+/* ---------------------------------------------------- Bausteine
+   Mit viel Text allein kommt man nicht weit. Ein Baustein ist ein Block, den
+   der Editor einsetzt und die Seite als fertiges Stueck darstellt: ein
+   Rechner, eine Klapp-Erklaerung, eine Schrittfolge, Kennzahlen, eine
+   Gegenueberstellung.
+
+   Aufbau immer gleich - drei Doppelpunkte, Art, Titel, Zeilen, Ende:
+
+     :::rechner Stromkosten
+     kWh = 18
+     Preis = 0,32 €/kWh
+     = kWh * Preis
+     :::
+
+   Das haelt die Quelle lesbar (man erkennt im Editor, was es wird) und den
+   Erzeuger einfach: ein Block, eine Funktion, eine Darstellung. */
+
+const ED_BAUSTEINE = {
+  rechner: {
+    name: 'Rechner',
+    hilfe: 'Felder mit Zahlen, eine Formel, ein Ergebnis. Rechnet im Browser mit.',
+    vorlage: ':::rechner Stromkosten je 100 km\n' +
+             'Verbrauch in kWh/100 km = 18\n' +
+             'Preis je kWh in Euro = 0,32\n' +
+             '= Verbrauch * Preis\n' +
+             'Einheit: €\n' +
+             ':::'
+  },
+  klapp: {
+    name: 'Klapptext',
+    hilfe: 'Überschrift, die man aufklappt. Für Hintergrund, der nicht stören soll.',
+    vorlage: ':::klapp Warum ist das so?\n' +
+             'Der lange Hintergrund steht hier. Absätze und Listen gehen auch.\n' +
+             ':::'
+  },
+  schritte: {
+    name: 'Schritte',
+    hilfe: 'Nummerierte Abfolge, jeder Schritt mit Titel und Erklärung.',
+    vorlage: ':::schritte Drucker anschließen\n' +
+             'Strom | Netzkabel in die Steckdose, Schalter auf ein.\n' +
+             'Netzwerk | Kabel in die Dose links, bis es klickt.\n' +
+             'Treiber | Aus dem Netz laden und installieren.\n' +
+             ':::'
+  },
+  kennzahlen: {
+    name: 'Kennzahlen',
+    hilfe: 'Ein paar Werte groß und nebeneinander, mit Beschriftung.',
+    vorlage: ':::kennzahlen Auf einen Blick\n' +
+             'MTU | 1500 | Byte, Ethernet\n' +
+             'Ports | 65535 | je Protokoll\n' +
+             'IPv4 | 32 | Bit Adresslänge\n' +
+             ':::'
+  },
+  gegenueber: {
+    name: 'Gegenüberstellung',
+    hilfe: 'Zwei Seiten nebeneinander: dafür und dagegen, vorher und nachher.',
+    vorlage: ':::gegenueber TCP gegen UDP\n' +
+             'TCP | gesichert, Reihenfolge, Verbindung\n' +
+             'UDP | schnell, verbindungslos, ohne Garantie\n' +
+             ':::'
+  },
+  begriffe: {
+    name: 'Begriffsliste',
+    hilfe: 'Wort und Erklärung, als Tabelle — gut zum Nachschlagen.',
+    vorlage: ':::begriffe Begriffe\n' +
+             'MTU | Größtes Paket, das ohne Zerlegen durchgeht.\n' +
+             'Latenz | Zeit, bis das erste Bit ankommt.\n' +
+             ':::'
+  }
+};
+
+function edBaustein(art, titel, zeilen){
+  /* Ein Baustein wird zu fertigem HTML. Jede Zeile ist Inhalt, keine
+     Anweisung - der Text wird wie ueberall zuerst geschuetzt. */
+  const t = titel.trim();
+  const kopf = t ? '<div class="bk-kopf">' + edInline(t) + '</div>' : '';
+  const spalten = z => z.split('|').map(x => x.trim());
+
+  if(art === 'klapp'){
+    return '<details class="bk bk-klapp"><summary>' +
+      edInline(t || 'Mehr dazu') + '</summary><div class="bk-innen">' +
+      edBloecke(zeilen.join('\n')) + '</div></details>';
+  }
+  if(art === 'schritte'){
+    const punkte = zeilen.filter(z => z.trim()).map(z => {
+      const s = spalten(z);
+      return '<li><b>' + edInline(s[0] || '') + '</b>' +
+        (s[1] ? '<span>' + edInline(s.slice(1).join(' | ')) + '</span>' : '') + '</li>';
+    }).join('');
+    return '<div class="bk bk-schritte">' + kopf + '<ol>' + punkte + '</ol></div>';
+  }
+  if(art === 'kennzahlen'){
+    const kacheln = zeilen.filter(z => z.trim()).map(z => {
+      const s = spalten(z);
+      return '<div class="bk-zahl"><span class="bk-wert">' +
+        edInline(s[1] || '') + '</span><span class="bk-name">' +
+        edInline(s[0] || '') + '</span>' +
+        (s[2] ? '<span class="bk-klein">' + edInline(s[2]) + '</span>' : '') +
+        '</div>';
+    }).join('');
+    return '<div class="bk bk-kennzahlen">' + kopf +
+      '<div class="bk-zahlen">' + kacheln + '</div></div>';
+  }
+  if(art === 'gegenueber'){
+    const seiten = zeilen.filter(z => z.trim()).slice(0, 4).map(z => {
+      const s = spalten(z);
+      return '<div class="bk-seite"><b>' + edInline(s[0] || '') + '</b><div>' +
+        edInline(s.slice(1).join(' | ')) + '</div></div>';
+    }).join('');
+    return '<div class="bk bk-gegenueber">' + kopf +
+      '<div class="bk-paar">' + seiten + '</div></div>';
+  }
+  if(art === 'begriffe'){
+    const reihen = zeilen.filter(z => z.trim()).map(z => {
+      const s = spalten(z);
+      return '<tr><th scope="row">' + edInline(s[0] || '') + '</th><td>' +
+        edInline(s.slice(1).join(' | ')) + '</td></tr>';
+    }).join('');
+    return '<div class="bk bk-begriffe">' + kopf +
+      '<div class="tabelle"><table><tbody>' + reihen + '</tbody></table></div></div>';
+  }
+  if(art === 'rechner'){
+    /* Felder, Formel, Einheit. Die Formel steht in einem data-Attribut und
+       wird von einem winzigen Rechenwerk gelesen - kein eval, sondern ein
+       eigener Auswerter, der nur Zahlen, Feldnamen und + - * / ( ) kennt. */
+    const felder = [];
+    let formel = '', einheit = '', erklaerung = [];
+    zeilen.forEach(z => {
+      const roh = z.trim();
+      if(!roh) return;
+      if(roh.startsWith('=')){ formel = roh.slice(1).trim(); return; }
+      const e = roh.match(/^Einheit\s*:\s*(.+)$/i);
+      if(e){ einheit = e[1].trim(); return; }
+      const f = roh.match(/^(.+?)=(.*)$/);
+      if(f){
+        felder.push({name: f[1].trim(), wert: f[2].trim()});
+        return;
+      }
+      erklaerung.push(roh);
+    });
+    const kennung = 'r' + Math.random().toString(36).slice(2, 8);
+    const eingaben = felder.map((f, i) => {
+      /* Der Kurzname ist das erste Wort - damit die Formel kurz bleibt. */
+      const kurz = (f.name.split(/\s+/)[0] || ('x' + i));
+      return '<label><span>' + edInline(f.name) + '</span>' +
+        '<input type="text" inputmode="decimal" data-feld="' + edEscape(kurz) +
+        '" value="' + edEscape(f.wert) + '"></label>';
+    }).join('');
+    return '<div class="bk bk-rechner" data-rechner="' + kennung +
+      '" data-formel="' + edEscape(formel) + '"' +
+      (einheit ? ' data-einheit="' + edEscape(einheit) + '"' : '') + '>' +
+      kopf + '<div class="bk-felder">' + eingaben + '</div>' +
+      '<div class="bk-ergebnis"><span class="bk-erg-wert">—</span>' +
+      (einheit ? '<span class="bk-erg-einheit">' + edEscape(einheit) + '</span>' : '') +
+      '</div>' +
+      (formel ? '<div class="bk-formel">' + edEscape(formel) + '</div>' : '') +
+      (erklaerung.length ? '<div class="bk-hinweis">' +
+        edInline(erklaerung.join(' ')) + '</div>' : '') +
+      '</div>';
+  }
+  /* Unbekannte Art: als Merkkasten zeigen, statt sie zu verschlucken. */
+  return '<div class="warn"><b>Unbekannter Baustein „' + edEscape(art) + '"</b>' +
+    edInline(zeilen.join(' ')) + '</div>';
+}
+
+/* Die beiden Bausteinteile stehen BEWUSST vor ED_STIL und ED_PFLICHTTEIL:
+   const wird nicht hochgezogen, und ein Zugriff vor der Deklaration bringt
+   beim Laden das ganze Skript zu Fall (N-14). */
+const ED_STIL_BAUSTEINE = [
+'/* ---------- Bausteine ---------- */',
+'.bk{margin:16px 0;padding:14px 16px;border-radius:12px;',
+'  border:1px solid var(--line);background:var(--bg)}',
+'.bk-kopf{font-weight:600;color:var(--ink);margin-bottom:10px}',
+'.bk-klapp{padding:0;border:1px solid var(--line);overflow:hidden}',
+'.bk-klapp summary{cursor:pointer;padding:12px 16px;font-weight:600;',
+'  color:var(--ink);background:var(--surface)}',
+'.bk-klapp summary::marker{color:var(--accent)}',
+'.bk-klapp .bk-innen{padding:4px 16px 14px}',
+'.bk-schritte ol{margin:0;padding-left:0;list-style:none;counter-reset:bk}',
+'.bk-schritte li{counter-increment:bk;position:relative;',
+'  padding:8px 0 8px 40px;border-bottom:1px solid var(--line-soft)}',
+'.bk-schritte li:last-child{border-bottom:0}',
+'.bk-schritte li::before{content:counter(bk);position:absolute;left:0;top:8px;',
+'  width:26px;height:26px;border-radius:8px;background:var(--accent);',
+'  color:var(--on-accent);display:grid;place-items:center;font-size:13px;',
+'  font-weight:600}',
+'.bk-schritte li b{display:block;color:var(--ink)}',
+'.bk-schritte li span{color:var(--ink-3)}',
+'.bk-zahlen{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));',
+'  gap:10px}',
+'.bk-zahl{padding:12px;border-radius:10px;background:var(--surface);',
+'  border:1px solid var(--line);display:flex;flex-direction:column;gap:2px}',
+'.bk-wert{font-size:22px;font-weight:600;color:var(--ink);line-height:1.1}',
+'.bk-name{font-size:12.5px;color:var(--ink-2)}',
+'.bk-klein{font-size:11.5px;color:var(--ink-3)}',
+'.bk-paar{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));',
+'  gap:10px}',
+'.bk-seite{padding:12px;border-radius:10px;background:var(--surface);',
+'  border:1px solid var(--line)}',
+'.bk-seite b{display:block;color:var(--ink);margin-bottom:4px}',
+'.bk-begriffe th{text-align:left;color:var(--ink);font-family:inherit;',
+'  font-size:13px;text-transform:none;letter-spacing:0;font-weight:600;',
+'  white-space:nowrap;padding-right:14px}',
+'.bk-felder{display:grid;gap:8px}',
+'.bk-felder label{display:flex;align-items:center;gap:10px;flex-wrap:wrap}',
+'.bk-felder label span{flex:1 1 180px;font-size:13px}',
+'.bk-felder input{flex:0 0 110px;width:110px;padding:7px 9px;border-radius:8px;',
+"  border:1px solid var(--line);background:var(--surface);color:var(--ink);",
+"  font-family:'JetBrains Mono',ui-monospace,monospace;font-size:13px;",
+'  text-align:right}',
+'.bk-ergebnis{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);',
+'  display:flex;align-items:baseline;gap:6px}',
+'.bk-erg-wert{font-size:24px;font-weight:600;color:var(--accent-ink)}',
+'.bk-erg-einheit{font-size:14px;color:var(--ink-3)}',
+".bk-formel{margin-top:6px;font-family:'JetBrains Mono',ui-monospace,monospace;",
+'  font-size:11.5px;color:var(--ink-3)}',
+'.bk-hinweis{margin-top:8px;font-size:12.5px;color:var(--ink-3)}',
+'@media (max-width:432px){',
+'  .bk{padding:12px}',
+'  .bk-felder input{flex:1 1 100%;width:auto;text-align:left}',
+'}'
+].join('\n');
+
+const ED_RECHENWERK = [
+'  /* Rechenwerk fuer den Baustein "rechner". Ein eigener kleiner Auswerter,',
+'     kein eval: er kennt Zahlen, Feldnamen, + - * / ( ) und nichts weiter.',
+'     Damit kann aus einer Formel niemals Code werden - auch dann nicht, wenn',
+'     die Seite aus fremder Quelle kommt. */',
+'  function bkRechnen(formel, werte){',
+'    var t = String(formel || ""), pos = 0;',
+'    function raum(){ while(pos < t.length && /\\s/.test(t[pos])) pos++; }',
+'    function wert(){',
+'      raum();',
+'      var m = /^[0-9]+(?:[.,][0-9]+)?/.exec(t.slice(pos));',
+'      if(m){ pos += m[0].length; return parseFloat(m[0].replace(",", ".")); }',
+'      m = /^[A-Za-z\\u00c4\\u00d6\\u00dc\\u00e4\\u00f6\\u00fc\\u00df_][A-Za-z0-9\\u00c4\\u00d6\\u00dc\\u00e4\\u00f6\\u00fc\\u00df_]*/.exec(t.slice(pos));',
+'      if(m){',
+'        pos += m[0].length;',
+'        var w = werte[m[0]];',
+'        return (w === undefined || w === null || w === "") ? NaN : w;',
+'      }',
+'      return NaN;',
+'    }',
+'    function klammer(){',
+'      raum();',
+'      if(t[pos] === "("){ pos++; var w = summe(); raum(); if(t[pos] === ")") pos++; return w; }',
+'      if(t[pos] === "-"){ pos++; return -klammer(); }',
+'      if(t[pos] === "+"){ pos++; return klammer(); }',
+'      return wert();',
+'    }',
+'    function produkt(){',
+'      var w = klammer();',
+'      for(;;){',
+'        raum();',
+'        if(t[pos] === "*"){ pos++; w = w * klammer(); }',
+'        else if(t[pos] === "/"){ pos++; var d = klammer(); w = (d === 0) ? NaN : w / d; }',
+'        else return w;',
+'      }',
+'    }',
+'    function summe(){',
+'      var w = produkt();',
+'      for(;;){',
+'        raum();',
+'        if(t[pos] === "+"){ pos++; w = w + produkt(); }',
+'        else if(t[pos] === "-"){ pos++; w = w - produkt(); }',
+'        else return w;',
+'      }',
+'    }',
+'    var erg = summe();',
+'    raum();',
+'    /* Bleibt Text uebrig, war die Formel nicht zu lesen - dann lieber nichts',
+'       zeigen als eine halbe Rechnung. */',
+'    if(pos < t.length) return NaN;',
+'    return erg;',
+'  }',
+'  function bkZahl(x){',
+'    if(!isFinite(x)) return "\\u2014";',
+'    var n = Math.abs(x);',
+'    var stellen = n < 1 ? 3 : (n < 100 ? 2 : (n < 10000 ? 1 : 0));',
+'    return x.toLocaleString("de-DE", {minimumFractionDigits: 0,',
+'                                      maximumFractionDigits: stellen});',
+'  }',
+'  function bkRechnerStarten(){',
+'    document.querySelectorAll(".bk-rechner").forEach(function(k){',
+'      var felder = [].slice.call(k.querySelectorAll("[data-feld]"));',
+'      var ziel = k.querySelector(".bk-erg-wert");',
+'      function neu(){',
+'        var werte = {};',
+'        felder.forEach(function(f){',
+'          var roh = String(f.value || "").trim().replace(",", ".");',
+'          var z = parseFloat(roh);',
+'          werte[f.dataset.feld] = isFinite(z) ? z : "";',
+'          f.setAttribute("aria-invalid", (roh !== "" && !isFinite(z)) ? "true" : "false");',
+'        });',
+'        if(ziel) ziel.textContent = bkZahl(bkRechnen(k.dataset.formel, werte));',
+'      }',
+'      felder.forEach(function(f){ f.addEventListener("input", neu); });',
+'      neu();',
+'    });',
+'  }'
+].join('\n');
 
 /* ---------------------------------------------------- Vorlage der Seite
    Ein Stil fuer alle Seiten aus dem Editor. Farben ausschliesslich als
@@ -1510,7 +1895,7 @@ const ED_STIL = [
 '  table{font-size:12px}',
 '  th,td{padding:6px 5px}',
 '}'
-].join('\n');
+].join('\n') + '\n' + ED_STIL_BAUSTEINE;
 
 /* Der Pflichtteil aus EINRICHTUNG.md, mit den beiden Korrekturen aus N-06
    und N-07: das Thema gilt ab dem ersten Anstrich, und der Textdurchlauf
@@ -1520,6 +1905,7 @@ const ED_PFLICHTTEIL = [
 '<' + 'script>',
 '/* Pflichtteil jeder Wiki-Seite: auf die Huelle hoeren. */',
 '(function(){',
+ED_RECHENWERK,
 '  /* Bis die Nachricht der Huelle kommt, gilt die Einstellung des Geraets -',
 '     sonst blitzt bei hellem Wiki kurz die dunkle Fassung auf. */',
 '  document.body.dataset.theme =',
@@ -1579,6 +1965,21 @@ const ED_PFLICHTTEIL = [
 '    if(window.parent !== window)',
 "      window.parent.postMessage({typ:'wiki-oeffnen', slug:b.dataset.slug}, '*');",
 '  });',
+'  /* Dem Wiki melden, was auf dieser Seite wirklich steht: der Server kann',
+'     kein JavaScript, Inhalte die erst hier entstehen waeren sonst nicht',
+'     auffindbar. Gleicher Text loest keinen Indexlauf aus. */',
+'  function textMelden(){',
+'    if(window.parent === window) return;',
+'    try {',
+"      var t = (document.body.innerText || '').replace(/\\s+/g, ' ').trim();",
+"      if(t) window.parent.postMessage({typ:'wiki-text', text:t.slice(0, 200000)}, '*');",
+'    } catch(e){}',
+'  }',
+"  window.addEventListener('load', function(){",
+'    setTimeout(textMelden, 300);',
+'    setTimeout(textMelden, 2500);',
+'  });',
+'  bkRechnerStarten();',
 '  if(window.parent !== window)',
 "    window.parent.postMessage({typ:'wiki-bereit'}, '*');",
 '})();',
@@ -1654,7 +2055,8 @@ const ED_HILFE = [
   ['!&gt; Text', 'gelber Warnkasten'],
   ['?&gt; Text', 'grüner Kasten „gut zu wissen"'],
   ['| A | B |', 'Tabelle, zweite Zeile <code>|---|---|</code>'],
-  ['[[kennung]]', 'Verweis auf eine andere Wiki-Seite']
+  ['[[kennung]]', 'Verweis auf eine andere Wiki-Seite'],
+  [':::rechner …', 'Baustein — die Knöpfe unter dem Textfeld setzen ihn ein']
 ];
 
 function edLeer(){
@@ -1674,10 +2076,10 @@ function edFelderLesen(){
   });
 }
 function abschnittsleiste(slug, abschnitte){
-  const n = $('abschnittsleiste');
+  const n = $('seitenteile');
   if(!n) return;
   const liste = (abschnitte || []).filter(a => a.anker && a.titel);
-  /* Unter zwei Abschnitten bringt die Leiste nichts und nimmt nur Platz. */
+  /* Unter zwei Abschnitten bringt die Liste nichts und nimmt nur Platz. */
   if(!slug || liste.length < 2){ n.hidden = true; n.innerHTML = ''; return; }
   n.innerHTML = '<span class="label wo">Auf dieser Seite</span>' +
     liste.map(a => `<button type="button" data-anker="${schuetzen(a.anker)}"
@@ -1688,7 +2090,16 @@ function abschnittsleiste(slug, abschnitte){
     wegSetzen(slug, b.dataset.anker);
     $('rahmen')._auftrag = {anker:b.dataset.anker};
     springen(b.dataset.anker, '');
+    abschnittMarkieren(b.dataset.anker);
+    menueZu();
   });
+}
+function abschnittMarkieren(anker){
+  /* Zeigen, wo man ist - sonst ist die Liste nur eine Sammlung Knoepfe. */
+  const n = $('seitenteile');
+  if(!n) return;
+  n.querySelectorAll('[data-anker]').forEach(b =>
+    b.setAttribute('aria-current', String(b.dataset.anker === anker)));
 }
 function istGemerkt(slug){
   return (ZUSTAND.marken || []).some(m => m.slug === slug && !m.anker);
@@ -1718,12 +2129,16 @@ function merkenKnopf(slug){
     merkenKnopf(slug);
   };
 }
-function bearbeitenKnopf(slug){
-  /* Nur beim Lesen einer Seite und nur fuer Verwalter: schreiben darf, wer
-     einspielen darf (/api/import verlangt Verwalterrecht). */
+function bearbeitenKnopf(slug, urheber){
+  /* Beim Lesen einer Seite: aendern darf sie ihr Urheber und jeder
+     Verwalter (N-13). Urheber ist, wer sie ANGELEGT hat - nicht, wer
+     zuletzt gespeichert hat (N-15). Wer nur liest, sieht den Knopf nicht - statt ihn
+     anzubieten und dann an einem 403 auflaufen zu lassen. */
   const k = $('bearbeiten-knopf');
   if(!k) return;
-  const darf = !!(slug && ZUSTAND.ich && ZUSTAND.ich.ist_admin);
+  const ich = ZUSTAND.ich || {};
+  const darf = !!(slug && (ich.ist_admin ||
+                  (urheber && urheber === ich.kennung)));
   k.hidden = !darf;
   k.onclick = darf ? () => {
     history.pushState(null, '', '#/bearbeiten/' + slug);
@@ -1793,6 +2208,10 @@ function editorZeichnen(){
   $('kopfkontext').textContent = e.titel || 'noch kein Titel';
   const pfade = (ZUSTAND.pfade || []).map(p =>
     `<option value="${schuetzen(p)}"></option>`).join('');
+  /* Die eigenen Gruppen: nur die darf ein Nutzer vergeben (N-13), und
+     getippt werden muessen sie schon gar nicht. */
+  const meine = ((ZUSTAND.ich && ZUSTAND.ich.gruppen) || [])
+    .filter(g => g && g !== 'wiki-admin');
   const warnFremd = e.quelle === 'fremd' ? `
     <div class="meldung warn"><strong>Diese Seite kommt nicht aus dem Editor</strong>
       <div style="margin-top:4px">Ihr Aufbau ist von Hand gemacht. Wenn du hier
@@ -1834,6 +2253,18 @@ function editorZeichnen(){
         <label class="label" for="ed-a-markup-${i}">Text</label>
         <textarea id="ed-a-markup-${i}" rows="10" spellcheck="true"
           placeholder="Einfach schreiben. Leerzeile = neuer Absatz.">${schuetzen(a.markup)}</textarea>
+        <div class="ed-kasten">
+          <span class="label">Baustein einsetzen</span>
+          ${Object.entries(ED_BAUSTEINE).map(([k, b]) =>
+            `<button type="button" class="knopf rahmen ed-klein" data-ed="baustein"
+               data-art="${k}" data-i="${i}" title="${schuetzen(b.hilfe)}"
+               >${schuetzen(b.name)}</button>`).join('')}
+          ${[['tabelle','Tabelle'],['merk','Merkkasten'],['warn','Warnung'],
+             ['gut','Gut zu wissen'],['code','Codeblock'],['liste','Liste']]
+            .map(([k, t]) =>
+            `<button type="button" class="knopf rahmen ed-klein" data-ed="einfach"
+               data-art="${k}" data-i="${i}">${t}</button>`).join('')}
+        </div>
       </div>
     </div>`).join('');
 
@@ -1866,7 +2297,20 @@ function editorZeichnen(){
           <div style="flex:1 1 200px">
             <label class="label" for="ed-gruppen">Freigabe, leer = alle</label>
             <input type="text" id="ed-gruppen" value="${schuetzen(e.gruppen)}"
-                   placeholder="wiki-technik">
+                   list="ed-gruppenliste" placeholder="leer = alle Angemeldeten">
+            <datalist id="ed-gruppenliste">${meine.map(g =>
+              `<option value="${schuetzen(g)}"></option>`).join('')}</datalist>
+            ${meine.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;
+                 margin-top:6px">${meine.map(g =>
+                 `<button type="button" class="knopf rahmen ed-klein"
+                    data-ed="gruppe" data-g="${schuetzen(g)}">${schuetzen(g)}</button>`
+               ).join('')}</div>` : ''}
+            <div style="font-size:12px;color:var(--ink-3);margin-top:6px">${
+              ZUSTAND.ich && ZUSTAND.ich.ist_admin
+                ? 'Als Verwalter kannst du jede Gruppe eintragen.'
+                : (meine.length
+                   ? 'Nur Gruppen, in denen du selbst bist.'
+                   : 'Du bist in keiner Gruppe — die Seite ist dann für alle Angemeldeten da.')}</div>
           </div>
         </div>
         <div style="margin-top:10px">
@@ -1893,6 +2337,21 @@ function editorZeichnen(){
           Mehr gibt es nicht — und das ist Absicht. Wer HTML schreiben will,
           spielt weiter eine Datei ein; beides führt zur selben Seite.
         </div>
+      </details>
+
+      <details class="karte">
+        <summary style="cursor:pointer;font-weight:600">Ich habe schon eine
+          HTML-Datei</summary>
+        <div class="kontext" style="margin-top:8px">Eine fertige Seite mit
+          Meta-Block. Sie wird geprüft, du siehst sie an, dann übernimmst du
+          sie — der Editor oben wird dafür nicht gebraucht.</div>
+        <div class="ablage" id="ablage" style="margin-top:14px">
+          <div style="font-size:13px;color:var(--ink-3)">Datei hierher ziehen</div>
+          <label for="datei" class="knopf" style="margin-top:12px">Datei auswählen</label>
+          <input type="file" id="datei" accept=".html,text/html"
+                 style="position:absolute;left:-9999px">
+        </div>
+        <div id="bericht" style="margin-top:14px"></div>
       </details>
 
       <div class="karte">
@@ -1924,9 +2383,13 @@ function editorZeichnen(){
     if(a.anker) an.dataset.getippt = '1';
   });
 
-  $('flaeche').querySelectorAll('[data-ed]').forEach(b => b.onclick = () => edTun(b.dataset.ed, +b.dataset.i));
+  $('flaeche').querySelectorAll('[data-ed]').forEach(b =>
+    b.onclick = () => edTun(b.dataset.ed, +b.dataset.i, b));
+  /* Die Dateiablage steht jetzt im Editor - dieselbe Strecke wie vorher in
+     der Verwaltung (pruefen -> Vorschau -> uebernehmen). */
+  ablageVerdrahten();
 }
-function edTun(was, i){
+function edTun(was, i, knopf){
   edFelderLesen();
   const e = ZUSTAND.editor;
   if(was === 'neu'){
@@ -1958,9 +2421,53 @@ function edTun(was, i){
     history.pushState(null, '', '#/verwaltung');
     return verwaltung();
   }
+  if(was === 'baustein' || was === 'einfach'){
+    const art = (knopf && knopf.dataset.art) || '';
+    const EINFACH = {
+      tabelle: '| Spalte | Spalte |\n|---|---|\n| Wert | Wert |',
+      merk:    '> **Merke** Der Satz, der haengen bleiben soll.',
+      warn:    '!> **Achtung** Was schiefgehen kann.',
+      gut:     '?> **Gut zu wissen** Der Zusatz, der hilft.',
+      code:    '```\nbefehl --mit-schalter\n```',
+      liste:   '- erster Punkt\n- zweiter Punkt'
+    };
+    const text = was === 'baustein'
+      ? ((ED_BAUSTEINE[art] || {}).vorlage || '')
+      : (EINFACH[art] || '');
+    if(!text) return;
+    edEinsetzen(i, text);
+    return;
+  }
+  if(was === 'gruppe'){
+    const g = (knopf && knopf.dataset.g) || '';
+    const f = $('ed-gruppen');
+    const drin = f.value.split(',').map(x => x.trim()).filter(Boolean);
+    const i = drin.indexOf(g);
+    if(i >= 0) drin.splice(i, 1); else drin.push(g);
+    f.value = drin.join(', ');
+    e.gruppen = f.value;
+    return;
+  }
   if(was === 'datei') return edDatei();
   if(was === 'vorschau') return edVorschau();
   if(was === 'speichern') return edSpeichern();
+}
+function edEinsetzen(i, text){
+  /* An der Schreibmarke einsetzen, mit Leerzeile davor und danach - ein
+     Baustein ist ein eigener Block und darf nicht in einen Absatz rutschen.
+     Ohne Neuzeichnen: der Text soll stehen bleiben, wo er steht. */
+  const f = $('ed-a-markup-' + i);
+  if(!f) return;
+  const vor = f.value.slice(0, f.selectionStart);
+  const nach = f.value.slice(f.selectionEnd);
+  const davor = (!vor || /\n\s*\n$/.test(vor)) ? '' : (/\n$/.test(vor) ? '\n' : '\n\n');
+  const danach = (!nach || /^\s*\n/.test(nach)) ? '' : '\n\n';
+  const neu = davor + text + danach;
+  f.value = vor + neu + nach;
+  const ziel = vor.length + neu.length;
+  f.focus();
+  f.setSelectionRange(ziel, ziel);
+  ZUSTAND.editor.abschnitte[i].markup = f.value;
 }
 function edPruefbar(){
   /* Was der Editor selbst schon weiß - bevor der Server es sagt. Die
@@ -2093,10 +2600,10 @@ async function baumLaden(){
     ZUSTAND.einst = ZUSTAND.ich.einstellungen || {};
     themaAnwenden(ZUSTAND.einst.thema || 'system');
     $('konto-knopf').textContent = ZUSTAND.ich.name;
-    if(ZUSTAND.ich.ist_admin){
-      $('verwaltung-knopf').hidden = false;
-      $('neu-knopf').hidden = false;
-    }
+    /* Seiten anlegen darf jeder (N-13). Die Verwaltung bleibt beim
+       Verwalter: dort geht es um alle Seiten und um Freigaben. */
+    $('neu-knopf').hidden = false;
+    if(ZUSTAND.ich.ist_admin) $('verwaltung-knopf').hidden = false;
     await baumLaden();
     if(!location.hash.replace(/^#\/?/, '') && ZUSTAND.einst.start === 'zuletzt'){
       const d = await hole('/api/baum');

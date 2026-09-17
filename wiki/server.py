@@ -34,7 +34,7 @@ from urllib.parse import unquote, urlparse, parse_qs
 # hatte VERSION, --version und /api/version, das Wiki gar nichts. Gelesen von
 # --version, /api/version und der image:-Zeile im docker-compose.yml; die
 # drei muessen zusammenpassen.
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 DATEN = os.environ.get("WIKI_DATEN", "/daten")
 SEITEN = os.environ.get("WIKI_SEITEN", "/seiten")
@@ -83,7 +83,10 @@ CREATE TABLE IF NOT EXISTS seite(
   groesse_b     INTEGER NOT NULL DEFAULT 0,
   regelkonform  INTEGER NOT NULL DEFAULT 1,
   hinweise_json TEXT NOT NULL DEFAULT '[]',
+  -- nutzer_id ist, wer ZULETZT gespeichert hat; urheber, wer die Seite
+  -- ANGELEGT hat. Der Unterschied entscheidet ueber das Schreibrecht (N-15).
   nutzer_id     TEXT NOT NULL DEFAULT '',
+  urheber       TEXT NOT NULL DEFAULT '',
   geaendert     TEXT NOT NULL DEFAULT ''
 );
 
@@ -161,6 +164,16 @@ CREATE TABLE IF NOT EXISTS treffer(
   abschnittstitel TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_treffer_seite ON treffer(seite_id);
+
+-- Was eine Seite im Browser wirklich anzeigt (N-11). Der Server kann kein
+-- JavaScript; eine Seite, die ihre Inhalte erst dort aufbaut, meldet ihren
+-- sichtbaren Text selbst, und der wird hier aufbewahrt, damit der Index nach
+-- einem Neuaufbau nicht darauf warten muss, dass jemand die Seite oeffnet.
+CREATE TABLE IF NOT EXISTS ansichtstext(
+  seite_id  INTEGER PRIMARY KEY REFERENCES seite(id) ON DELETE CASCADE,
+  text      TEXT NOT NULL DEFAULT '',
+  stand     TEXT NOT NULL DEFAULT ''
+);
 """
 
 SCHEMA_FTS = """
@@ -226,6 +239,12 @@ def datenbank_anlegen():
     os.makedirs(SEITEN, exist_ok=True)
     v = db()
     v.executescript(SCHEMA)
+    if spalte_urheber_nachtragen(v):
+        sys.stderr.write(
+            "HINWEIS: Die Tabelle seite hat die Spalte urheber bekommen "
+            "(N-15) und wurde aus der Fassungsgeschichte gefuellt. Es wurde "
+            "nichts ueberschrieben; wer sichergehen will, legt vorher eine "
+            "Kopie von wiki.db an.\n")
     v.executescript(SCHEMA_FTS)
     try:
         v.execute("CREATE VIRTUAL TABLE IF NOT EXISTS vokabular "
@@ -359,6 +378,77 @@ def text_aus_html(bruchstueck):
           .replace("&rarr;", "->").replace("&mdash;", "-").replace("&ndash;", "-"))
     s = re.sub(r"&[a-zA-Z#0-9]{2,8};", " ", s)
     return re.sub(r"\s+", " ", s).strip()
+
+
+# Woerter, die in Skripten fast nur als Technik vorkommen und im Suchindex
+# nichts nuetzen. Kurz gehalten: ein paar Treffer zu viel kosten wenig, ein
+# aufgeblaehter Index dagegen macht die Schnipsel unbrauchbar.
+SKRIPT_MUELL = {
+    "none", "block", "flex", "grid", "auto", "hidden", "visible", "inline",
+    "absolute", "relative", "fixed", "sticky", "center", "left", "right",
+    "click", "change", "input", "submit", "load", "message", "keydown",
+    "div", "span", "button", "true", "false", "null", "undefined", "px",
+    "class", "style", "data", "text", "html", "json", "get", "post",
+}
+SKRIPT_TEXT_GRENZE = 60000
+# Wie viel Text eine Seite von sich selbst melden darf. 200 000 Zeichen sind
+# rund 30 000 Woerter - mehr hat keine Wiki-Seite, und die Grenze verhindert,
+# dass eine Seite die Datenbank vollschreibt.
+ANSICHT_GRENZE = 200000
+
+
+def text_aus_skripten(html):
+    """Zeichenketten aus den Skriptbloecken einer Seite (N-11).
+
+    Eine Seite, die ihren Inhalt erst im Browser aufbaut - Tabellen,
+    Glossare, Schrittfolgen -, hat diesen Inhalt nirgends im HTML. Die Suche
+    fand ihn darum nicht: "tcp" ergab null Treffer, obwohl TCP auf der Seite
+    steht und in der Liste der Transportprotokolle sichtbar ist.
+
+    Gelesen werden nur Zeichenketten, keine Anweisungen: was in
+    Anfuehrungszeichen steht, ist Inhalt oder Beschriftung. Alles, was nach
+    Code aussieht (Klammern, Semikolon, Selektoren, Adressen), fliegt raus.
+    Der Meta-Block bleibt aussen vor, der ist schon im Index.
+    """
+    bloecke = re.findall(r"(?is)<script([^>]*)>(.*?)</script>", html)
+    stuecke = []
+    for attr, inhalt in bloecke:
+        if "application/json" in attr.lower() or "wiki-meta" in attr.lower():
+            continue
+        for muster in (r"'((?:[^'\\\n]|\\.)*)'",
+                       r'"((?:[^"\\\n]|\\.)*)"',
+                       r"`((?:[^`\\]|\\.)*)`"):
+            for roh in re.findall(muster, inhalt):
+                t = roh.replace("\\n", " ").replace("\\t", " ").strip()
+                if len(t) < 2 or len(t) > 400:
+                    continue
+                if not re.search(r"[A-Za-zÄÖÜäöüß]", t):
+                    continue
+                if re.search(r"[<>{};=]|://", t):
+                    continue
+                if " " not in t:
+                    if t.startswith((".", "#", "/", "-", "&")):
+                        continue
+                    # Ein Wort mit Bindestrich oder Punkt und ohne Leerzeichen
+                    # ist eine Kennung, kein Inhalt: wiki-springen,
+                    # mark.wiki-fund, prefers-color-scheme.
+                    if "-" in t or "." in t:
+                        continue
+                    if t.lower() in SKRIPT_MUELL:
+                        continue
+                stuecke.append(t)
+    if not stuecke:
+        return ""
+    # Reihenfolge behalten, Doppelte weg (ein Wort steht oft in mehreren
+    # Zeilen und wuerde die Schnipsel zumuellen).
+    gesehen, sauber = set(), []
+    for t in stuecke:
+        k = t.lower()
+        if k in gesehen:
+            continue
+        gesehen.add(k)
+        sauber.append(t)
+    return re.sub(r"\s+", " ", " · ".join(sauber))[:SKRIPT_TEXT_GRENZE]
 
 
 def meta_block_lesen(html):
@@ -682,6 +772,56 @@ def ueberschreiben(meta, frage):
     return geaendert
 
 
+def urheber_von(z):
+    """Wer die Seite angelegt hat (N-15).
+
+    seite.nutzer_id wird bei jeder Uebernahme neu geschrieben und bedeutet
+    darum "wer zuletzt gespeichert hat". Als Schreibrecht war das falsch:
+    sobald ein Verwalter eine Zeile richtete, stand er selbst drin - und der
+    Urheber kam an seine eigene Seite nicht mehr heran. Darum die eigene
+    Spalte, mit Rueckfall auf nutzer_id fuer Zeilen, die aus einer Datenbank
+    vor 1.2.0 stammen.
+    """
+    try:
+        u = z["urheber"]
+    except (KeyError, IndexError):
+        u = ""
+    return (u or "") or (z["nutzer_id"] or "")
+
+
+def darf_aendern(z, kennung, ist_admin):
+    """Darf dieser Nutzer diese bestehende Seite aendern? (N-13, N-15)
+
+    Jeder darf Seiten anlegen. Eine bestehende Seite aendert, wer sie
+    angelegt hat - und jeder Verwalter. Sonst koennte jeder die Arbeit aller
+    anderen ueberschreiben, und das waere in einem Wiki mit Freigaben genau
+    das falsche Signal.
+    """
+    if ist_admin:
+        return True
+    return bool(kennung) and urheber_von(z) == kennung
+
+
+def spalte_urheber_nachtragen(v):
+    """Aeltere Datenbank auf die Spalte urheber bringen (N-15).
+
+    Nur Hinzufuegen und Fuellen, nichts wird ueberschrieben. Gefuellt wird
+    aus der Fassungsgeschichte: die erste archivierte Fassung traegt die
+    Kennung dessen, der sie geschrieben hat - das ist der Urheber. Gibt es
+    keine, bleibt nutzer_id die beste vorhandene Auskunft.
+
+    Gibt True zurueck, wenn die Spalte angelegt wurde.
+    """
+    spalten = {z["name"] for z in v.execute("PRAGMA table_info(seite)").fetchall()}
+    if "urheber" in spalten:
+        return False
+    v.execute("ALTER TABLE seite ADD COLUMN urheber TEXT NOT NULL DEFAULT ''")
+    v.execute("UPDATE seite SET urheber = COALESCE("
+              "(SELECT f.nutzer_id FROM fassung f WHERE f.seite_id = seite.id "
+              "AND f.nutzer_id <> '' ORDER BY f.nummer LIMIT 1), nutzer_id)")
+    return True
+
+
 def seitenordner(slug):
     return os.path.join(SEITEN, slug)
 
@@ -816,14 +956,21 @@ def uebernehmen(html, teile, nutzer, kommentar=""):
              json.dumps(warnungen, ensure_ascii=False), nutzer.kennung, jetzt())
 
     if alt:
+        # nutzer_id wird neu geschrieben, urheber NICHT (N-15): wer die Seite
+        # angelegt hat, bleibt ihr Urheber, auch wenn ein Verwalter sie
+        # anfasst. Leer ist er nur bei Zeilen aus einer alten Datenbank ohne
+        # Fassungsgeschichte - dann wird er hier nachgetragen.
         v.execute("UPDATE seite SET titel=?,kurz=?,pfad_json=?,gruppen_json=?,stand=?,"
                   "fassung=?,groesse_b=?,regelkonform=?,hinweise_json=?,nutzer_id=?,"
                   "geaendert=? WHERE slug=?", daten + (slug,))
+        v.execute("UPDATE seite SET urheber=? WHERE slug=? AND urheber=''",
+                  (urheber_von(alt), slug))
         seite_id = alt["id"]
     else:
         v.execute("INSERT INTO seite(titel,kurz,pfad_json,gruppen_json,stand,fassung,"
-                  "groesse_b,regelkonform,hinweise_json,nutzer_id,geaendert,slug) "
-                  "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", daten + (slug,))
+                  "groesse_b,regelkonform,hinweise_json,nutzer_id,geaendert,slug,"
+                  "urheber) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  daten + (slug, nutzer.kennung))
         seite_id = v.execute("SELECT id FROM seite WHERE slug=?", (slug,)).fetchone()["id"]
 
     v.execute("DELETE FROM abschnitt WHERE seite_id=?", (seite_id,))
@@ -839,8 +986,25 @@ def uebernehmen(html, teile, nutzer, kommentar=""):
                   (seite_id, a["name"], a["typ"], len(a["daten"]), a["marke"]))
     v.commit()
 
-    index_neu_bauen(seite_id, html)
-    return seite_id, nummer
+    # Der Index wird NACH dem Festschreiben gebaut, und er darf die Uebernahme
+    # nicht mehr umwerfen (N-12). Vorher lief index_neu_bauen() ungeschuetzt:
+    # ging dort etwas schief - ein PDF-Anhang, den pdftotext nicht mochte, eine
+    # FTS-Eigenheit -, dann war die Seite gespeichert und die Antwort trotzdem
+    # ein Serverfehler. Der Nutzer sah "Server Fehler", lud neu, und die Seite
+    # war da. Genau dieser Widerspruch.
+    #
+    # Der Index ist abgeleitet und jederzeit neu baubar (Verwaltung > Index
+    # neu). Die Seite ist es nicht. Darum: Fehler einsammeln, weitergeben,
+    # protokollieren - aber die Uebernahme gilt.
+    indexfehler = ""
+    try:
+        index_neu_bauen(seite_id, html)
+    except Exception as e:                                    # noqa: BLE001
+        indexfehler = f"{type(e).__name__}: {e}"
+        sys.stderr.write("FEHLER beim Indexaufbau fuer Seite %s: %s\n"
+                         % (slug, indexfehler))
+        traceback.print_exc(file=sys.stderr)
+    return seite_id, nummer, indexfehler
 
 
 def index_neu_bauen(seite_id, html=None):
@@ -886,6 +1050,30 @@ def index_neu_bauen(seite_id, html=None):
     if roh:
         for i in range(0, min(len(roh), 200000), 4000):
             eintragen("seite", "", "", 0, seite["titel"], "", roh[i:i + 4000])
+
+    # Drittes Netz: was die Seite erst im Browser aufbaut (N-11). Zwei
+    # Quellen, und die erste ist die genauere.
+    #
+    # 1. Der Text, den die Seite selbst gemeldet hat - genau das, was ein
+    #    Leser sieht. Gibt es nur, wenn die Seite den aktuellen Pflichtteil
+    #    traegt und schon einmal geoeffnet wurde.
+    # 2. Die Zeichenketten aus den Skripten. Ungenauer, aber ohne Mitwirkung
+    #    der Seite zu haben - und damit auch fuer aeltere Seiten.
+    gemeldet = v.execute("SELECT text FROM ansichtstext WHERE seite_id=?",
+                         (seite_id,)).fetchone()
+    gemeldet = (gemeldet["text"] if gemeldet else "") or ""
+    if gemeldet:
+        for i in range(0, len(gemeldet), 4000):
+            eintragen("ansicht", "", "", 0, seite["titel"], "", gemeldet[i:i + 4000])
+    # Die Zeichenketten aus den Skripten nur, wenn die Seite ihren Text NICHT
+    # gemeldet hat. Sonst stuende derselbe Inhalt zweimal im Index, und die
+    # Trefferliste zeigte jede Seite doppelt - einmal mit gutem Schnipsel,
+    # einmal mit einer Aufzaehlung von Zeichenketten.
+    if not gemeldet:
+        skript = text_aus_skripten(html)
+        if skript:
+            for i in range(0, len(skript), 4000):
+                eintragen("skript", "", "", 0, seite["titel"], "", skript[i:i + 4000])
 
     ordner = seitenordner(seite["slug"])
     for an in v.execute("SELECT * FROM anhang WHERE seite_id=?", (seite_id,)).fetchall():
@@ -1183,6 +1371,30 @@ class Handler(BaseHTTPRequestHandler):
                                "Authentik aufgerufen.")
         return n
 
+    def darf_schreiben(self, z, n):
+        """Siehe darf_aendern - hier nur der Weg vom Nutzer zur Auskunft."""
+        return darf_aendern(z, n.kennung, n.ist_admin)
+
+    def gruppen_pruefen(self, meta, n):
+        """Eine Freigabe darf nur auf eigene Gruppen zeigen (N-13).
+
+        Wer eine Seite fuer 'wiki-technik' freigibt, muss selbst in
+        'wiki-technik' sein - sonst koennte man eine Seite in eine Gruppe
+        legen, die man nicht kennt, und sie sich damit selbst wegnehmen.
+        Verwalter duerfen jede Gruppe setzen.
+        """
+        if n.ist_admin:
+            return
+        gewuenscht = [g for g in (meta.get("gruppen") or []) if g]
+        fremd = [g for g in gewuenscht if g not in n.gruppen]
+        if fremd:
+            raise Antwort(403,
+                          "Diese Gruppen hast du selbst nicht: %s. Freigeben "
+                          "kannst du nur fuer Gruppen, in denen du bist - "
+                          "deine sind: %s."
+                          % (", ".join(sorted(fremd)),
+                             ", ".join(sorted(n.gruppen)) or "keine"))
+
     def admin(self):
         n = self.nutzer()
         if not n.ist_admin:
@@ -1392,8 +1604,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_senden(d)
 
         if len(teile) == 2 and teile[0] == "fassungen":
-            self.admin()
+            # Wer die Seite aendern darf, darf auch ihre Fassungen sehen
+            # (N-13) - sonst kann ein Urheber seine eigene Arbeit nicht
+            # zurueckholen.
+            nf = self.nutzer()
             z = db().execute("SELECT * FROM seite WHERE slug=?", (teile[1],)).fetchone()
+            if z and not self.darf_schreiben(z, nf):
+                raise Antwort(403, "Die Fassungen dieser Seite sieht ihr "
+                                   "Urheber oder ein Verwalter.")
             if not z:
                 raise Antwort(404, "Diese Seite gibt es nicht.")
             f = [dict(r) for r in db().execute(
@@ -1406,7 +1624,7 @@ class Handler(BaseHTTPRequestHandler):
             self.admin()
             zeilen = [dict(r) for r in db().execute(
                 "SELECT slug,titel,pfad_json,gruppen_json,stand,fassung,groesse_b,"
-                "regelkonform,hinweise_json,nutzer_id,geaendert FROM seite "
+                "regelkonform,hinweise_json,nutzer_id,urheber,geaendert FROM seite "
                 "ORDER BY geaendert DESC").fetchall()]
             for z in zeilen:
                 z["pfad"] = json.loads(z.pop("pfad_json") or "[]")
@@ -1418,7 +1636,17 @@ class Handler(BaseHTTPRequestHandler):
             zweige = [dict(r) for r in db().execute("SELECT * FROM zweig").fetchall()]
             for z in zweige:
                 z["gruppen"] = json.loads(z.pop("gruppen_json") or "[]")
-            return self.json_senden({"seiten": zeilen, "zweige": zweige, "pfade": pfade})
+            # Alle Gruppen, die im Wiki schon vorkommen - als Vorschlagsliste
+            # fuer die Freigabe. Dazu die eigenen des Verwalters.
+            bekannt = set()
+            for z in zeilen:
+                bekannt |= set(z["gruppen"])
+            for z in zweige:
+                bekannt |= set(z["gruppen"])
+            bekannt |= self.nutzer().gruppen
+            return self.json_senden({"seiten": zeilen, "zweige": zweige,
+                                     "pfade": pfade,
+                                     "gruppen": sorted(g for g in bekannt if g)})
 
         raise Antwort(404, "Unbekannter Aufruf.")
 
@@ -1534,7 +1762,10 @@ class Handler(BaseHTTPRequestHandler):
         self.typ_pruefen(rest)
 
         if rest == ["pruefen"] or rest == ["import"]:
-            n = self.admin()
+            # Jeder Angemeldete darf Seiten anlegen (N-13). Wer eine
+            # BESTEHENDE Seite ersetzt, muss sie angelegt haben oder Verwalter
+            # sein - das wird unten geprueft, wenn die Kennung feststeht.
+            n = self.nutzer()
             roh = self.koerper_lesen()
             if not roh:
                 raise Antwort(400, "Es wurde keine Datei uebertragen.")
@@ -1553,13 +1784,32 @@ class Handler(BaseHTTPRequestHandler):
             geaendert = ueberschreiben(teile_d["meta"], frage)
             if geaendert:
                 html = meta_block_ersetzen(html, teile_d["meta"])
-            seite_id, nummer = uebernehmen(html, teile_d, n, kommentar)
-            return self.json_senden({"ok": True, "slug": teile_d["meta"]["slug"],
-                                     "fassung": nummer, "geaendert": geaendert,
-                                     "bericht": bericht})
+            # Ab hier steht die endgueltige Kennung fest: Rechte pruefen.
+            self.gruppen_pruefen(teile_d["meta"], n)
+            vorhanden = db().execute("SELECT * FROM seite WHERE slug=?",
+                                     (teile_d["meta"]["slug"],)).fetchone()
+            if vorhanden and not self.darf_schreiben(vorhanden, n):
+                raise Antwort(403,
+                              "Die Seite '%s' hat %s angelegt. Aendern kann "
+                              "sie ihr Urheber oder ein Verwalter. Waehle eine "
+                              "andere Kennung, wenn du eine eigene Seite "
+                              "willst." % (teile_d["meta"]["slug"],
+                                           vorhanden["nutzer_id"] or "jemand anderes"))
+            seite_id, nummer, indexfehler = uebernehmen(html, teile_d, n, kommentar)
+            antwort = {"ok": True, "slug": teile_d["meta"]["slug"],
+                       "fassung": nummer, "geaendert": geaendert,
+                       "bericht": bericht}
+            if indexfehler:
+                # Die Seite steht, nur die Suche kennt sie noch nicht (N-12).
+                # Das gehoert gesagt - und zwar als Hinweis, nicht als Fehler.
+                antwort["indexfehler"] = (
+                    "Die Seite ist gespeichert, aber der Suchindex wurde nicht "
+                    "gebaut (%s). Sie ist erreichbar und wird gefunden, sobald "
+                    "in der Verwaltung 'Index neu' gelaufen ist." % indexfehler)
+            return self.json_senden(antwort)
 
         if rest == ["loeschen"]:
-            n = self.admin()
+            n = self.nutzer()
             daten = json.loads(self.koerper_lesen() or b"{}")
             slug = (daten.get("slug") or "").strip()
             if daten.get("bestaetigt") is not True:
@@ -1567,6 +1817,9 @@ class Handler(BaseHTTPRequestHandler):
             z = db().execute("SELECT * FROM seite WHERE slug=?", (slug,)).fetchone()
             if not z:
                 raise Antwort(404, "Diese Seite gibt es nicht.")
+            if not self.darf_schreiben(z, n):
+                raise Antwort(403, "Loeschen kann diese Seite ihr Urheber "
+                                   "oder ein Verwalter.")
             db().execute("DELETE FROM seite WHERE id=?", (z["id"],))
             db().commit()
             # Dateien bleiben liegen - Datenverlust ist die einzige echte
@@ -1576,12 +1829,15 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_senden({"ok": True})
 
         if rest == ["zuruecksetzen"]:
-            n = self.admin()
+            n = self.nutzer()
             daten = json.loads(self.koerper_lesen() or b"{}")
             slug, nummer = (daten.get("slug") or "").strip(), int(daten.get("nummer") or 0)
             z = db().execute("SELECT * FROM seite WHERE slug=?", (slug,)).fetchone()
             if not z:
                 raise Antwort(404, "Diese Seite gibt es nicht.")
+            if not self.darf_schreiben(z, n):
+                raise Antwort(403, "Zuruecksetzen kann diese Seite ihr "
+                                   "Urheber oder ein Verwalter.")
             p = os.path.join(seitenordner(slug), "fassungen", f"{nummer:04d}-seite.html")
             if not os.path.exists(p):
                 raise Antwort(404, "Diese Fassung liegt nicht vor.")
@@ -1590,8 +1846,38 @@ class Handler(BaseHTTPRequestHandler):
             if bericht["fehler"]:
                 raise Antwort(400, "Die alte Fassung ist nicht mehr gueltig: "
                                    + "; ".join(bericht["fehler"][:2]))
-            _, neu = uebernehmen(html, teile_d, n, f"zurueck auf Fassung {nummer}")
+            _, neu, _ = uebernehmen(html, teile_d, n, f"zurueck auf Fassung {nummer}")
             return self.json_senden({"ok": True, "fassung": neu})
+
+        if rest == ["rechte"]:
+            # Der Verwalter steuert die Freigabe einer Seite, ohne sie neu
+            # einzuspielen (N-13). Geaendert wird BEIDES: die Datenbank, die
+            # ueber die Sichtbarkeit entscheidet, und der Meta-Block in der
+            # Datei - sonst dreht das naechste Bearbeiten durch den Urheber
+            # die Freigabe wieder zurueck.
+            self.admin()
+            daten = json.loads(self.koerper_lesen() or b"{}")
+            slug = (daten.get("slug") or "").strip()
+            gruppen = [str(g).strip() for g in (daten.get("gruppen") or []) if str(g).strip()]
+            z = db().execute("SELECT * FROM seite WHERE slug=?", (slug,)).fetchone()
+            if not z:
+                raise Antwort(404, "Diese Seite gibt es nicht.")
+            pfad = os.path.join(seitenordner(slug), "seite.html")
+            if os.path.exists(pfad):
+                with open(pfad, encoding="utf-8") as f:
+                    html = f.read()
+                try:
+                    meta, _ = meta_block_lesen(html)
+                except ValueError:
+                    meta = None
+                if meta is not None:
+                    meta["gruppen"] = gruppen
+                    with open(pfad, "w", encoding="utf-8") as f:
+                        f.write(meta_block_ersetzen(html, meta))
+            db().execute("UPDATE seite SET gruppen_json=?, geaendert=? WHERE id=?",
+                         (json.dumps(gruppen, ensure_ascii=False), jetzt(), z["id"]))
+            db().commit()
+            return self.json_senden({"ok": True, "gruppen": gruppen})
 
         if rest == ["zweig"]:
             # Nach dem Schreiben ist der Zwischenspeicher ueberholt (B-47).
@@ -1634,6 +1920,40 @@ class Handler(BaseHTTPRequestHandler):
                              (n.kennung, slug, anker, (daten.get("titel") or "")[:120], jetzt()))
             db().commit()
             return self.json_senden({"ok": True})
+
+        if rest == ["ansichtstext"]:
+            # Die Seite meldet, was sie tatsaechlich anzeigt (N-11). Der
+            # Server kann kein JavaScript ausfuehren; eine Seite, die ihre
+            # Tabellen im Browser aufbaut, hat ihren Inhalt nirgends im HTML.
+            # Darum schickt die Seite selbst ihren sichtbaren Text, sobald sie
+            # geladen ist - das ist die genaue Fassung dessen, was ein Leser
+            # sieht. Kein Verwalterrecht: es ist der Text einer Seite, die
+            # dieser Nutzer ohnehin sehen darf, und er ersetzt nichts anderes
+            # als seine eigene Indexquelle.
+            n = self.nutzer()
+            daten = json.loads(self.koerper_lesen() or b"{}")
+            slug = (daten.get("slug") or "").strip()
+            text = re.sub(r"\s+", " ", str(daten.get("text") or "")).strip()
+            z = db().execute("SELECT * FROM seite WHERE slug=?", (slug,)).fetchone()
+            if not z:
+                raise Antwort(404, "Diese Seite gibt es nicht.")
+            if not darf_sehen(n, z):
+                raise Antwort(403, "Fuer diese Seite fehlt dir die Freigabe.")
+            if len(text) > ANSICHT_GRENZE:
+                text = text[:ANSICHT_GRENZE]
+            alt_txt = db().execute(
+                "SELECT text FROM ansichtstext WHERE seite_id=?", (z["id"],)).fetchone()
+            if alt_txt and alt_txt["text"] == text:
+                # Nichts Neues - dann auch kein Indexlauf. Sonst wuerde jeder
+                # Seitenaufruf den Index neu bauen.
+                return self.json_senden({"ok": True, "geaendert": False})
+            db().execute("INSERT INTO ansichtstext(seite_id,text,stand) VALUES(?,?,?) "
+                         "ON CONFLICT(seite_id) DO UPDATE SET text=excluded.text, "
+                         "stand=excluded.stand", (z["id"], text, jetzt()))
+            db().commit()
+            index_neu_bauen(z["id"])
+            return self.json_senden({"ok": True, "geaendert": True,
+                                     "zeichen": len(text)})
 
         if rest == ["neuindex"]:
             self.admin()

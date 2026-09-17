@@ -585,11 +585,233 @@ gemerkt.
 
 ---
 
+## N-11 — Die Suche fand nicht, was auf der Seite steht
+
+**Stufe:** hoch — eine Wissenssammlung, in der man nichts findet, ist keine
+**Datei:** `wiki/server.py` (`index_neu_bauen`)
+**Gefunden bei:** Rückmeldung nach dem Einspielen von Fassung 1.1.0
+
+Gemeldet: „tcp" ergibt null Treffer, obwohl TCP auf der Netzwerkseite in der
+Tabelle der Transportprotokolle steht. Nachgestellt mit einer Seite, die wie
+die echte gebaut ist — Abschnitte im Meta-Block, die Tabelle erst im Skript:
+
+```
+tcp        -> 0 Treffer | NICHTS GEFUNDEN
+UDP        -> 0 Treffer | NICHTS GEFUNDEN
+Transport  -> 0 Treffer | NICHTS GEFUNDEN
+Schichten  -> 2 Treffer | Netzwerke / Schichten und Kapselung
+```
+
+Was im Meta-Block steht, wird gefunden. Was der Leser **sieht**, nicht.
+
+Der Grund steht seit Anfang an in `EINRICHTUNG.md`: „Bei deiner
+Netzwerk-Seite stehen Glossar, Portverzeichnis und TCP-Schritte in
+JavaScript. Ein Indexer, der nur den sichtbaren Text liest, findet davon
+nichts." Der Hinweis war richtig — nur hilft er niemandem, der die Seite
+nicht selbst umbaut. `text_aus_html()` schneidet `<script>` heraus, und damit
+war der halbe Inhalt unsichtbar.
+
+### Behoben mit zwei zusätzlichen Quellen
+
+| Quelle | Woher | Genauigkeit | Braucht |
+|---|---|---|---|
+| `ansicht` | Die Seite meldet nach dem Laden ihren sichtbaren Text an `/api/ansichtstext` | genau das, was der Leser sieht | den aktuellen Pflichtteil in der Seite |
+| `skript` | Zeichenketten aus den Skriptblöcken, Kennungen und Code herausgefiltert | grob, aber sofort | nichts |
+
+Die zweite Quelle war die wichtigere Entscheidung: sie hilft **bestehenden**
+Seiten, ohne dass jemand sie anfasst. Gefiltert wird konservativ — kein
+`<`, `{`, `;`, `=`, keine Adressen, keine Kennungen mit Bindestrich oder
+Punkt, keine Techniknamen wie `none` oder `click`. Von der Netzwerk-Probe
+bleibt genau der Inhalt:
+
+```
+Anwendung · Daten · HTTP, DNS, SMTP, SSH · Transport · Segment ·
+TCP, UDP, QUIC, SCTP · Vermittlung · Paket · IP, ICMP, Routing · …
+```
+
+Hat eine Seite ihren Text gemeldet, entfällt die Skriptquelle für sie — sonst
+stünde derselbe Inhalt zweimal im Index und jede Seite doppelt in der
+Trefferliste.
+
+**Prüfen (ausgeführt):** Nach `Index neu` findet die Suche `tcp`, `UDP`,
+`Transport`, `Ethernet`, `ICMP` — ohne jede Änderung an der Seite. Mit
+Pflichtteil in der Seite kommt der Treffer aus `ansicht` und der Schnipsel
+liest sich wie der Text auf der Seite.
+
+**Für den Server heißt das:** Einmal **Verwaltung › Index neu** drücken. Die
+alten Seiten sind danach durchsuchbar.
+
+---
+
+## N-12 — „Server Fehler" beim Einspielen, obwohl die Seite gespeichert war
+
+**Stufe:** mittel — die Meldung widersprach der Wirklichkeit
+**Datei:** `wiki/server.py` (`uebernehmen`)
+**Gefunden bei:** derselben Rückmeldung
+
+Gemeldet: „wenn ich eine HTML einfüge kommt eine Nachricht mit Server Fehler,
+aber wenn ich die Seite neu Lade ist die neue Seite da."
+
+Der Ablauf erklärt genau das:
+
+```python
+v.commit()                       # Seite ist gespeichert
+index_neu_bauen(seite_id, html)  # ungeschuetzt
+```
+
+Der Index wird **nach** dem Festschreiben gebaut. Geht dort etwas schief — ein
+PDF-Anhang, den `pdftotext` nicht mochte, eine Eigenheit der Volltextsuche —,
+dann wirft die Anfrage einen 500er, obwohl die Seite steht.
+
+**Behoben.** Der Indexaufbau läuft in einem `try`, der Fehler wird
+protokolliert und in der Antwort als **Hinweis** mitgegeben:
+
+> Die Seite ist gespeichert, aber der Suchindex wurde nicht gebaut
+> (RuntimeError: …). Sie ist erreichbar und wird gefunden, sobald in der
+> Verwaltung „Index neu" gelaufen ist.
+
+Die Begründung ist einfach: der Index ist abgeleitet und jederzeit neu baubar,
+die Seite ist es nicht.
+
+**Prüfen (ausgeführt):** Mit einer Kopie des Servers, in der
+`index_neu_bauen()` absichtlich wirft: HTTP 200, `ok: true`, Seite im Baum,
+Hinweis in der Antwort, Grund im Protokoll (`FEHLER beim Indexaufbau fuer
+Seite subnetze: RuntimeError: Probe`).
+
+---
+
+## N-13 — Seiten schreiben war Verwaltersache
+
+**Stufe:** mittel — eine Wissenssammlung, in die nur einer schreiben darf
+**Datei:** `wiki/server.py`, `wiki/index.html`
+**Gefunden bei:** Wunsch aus der Rückmeldung
+
+`/api/pruefen` und `/api/import` verlangten Verwalterrecht, „Neue Seite" und
+die Verwaltung waren nur für Verwalter sichtbar. Gefordert war: jeder darf
+Seiten anlegen, der Verwalter sieht alle und steuert die Rechte, und wer eine
+Gruppe vergibt, muss selbst darin sein.
+
+### Behoben
+
+| Wer | Darf |
+|---|---|
+| jeder Angemeldete | Seiten anlegen, eigene Seiten ändern, löschen, zurücksetzen |
+| jeder Angemeldete | Freigabe **nur** auf eigene Gruppen setzen |
+| Verwalter | alle Seiten sehen und ändern, Freigabe je Seite setzen, Themenzweige freigeben, Index neu bauen |
+
+Zwei Helfer an einer Stelle: `darf_schreiben(z, n)` (Urheber oder Verwalter)
+und `gruppen_pruefen(meta, n)` (nur eigene Gruppen). Dazu `/api/rechte`, mit
+dem der Verwalter die Freigabe ändert, ohne die Seite neu einzuspielen —
+geschrieben wird in die Datenbank **und** in den Meta-Block der Datei, sonst
+dreht das nächste Bearbeiten durch den Urheber die Freigabe zurück.
+
+**Prüfen (ausgeführt), vier Fälle am laufenden Server:**
+
+```
+max überschreibt lenas Seite   -> 403 "… hat lena angelegt. Aendern kann sie
+                                   ihr Urheber oder ein Verwalter."
+lena vergibt fremde Gruppe     -> 403 "Diese Gruppen hast du selbst nicht:
+                                   geschaeftsfuehrung … deine sind: wiki-technik."
+Verwalter setzt wiki-buero     -> ok; Datei und Datenbank tragen wiki-buero
+Sichtbarkeit danach            -> max: 1 Seite, lena: 0, Verwalter: 1
+```
+
+---
+
+## N-14 — Eine `const` vor ihrer Deklaration, und das ganze Wiki war weiß
+
+**Stufe:** hoch, aber nur in meinem eigenen Zwischenstand
+**Datei:** `wiki/index.html`
+**Gefunden bei:** Browserprobe der Bausteine
+
+Beim Einbau der Bausteine habe ich `ED_STIL_BAUSTEINE` und `ED_RECHENWERK`
+hinter die Blöcke gesetzt, die sie benutzen. `const` wird nicht hochgezogen:
+
+```
+Uncaught ReferenceError: Cannot access 'ED_STIL_BAUSTEINE' before initialization
+```
+
+Das ist kein Teilausfall — das Skript der Hülle stirbt beim Laden, und das
+Wiki zeigt **nichts** mehr. Die 54 Editortests waren grün, weil sie die
+Stücke einzeln ausschneiden und in eigener Reihenfolge zusammensetzen. Gemerkt
+hat es erst der Browser.
+
+**Behoben:** beide Blöcke stehen jetzt vor ihrer Verwendung, mit Begründung
+im Kommentar. Dazu ein Test, der genau diese Reihenfolge in der Datei prüft —
+denn ein Test, der Funktionen einzeln ausschneidet, kann diese Art Fehler
+grundsätzlich nicht finden.
+
+**Was daraus folgt:** Für eine Oberfläche ist „die Tests sind grün" keine
+Aussage über das Laden der Seite. Es braucht den Aufruf im Browser, und zwar
+einen, der einen Abbruch auch sichtbar macht — mein Fahrskript hat die
+Meldung anfangs verschluckt und nur „KEINE MESSUNG" geliefert.
+
+---
+
+## N-15 — Nach der Korrektur des Verwalters kam der Urheber nicht mehr an seine eigene Seite
+
+**Stufe:** mittel — kein Datenverlust, aber es sperrt Leute aus ihrer eigenen
+Arbeit aus, und zwar unsichtbar
+**Datei:** `wiki/server.py` (`seite.nutzer_id`, `darf_schreiben`)
+**Gefunden bei:** dem ausgeführten Rechtedurchgang zu `N-13` — die
+fünfzehnte von fünfzehn Prüfungen
+
+`N-13` gibt das Schreibrecht an „den Urheber und jeden Verwalter". Gelesen
+wurde dafür `seite.nutzer_id`. Diese Spalte wird aber bei **jeder** Übernahme
+neu geschrieben; sie bedeutet „wer zuletzt gespeichert hat", nicht „wer die
+Seite angelegt hat".
+
+Folge: Sobald ein Verwalter eine fremde Seite anfasst — einen Tippfehler
+richtet, eine Freigabe nachzieht —, steht er selbst als Urheber drin, und der
+eigentliche Urheber wird ausgesperrt. Im Durchgang:
+
+```
+lena legt lenas-seite an                       HTTP 200
+der Verwalter ändert lenas Seite               HTTP 200, Fassung 3
+lena sieht ihre eigenen Fassungen              HTTP 403   <-- falsch
+```
+
+Das ist besonders unangenehm, weil es genau bei der Person passiert, die am
+meisten korrigiert: Wer das Wiki verwaltet, nimmt beim Aufräumen jeder Seite,
+die er anfasst, ihrem Urheber das Schreibrecht.
+
+**Behoben:** `seite` hat jetzt eine eigene Spalte `urheber`. Sie wird beim
+Anlegen gesetzt und bei einer Änderung **nicht** angefasst; `nutzer_id`
+behält seine Bedeutung („zuletzt gespeichert von") und steht in der
+Verwaltung als Kurzhinweis am Namen. Das Schreibrecht entscheidet
+`darf_aendern()` — eine Funktion auf Modulebene, damit sie ohne Anfrage
+geprüft werden kann.
+
+Bestehende Datenbanken bekommen die Spalte beim Start nachgetragen und aus
+der Fassungsgeschichte gefüllt: Die erste archivierte Fassung trägt die
+Kennung dessen, der sie geschrieben hat. Es wird nur hinzugefügt, nichts
+überschrieben, und das Protokoll sagt es (Regelblatt §15).
+
+**Was daraus folgt:** Ein Rechtemodell ist erst geprüft, wenn die *Reihenfolge*
+der Handlungen mitgeprüft wird. Jede einzelne Prüfung war richtig — anlegen,
+fremd überschreiben, Gruppen vergeben. Der Fehler saß im Zustand, den eine
+erlaubte Handlung hinterlässt. Der Durchgang hat ihn nur gefunden, weil er
+nach der Verwalteränderung noch einmal den Urheber gefragt hat.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
 sichtbar war — und der einzige, den keine Prüfung hier gefunden hätte,
 weil er erst mit echten Dateirechten auf einem echten Server entsteht.
+
+`N-11` bis `N-15` kamen aus der ersten Rückmeldung nach dem Einspielen von
+Wiki 1.1.0 — und `N-11` ist der Befund, der am meisten über Prüfungen sagt:
+Die Suche war technisch in Ordnung, der Index wurde gebaut, jede Prüfung war
+grün. Nur stand im Index nicht, was auf der Seite zu sehen ist. Gemerkt hat
+es der Mensch, der „tcp" eingetippt hat.
+
+`N-15` ist der Gegenbeweis zur bequemen Annahme, ein Befund käme immer von
+außen: Er steckte in der Lösung von `N-13`, wurde im selben Arbeitsschritt
+geschrieben und im selben Durchgang gefunden — aber erst, weil der Durchgang
+nach einer erlaubten Handlung noch einmal nachgefragt hat. Vierzehn von
+fünfzehn Prüfungen waren grün, und die vierzehn waren nicht falsch.
 
 `N-10` ist der schwerste Befund dieser Reihe: falsche Geldbeträge, die
 niemandem auffallen müssen, weil sie plausibel aussehen, solange man sie nicht
