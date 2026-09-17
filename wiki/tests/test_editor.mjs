@@ -23,13 +23,20 @@ function hol(muster, name) {
 }
 const quellen = [
   hol(/const EDITOR_WERKZEUG = [^\n]+/, 'EDITOR_WERKZEUG'),
+  hol(/const ED_BAUSTEINE = \{[\s\S]*?\n\};/, 'ED_BAUSTEINE'),
+  hol(/function edBaustein\(art, titel, zeilen\)\{[\s\S]*?\n\}/, 'edBaustein'),
+  hol(/const ED_STIL_BAUSTEINE = \[[\s\S]*?\]\.join\('\\n'\);/, 'ED_STIL_BAUSTEINE'),
+  hol(/const ED_RECHENWERK = \[[\s\S]*?\]\.join\('\\n'\);/, 'ED_RECHENWERK'),
   hol(/const ED_HALT = [^\n]+/, 'ED_HALT'),
   hol(/function edEscape\(s\)\{[\s\S]*?\n\}/, 'edEscape'),
   hol(/function edInline\(s\)\{[\s\S]*?\n\}/, 'edInline'),
   hol(/function edBloecke\(text\)\{[\s\S]*?\n\}/, 'edBloecke'),
   hol(/function edNurText\(text\)\{[\s\S]*?\n\}/, 'edNurText'),
   hol(/function edSlug\(s\)\{[\s\S]*?\n\}/, 'edSlug'),
-  hol(/const ED_STIL = \[[\s\S]*?\]\.join\('\\n'\);/, 'ED_STIL'),
+  /* ED_STIL endet seit den Bausteinen nicht mehr mit join, sondern haengt
+     ED_STIL_BAUSTEINE an - das Muster muss das treffen, sonst frisst es den
+     naechsten Block mit und der wird doppelt erklaert. */
+  hol(/const ED_STIL = \[[\s\S]*?ED_STIL_BAUSTEINE;/, 'ED_STIL'),
   hol(/const ED_PFLICHTTEIL = \[[\s\S]*?\]\.join\('\\n'\);/, 'ED_PFLICHTTEIL'),
   hol(/function edListe\(s\)\{[\s\S]*?\n\}/, 'edListe'),
   hol(/function edPfadListe\(s\)\{[\s\S]*?\n\}/, 'edPfadListe'),
@@ -37,10 +44,17 @@ const quellen = [
 ].join('\n');
 
 const { edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
-        ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG } =
+        ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
+        edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE } =
   new Function(quellen + `
     return {edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
-            ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG};`)();
+            ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
+            edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE};`)();
+
+/* Das Rechenwerk der erzeugten Seite - hier einzeln herausgeholt, damit die
+   Formelauswertung geprueft werden kann, ohne einen Browser zu starten. */
+const { bkRechnen, bkZahl } =
+  new Function(ED_RECHENWERK + '\nreturn {bkRechnen, bkZahl};')();
 
 let gut = 0, schlecht = 0;
 function pruefe(name, fn) {
@@ -252,6 +266,137 @@ pruefe('Titel mit Sonderzeichen bleibt im Titel-Tag geschuetzt', () => {
   const s = edSeiteBauen({titel: 'A < B & "C"', slug: 'a', pfad: 'A',
                           abschnitte: [{anker: 'x', titel: 'X', markup: 'y'}]});
   assert.ok(s.includes('<title>A &lt; B &amp; &quot;C&quot;</title>'));
+});
+
+/* ------------------------------------------------ Reihenfolge im Skript */
+pruefe('Bausteinteile stehen VOR ihrer Verwendung (N-14)', () => {
+  /* const wird nicht hochgezogen. Steht ED_STIL_BAUSTEINE hinter ED_STIL,
+     stirbt beim Laden das ganze Skript ("Cannot access ... before
+     initialization") und das Wiki zeigt gar nichts mehr. Der Browser hat das
+     gefunden, die Tests nicht - weil sie die Stuecke in eigener Reihenfolge
+     zusammensetzen. Darum diese Prueflinie auf die Datei selbst. */
+  const paare = [['const ED_STIL_BAUSTEINE = [', 'const ED_STIL = ['],
+                 ['const ED_RECHENWERK = [', 'const ED_PFLICHTTEIL = [']];
+  for (const [zuerst, danach] of paare) {
+    const a = quelle.indexOf(zuerst), b = quelle.indexOf(danach);
+    assert.ok(a > -1, zuerst + ' fehlt');
+    assert.ok(b > -1, danach + ' fehlt');
+    assert.ok(a < b, zuerst + ' muss vor ' + danach + ' stehen');
+  }
+});
+
+/* ------------------------------------------------ Bausteine */
+pruefe('Jeder Baustein hat Name, Hilfe und Vorlage', () => {
+  for (const [art, b] of Object.entries(ED_BAUSTEINE)) {
+    assert.ok(b.name && b.hilfe && b.vorlage, art + ' unvollstaendig');
+    // Die Vorlage muss das sein, was der Editor auch lesen kann.
+    assert.ok(b.vorlage.startsWith(':::' + art), art + ': Vorlage passt nicht');
+    assert.ok(b.vorlage.trimEnd().endsWith(':::'), art + ': Vorlage ohne Ende');
+  }
+});
+pruefe('Baustein im Text wird erkannt und gerendert', () => {
+  const h = edBloecke('Davor.\n\n:::klapp Warum?\nWeil.\n:::\n\nDanach.');
+  assert.ok(h.includes('<p>Davor.</p>'));
+  assert.ok(h.includes('<details class="bk bk-klapp">'));
+  assert.ok(h.includes('<p>Danach.</p>'));
+});
+pruefe('Ein Absatz laeuft nicht in einen Baustein hinein', () => {
+  const h = edBloecke('Satz eins\n:::klapp Titel\nInhalt\n:::');
+  assert.ok(h.includes('<p>Satz eins</p>'), 'der Absatz muss vorher endeN: ' + h);
+});
+pruefe('Schritte werden nummeriert und aufgeteilt', () => {
+  const h = edBaustein('schritte', 'Anschliessen', ['Strom | Kabel rein.', 'Netz | Dose links.']);
+  assert.equal((h.match(/<li>/g) || []).length, 2);
+  assert.ok(h.includes('<b>Strom</b>'));
+  assert.ok(h.includes('Kabel rein.'));
+});
+pruefe('Kennzahlen: Wert gross, Name klein', () => {
+  const h = edBaustein('kennzahlen', 'Blick', ['MTU | 1500 | Byte']);
+  assert.ok(h.includes('<span class="bk-wert">1500</span>'));
+  assert.ok(h.includes('<span class="bk-name">MTU</span>'));
+  assert.ok(h.includes('Byte'));
+});
+pruefe('Gegenueberstellung nimmt hoechstens vier Seiten', () => {
+  const h = edBaustein('gegenueber', 'X', ['a|1', 'b|2', 'c|3', 'd|4', 'e|5']);
+  assert.equal((h.match(/class="bk-seite"/g) || []).length, 4);
+});
+pruefe('Begriffsliste wird eine Tabelle im Scrollrahmen', () => {
+  const h = edBaustein('begriffe', 'Begriffe', ['MTU | Groesstes Paket.']);
+  assert.ok(h.includes('<div class="tabelle">'));
+  assert.ok(h.includes('<th scope="row">MTU</th>'));
+});
+pruefe('Unbekannter Baustein wird gezeigt, nicht verschluckt', () => {
+  const h = edBaustein('flugzeug', 'Titel', ['Inhalt']);
+  assert.ok(h.includes('Unbekannter Baustein'));
+  assert.ok(h.includes('Inhalt'), 'der Text darf nicht verloren gehen');
+});
+pruefe('Baustein-Text bleibt im Suchstoff, die Zeichen nicht', () => {
+  const t = edNurText(':::kennzahlen Auf einen Blick\nMTU | 1500 | Byte\n:::');
+  assert.ok(!t.includes(':::'), 'Zaeune im Suchtext: ' + t);
+  assert.ok(!t.includes('kennzahlen'), 'die Art ist kein Inhalt: ' + t);
+  assert.ok(t.includes('Auf einen Blick') && t.includes('MTU') && t.includes('1500'));
+});
+pruefe('HTML im Baustein bleibt Text', () => {
+  const h = edBaustein('schritte', '<script>x</script>', ['<img onerror=x> | y']);
+  assert.ok(!h.includes('<script>'));
+  assert.ok(!h.includes('<img'));
+});
+
+/* ------------------------------------------------ Rechner */
+pruefe('Rechner: Felder, Formel und Einheit werden gelesen', () => {
+  const h = edBaustein('rechner', 'Kosten', [
+    'Verbrauch in kWh = 18', 'Preis je kWh = 0,32', '= Verbrauch * Preis',
+    'Einheit: €', 'Ein Hinweis.']);
+  assert.ok(h.includes('data-formel="Verbrauch * Preis"'));
+  assert.ok(h.includes('data-einheit="€"'));
+  assert.ok(h.includes('data-feld="Verbrauch"'));
+  assert.ok(h.includes('data-feld="Preis"'));
+  assert.ok(h.includes('value="18"'));
+  assert.ok(h.includes('Ein Hinweis.'));
+});
+pruefe('Rechenwerk: Punkt vor Strich, von Hand gerechnet', () => {
+  // 2 + 3 * 4 = 14, nicht 20.
+  assert.equal(bkRechnen('2 + 3 * 4', {}), 14);
+  assert.equal(bkRechnen('(2 + 3) * 4', {}), 20);
+  assert.equal(bkRechnen('10 / 4', {}), 2.5);
+  assert.equal(bkRechnen('-3 + 5', {}), 2);
+});
+pruefe('Rechenwerk: Feldnamen und deutsche Kommazahlen', () => {
+  // 18 * 0,32 = 5,76 - von Hand.
+  assert.equal(bkRechnen('a * b', {a: 18, b: 0.32}), 5.76);
+  assert.equal(bkRechnen('18 * 0,32', {}), 5.76);
+  assert.equal(bkRechnen('Verbrauch * Preis', {Verbrauch: 20, Preis: 0.45}), 9);
+});
+pruefe('Rechenwerk: fehlendes Feld ergibt keine Zahl', () => {
+  assert.ok(Number.isNaN(bkRechnen('a * b', {a: 18})));
+  assert.ok(Number.isNaN(bkRechnen('a * b', {a: 18, b: ''})));
+});
+pruefe('Rechenwerk: Teilen durch Null ergibt keine Zahl', () => {
+  assert.ok(Number.isNaN(bkRechnen('a / b', {a: 5, b: 0})));
+});
+pruefe('Rechenwerk fuehrt keinen Code aus', () => {
+  /* Der Kern: es ist kein eval. Alles, was nicht Zahl, Feld oder
+     + - * / ( ) ist, muss zu "keine Zahl" fuehren - nicht zu einem
+     Funktionsaufruf. */
+  for (const formel of ['alert(1)', 'a.constructor', 'a; b', 'a ? 1 : 2',
+                        'fetch("/")', '1 && 2', 'a**b', '[1,2]']) {
+    const w = bkRechnen(formel, {a: 1, b: 2});
+    assert.ok(Number.isNaN(w), formel + ' ergab ' + w);
+  }
+});
+pruefe('Zahlenanzeige: deutsche Schreibweise, sinnvolle Stellen', () => {
+  assert.equal(bkZahl(5.76), '5,76');
+  assert.equal(bkZahl(0.3245), '0,325');       // unter 1: drei Stellen
+  assert.equal(bkZahl(1234.5), '1.234,5');
+  assert.equal(bkZahl(NaN), '\u2014');
+  assert.equal(bkZahl(Infinity), '\u2014');
+});
+pruefe('Die erzeugte Seite bringt Stil und Rechenwerk mit', () => {
+  const s = edSeiteBauen({titel:'T', slug:'t', pfad:'A', abschnitte:[
+    {anker:'x', titel:'X', markup:':::rechner K\na = 2\n= a * 2\n:::'}]});
+  assert.ok(s.includes('bkRechnen'), 'ohne Rechenwerk rechnet nichts');
+  assert.ok(s.includes('bkRechnerStarten()'), 'das Rechenwerk wird nicht gestartet');
+  assert.ok(s.includes('.bk-erg-wert'), 'der Stil der Bausteine fehlt');
 });
 
 console.log('');

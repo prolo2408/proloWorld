@@ -718,6 +718,36 @@ Sichtbarkeit danach            -> max: 1 Seite, lena: 0, Verwalter: 1
 
 ---
 
+## N-14 — Eine `const` vor ihrer Deklaration, und das ganze Wiki war weiß
+
+**Stufe:** hoch, aber nur in meinem eigenen Zwischenstand
+**Datei:** `wiki/index.html`
+**Gefunden bei:** Browserprobe der Bausteine
+
+Beim Einbau der Bausteine habe ich `ED_STIL_BAUSTEINE` und `ED_RECHENWERK`
+hinter die Blöcke gesetzt, die sie benutzen. `const` wird nicht hochgezogen:
+
+```
+Uncaught ReferenceError: Cannot access 'ED_STIL_BAUSTEINE' before initialization
+```
+
+Das ist kein Teilausfall — das Skript der Hülle stirbt beim Laden, und das
+Wiki zeigt **nichts** mehr. Die 54 Editortests waren grün, weil sie die
+Stücke einzeln ausschneiden und in eigener Reihenfolge zusammensetzen. Gemerkt
+hat es erst der Browser.
+
+**Behoben:** beide Blöcke stehen jetzt vor ihrer Verwendung, mit Begründung
+im Kommentar. Dazu ein Test, der genau diese Reihenfolge in der Datei prüft —
+denn ein Test, der Funktionen einzeln ausschneidet, kann diese Art Fehler
+grundsätzlich nicht finden.
+
+**Was daraus folgt:** Für eine Oberfläche ist „die Tests sind grün" keine
+Aussage über das Laden der Seite. Es braucht den Aufruf im Browser, und zwar
+einen, der einen Abbruch auch sichtbar macht — mein Fahrskript hat die
+Meldung anfangs verschluckt und nur „KEINE MESSUNG" geliefert.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
