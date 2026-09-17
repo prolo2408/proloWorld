@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stromkosten verstehen</title>
+
+<script type="application/json" id="wiki-meta">
+{
+  "slug": "stromkosten-verstehen",
+  "titel": "Stromkosten verstehen",
+  "kurz": "Was eine Kilowattstunde ist, was sie kostet, und wo sie hingeht.",
+  "pfad": [
+    "Haushalt",
+    "Energie"
+  ],
+  "gruppen": [],
+  "stand": "2026-09-17",
+  "werkzeug": "editor-1",
+  "abschnitte": [
+    {
+      "anker": "kwh",
+      "titel": "Was eine Kilowattstunde ist",
+      "stichworte": [
+        "kWh",
+        "Kilowattstunde",
+        "Watt",
+        "Verbrauch"
+      ],
+      "text": "Eine Kilowattstunde ist 1000 Watt für eine Stunde. Ein Heizlüfter mit 2000 Watt verbraucht in einer halben Stunde genau eine. Zum Einordnen Wasserkocher 0,1 kWh für einen Liter Waschmaschine 0,8 kWh je Ladung, 40 Grad Kühlschrank 0,4 kWh am Tag",
+      "markup": "Eine **Kilowattstunde** ist 1000 Watt für eine Stunde. Ein Heizlüfter mit 2000 Watt verbraucht in einer halben Stunde genau eine.\n\n:::kennzahlen Zum Einordnen\nWasserkocher | 0,1 | kWh für einen Liter\nWaschmaschine | 0,8 | kWh je Ladung, 40 Grad\nKühlschrank | 0,4 | kWh am Tag\n:::",
+      "gruppe": "Grundlagen"
+    },
+    {
+      "anker": "rechnen",
+      "titel": "Selbst nachrechnen",
+      "stichworte": [
+        "Kosten",
+        "Preis",
+        "Rechner",
+        "Jahreskosten"
+      ],
+      "text": "Was ein Gerät im Jahr kostet Leistung in Watt = 80 Stunden am Tag = 6 Preis je kWh in Euro = 0,32 = Leistung Stunden 365 / 1000 Preis Einheit: € im Jahr Standby zählt mit: ein Gerät mit 5 Watt rund um die Uhr sind 44 kWh im Jahr. Was eine Ladung Strom fürs Auto kostet Menge in kWh = 38 Preis je kWh in Euro = 0,49 = Menge Preis Einheit: € An der Säule; zu Hause ist der Preis meist niedriger.",
+      "markup": ":::rechner Was ein Gerät im Jahr kostet\nLeistung in Watt = 80\nStunden am Tag = 6\nPreis je kWh in Euro = 0,32\n= Leistung * Stunden * 365 / 1000 * Preis\nEinheit: € im Jahr\nStandby zählt mit: ein Gerät mit 5 Watt rund um die Uhr sind 44 kWh im Jahr.\n:::\n\n:::rechner Was eine Ladung Strom fürs Auto kostet\nMenge in kWh = 38\nPreis je kWh in Euro = 0,49\n= Menge * Preis\nEinheit: €\nAn der Säule; zu Hause ist der Preis meist niedriger.\n:::",
+      "gruppe": "Rechnen"
+    },
+    {
+      "anker": "sparen",
+      "titel": "Wo es wirklich etwas bringt",
+      "stichworte": [
+        "sparen",
+        "Standby",
+        "Heizen",
+        "Warmwasser"
+      ],
+      "text": "Der Reihe nach vorgehen Messen Steckdosenmessgerät für eine Woche an die Verdächtigen. Große zuerst Heizen und Warmwasser sind größer als alles andere. Dauerläufer Was rund um die Uhr läuft, zählt mehr als was kurz heiß wird. Gewohnheit Ein Gerät, das aus ist, braucht keinen Strom — auch keinen Standby. Und die Stromspar-Mythen? Das Licht beim kurzen Verlassen des Raums auszuschalten lohnt bei LED kaum noch — es schadet aber auch nicht. Der Rechner im Ruhezustand zieht deutlich weniger als im Betrieb, aber mehr als ausgeschaltet.",
+      "markup": ":::schritte Der Reihe nach vorgehen\nMessen | Steckdosenmessgerät für eine Woche an die Verdächtigen.\nGroße zuerst | Heizen und Warmwasser sind größer als alles andere.\nDauerläufer | Was rund um die Uhr läuft, zählt mehr als was kurz heiß wird.\nGewohnheit | Ein Gerät, das aus ist, braucht keinen Strom — auch keinen Standby.\n:::\n\n:::klapp Und die Stromspar-Mythen?\nDas Licht beim kurzen Verlassen des Raums auszuschalten lohnt bei LED kaum noch — es schadet aber auch nicht. Der Rechner im Ruhezustand zieht deutlich weniger als im Betrieb, aber mehr als ausgeschaltet.\n:::",
+      "gruppe": "Sparen"
+    }
+  ]
+}
+</script>
+
+<style>
+:root{
+  --bg:oklch(0.96 0.004 250); --surface:#fff; --line:oklch(0.92 0.004 250);
+  --line-soft:oklch(0.96 0.002 250); --hover:oklch(0.96 0.003 250);
+  --ink:oklch(0.2 0.01 250); --ink-2:oklch(0.3 0.01 250); --ink-3:oklch(0.52 0.01 250);
+  --accent:oklch(0.52 0.17 262); --accent-soft:oklch(0.94 0.02 262);
+  --accent-ink:oklch(0.38 0.13 262); --on-accent:oklch(0.99 0.002 250);
+  --good:oklch(0.45 0.14 158); --good-soft:oklch(0.97 0.01 158);
+  --warm-soft:oklch(0.94 0.01 60); --warm-ink:oklch(0.45 0.08 60);
+}
+body[data-theme="dark"]{
+  --bg:oklch(0.2 0.012 258); --surface:oklch(0.235 0.013 258);
+  --line:oklch(0.31 0.014 258); --line-soft:oklch(0.27 0.012 258);
+  --hover:oklch(0.27 0.013 258);
+  --ink:oklch(0.96 0.004 250); --ink-2:oklch(0.87 0.006 250); --ink-3:oklch(0.69 0.01 250);
+  --accent:oklch(0.62 0.16 262); --accent-soft:oklch(0.33 0.06 262);
+  --accent-ink:oklch(0.85 0.09 262); --on-accent:oklch(0.16 0.012 258);
+  --good:oklch(0.8 0.14 158); --good-soft:oklch(0.29 0.05 158);
+  --warm-soft:oklch(0.33 0.05 60); --warm-ink:oklch(0.86 0.08 60);
+}
+body{margin:0;background:var(--bg);color:var(--ink-2);
+  font-family:'Instrument Sans',system-ui,-apple-system,sans-serif;
+  font-size:14px;line-height:1.6;padding:28px 32px 60px}
+h2{font-family:'Sora','Instrument Sans',system-ui,sans-serif;font-size:20px;
+  color:var(--ink);letter-spacing:-0.02em;margin:0 0 10px;font-weight:600}
+h3{font-size:15px;color:var(--ink);margin:20px 0 6px;font-weight:600}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 12px;padding-left:22px}
+li{margin:3px 0}
+section{max-width:760px;margin:0 0 26px;padding:18px;border-radius:14px;
+  background:var(--surface);border:1px solid var(--line)}
+code{font-family:'JetBrains Mono',ui-monospace,Consolas,monospace;font-size:12.5px;
+  background:var(--hover);border:1px solid var(--line-soft);border-radius:5px;
+  padding:1px 5px;overflow-wrap:break-word}
+pre{font-family:'JetBrains Mono',ui-monospace,Consolas,monospace;font-size:12.5px;
+  background:var(--hover);border:1px solid var(--line-soft);border-radius:10px;
+  padding:12px 14px;overflow-x:auto;line-height:1.55}
+pre code{background:none;border:0;padding:0;font-size:inherit}
+.tabelle{overflow-x:auto;margin:0 0 14px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line-soft);
+  vertical-align:top}
+th{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;
+  letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-3);font-weight:500}
+.merk,.warn,.gut{padding:11px 14px;border-radius:0 10px 10px 0;margin:14px 0;
+  border-left:3px solid var(--accent)}
+.merk{background:var(--accent-soft);color:var(--accent-ink)}
+.warn{border-left-color:var(--warm-ink);background:var(--warm-soft);color:var(--warm-ink)}
+.gut{border-left-color:var(--good);background:var(--good-soft);color:var(--good)}
+.merk b,.warn b,.gut b{display:block;margin-bottom:3px}
+.verweis{font:inherit;color:var(--accent-ink);background:var(--accent-soft);
+  border:1px solid var(--accent);border-radius:6px;padding:0 6px;cursor:pointer}
+mark.wiki-fund{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){ *{transition:none!important;animation:none!important} }
+@media (max-width:432px){
+  body{padding:18px 18px 40px}
+  section{padding:15px}
+  table{font-size:12px}
+  th,td{padding:6px 5px}
+}
+/* ---------- Bausteine ---------- */
+.bk{margin:16px 0;padding:14px 16px;border-radius:12px;
+  border:1px solid var(--line);background:var(--bg)}
+.bk-kopf{font-weight:600;color:var(--ink);margin-bottom:10px}
+.bk-klapp{padding:0;border:1px solid var(--line);overflow:hidden}
+.bk-klapp summary{cursor:pointer;padding:12px 16px;font-weight:600;
+  color:var(--ink);background:var(--surface)}
+.bk-klapp summary::marker{color:var(--accent)}
+.bk-klapp .bk-innen{padding:4px 16px 14px}
+.bk-schritte ol{margin:0;padding-left:0;list-style:none;counter-reset:bk}
+.bk-schritte li{counter-increment:bk;position:relative;
+  padding:8px 0 8px 40px;border-bottom:1px solid var(--line-soft)}
+.bk-schritte li:last-child{border-bottom:0}
+.bk-schritte li::before{content:counter(bk);position:absolute;left:0;top:8px;
+  width:26px;height:26px;border-radius:8px;background:var(--accent);
+  color:var(--on-accent);display:grid;place-items:center;font-size:13px;
+  font-weight:600}
+.bk-schritte li b{display:block;color:var(--ink)}
+.bk-schritte li span{color:var(--ink-3)}
+.bk-zahlen{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+  gap:10px}
+.bk-zahl{padding:12px;border-radius:10px;background:var(--surface);
+  border:1px solid var(--line);display:flex;flex-direction:column;gap:2px}
+.bk-wert{font-size:22px;font-weight:600;color:var(--ink);line-height:1.1}
+.bk-name{font-size:12.5px;color:var(--ink-2)}
+.bk-klein{font-size:11.5px;color:var(--ink-3)}
+.bk-paar{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:10px}
+.bk-seite{padding:12px;border-radius:10px;background:var(--surface);
+  border:1px solid var(--line)}
+.bk-seite b{display:block;color:var(--ink);margin-bottom:4px}
+.bk-begriffe th{text-align:left;color:var(--ink);font-family:inherit;
+  font-size:13px;text-transform:none;letter-spacing:0;font-weight:600;
+  white-space:nowrap;padding-right:14px}
+.bk-felder{display:grid;gap:8px}
+.bk-felder label{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.bk-felder label span{flex:1 1 180px;font-size:13px}
+.bk-felder input{flex:0 0 110px;width:110px;padding:7px 9px;border-radius:8px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  font-family:'JetBrains Mono',ui-monospace,monospace;font-size:13px;
+  text-align:right}
+.bk-ergebnis{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);
+  display:flex;align-items:baseline;gap:6px}
+.bk-erg-wert{font-size:24px;font-weight:600;color:var(--accent-ink)}
+.bk-erg-einheit{font-size:14px;color:var(--ink-3)}
+.bk-formel{margin-top:6px;font-family:'JetBrains Mono',ui-monospace,monospace;
+  font-size:11.5px;color:var(--ink-3)}
+.bk-hinweis{margin-top:8px;font-size:12.5px;color:var(--ink-3)}
+.bk-pdf-reihe{display:flex;flex-wrap:wrap;gap:8px}
+.bk-pdf-knopf{display:inline-flex;align-items:center;gap:8px;min-height:36px;
+  padding:0 13px;border-radius:9px;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink);font:inherit;font-size:13px;
+  cursor:pointer}
+.bk-pdf-knopf:hover{border-color:var(--accent);color:var(--accent-ink)}
+.bk-pdf-seite{font-family:'JetBrains Mono',ui-monospace,monospace;
+  font-size:11.5px;color:var(--ink-3)}
+@media (max-width:432px){
+  .bk{padding:12px}
+  .bk-felder input{flex:1 1 100%;width:auto;text-align:left}
+}
+</style>
+</head>
+<body data-theme="dark">
+
+    <section id="kwh">
+      <h2>Was eine Kilowattstunde ist</h2>
+      <p>Eine <b>Kilowattstunde</b> ist 1000 Watt für eine Stunde. Ein Heizlüfter mit 2000 Watt verbraucht in einer halben Stunde genau eine.</p>
+      <div class="bk bk-kennzahlen"><div class="bk-kopf">Zum Einordnen</div><div class="bk-zahlen"><div class="bk-zahl"><span class="bk-wert">0,1</span><span class="bk-name">Wasserkocher</span><span class="bk-klein">kWh für einen Liter</span></div><div class="bk-zahl"><span class="bk-wert">0,8</span><span class="bk-name">Waschmaschine</span><span class="bk-klein">kWh je Ladung, 40 Grad</span></div><div class="bk-zahl"><span class="bk-wert">0,4</span><span class="bk-name">Kühlschrank</span><span class="bk-klein">kWh am Tag</span></div></div></div>
+    </section>
+
+    <section id="rechnen">
+      <h2>Selbst nachrechnen</h2>
+      <div class="bk bk-rechner" data-rechner="rflh1yh" data-formel="Leistung * Stunden * 365 / 1000 * Preis" data-einheit="€ im Jahr"><div class="bk-kopf">Was ein Gerät im Jahr kostet</div><div class="bk-felder"><label><span>Leistung in Watt</span><input type="text" inputmode="decimal" data-feld="Leistung" value="80"></label><label><span>Stunden am Tag</span><input type="text" inputmode="decimal" data-feld="Stunden" value="6"></label><label><span>Preis je kWh in Euro</span><input type="text" inputmode="decimal" data-feld="Preis" value="0,32"></label></div><div class="bk-ergebnis"><span class="bk-erg-wert">—</span><span class="bk-erg-einheit">€ im Jahr</span></div><div class="bk-formel">Leistung * Stunden * 365 / 1000 * Preis</div><div class="bk-hinweis">Standby zählt mit: ein Gerät mit 5 Watt rund um die Uhr sind 44 kWh im Jahr.</div></div>
+      <div class="bk bk-rechner" data-rechner="rqtztqg" data-formel="Menge * Preis" data-einheit="€"><div class="bk-kopf">Was eine Ladung Strom fürs Auto kostet</div><div class="bk-felder"><label><span>Menge in kWh</span><input type="text" inputmode="decimal" data-feld="Menge" value="38"></label><label><span>Preis je kWh in Euro</span><input type="text" inputmode="decimal" data-feld="Preis" value="0,49"></label></div><div class="bk-ergebnis"><span class="bk-erg-wert">—</span><span class="bk-erg-einheit">€</span></div><div class="bk-formel">Menge * Preis</div><div class="bk-hinweis">An der Säule; zu Hause ist der Preis meist niedriger.</div></div>
+    </section>
+
+    <section id="sparen">
+      <h2>Wo es wirklich etwas bringt</h2>
+      <div class="bk bk-schritte"><div class="bk-kopf">Der Reihe nach vorgehen</div><ol><li><b>Messen</b><span>Steckdosenmessgerät für eine Woche an die Verdächtigen.</span></li><li><b>Große zuerst</b><span>Heizen und Warmwasser sind größer als alles andere.</span></li><li><b>Dauerläufer</b><span>Was rund um die Uhr läuft, zählt mehr als was kurz heiß wird.</span></li><li><b>Gewohnheit</b><span>Ein Gerät, das aus ist, braucht keinen Strom — auch keinen Standby.</span></li></ol></div>
+      <details class="bk bk-klapp"><summary>Und die Stromspar-Mythen?</summary><div class="bk-innen"><p>Das Licht beim kurzen Verlassen des Raums auszuschalten lohnt bei LED kaum noch — es schadet aber auch nicht. Der Rechner im Ruhezustand zieht deutlich weniger als im Betrieb, aber mehr als ausgeschaltet.</p></div></details>
+    </section>
+
+
+<script>
+/* Pflichtteil jeder Wiki-Seite: auf die Huelle hoeren. */
+(function(){
+  /* Rechenwerk der Bausteine (aus der Huelle uebernommen): ein eigener
+     kleiner Auswerter, KEIN eval. Er kennt Zahlen, Feldnamen und
+     + - * / ( ) - nichts weiter. */
+  function bkRechnen(formel, werte){
+    var t = String(formel || ""), pos = 0;
+    function raum(){ while(pos < t.length && /\s/.test(t[pos])) pos++; }
+    function wert(){
+      raum();
+      var m = /^[0-9]+(?:[.,][0-9]+)?/.exec(t.slice(pos));
+      if(m){ pos += m[0].length; return parseFloat(m[0].replace(",", ".")); }
+      m = /^[A-Za-zÄÖÜäöüß_][A-Za-z0-9ÄÖÜäöüß_]*/.exec(t.slice(pos));
+      if(m){
+        pos += m[0].length;
+        var w = werte[m[0]];
+        return (w === undefined || w === null || w === "") ? NaN : w;
+      }
+      return NaN;
+    }
+    function klammer(){
+      raum();
+      if(t[pos] === "("){ pos++; var w = summe(); raum(); if(t[pos] === ")") pos++; return w; }
+      if(t[pos] === "-"){ pos++; return -klammer(); }
+      if(t[pos] === "+"){ pos++; return klammer(); }
+      return wert();
+    }
+    function produkt(){
+      var w = klammer();
+      for(;;){
+        raum();
+        if(t[pos] === "*"){ pos++; w = w * klammer(); }
+        else if(t[pos] === "/"){ pos++; var d = klammer(); w = (d === 0) ? NaN : w / d; }
+        else return w;
+      }
+    }
+    function summe(){
+      var w = produkt();
+      for(;;){
+        raum();
+        if(t[pos] === "+"){ pos++; w = w + produkt(); }
+        else if(t[pos] === "-"){ pos++; w = w - produkt(); }
+        else return w;
+      }
+    }
+    var erg = summe();
+    raum();
+    /* Bleibt Text uebrig, war die Formel nicht zu lesen - dann lieber nichts
+       zeigen als eine halbe Rechnung. */
+    if(pos < t.length) return NaN;
+    return erg;
+  }
+  function bkZahl(x){
+    if(!isFinite(x)) return "—";
+    var n = Math.abs(x);
+    var stellen = n < 1 ? 3 : (n < 100 ? 2 : (n < 10000 ? 1 : 0));
+    return x.toLocaleString("de-DE", {minimumFractionDigits: 0,
+                                      maximumFractionDigits: stellen});
+  }
+  function bkRechnerStarten(wurzel){
+    (wurzel || document).querySelectorAll(".bk-rechner").forEach(function(k){
+      var felder = [].slice.call(k.querySelectorAll("[data-feld]"));
+      var ziel = k.querySelector(".bk-erg-wert");
+      function neu(){
+        var werte = {};
+        felder.forEach(function(f){
+          var roh = String(f.value || "").trim().replace(",", ".");
+          var z = parseFloat(roh);
+          werte[f.dataset.feld] = isFinite(z) ? z : "";
+          f.setAttribute("aria-invalid", (roh !== "" && !isFinite(z)) ? "true" : "false");
+        });
+        if(ziel) ziel.textContent = bkZahl(bkRechnen(k.dataset.formel, werte));
+      }
+      felder.forEach(function(f){ f.addEventListener("input", neu); });
+      neu();
+    });
+  }
+  /* Bis die Nachricht der Huelle kommt, gilt die Einstellung des Geraets -
+     sonst blitzt bei hellem Wiki kurz die dunkle Fassung auf. */
+  document.body.dataset.theme =
+    (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+      ? 'dark' : 'light';
+  function springen(anker, begriff){
+    if(anker){
+      var el = document.getElementById(anker);
+      if(el) el.scrollIntoView({block:'start'});
+    }
+    document.querySelectorAll('mark.wiki-fund').forEach(function(m){
+      m.replaceWith(document.createTextNode(m.textContent));
+    });
+    if(!begriff || begriff.length < 2) return;
+    var worte = begriff.split(/\s+/).filter(function(w){ return w.length > 1; });
+    if(!worte.length) return;
+    var re = new RegExp('(' + worte.map(function(w){
+      return w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|') + ')', 'gi');
+    /* script und style ueberspringen: deren Text ist kein Inhalt, und eine
+       Marke darin hat kein Layout - scrollIntoView tut dann nichts und der
+       Sprung landet oben auf der Seite statt an der Fundstelle. */
+    var lauf = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode: function(k){
+        var e = k.parentElement;
+        while(e){
+          if(e.tagName === 'SCRIPT' || e.tagName === 'STYLE')
+            return NodeFilter.FILTER_REJECT;
+          e = e.parentElement;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }});
+    var knoten = [], n;
+    while((n = lauf.nextNode())) if(re.test(n.nodeValue)) knoten.push(n);
+    knoten.forEach(function(k){
+      var h = document.createElement('span');
+      h.innerHTML = k.nodeValue.replace(/[&<>]/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; })
+        .replace(re, '<mark class="wiki-fund">$1</mark>');
+      k.replaceWith(h);
+    });
+    var erst = document.querySelector('mark.wiki-fund');
+    if(erst && !anker) erst.scrollIntoView({block:'center'});
+  }
+  window.addEventListener('message', function(e){
+    /* Die Seite laeuft in einem opaken Origin (Sandbox ohne
+       allow-same-origin). location.origin ist darum "null" und taugt nicht
+       als Vergleich - geprueft wird, dass die Nachricht vom eigenen
+       Elternfenster kommt. */
+    if(e.source !== window.parent || !e.data) return;
+    if(e.data.typ === 'wiki-springen') springen(e.data.anker, e.data.begriff);
+    if(e.data.thema) document.body.dataset.theme = e.data.thema;
+  });
+  /* Verweis auf eine andere Wiki-Seite. */
+  document.addEventListener('click', function(e){
+    var b = e.target.closest ? e.target.closest('button.verweis[data-slug]') : null;
+    if(!b) return;
+    if(window.parent !== window)
+      window.parent.postMessage({typ:'wiki-oeffnen', slug:b.dataset.slug}, '*');
+  });
+  /* Dem Wiki melden, was auf dieser Seite wirklich steht: der Server kann
+     kein JavaScript, Inhalte die erst hier entstehen waeren sonst nicht
+     auffindbar. Gleicher Text loest keinen Indexlauf aus. */
+  function textMelden(){
+    if(window.parent === window) return;
+    try {
+      var t = (document.body.innerText || '').replace(/\s+/g, ' ').trim();
+      if(t) window.parent.postMessage({typ:'wiki-text', text:t.slice(0, 200000)}, '*');
+    } catch(e){}
+  }
+  window.addEventListener('load', function(){
+    setTimeout(textMelden, 300);
+    setTimeout(textMelden, 2500);
+  });
+  bkRechnerStarten();
+  /* PDF-Knoepfe: die Seite kann ein PDF nicht selbst zeigen (frame-src
+'     'none'), darum bittet sie die Huelle. Der Dateiname kommt aus der
+     Marke, die der Server beim Ausgliedern gesetzt hat - so bleibt der
+     Knopf richtig, auch wenn die Datei einen anderen Namen bekam. */
+  document.addEventListener('click', function(e){
+    var b = e.target.closest ? e.target.closest('[data-wiki-pdf]') : null;
+    if(!b) return;
+    var quelle = document.getElementById(b.dataset.wikiPdf);
+    var name = quelle ? (quelle.getAttribute('data-wiki-anhang') || '') : '';
+    if(!name || window.parent === window) return;
+    window.parent.postMessage({typ:'wiki-pdf', datei:name,
+                               seite:b.dataset.wikiSeite || ''}, '*');
+  });
+  if(window.parent !== window)
+    window.parent.postMessage({typ:'wiki-bereit'}, '*');
+})();
+</script>
+</body>
+</html>

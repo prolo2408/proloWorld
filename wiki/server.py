@@ -98,6 +98,9 @@ CREATE TABLE IF NOT EXISTS abschnitt(
   ebene        INTEGER NOT NULL DEFAULT 1,
   stichworte   TEXT NOT NULL DEFAULT '',
   text         TEXT NOT NULL DEFAULT '',
+  -- Ueberschrift im Inhaltsverzeichnis: mehrere Abschnitte teilen eine
+  -- Gruppe ("Grundlagen", "Adressierung"). Leer heisst: keine Gruppe.
+  gruppe       TEXT NOT NULL DEFAULT '',
   reihenfolge  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_abschnitt_seite ON abschnitt(seite_id);
@@ -239,6 +242,11 @@ def datenbank_anlegen():
     os.makedirs(SEITEN, exist_ok=True)
     v = db()
     v.executescript(SCHEMA)
+    if spalte_nachtragen(v, "abschnitt", "gruppe", "TEXT NOT NULL DEFAULT ''"):
+        sys.stderr.write(
+            "HINWEIS: Die Tabelle abschnitt hat die Spalte gruppe bekommen. "
+            "Sie fuellt sich beim naechsten Speichern einer Seite; bis dahin "
+            "steht das Inhaltsverzeichnis ohne Ueberschriften da.\n")
     if spalte_urheber_nachtragen(v):
         sys.stderr.write(
             "HINWEIS: Die Tabelle seite hat die Spalte urheber bekommen "
@@ -833,6 +841,21 @@ def darf_aendern(z, kennung, ist_admin):
     return bool(kennung) and urheber_von(z) == kennung
 
 
+def spalte_nachtragen(v, tabelle, spalte, bauart):
+    """Eine Spalte in einer bestehenden Datenbank nachtragen.
+
+    CREATE TABLE IF NOT EXISTS legt keine Spalte in einer Tabelle nach, die
+    es schon gibt. Darum dieser Weg: nur hinzufuegen, nie etwas
+    ueberschreiben. Gibt True zurueck, wenn die Spalte angelegt wurde.
+    """
+    spalten = {z["name"] for z in
+               v.execute("PRAGMA table_info(%s)" % tabelle).fetchall()}
+    if spalte in spalten:
+        return False
+    v.execute("ALTER TABLE %s ADD COLUMN %s %s" % (tabelle, spalte, bauart))
+    return True
+
+
 def spalte_urheber_nachtragen(v):
     """Aeltere Datenbank auf die Spalte urheber bringen (N-15).
 
@@ -843,10 +866,8 @@ def spalte_urheber_nachtragen(v):
 
     Gibt True zurueck, wenn die Spalte angelegt wurde.
     """
-    spalten = {z["name"] for z in v.execute("PRAGMA table_info(seite)").fetchall()}
-    if "urheber" in spalten:
+    if not spalte_nachtragen(v, "seite", "urheber", "TEXT NOT NULL DEFAULT ''"):
         return False
-    v.execute("ALTER TABLE seite ADD COLUMN urheber TEXT NOT NULL DEFAULT ''")
     v.execute("UPDATE seite SET urheber = COALESCE("
               "(SELECT f.nutzer_id FROM fassung f WHERE f.seite_id = seite.id "
               "AND f.nutzer_id <> '' ORDER BY f.nummer LIMIT 1), nutzer_id)")
@@ -1007,9 +1028,10 @@ def uebernehmen(html, teile, nutzer, kommentar=""):
     v.execute("DELETE FROM abschnitt WHERE seite_id=?", (seite_id,))
     for i, a in enumerate(teile["abschnitte"]):
         v.execute("INSERT INTO abschnitt(seite_id,anker,titel,ebene,stichworte,text,"
-                  "reihenfolge) VALUES(?,?,?,?,?,?,?)",
+                  "gruppe,reihenfolge) VALUES(?,?,?,?,?,?,?,?)",
                   (seite_id, a.get("anker", ""), a.get("titel", ""), a.get("ebene", 1),
-                   " ".join(a.get("stichworte", []) or []), a.get("text", "") or "", i))
+                   " ".join(a.get("stichworte", []) or []), a.get("text", "") or "",
+                   str(a.get("gruppe", "") or "").strip()[:80], i))
 
     # Anhaenge (N-18): Die Zeilen der Anhaenge, die diese Seite weiter nennt,
     # bleiben - sonst verliert eine Seite beim Bearbeiten ihre Anhaenge. Genau
@@ -1131,9 +1153,33 @@ def index_neu_bauen(seite_id, html=None):
         except sqlite3.OperationalError:
             pass
 
-    for a in v.execute("SELECT * FROM abschnitt WHERE seite_id=? ORDER BY reihenfolge",
-                       (seite_id,)).fetchall():
-        eintragen("abschnitt", a["anker"], "", 0, a["titel"], a["stichworte"], a["text"])
+    abschnitte = v.execute(
+        "SELECT * FROM abschnitt WHERE seite_id=? ORDER BY reihenfolge",
+        (seite_id,)).fetchall()
+    for a in abschnitte:
+        # Die Gruppe gehoert zu den Stichworten des Abschnitts: wer nach
+        # "Adressierung" sucht, will den Abschnitt, nicht nur die Seite.
+        stich = " ".join(x for x in (a["stichworte"], a["gruppe"]) if x)
+        eintragen("abschnitt", a["anker"], "", 0, a["titel"], stich, a["text"])
+
+    # Der Seitenkopf als eigener Treffer: Titel, der Satz darunter, der Pfad im
+    # Themenbaum, die Gruppen des Verzeichnisses und die Abschnittstitel.
+    #
+    # Ohne das ist eine Seite nur ueber ihren INHALT zu finden, nicht ueber das,
+    # was sie beschreibt. In der Messung fehlten damit sechs von 22 Begriffen:
+    # "Haushalt" und "Energie" (nur im Pfad), "hingeht" (nur im Satz der Seite),
+    # "Grundlagen" und "Adressierung" (nur als Gruppe). Genau die Woerter, mit
+    # denen ein Mensch anfaengt, wenn er den Titel nicht mehr weiss.
+    pfad = " ".join(json.loads(seite["pfad_json"] or "[]"))
+    gruppen = []
+    for a in abschnitte:
+        g = (a["gruppe"] or "").strip()
+        if g and g not in gruppen:
+            gruppen.append(g)
+    eintragen("kopf", "", "", 0, seite["titel"],
+              " ".join(x for x in [pfad, " ".join(gruppen), seite["slug"]] if x),
+              " ".join(x for x in [seite["kurz"]] +
+                       [a["titel"] for a in abschnitte] if x))
 
     # Sichtbarer Seitentext als zusaetzliches Netz.
     if html is None:
@@ -1347,12 +1393,19 @@ def suchen(nutzer, begriff, grenze=40, mit_anhaengen=True):
         titel = z["abschnittstitel"] or seite["titel"]
         if entwerten(begriff) in entwerten(titel):
             punkte += 25
+        # Der Kopftreffer zeigt den Satz der Seite, nicht seinen Suchstoff.
+        # Im Index stehen dort auch Pfad, Gruppen und alle Abschnittstitel -
+        # das ist zum FINDEN da. Als Schnipsel gelesen ergaebe es eine
+        # aneinandergehaengte Titelkette, und die sagt nichts.
+        stoff = z["s_text"] or z["s_stich"] or ""
+        if z["art"] == "kopf":
+            stoff = seite["kurz"] or stoff
         ergebnis.append({
             "slug": seite["slug"], "seitentitel": seite["titel"],
             "pfad": json.loads(seite["pfad_json"] or "[]"),
             "art": z["art"], "anker": z["anker"], "anhang": z["anhang_name"],
             "seitennr": z["seitennr"], "titel": titel,
-            "schnipsel": schnipsel(z["s_text"] or z["s_stich"] or "", worte),
+            "schnipsel": schnipsel(stoff, worte),
             "punkte": round(punkte, 3), "quelle": quelle,
         })
 
@@ -1683,7 +1736,7 @@ class Handler(BaseHTTPRequestHandler):
                          (n.kennung, slug, jetzt()))
             db().commit()
             absch = [dict(r) for r in db().execute(
-                "SELECT anker,titel,ebene FROM abschnitt WHERE seite_id=? "
+                "SELECT anker,titel,ebene,gruppe FROM abschnitt WHERE seite_id=? "
                 "ORDER BY reihenfolge", (z["id"],)).fetchall()]
             anh = [dict(r) for r in db().execute(
                 "SELECT name,typ,groesse_b,marke FROM anhang WHERE seite_id=?",
