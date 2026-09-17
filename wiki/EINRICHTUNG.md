@@ -259,6 +259,40 @@ Abschnitt:
 Eine Gruppe ist außerdem **durchsuchbar**: „Adressierung" findet die Seite und
 springt an den Abschnitt.
 
+## In einer einzelnen Seite suchen
+
+`Strg+F` in einer offenen Seite (oder der Knopf **Finden** im Kopf) öffnet eine
+Leiste über der Seite:
+
+```
+In dieser Seite  [ tcp          ]  3 von 17 · TCP und UDP   ↑  ↓  ✕
+```
+
+`Eingabe` springt zur nächsten Stelle, `Umschalt+Eingabe` zur vorigen, `Esc`
+schließt und nimmt die Markierungen weg. Die Zahl hinter dem Punkt sagt, in
+welchem **Abschnitt** man gerade steht — bei einer langen Seite ist das die
+eigentliche Auskunft.
+
+Wie das geht, ist nicht selbstverständlich: Die Seite läuft in einem
+abgeschotteten Rahmen mit **eigenem, opakem Origin**. Die Hülle kann ihren Text
+nicht lesen und nicht durchsuchen. Also fragt sie:
+
+| Richtung | Nachricht | Inhalt |
+|---|---|---|
+| Hülle → Seite | `wiki-finden` | `begriff`, `nr` (welche Stelle) |
+| Seite → Hülle | `wiki-funde` | `anzahl`, `nr`, `anker`, `abschnitt` |
+
+Markieren, Aufklappen und Hinscrollen macht die Seite selbst — sie ist die
+einzige, die ihren Text kennt. Steckt eine Fundstelle in einem **zugeklappten
+Klapptext**, klappt die Seite ihn auf; sonst hätte die Markierung kein Layout
+und der Sprung landete irgendwo.
+
+**Seiten, die vor dieser Fassung gespeichert wurden**, kennen `wiki-finden`
+nicht. Sie markieren die Stellen trotzdem (das gab es vorher schon), können
+aber nicht mitzählen. Die Leiste sagt das dann in einem Satz. Ein Durchlauf
+über *Bearbeiten → Speichern* bringt die Seite auf den Stand; für die Seiten im
+Repository macht das `node pflichtteil-nachziehen.mjs --schreiben`.
+
 ## Was die Suche findet
 
 Der Index hat fünf Quellen, und die Reihenfolge ist Absicht:

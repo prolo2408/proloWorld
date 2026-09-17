@@ -214,8 +214,35 @@ header{height:76px;flex:0 0 76px;background:var(--chrome);
   border-bottom:1px solid var(--line);display:flex;align-items:center;
   gap:14px;padding:0 24px}
 #inhalt{flex:1;min-height:0;display:flex;background:var(--app)}
-#inhaltsspalte{flex:1;min-width:0;position:relative;height:100%}
-#rahmen{width:100%;height:100%;border:0;display:block;background:var(--app)}
+#inhaltsspalte{flex:1;min-width:0;position:relative;height:100%;
+  display:flex;flex-direction:column}
+#rahmen{width:100%;flex:1 1 auto;min-height:0;border:0;display:block;
+  background:var(--app)}
+#rahmen[hidden]{display:none}
+#finden{flex:0 0 auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:10px 20px;background:var(--chrome);border-bottom:1px solid var(--line)}
+#finden[hidden]{display:none}
+#finden .label{flex:0 0 auto}
+#finden input{flex:1 1 200px;min-width:120px;height:38px;padding:0 12px;
+  border-radius:10px;border:1px solid var(--line);background:var(--surface);
+  color:var(--ink);font:inherit;font-size:13px}
+#finden input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+#finden .knopf{flex:0 0 auto}
+#finden-stand{flex:0 1 auto;font-size:12.5px;color:var(--ink-3);min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#finden-stand[data-leer="1"]{color:var(--warm-ink)}
+/* Schmal: die Beschriftung bleibt fuer Vorleser, nimmt aber keine Zeile
+   mehr weg - der Platzhalter im Feld sagt dasselbe. Feld und die drei
+   Knoepfe passen dann in eine Reihe, die Standzeile kommt darunter.
+   Gemessen bei 360 Pixeln: vorher 113 Pixel Leiste, jetzt 90 - und der
+   Rahmen fuer die Seite gewinnt genau diese 23 zurueck. */
+@media (max-width:860px){
+  #finden{padding:8px 16px;gap:8px}
+  #finden .label{position:absolute;left:-9999px;width:1px;height:1px;
+    overflow:hidden}
+  #finden input{flex:1 1 120px;min-width:100px;height:44px}
+  #finden-stand{flex:1 1 100%;order:9}
+}
 
 /* ------------------------------------------------ Bausteine */
 .karte{padding:18px;border-radius:14px;background:var(--surface);
@@ -304,7 +331,7 @@ details.karte > summary{min-height:44px}
 mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;padding:0 2px}
 
 /* ------------------------------------------------ Startseite und Verwaltung */
-.flaeche{height:100%;overflow-y:auto;padding:28px 32px 60px}
+.flaeche{flex:1 1 auto;min-height:0;overflow-y:auto;padding:28px 32px 60px}
 /* Regelblatt 6: sonst zieht sich auf breiten Schirmen alles auseinander. */
 .mitte{max-width:1280px;margin:0 auto}
 .raster{display:grid;gap:16px}
@@ -535,6 +562,8 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
     <header>
       <button class="knopf rahmen" id="menue-knopf" aria-label="Themen anzeigen"
               aria-expanded="false">Themen</button>
+      <button class="knopf rahmen" id="finden-knopf" hidden
+              title="In dieser Seite suchen (Strg+F)">Finden</button>
       <button class="knopf rahmen" id="merken-knopf" hidden>Merken</button>
       <button class="knopf rahmen" id="bearbeiten-knopf" hidden>Bearbeiten</button>
 
@@ -585,6 +614,24 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
            Attribut haengt. -->
       <nav id="seitenteile" hidden aria-label="Abschnitte dieser Seite"></nav>
       <div id="inhaltsspalte">
+        <!-- Suche IN der offenen Seite. Die Leiste schiebt den Rahmen nach
+             unten, statt ueber ihm zu schweben: eine schwebende Leiste
+             verdeckt Inhalt, und genau das war schon einmal ein Fehler. -->
+        <div id="finden" hidden>
+          <label class="label" for="finden-feld">In dieser Seite</label>
+          <input type="search" id="finden-feld" autocomplete="off"
+                 spellcheck="false" placeholder="Wort suchen">
+          <span id="finden-stand" role="status" aria-live="polite"></span>
+          <button class="knopf rahmen" id="finden-zurueck"
+                  aria-label="Vorige Stelle" title="Vorige Stelle (Umschalt+Eingabe)"
+                  disabled>&uarr;</button>
+          <button class="knopf rahmen" id="finden-vor"
+                  aria-label="Nächste Stelle" title="Nächste Stelle (Eingabe)"
+                  disabled>&darr;</button>
+          <button class="knopf still" id="finden-zu"
+                  aria-label="Suche in der Seite schließen"
+                  title="Schließen (Esc)">&#10005;</button>
+        </div>
         <iframe id="rahmen" title="Wiki-Seite" hidden
                 sandbox="allow-scripts allow-popups allow-downloads"></iframe>
         <div class="flaeche" id="flaeche" data-noscroll></div>
@@ -826,9 +873,15 @@ window.addEventListener('message', (e) => {
   const f = $('rahmen');
   if(!f || !e.source || e.source !== f.contentWindow) return;
   if(!e.data || typeof e.data !== 'object') return;
-  if(e.data.typ === 'wiki-bereit') springen(($('rahmen')._auftrag||{}).anker,
-                                            ($('rahmen')._auftrag||{}).begriff);
+  if(e.data.typ === 'wiki-bereit'){
+    springen(($('rahmen')._auftrag||{}).anker, ($('rahmen')._auftrag||{}).begriff);
+    /* Steht die Findenleiste offen und die Seite ist gerade gewechselt,
+       gilt die alte Zahl nicht mehr. Also noch einmal fragen. */
+    if(!$('finden').hidden && $('finden-feld').value.trim().length >= 2)
+      findenSenden(0);
+  }
   if(e.data.typ === 'wiki-oeffnen' && e.data.slug) oeffnen(e.data.slug, e.data.anker);
+  if(e.data.typ === 'wiki-funde') findenStandZeigen(e.data);
   if(e.data.typ === 'wiki-pdf' && typeof e.data.datei === 'string'){
     /* Die Seite darf ein PDF nicht selbst anzeigen (ihre CSP setzt frame-src
        und object-src auf 'none', und das ist die Grenze, die sie vom Rest des
@@ -887,7 +940,32 @@ document.addEventListener('keydown', (e) => {
   if(e.key === '/' && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)){
     e.preventDefault(); $('suchfeld').focus(); $('suchfeld').select();
   }
-  if(e.key === 'Escape') pdfSchliessen();
+  /* Strg+F ist der Griff, den jeder kennt. Die Suche des Browsers kaeme
+     hier ohnehin nicht weit: die Seite steht in einem eigenen Rahmen, und
+     die Huelle drumherum hat kaum Text. */
+  if((e.key === 'f' || e.key === 'F') && (e.ctrlKey || e.metaKey) && !e.altKey){
+    if(ZUSTAND.ansicht === 'seite' && ZUSTAND.slug){ e.preventDefault(); findenAuf(); }
+  }
+  if(e.key === 'F3'){ e.preventDefault();
+    if($('finden').hidden) findenAuf();
+    else findenSenden(FINDEN.nr + (e.shiftKey ? -1 : 1));
+  }
+  if(e.key === 'Escape'){
+    pdfSchliessen();
+    if(!$('finden').hidden) findenZu();
+  }
+});
+$('finden-knopf').onclick = () => $('finden').hidden ? findenAuf() : findenZu();
+$('finden-zu').onclick = () => findenZu();
+$('finden-vor').onclick = () => findenSenden(FINDEN.nr + 1);
+$('finden-zurueck').onclick = () => findenSenden(FINDEN.nr - 1);
+$('finden-feld').addEventListener('input', () => findenSenden(0));
+$('finden-feld').addEventListener('keydown', (e) => {
+  if(e.key === 'Enter'){
+    e.preventDefault();
+    findenSenden(FINDEN.nr + (e.shiftKey ? -1 : 1));
+  }
+  if(e.key === 'Escape'){ e.preventDefault(); findenZu(); }
 });
 $('pdf-zu').onclick = () => pdfSchliessen();
 /* Die Knoepfe in der VORSCHAU des Editors: liegt die Datei schon als Anhang
@@ -1095,6 +1173,103 @@ function pdfSchliessen(){
   schau.hidden = true;
   $('pdf-rahmen').removeAttribute('src');
 }
+/* ---------------------------------------------------- In der Seite suchen
+   Die Seite laeuft in einem eigenen, opaken Origin - die Huelle kann in
+   ihrem Text nicht selbst suchen und ihn auch nicht lesen. Also fragt sie:
+   Begriff und Nummer der gewuenschten Stelle hin (wiki-finden), Anzahl,
+   Nummer und Abschnitt zurueck (wiki-funde). Das Markieren, Aufklappen und
+   Hinscrollen macht die Seite. */
+const FINDEN = {begriff: '', nr: 0, anzahl: 0, gemeldet: false,
+                gewarnt: false, frist: 0};
+function findenNachricht(begriff, nr){
+  const f = $('rahmen');
+  if(!f || f.hidden || !f.contentWindow) return false;
+  f.contentWindow.postMessage({typ:'wiki-finden', begriff, nr}, '*');
+  return true;
+}
+function findenAuf(){
+  if(ZUSTAND.ansicht !== 'seite' || !ZUSTAND.slug)
+    return einblenden('Das geht in einer offenen Seite — öffne zuerst eine.');
+  $('finden').hidden = false;
+  const f = $('finden-feld');
+  f.focus(); f.select();
+  if(f.value.trim().length >= 2) findenSenden(0);
+}
+function findenZu(){
+  clearTimeout(FINDEN.frist);
+  $('finden').hidden = true;
+  $('finden-stand').textContent = '';
+  $('finden-stand').dataset.leer = '0';
+  FINDEN.begriff = ''; FINDEN.nr = 0; FINDEN.anzahl = 0;
+  /* Die Marken in der Seite wieder wegnehmen - sonst bleibt die Seite
+     bunt, nachdem die Leiste zu ist. */
+  findenNachricht('', 0);
+  $('finden-vor').disabled = true;
+  $('finden-zurueck').disabled = true;
+}
+function findenVerbergen(){
+  /* Beim Wechsel in eine andere Ansicht: die Leiste gehoert zur offenen
+     Seite. Ohne Nachricht an die Seite - die ist dann schon weg. */
+  clearTimeout(FINDEN.frist);
+  $('finden').hidden = true;
+  FINDEN.begriff = ''; FINDEN.nr = 0; FINDEN.anzahl = 0;
+}
+function findenSenden(nr){
+  const begriff = $('finden-feld').value.trim();
+  const stand = $('finden-stand');
+  FINDEN.begriff = begriff;
+  FINDEN.nr = nr;
+  clearTimeout(FINDEN.frist);
+  if(begriff.length < 2){
+    stand.textContent = begriff ? 'mindestens zwei Zeichen' : '';
+    stand.dataset.leer = '0';
+    $('finden-vor').disabled = true;
+    $('finden-zurueck').disabled = true;
+    findenNachricht('', 0);
+    return;
+  }
+  FINDEN.gemeldet = false;
+  stand.textContent = 'sucht …';
+  stand.dataset.leer = '0';
+  if(!findenNachricht(begriff, nr)) return;
+  /* Antwortet die Seite nicht, wurde sie vor dieser Fassung gespeichert:
+     ihr Pflichtteil kennt wiki-finden nicht. Markieren kann sie trotzdem -
+     das gab es schon vorher. Also wenigstens das, und einmal sagen, warum
+     hier keine Zahl steht. */
+  FINDEN.frist = setTimeout(() => {
+    if(FINDEN.gemeldet) return;
+    stand.textContent = 'diese Seite kann noch nicht mitzählen';
+    stand.dataset.leer = '1';
+    const f = $('rahmen');
+    if(f && f.contentWindow)
+      f.contentWindow.postMessage({typ:'wiki-springen', anker:'', begriff}, '*');
+    if(FINDEN.gewarnt) return;
+    FINDEN.gewarnt = true;
+    einblenden('Diese Seite wurde vor dieser Fassung gespeichert und kann '
+      + 'noch nicht in sich suchen. Die Stellen werden markiert, aber nicht '
+      + 'gezählt. Einmal über Bearbeiten → Speichern, dann geht es.', 9000);
+  }, 600);
+}
+function findenStandZeigen(d){
+  FINDEN.gemeldet = true;
+  clearTimeout(FINDEN.frist);
+  FINDEN.anzahl = Math.max(0, d.anzahl | 0);
+  FINDEN.nr = d.nr | 0;
+  const stand = $('finden-stand');
+  if(!FINDEN.anzahl){
+    stand.textContent = FINDEN.begriff.length >= 2 ? 'nichts gefunden' : '';
+    stand.dataset.leer = '1';
+  } else {
+    /* "3 von 17" und dazu, in welchem Abschnitt man gerade steht - bei
+       einer langen Seite ist das die eigentliche Auskunft. */
+    stand.textContent = zahl(FINDEN.nr + 1) + ' von ' + zahl(FINDEN.anzahl)
+      + (d.abschnitt ? ' · ' + d.abschnitt : '');
+    stand.dataset.leer = '0';
+  }
+  $('finden-vor').disabled = FINDEN.anzahl < 2;
+  $('finden-zurueck').disabled = FINDEN.anzahl < 2;
+  if(d.anker) abschnittMarkieren(d.anker);
+}
 function trefferWaehlen(i){
   const t = ZUSTAND.treffer[i];
   if(!t) return;
@@ -1121,7 +1296,7 @@ async function start(){
   merkenKnopf(null);
   abschnittsleiste(null);
   ZUSTAND.ansicht = 'start'; ZUSTAND.slug = null;
-  $('vorschau-leiste').hidden = true; $('ed-leiste').hidden = true;
+  $('vorschau-leiste').hidden = true; $('ed-leiste').hidden = true; findenVerbergen();
   history.replaceState(null, '', '#/');
   $('rahmen').hidden = true; $('rahmen').removeAttribute('src');
   $('flaeche').hidden = false;
@@ -1209,7 +1384,7 @@ async function einstellungen(){
   bearbeitenKnopf(null);
   merkenKnopf(null);
   abschnittsleiste(null);
-  $('vorschau-leiste').hidden = true; $('ed-leiste').hidden = true;
+  $('vorschau-leiste').hidden = true; $('ed-leiste').hidden = true; findenVerbergen();
   ZUSTAND.ansicht = 'einstellungen'; ZUSTAND.slug = null;
   markieren(); menueZu();
   $('rahmen').hidden = true; $('rahmen').removeAttribute('src');
@@ -1362,7 +1537,7 @@ async function verwaltung(){
   bearbeitenKnopf(null);
   merkenKnopf(null);
   abschnittsleiste(null);
-  $('vorschau-leiste').hidden = true; $('ed-leiste').hidden = true;
+  $('vorschau-leiste').hidden = true; $('ed-leiste').hidden = true; findenVerbergen();
   $('rahmen').hidden = true; $('rahmen').removeAttribute('src');
   $('flaeche').hidden = false;
   $('kopftitel').textContent = 'Verwaltung';
@@ -2363,6 +2538,10 @@ const ED_STIL = [
 '.verweis{font:inherit;color:var(--accent-ink);background:var(--accent-soft);',
 '  border:1px solid var(--accent);border-radius:6px;padding:0 6px;cursor:pointer}',
 'mark.wiki-fund{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px}',
+'/* Die Stelle, an der man gerade steht - sonst sehen siebzehn Marken alle',
+'   gleich aus und "3 von 17" sagt nichts. */',
+'mark.wiki-fund.wiki-jetzt{background:var(--accent);color:var(--on-accent);',
+'  box-shadow:0 0 0 2px var(--accent)}',
 ':focus-visible{outline:2px solid var(--accent);outline-offset:2px}',
 '@media (prefers-reduced-motion:reduce){ *{transition:none!important;animation:none!important} }',
 '@media (max-width:432px){',
@@ -2387,11 +2566,12 @@ ED_RECHENWERK,
 '  document.body.dataset.theme =',
 "    (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)",
 "      ? 'dark' : 'light';",
-'  function springen(anker, begriff){',
-'    if(anker){',
-'      var el = document.getElementById(anker);',
-"      if(el) el.scrollIntoView({block:'start'});",
-'    }',
+'  /* ---- Fundstellen markieren ----',
+'     Zwei Aufgaben teilen sich denselben Code: der Sprung aus einem',
+'     Suchtreffer (wiki-springen) und die Suche IN dieser Seite',
+'     (wiki-finden). Darum steht das Markieren hier einmal. */',
+'  var FUNDE = [], FUND_NR = -1, FUND_WORT = null;',
+'  function markenSetzen(begriff){',
 "    document.querySelectorAll('mark.wiki-fund').forEach(function(m){",
 '      var eltern = m.parentNode;',
 '      m.replaceWith(document.createTextNode(m.textContent));',
@@ -2400,9 +2580,10 @@ ED_RECHENWERK,
 '         Marke hinweggeht, waere danach nicht mehr zu finden. */',
 '      if(eltern) eltern.normalize();',
 '    });',
-'    if(!begriff || begriff.length < 2) return;',
+'    FUNDE = []; FUND_NR = -1;',
+'    if(!begriff || begriff.length < 2) return [];',
 '    var worte = begriff.split(/\\s+/).filter(function(w){ return w.length > 1; });',
-'    if(!worte.length) return;',
+'    if(!worte.length) return [];',
 "    var re = new RegExp('(' + worte.map(function(w){",
 "      return w.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'); }).join('|') + ')', 'gi');",
 '    /* script und style ueberspringen: deren Text ist kein Inhalt, und eine',
@@ -2440,8 +2621,55 @@ ED_RECHENWERK,
 '      while(h.firstChild) stueck.appendChild(h.firstChild);',
 '      k.replaceWith(stueck);',
 '    });',
-"    var erst = document.querySelector('mark.wiki-fund');",
-"    if(erst && !anker) erst.scrollIntoView({block:'center'});",
+"    return [].slice.call(document.querySelectorAll('mark.wiki-fund'));",
+'  }',
+'  function springen(anker, begriff){',
+'    if(anker){',
+'      var el = document.getElementById(anker);',
+"      if(el) el.scrollIntoView({block:'start'});",
+'    }',
+'    FUNDE = markenSetzen(begriff);',
+"    FUND_WORT = begriff ? String(begriff) : null;",
+'    if(FUNDE.length && !anker) FUNDE[0].scrollIntoView({block:\'center\'});',
+'  }',
+'  /* ---- In dieser Seite suchen ----',
+'     Die Huelle kann in der Seite nicht selbst suchen: eigener, opaker',
+'     Origin. Sie schickt den Begriff und die Nummer der gewuenschten',
+'     Stelle, die Seite markiert, springt hin und meldet zurueck, wie viele',
+'     es sind und wo sie steht. */',
+'  function fundeMelden(){',
+'    if(window.parent === window) return;',
+'    var m = FUND_NR >= 0 ? FUNDE[FUND_NR] : null;',
+"    var teil = m && m.closest ? m.closest('section[id]') : null;",
+"    var kopf = teil ? teil.querySelector('h1,h2,h3') : null;",
+"    window.parent.postMessage({typ:'wiki-funde',",
+"      begriff: FUND_WORT || '', anzahl: FUNDE.length, nr: FUND_NR,",
+"      anker: teil ? teil.id : '',",
+"      abschnitt: kopf ? (kopf.textContent || '').slice(0, 80) : ''}, '*');",
+'  }',
+'  function finden(begriff, nr){',
+"    begriff = String(begriff == null ? '' : begriff);",
+'    if(begriff !== FUND_WORT){',
+'      FUNDE = markenSetzen(begriff);',
+'      FUND_WORT = begriff;',
+'    }',
+'    if(!FUNDE.length){ FUND_NR = -1; return fundeMelden(); }',
+'    var z = FUNDE.length;',
+'    FUND_NR = ((Number(nr) || 0) % z + z) % z;',
+'    for(var i = 0; i < z; i++)',
+"      FUNDE[i].classList.toggle('wiki-jetzt', i === FUND_NR);",
+'    var m = FUNDE[FUND_NR];',
+'    /* Steckt die Stelle in einem zugeklappten Klapptext, wird er',
+'       geoeffnet - sonst hat die Marke kein Layout, und der Sprung landet',
+'       irgendwo statt an der Fundstelle. */',
+"    var d = m.closest ? m.closest('details:not([open])') : null;",
+'    while(d){',
+'      d.open = true;',
+'      d = d.parentElement && d.parentElement.closest',
+"        ? d.parentElement.closest('details:not([open])') : null;",
+'    }',
+"    m.scrollIntoView({block:'center'});",
+'    fundeMelden();',
 '  }',
 "  window.addEventListener('message', function(e){",
 '    /* Die Seite laeuft in einem opaken Origin (Sandbox ohne',
@@ -2450,6 +2678,7 @@ ED_RECHENWERK,
 '       Elternfenster kommt. */',
 '    if(e.source !== window.parent || !e.data) return;',
 "    if(e.data.typ === 'wiki-springen') springen(e.data.anker, e.data.begriff);",
+"    if(e.data.typ === 'wiki-finden') finden(e.data.begriff, e.data.nr);",
 '    if(e.data.thema) document.body.dataset.theme = e.data.thema;',
 '  });',
 '  /* Verweis auf eine andere Wiki-Seite. */',
@@ -3449,6 +3678,10 @@ function merkenKnopf(slug){
   const k = $('merken-knopf');
   if(!k) return;
   k.hidden = !slug;
+  /* Der Finden-Knopf gilt fuer dieselbe Lage: es gibt ihn, wenn eine Seite
+     offen ist. Ein Knopf, der nichts zu suchen hat, ist kein Knopf. */
+  const fk = $('finden-knopf');
+  if(fk) fk.hidden = !slug;
   if(!slug) return;
   const drin = istGemerkt(slug);
   k.textContent = drin ? 'Gemerkt' : 'Merken';
@@ -3491,7 +3724,7 @@ async function editor(slug){
   bearbeitenKnopf(null);
   merkenKnopf(null);
   abschnittsleiste(null);
-  $('vorschau-leiste').hidden = true; $('ed-leiste').hidden = true;
+  $('vorschau-leiste').hidden = true; $('ed-leiste').hidden = true; findenVerbergen();
   $('rahmen').hidden = true; $('rahmen').removeAttribute('src');
   $('flaeche').hidden = false;
   menueZu(); markieren();
@@ -3580,7 +3813,7 @@ function editorZeichnen(opt){
   if(!e) return verwaltung();
   opt = opt || {};
   $('rahmen').hidden = true; $('flaeche').hidden = false;
-  $('vorschau-leiste').hidden = true; $('ed-leiste').hidden = true;
+  $('vorschau-leiste').hidden = true; $('ed-leiste').hidden = true; findenVerbergen();
   $('kopftitel').textContent = e.neu ? 'Neue Seite' : 'Seite bearbeiten';
   $('kopfkontext').textContent = e.titel || 'noch kein Titel';
   const pfade = (ZUSTAND.pfade || []).map(p =>

@@ -857,6 +857,48 @@ pruefe('Jede mitgelieferte Seite traegt den Pflichtteil der Huelle', () => {
   assert.deepEqual(alt, [], 'Pflichtteil nicht auf dem Stand: ' + alt.join(', '));
 });
 
+/* ------------------------------ Suche in der Seite: beide Haelften */
+pruefe('Huelle und Seite reden ueber dieselben Nachrichten', () => {
+  /* Die zwei Haelften stehen an verschiedenen Stellen derselben Datei: die
+     Huelle als gewoehnliches Skript, die Seite als Zeichenkette im
+     Pflichtteil. Ein Tippfehler in einem der Namen faellt sonst erst im
+     Browser auf - und auch dort nur, wenn man genau hinsieht. */
+  /* Ohne den Pflichtteil - sonst bestaetigt sich der Test mit derselben
+     Zeichenkette selbst. Und geprueft wird die AUSWERTUNG, nicht das
+     Vorkommen des Namens: in den Kommentaren steht er auch, und ein
+     geloeschter Empfaenger waere sonst unentdeckt geblieben. */
+  const huelle = quelle.replace(ED_PFLICHTTEIL, ' ');
+  assert.ok(/postMessage\(\{typ:'wiki-finden'/.test(huelle),
+            'die Huelle schickt kein wiki-finden');
+  assert.ok(/e\.data\.typ === 'wiki-funde'\) findenStandZeigen\(/.test(huelle),
+            'die Huelle wertet wiki-funde nicht aus');
+  assert.ok(ED_PFLICHTTEIL.includes("e.data.typ === 'wiki-finden'"),
+            'die Seite wertet wiki-finden nicht aus');
+  assert.ok(ED_PFLICHTTEIL.includes("typ:'wiki-funde'"),
+            'die Seite schickt kein wiki-funde zurueck');
+});
+pruefe('Die Seite schickt jedes Feld, das die Huelle liest', () => {
+  /* findenStandZeigen liest anzahl, nr, abschnitt und anker. Fehlt eines
+     im Pflichtteil, steht in der Leiste "undefined von 4". */
+  for(const feld of ['anzahl:', 'nr:', 'anker:', 'abschnitt:', 'begriff:']){
+    assert.ok(ED_PFLICHTTEIL.includes(feld),
+              'die Rueckmeldung der Seite hat kein Feld ' + feld);
+  }
+});
+pruefe('Eine Fundstelle in einem zugeklappten Klapptext wird aufgeklappt', () => {
+  /* Ohne das hat die Marke kein Layout, scrollIntoView tut nichts, und der
+     Sprung landet irgendwo. Im Browser gemessen: Klapptext vorher zu,
+     nachher offen, Marke mit Hoehe > 0. */
+  /* Geprueft wird die Zuweisung, nicht bloss das Vorkommen der
+     Zeichenkette: die Schleife darueber nennt denselben Selektor noch
+     einmal, und ein "var d = null" waere sonst unentdeckt geblieben. */
+  assert.ok(/var d = m\.closest \? m\.closest\('details:not\(\[open\]\)'\)/
+            .test(ED_PFLICHTTEIL),
+            'die Seite sucht keinen zugeklappten Klapptext um die Fundstelle');
+  assert.ok(ED_PFLICHTTEIL.includes('d.open = true;'),
+            'die Seite klappt den Klapptext nicht auf');
+});
+
 console.log('');
 console.log(`${gut} ok, ${schlecht} Fehler`);
 process.exit(schlecht ? 1 : 0);

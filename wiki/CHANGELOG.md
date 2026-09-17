@@ -23,6 +23,15 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
 
 ## Noch nicht veroeffentlicht
 
+- **In einer einzelnen Seite suchen.** Strg+F oder der Knopf *Finden* oeffnet
+  eine Leiste ueber der Seite: Wort eingeben, "3 von 17" lesen, mit Eingabe
+  weiterspringen, mit Esc schliessen. Die Leiste nennt auch den Abschnitt, in
+  dem man gerade steht. Steckt eine Fundstelle in einem zugeklappten
+  Klapptext, klappt die Seite ihn auf.
+  Seiten, die vorher gespeichert wurden, markieren die Stellen, koennen aber
+  nicht mitzaehlen - die Leiste sagt das. Ein Durchlauf ueber Bearbeiten und
+  Speichern bringt sie auf den Stand.
+
 - **Eine KI kann die Seite schreiben.** Im Editor steht unter *Eine KI
   schreiben lassen* ein Prompt zum Kopieren (rund 5,8 kB). Er verlangt keinen
   fertigen Seitenaufbau, sondern einen Entwurf: Meta-Block mit Abschnitten und

@@ -352,11 +352,12 @@ mark.wiki-fund{background:var(--accent-soft);color:var(--accent-ink);border-radi
   document.body.dataset.theme =
     (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
       ? 'dark' : 'light';
-  function springen(anker, begriff){
-    if(anker){
-      var el = document.getElementById(anker);
-      if(el) el.scrollIntoView({block:'start'});
-    }
+  /* ---- Fundstellen markieren ----
+     Zwei Aufgaben teilen sich denselben Code: der Sprung aus einem
+     Suchtreffer (wiki-springen) und die Suche IN dieser Seite
+     (wiki-finden). Darum steht das Markieren hier einmal. */
+  var FUNDE = [], FUND_NR = -1, FUND_WORT = null;
+  function markenSetzen(begriff){
     document.querySelectorAll('mark.wiki-fund').forEach(function(m){
       var eltern = m.parentNode;
       m.replaceWith(document.createTextNode(m.textContent));
@@ -365,9 +366,10 @@ mark.wiki-fund{background:var(--accent-soft);color:var(--accent-ink);border-radi
          Marke hinweggeht, waere danach nicht mehr zu finden. */
       if(eltern) eltern.normalize();
     });
-    if(!begriff || begriff.length < 2) return;
+    FUNDE = []; FUND_NR = -1;
+    if(!begriff || begriff.length < 2) return [];
     var worte = begriff.split(/\s+/).filter(function(w){ return w.length > 1; });
-    if(!worte.length) return;
+    if(!worte.length) return [];
     var re = new RegExp('(' + worte.map(function(w){
       return w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|') + ')', 'gi');
     /* script und style ueberspringen: deren Text ist kein Inhalt, und eine
@@ -405,8 +407,55 @@ mark.wiki-fund{background:var(--accent-soft);color:var(--accent-ink);border-radi
       while(h.firstChild) stueck.appendChild(h.firstChild);
       k.replaceWith(stueck);
     });
-    var erst = document.querySelector('mark.wiki-fund');
-    if(erst && !anker) erst.scrollIntoView({block:'center'});
+    return [].slice.call(document.querySelectorAll('mark.wiki-fund'));
+  }
+  function springen(anker, begriff){
+    if(anker){
+      var el = document.getElementById(anker);
+      if(el) el.scrollIntoView({block:'start'});
+    }
+    FUNDE = markenSetzen(begriff);
+    FUND_WORT = begriff ? String(begriff) : null;
+    if(FUNDE.length && !anker) FUNDE[0].scrollIntoView({block:'center'});
+  }
+  /* ---- In dieser Seite suchen ----
+     Die Huelle kann in der Seite nicht selbst suchen: eigener, opaker
+     Origin. Sie schickt den Begriff und die Nummer der gewuenschten
+     Stelle, die Seite markiert, springt hin und meldet zurueck, wie viele
+     es sind und wo sie steht. */
+  function fundeMelden(){
+    if(window.parent === window) return;
+    var m = FUND_NR >= 0 ? FUNDE[FUND_NR] : null;
+    var teil = m && m.closest ? m.closest('section[id]') : null;
+    var kopf = teil ? teil.querySelector('h1,h2,h3') : null;
+    window.parent.postMessage({typ:'wiki-funde',
+      begriff: FUND_WORT || '', anzahl: FUNDE.length, nr: FUND_NR,
+      anker: teil ? teil.id : '',
+      abschnitt: kopf ? (kopf.textContent || '').slice(0, 80) : ''}, '*');
+  }
+  function finden(begriff, nr){
+    begriff = String(begriff == null ? '' : begriff);
+    if(begriff !== FUND_WORT){
+      FUNDE = markenSetzen(begriff);
+      FUND_WORT = begriff;
+    }
+    if(!FUNDE.length){ FUND_NR = -1; return fundeMelden(); }
+    var z = FUNDE.length;
+    FUND_NR = ((Number(nr) || 0) % z + z) % z;
+    for(var i = 0; i < z; i++)
+      FUNDE[i].classList.toggle('wiki-jetzt', i === FUND_NR);
+    var m = FUNDE[FUND_NR];
+    /* Steckt die Stelle in einem zugeklappten Klapptext, wird er
+       geoeffnet - sonst hat die Marke kein Layout, und der Sprung landet
+       irgendwo statt an der Fundstelle. */
+    var d = m.closest ? m.closest('details:not([open])') : null;
+    while(d){
+      d.open = true;
+      d = d.parentElement && d.parentElement.closest
+        ? d.parentElement.closest('details:not([open])') : null;
+    }
+    m.scrollIntoView({block:'center'});
+    fundeMelden();
   }
   window.addEventListener('message', function(e){
     /* Die Seite laeuft in einem opaken Origin (Sandbox ohne
@@ -415,6 +464,7 @@ mark.wiki-fund{background:var(--accent-soft);color:var(--accent-ink);border-radi
        Elternfenster kommt. */
     if(e.source !== window.parent || !e.data) return;
     if(e.data.typ === 'wiki-springen') springen(e.data.anker, e.data.begriff);
+    if(e.data.typ === 'wiki-finden') finden(e.data.begriff, e.data.nr);
     if(e.data.thema) document.body.dataset.theme = e.data.thema;
   });
   /* Verweis auf eine andere Wiki-Seite. */
