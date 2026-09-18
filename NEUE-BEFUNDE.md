@@ -1471,6 +1471,44 @@ schlimmer als eine Lücke — eine Lücke merkt man.
 
 ---
 
+## N-29 — Den Suchindex konnte man nur mit `curl` neu bauen
+
+### Befund
+
+`N-16` endete mit einem Neuaufbau des Index, der auch Reste wegräumt. Der ist
+als Schnittstelle da und tut, was er soll:
+
+```
+POST /api/neuindex  als Verwalter  ->  {"ok": true, "verwaiste": 0}
+POST /api/neuindex  als Editor     ->  403
+```
+
+Nur: In der Oberfläche gab es dazu **keinen Knopf**. Nicht in der Verwaltung,
+nicht in den Einstellungen, nirgends — gesucht mit `grep -n "neuindex"` über
+`index.html`: null Treffer.
+
+Das heißt: Die einzige Reparatur für einen Index, der nicht mehr aufbaut,
+stand einem Verwalter nur zur Verfügung, wenn er eine Kommandozeile und die
+Adresse kannte. Ein Werkzeug hinter einer Tür ohne Klinke.
+
+### Behoben
+
+Der Knopf steht jetzt in der Verwaltung unter **Wartung**, zusammen mit dem,
+was ein Verwalter dabei wissen will: wie viele Zeilen im Index stehen, wie
+viele davon verwaist sind (mit dem Verweis auf `N-16` und der Erklärung, dass
+der Neuaufbau sie zuerst wegräumt), und wie lange es gedauert hat.
+
+Ausgeführt: Knopf gedrückt, Meldung *„Index neu gebaut in 0 s"*, danach die
+Kennzahlen neu gelesen. Der Rechtetest dazu steht in `test_dienst.py`.
+
+### Was daraus folgt
+
+Eine Schnittstelle ohne Bedienung ist für den, der sie braucht, nicht
+vorhanden. Beim Beheben von `N-16` war der Weg über `curl` der schnellste —
+und danach hat niemand gefragt, wie ein Verwalter ihn findet.
+
+---
+
 ## N-30 — Löschen meldete einen Serverfehler, obwohl die Seite weg war
 
 ### Befund

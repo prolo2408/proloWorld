@@ -499,6 +499,42 @@ erreichbar.
 
 ---
 
+# Die Verwaltung
+
+Nur für Verwalter (`wiki-admin`). Vier Bereiche:
+
+**Seiten** — die Liste aller Seiten. Sie ist auf hunderte Zeilen ausgelegt:
+
+- **Suchen** in Titel, Kennung, Pfad, Freigabe und Urheber — alles, was in der
+  Zeile steht.
+- **Filtern** nach Bereich, Freigabe und Prüfung. Jede Auswahl nennt ihre
+  Anzahl, also sieht man vorher, wie viel kommt.
+- **Sortieren** über jede Spaltenüberschrift, zweiter Klick dreht die Richtung.
+- **Blättern** in Fünfzigern, mit „51–100 von 305".
+- **Mehrfachauswahl**: Häkchen setzen, dann *Freigabe setzen* oder *Löschen*
+  für alle auf einmal. Beim Löschen muss das Wort `löschen` abgetippt werden —
+  bei mehreren Seiten ist ein Fehlklick nicht mit einem Klick zu heilen.
+
+Gefiltert und sortiert wird im Browser, nicht am Server: `/api/verwaltung`
+liefert den Bestand einmal (gemessen mit 305 Seiten: 90 kB in 8 ms), danach ist
+jeder Handgriff ohne Netz. Das trägt weit; bei einem Bestand, der darüber
+hinauswächst, gehört das Blättern an den Server.
+
+**Bereiche** — jeder Pfad, der vorkommt, mit der Anzahl der Seiten darunter und
+der Freigabe, die auf ihm liegt. Eine Freigabe auf einem Bereich gilt für alles
+darunter und lässt sich hier direkt ändern.
+
+**Gruppen** — welche Gruppe wie viele Seiten und wie viele Bereiche freigibt,
+und auf welchen. Dazu die Zahl der Seiten **ohne** Freigabe — der Normalfall,
+aber einer, den man kennen sollte.
+
+**Wartung** — der Bestand in Zahlen (Seiten, Abschnitte, Anhänge, Zeilen im
+Index, Fassungen) und der Knopf **Index neu bauen**. Den gab es lange nur als
+Schnittstelle ohne Knopf (`N-29`); gebraucht wird er nach einer Sicherung, nach
+einem Abbruch, oder wenn die Suche Stellen nicht findet, die auf einer Seite
+stehen. Verwaiste Indexzeilen (`N-16`) werden hier gezählt und beim Neuaufbau
+zuerst weggeräumt.
+
 # Einspielen
 
 Verwaltung → Datei hineinziehen. Was dann passiert:

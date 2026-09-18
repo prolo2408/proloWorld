@@ -23,6 +23,17 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
 
 ## Noch nicht veroeffentlicht
 
+- **Die Verwaltung ist auf hunderte Seiten ausgelegt.** Vier Bereiche
+  (Seiten, Bereiche, Gruppen, Wartung) statt einer einzigen langen Tabelle.
+  In der Liste: Suche, Filter nach Bereich, Freigabe und Pruefung, Sortierung
+  ueber jede Spalte, Blaettern in Fuenfzigern und Mehrfachauswahl fuer
+  Freigabe und Loeschen. Gemessen mit 305 Seiten: 80 ms bis die Liste steht,
+  Blaettern und Sortieren ohne merkliche Pause.
+- **Index neu bauen hat jetzt einen Knopf** (`N-29`). Die Schnittstelle gab es
+  seit N-16, erreichbar war sie nur mit curl.
+- **Loeschen sagt die Wahrheit** (`N-30`). Fehlte der Ordner einer Seite auf
+  der Platte, kam HTTP 500 - und die Seite war trotzdem weg.
+
 - **Genauer suchen.** Im Suchfeld gelten jetzt fuenf Zeichen: `"zwei worte"`
   fuer genau diese Folge, `-wort` fuer "darf nicht vorkommen",
   `bereich:Technik`, `gruppe:wiki-technik` und `seite:kennung` fuer die

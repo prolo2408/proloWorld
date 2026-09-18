@@ -2130,8 +2130,32 @@ class Handler(BaseHTTPRequestHandler):
             for z in zweige:
                 bekannt |= set(z["gruppen"])
             bekannt |= self.nutzer().gruppen
+            # Kennzahlen fuer die Wartung. Eine Verwaltung, die auf
+            # hunderte Seiten ausgelegt ist, muss sagen koennen, wie gross
+            # der Bestand ist - sonst ist "es geht langsam" nicht greifbar.
+            def eine(frage, *werte):
+                z = db().execute(frage, werte).fetchone()
+                return (z[0] if z and z[0] is not None else 0)
+
+            kennzahlen = {
+                "seiten": len(zeilen),
+                "abschnitte": eine("SELECT COUNT(*) FROM abschnitt"),
+                "anhaenge": eine("SELECT COUNT(*) FROM anhang"),
+                "anhaenge_b": eine("SELECT SUM(groesse_b) FROM anhang"),
+                "seiten_b": eine("SELECT SUM(groesse_b) FROM seite"),
+                "indexzeilen": eine("SELECT COUNT(*) FROM treffer"),
+                # Reste, die einen Indexlauf zum Scheitern bringen (N-16).
+                # Hier nur GEZAEHLT - aufgeraeumt wird beim Neuaufbau, damit
+                # ein Blick in die Verwaltung nichts veraendert.
+                "verwaiste": eine(
+                    "SELECT COUNT(*) FROM suche WHERE rowid NOT IN "
+                    "(SELECT id FROM treffer)"),
+                "fassungen": eine("SELECT COUNT(*) FROM fassung"),
+                "lesezeichen": eine("SELECT COUNT(*) FROM lesezeichen"),
+            }
             return self.json_senden({"seiten": zeilen, "zweige": zweige,
                                      "pfade": pfade,
+                                     "kennzahlen": kennzahlen,
                                      "gruppen": sorted(g for g in bekannt if g)})
 
         raise Antwort(404, "Unbekannter Aufruf.")

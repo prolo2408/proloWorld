@@ -231,6 +231,83 @@ header{height:76px;flex:0 0 76px;background:var(--chrome);
 #finden-stand{flex:0 1 auto;font-size:12.5px;color:var(--ink-3);min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #finden-stand[data-leer="1"]{color:var(--warm-ink)}
+/* ---------- Verwaltung ----------
+   Auf hunderte Zeilen ausgelegt: die Tabelle scrollt waagerecht in ihrem
+   eigenen Kasten, der Kopf bleibt beim senkrechten Scrollen stehen, und
+   jede Zeile ist so hoch wie noetig und nicht hoeher. */
+.verw-kopf{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.verw-reiter{display:flex;gap:4px;flex-wrap:wrap;flex:1 1 auto;
+  background:var(--chrome);border:1px solid var(--line);border-radius:12px;
+  padding:4px}
+.verw-reiter button{border:0;background:transparent;color:var(--ink-2);
+  font:inherit;font-size:13px;font-weight:600;min-height:36px;padding:0 14px;
+  border-radius:9px;cursor:pointer}
+.verw-reiter button:hover{background:var(--hover);color:var(--ink)}
+.verw-reiter button[data-aktiv="1"]{background:var(--accent);
+  color:var(--on-accent)}
+.verw-filter{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.verw-filter input, .verw-filter select{width:100%;height:38px;padding:0 10px;
+  border-radius:10px;border:1px solid var(--line);background:var(--surface);
+  color:var(--ink);font:inherit;font-size:13px}
+.verw-filter select{cursor:pointer}
+.verw-sammel{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin-top:12px;padding:10px 12px;border-radius:10px;
+  background:var(--accent-soft);color:var(--accent-ink);font-size:13px}
+/* min-width:0 ist der Punkt, an dem es haengt: ein Raster- oder Flexkind
+   ist von sich aus so breit wie sein Inhalt. Ohne diese Zeile schiebt eine
+   Tabelle mit zehn Spalten die ganze Karte ueber den Rand - gemessen bei
+   360 Pixeln Fensterbreite eine Karte von 1140 Pixeln. Das overflow-x hier
+   greift erst, wenn der Kasten selbst schmal sein DARF. */
+.raster > *{min-width:0}
+.verw-tabelle{margin-top:12px;min-width:0;overflow-x:auto;overflow-y:auto;
+  max-height:62vh;border:1px solid var(--line);border-radius:12px;
+  scrollbar-width:thin}
+.verw-tabelle table{min-width:720px}
+.verw-tabelle table{width:100%;border-collapse:collapse;font-size:13px}
+.verw-tabelle thead th{position:sticky;top:0;z-index:1;text-align:left;
+  background:var(--chrome);border-bottom:1px solid var(--line);
+  padding:0;white-space:nowrap}
+.verw-tabelle thead th button{width:100%;border:0;background:transparent;
+  color:var(--ink-2);font:inherit;font-size:11.5px;font-weight:600;
+  letter-spacing:.04em;text-transform:uppercase;text-align:left;
+  padding:10px 10px;min-height:38px;cursor:pointer}
+.verw-tabelle thead th button:hover{color:var(--ink);background:var(--hover)}
+.verw-tabelle thead th.rechts button{text-align:right}
+.verw-tabelle td{padding:6px 10px;border-bottom:1px solid var(--line-soft);
+  vertical-align:middle}
+.verw-tabelle tr:last-child td{border-bottom:0}
+.verw-tabelle tr[data-gewaehlt="1"] td{background:var(--accent-soft)}
+.verw-tabelle td.rechts, .verw-tabelle th.rechts{text-align:right}
+.verw-klein{font-size:12px;color:var(--ink-3)}
+.verw-wahl{width:44px;padding:0 !important}
+/* Regelblatt 9 verlangt 44 Pixel am Finger - nicht, dass das Kaestchen
+   selbst so gross aussieht. Darum traegt die Beschriftung die Flaeche. */
+.verw-wahl label{display:flex;align-items:center;justify-content:center;
+  width:36px;height:36px;margin:0 auto;cursor:pointer;border-radius:8px}
+.verw-wahl label:hover{background:var(--hover)}
+.verw-wahl input{width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
+.verw-titel{border:0;background:transparent;color:var(--ink);font:inherit;
+  font-size:13px;font-weight:600;text-align:left;padding:4px 0;cursor:pointer}
+.verw-titel:hover{color:var(--accent-ink);text-decoration:underline}
+.verw-freigabe{border:0;background:transparent;font:inherit;font-size:12px;
+  text-align:left;padding:4px 0;cursor:pointer;color:var(--ink-3)}
+.verw-freigabe:hover .marke-badge{background:var(--accent);color:var(--on-accent)}
+.verw-blaettern{display:flex;align-items:center;gap:12px;margin-top:12px;
+  flex-wrap:wrap}
+.verw-hinweis{padding:8px 0;border-bottom:1px solid var(--line-soft)}
+.verw-hinweis:last-child{border-bottom:0}
+.verw-hinweis ul{margin:4px 0 0 18px;padding:0;font-size:12px;
+  color:var(--ink-3)}
+@media (max-width:860px){
+  /* Regelblatt 9: am Finger 44 Pixel - auch die Reiter und die Kaestchen. */
+  .verw-reiter button{min-height:44px}
+  .verw-tabelle{max-height:none}
+  .verw-tabelle thead th button{min-height:44px}
+  .verw-tabelle td{padding:10px}
+  .verw-wahl label{width:44px;height:44px}
+  .verw-wahl input{width:24px;height:24px}
+  .verw-filter input, .verw-filter select{height:44px}
+}
 .treffer-eingrenzung{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
   padding:8px 12px;border-bottom:1px solid var(--line-soft);
   background:var(--chrome)}
@@ -1602,7 +1679,87 @@ async function einstellungen(){
 }
 
 /* ---------------------------------------------------- Verwaltung */
-async function verwaltung(){
+/* ---------------------------------------------------- Verwaltung
+   Eine Verwaltung fuer hunderte Seiten und Gruppen. Vorher stand hier eine
+   einzige Tabelle mit ALLEN Seiten - bei fuenf Seiten in Ordnung, bei
+   dreihundert unbenutzbar: kein Suchen, kein Filtern, kein Sortieren, kein
+   Blaettern, und jede Handlung nur Zeile fuer Zeile.
+
+   Jetzt vier Bereiche:
+     Seiten    die Liste, mit Suche, Filtern, Sortierung, Seitenweise und
+               Mehrfachauswahl fuer Freigabe und Loeschen
+     Bereiche  der Themenbaum mit Anzahl je Zweig und der Freigabe dazu
+     Gruppen   welche Gruppe wie viele Seiten freigibt
+     Wartung   Kennzahlen und der Neuaufbau des Index
+
+   Gefiltert und sortiert wird in der Huelle, nicht am Server: /api/verwaltung
+   liefert den Bestand einmal, danach ist jeder Handgriff ohne Netz. Das
+   traegt weit: gemessen mit 305 Seiten sind es 90 kB Antwort in 8 ms. Bei
+   einem Bestand, der darueber hinauswaechst, gehoert das Blaettern an den
+   Server - das waere dann derselbe Aufbau mit einer anderen Quelle. */
+
+const VERW_SPALTEN = [
+  ['titel',     'Titel',    ''],
+  ['slug',      'Kennung',  'mono'],
+  ['bereich',   'Bereich',  ''],
+  ['gruppen',   'Freigabe', ''],
+  ['groesse_b', 'Größe',    'zahl'],
+  ['fassung',   'Fassung',  'zahl'],
+  ['geaendert', 'Geändert', ''],
+  ['urheber',   'Von',      'mono']
+];
+const VERW_JE_SEITE = 50;
+
+function verwStand(){
+  if(!ZUSTAND.verw) ZUSTAND.verw = {
+    reiter: 'seiten', suche: '', bereich: '', gruppe: '', pruefung: '',
+    spalte: 'geaendert', richtung: -1, blatt: 0, wahl: new Set()
+  };
+  return ZUSTAND.verw;
+}
+function verwBereichVon(s){
+  /* Der Bereich einer Seite ist die erste Ebene ihres Pfades. Genau die
+     Ebene, nach der ein Verwalter sortiert denkt. */
+  return (s.pfad && s.pfad.length) ? s.pfad[0] : '';
+}
+function verwGefiltert(){
+  const v = verwStand(), d = v.daten || {seiten: []};
+  const suche = v.suche.trim().toLowerCase();
+  let liste = d.seiten.filter(s => {
+    if(v.bereich && verwBereichVon(s) !== v.bereich) return false;
+    if(v.gruppe === '—' ? (s.gruppen || []).length : false) return false;
+    if(v.gruppe && v.gruppe !== '—' && !(s.gruppen || []).includes(v.gruppe)) return false;
+    if(v.pruefung === 'hinweise' && !(s.hinweise || []).length) return false;
+    if(v.pruefung === 'sauber' && (s.hinweise || []).length) return false;
+    if(!suche) return true;
+    /* Gesucht wird in allem, was in der Zeile steht - Titel, Kennung, Pfad,
+       Freigabe, Urheber. Wer in der Verwaltung sucht, sucht eine Zeile. */
+    const heu = [s.titel, s.slug, (s.pfad || []).join(' / '),
+                 (s.gruppen || []).join(' '), s.urheber, s.nutzer_id]
+      .join(' ').toLowerCase();
+    return heu.includes(suche);
+  });
+  const wert = (s) => {
+    switch(v.spalte){
+      case 'titel':   return (s.titel || '').toLowerCase();
+      case 'slug':    return s.slug || '';
+      case 'bereich': return verwBereichVon(s).toLowerCase() + ' ' +
+                             (s.pfad || []).join('/').toLowerCase();
+      case 'gruppen': return (s.gruppen || []).join(' ');
+      case 'urheber': return (s.urheber || s.nutzer_id || '');
+      case 'groesse_b': return s.groesse_b || 0;
+      case 'fassung':  return s.fassung || 0;
+      default:         return s.geaendert || '';
+    }
+  };
+  liste.sort((a, b) => {
+    const x = wert(a), y = wert(b);
+    if(x === y) return (a.titel || '').localeCompare(b.titel || '', 'de');
+    return (x > y ? 1 : -1) * v.richtung;
+  });
+  return liste;
+}
+async function verwaltung(reiter){
   ZUSTAND.ansicht = 'verwaltung'; ZUSTAND.slug = null; markieren(); menueZu();
   bearbeitenKnopf(null);
   merkenKnopf(null);
@@ -1611,90 +1768,459 @@ async function verwaltung(){
   $('rahmen').hidden = true; $('rahmen').removeAttribute('src');
   $('flaeche').hidden = false;
   $('kopftitel').textContent = 'Verwaltung';
-  $('kopfkontext').textContent = 'Seiten einspielen und freigeben';
 
   let d;
   try { d = await hole('/api/verwaltung'); }
   catch(e){ $('flaeche').innerHTML = `<div class="meldung fehler">${schuetzen(e.message)}</div>`; return; }
 
   ZUSTAND.pfade = d.pfade || [];
-  const zeilen = d.seiten.map(s => `<tr>
-    <td><button class="knopf still verw-zeile" data-slug="${schuetzen(s.slug)}"
-        >${schuetzen(s.titel)}</button>
-      <div class="label">${schuetzen(s.pfad.join(' › '))}</div></td>
-    <td class="mono">${schuetzen(s.slug)}</td>
-    <td class="mono" style="text-align:right">${bytes(s.groesse_b)}</td>
-    <td class="mono" style="text-align:right">${s.fassung}</td>
-    <td><button class="knopf still verw-zeile" style="text-align:left"
-        data-rechte="${schuetzen(s.slug)}" title="Freigabe ändern">${s.gruppen.length
-      ? s.gruppen.map(g => `<span class="marke-badge">${schuetzen(g)}</span>`).join(' ')
-      : '<span style="color:var(--ink-3)">alle · ändern</span>'}</button></td>
-    <td class="mono" style="font-size:12px" title="zuletzt gespeichert von ${
-      schuetzen(s.nutzer_id || 'unbekannt')}">${
-      schuetzen(s.urheber || s.nutzer_id || '')}</td>
-    <td>${s.hinweise.length
-      ? `<span class="marke-badge warm">${s.hinweise.length} Hinweise</span>`
-      : '<span class="marke-badge gut">sauber</span>'}</td>
-    <td style="text-align:right;white-space:nowrap">
-      <button class="knopf rahmen" data-bearbeiten="${schuetzen(s.slug)}"
-        style="height:32px;padding:0 10px">Bearbeiten</button>
-      <button class="knopf rahmen" data-fassungen="${schuetzen(s.slug)}"
-        style="height:32px;padding:0 10px;margin-left:6px">Fassungen</button>
-      <button class="knopf rahmen gefahr" data-loeschen="${schuetzen(s.slug)}"
-        style="height:32px;padding:0 10px;margin-left:6px">Löschen</button></td>
-  </tr>`).join('');
-
+  const v = verwStand();
+  v.daten = d;
+  if(reiter) v.reiter = reiter;
+  /* Seiten, die es nicht mehr gibt, fliegen aus der Auswahl - sonst wirkt
+     eine Sammelhandlung auf Kennungen, die keiner mehr kennt. */
+  const da = new Set(d.seiten.map(s => s.slug));
+  v.wahl = new Set([...v.wahl].filter(x => da.has(x)));
+  verwZeichnen();
+}
+function verwZeichnen(){
+  const v = verwStand(), d = v.daten;
+  const k = d.kennzahlen || {};
+  $('kopfkontext').textContent =
+    zahl(d.seiten.length) + (d.seiten.length === 1 ? ' Seite' : ' Seiten') + ' · ' +
+    zahl(new Set(d.seiten.map(verwBereichVon).filter(Boolean)).size) + ' Bereiche · ' +
+    zahl((d.gruppen || []).length) + ' Gruppen';
+  const reiter = [['seiten', 'Seiten'], ['bereiche', 'Bereiche'],
+                  ['gruppen', 'Gruppen'], ['wartung', 'Wartung']];
+  const koerper = v.reiter === 'bereiche' ? verwBereiche()
+                : v.reiter === 'gruppen'  ? verwGruppen()
+                : v.reiter === 'wartung'  ? verwWartung()
+                : verwSeiten();
   $('flaeche').innerHTML = `
     <div class="raster mitte">
-      <div class="karte">
-        <h3>Seiten entstehen unter „Neue Seite"</h3>
-        <div class="kontext">Schreiben im Editor oder eine fertige HTML-Datei
-          einspielen — beides an einem Ort, in der Seitenleiste. Hier geht es
-          um alle Seiten: wer sie sehen darf, welche Fassungen es gibt, und was
-          weg soll.</div>
-        <button class="knopf" id="ed-neu-knopf" style="margin-top:12px">Neue Seite
-          anlegen</button>
+      <div class="verw-kopf">
+        <div class="verw-reiter" role="tablist" aria-label="Bereiche der Verwaltung">
+          ${reiter.map(([id, name]) => `<button role="tab" data-reiter="${id}"
+            aria-selected="${v.reiter === id}"
+            ${v.reiter === id ? 'data-aktiv="1"' : ''}>${name}</button>`).join('')}
+        </div>
+        <button class="knopf" id="ed-neu-knopf">Neue Seite anlegen</button>
+      </div>
+      <div role="tabpanel" aria-label="${reiter.find(r => r[0] === v.reiter)[1]}"
+           class="raster">${koerper}</div>
+    </div>`;
+  verwVerdrahten();
+}
+
+/* ---------------------------------------------------- Bereich "Seiten" */
+function verwSeiten(){
+  const v = verwStand(), d = v.daten;
+  const liste = verwGefiltert();
+  const blaetter = Math.max(1, Math.ceil(liste.length / VERW_JE_SEITE));
+  if(v.blatt >= blaetter) v.blatt = blaetter - 1;
+  const von = v.blatt * VERW_JE_SEITE;
+  const sicht = liste.slice(von, von + VERW_JE_SEITE);
+  const bereiche = [...new Set(d.seiten.map(verwBereichVon).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'de'));
+  const gruppen = (d.gruppen || []).slice().sort((a, b) => a.localeCompare(b, 'de'));
+  const mitHinweis = d.seiten.filter(s => (s.hinweise || []).length).length;
+  const alleGewaehlt = sicht.length && sicht.every(s => v.wahl.has(s.slug));
+
+  const kopf = VERW_SPALTEN.map(([id, name, art]) => `
+    <th scope="col" class="${art === 'zahl' ? 'rechts' : ''}"
+        aria-sort="${v.spalte === id ? (v.richtung > 0 ? 'ascending' : 'descending') : 'none'}">
+      <button type="button" data-sort="${id}"
+        >${name}${v.spalte === id ? (v.richtung > 0 ? ' ▲' : ' ▼') : ''}</button></th>`).join('');
+
+  const zeilen = sicht.map(s => `
+    <tr${v.wahl.has(s.slug) ? ' data-gewaehlt="1"' : ''}>
+      <td class="verw-wahl"><label><input type="checkbox"
+        data-wahl="${schuetzen(s.slug)}" ${v.wahl.has(s.slug) ? 'checked' : ''}
+        aria-label="„${schuetzen(s.titel)}" auswählen"></label></td>
+      <td><button class="verw-titel" data-slug="${schuetzen(s.slug)}"
+            >${schuetzen(s.titel)}</button></td>
+      <td class="mono verw-klein">${schuetzen(s.slug)}</td>
+      <td class="verw-klein">${schuetzen((s.pfad || []).join(' › ')) ||
+        '<span style="color:var(--ink-3)">—</span>'}</td>
+      <td><button class="verw-freigabe" data-rechte="${schuetzen(s.slug)}"
+          title="Freigabe ändern">${(s.gruppen || []).length
+        ? s.gruppen.map(g => `<span class="marke-badge">${schuetzen(g)}</span>`).join(' ')
+        : '<span style="color:var(--ink-3)">alle</span>'}</button></td>
+      <td class="mono rechts verw-klein">${bytes(s.groesse_b)}</td>
+      <td class="mono rechts verw-klein">${s.fassung}</td>
+      <td class="verw-klein" title="${schuetzen(s.geaendert || '')}">${
+        datum(s.geaendert || '')}</td>
+      <td class="mono verw-klein" title="zuletzt gespeichert von ${
+        schuetzen(s.nutzer_id || 'unbekannt')}">${
+        schuetzen(s.urheber || s.nutzer_id || '')}</td>
+      <td class="rechts" style="white-space:nowrap">
+        ${(s.hinweise || []).length
+          ? `<span class="marke-badge warm" title="${schuetzen(s.hinweise.join(' · '))}"
+              >${s.hinweise.length}</span>` : ''}
+        <button class="knopf still ed-klein" data-bearbeiten="${schuetzen(s.slug)}"
+          >Bearbeiten</button>
+        <button class="knopf still ed-klein" data-fassungen="${schuetzen(s.slug)}"
+          >Fassungen</button>
+        <button class="knopf still ed-klein gefahr" data-loeschen="${schuetzen(s.slug)}"
+          >Löschen</button></td>
+    </tr>`).join('');
+
+  return `
+    <div class="karte">
+      <div class="verw-filter">
+        <div style="flex:2 1 220px;min-width:160px">
+          <label class="label" for="verw-suche">Suchen in der Liste</label>
+          <input type="search" id="verw-suche" value="${schuetzen(v.suche)}"
+                 placeholder="Titel, Kennung, Pfad, Gruppe, Urheber"
+                 autocomplete="off">
+        </div>
+        <div style="flex:1 1 150px">
+          <label class="label" for="verw-bereich">Bereich</label>
+          <select id="verw-bereich">
+            <option value="">alle (${zahl(d.seiten.length)})</option>
+            ${bereiche.map(b => `<option value="${schuetzen(b)}"
+              ${v.bereich === b ? 'selected' : ''}>${schuetzen(b)} (${
+              zahl(d.seiten.filter(s => verwBereichVon(s) === b).length)})</option>`).join('')}
+          </select>
+        </div>
+        <div style="flex:1 1 150px">
+          <label class="label" for="verw-gruppe">Freigabe</label>
+          <select id="verw-gruppe">
+            <option value="">jede</option>
+            <option value="—" ${v.gruppe === '—' ? 'selected' : ''}>ohne (alle dürfen)</option>
+            ${gruppen.map(g => `<option value="${schuetzen(g)}"
+              ${v.gruppe === g ? 'selected' : ''}>${schuetzen(g)} (${
+              zahl(d.seiten.filter(s => (s.gruppen || []).includes(g)).length)})</option>`).join('')}
+          </select>
+        </div>
+        <div style="flex:1 1 130px">
+          <label class="label" for="verw-pruefung">Prüfung</label>
+          <select id="verw-pruefung">
+            <option value="">alle</option>
+            <option value="hinweise" ${v.pruefung === 'hinweise' ? 'selected' : ''}
+              >mit Hinweisen (${zahl(mitHinweis)})</option>
+            <option value="sauber" ${v.pruefung === 'sauber' ? 'selected' : ''}
+              >ohne Hinweise</option>
+          </select>
+        </div>
+        ${(v.suche || v.bereich || v.gruppe || v.pruefung)
+          ? `<button class="knopf still" id="verw-frei"
+               style="align-self:flex-end">Filter aufheben</button>` : ''}
       </div>
 
-      <div class="karte">
-        <h3>Eingespielte Seiten</h3>
-        <div class="kontext">${zahl(d.seiten.length)} insgesamt</div>
-        <div style="overflow-x:auto;margin-top:12px">
-          <table class="tabelle"><thead><tr>
-            <th>Titel</th><th>Kennung</th><th style="text-align:right">Größe</th>
-            <th style="text-align:right">Fassung</th><th>Freigabe</th><th>Von</th>
-            <th>Prüfung</th><th></th>
-          </tr></thead><tbody>${zeilen ||
-            '<tr><td colspan="8" style="color:var(--ink-3)">Noch keine Seite da.</td></tr>'}
-          </tbody></table>
-        </div>
+      <div id="verw-sammelleiste"></div>
+      <div id="verw-sammelkasten"></div>
+
+      <div class="verw-tabelle">
+        <table><thead><tr>
+          <th class="verw-wahl"><label><input type="checkbox" id="verw-alle"
+            ${alleGewaehlt ? 'checked' : ''}
+            aria-label="Alle Zeilen dieser Seite auswählen"></label></th>
+          ${kopf}<th></th>
+        </tr></thead><tbody>${zeilen || `<tr><td colspan="10"
+          style="color:var(--ink-3);padding:18px">${d.seiten.length
+            ? 'Keine Seite passt zu diesen Filtern.'
+            : 'Noch keine Seite da.'}</td></tr>`}</tbody></table>
       </div>
 
-      <div class="karte">
-        <h3>Freigabe für einen Themenzweig</h3>
-        <div class="kontext">Gilt für alles darunter. Leer lassen hebt die
-          Einschränkung auf. Die Gruppen selbst legst du in Authentik an.</div>
-        <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
-          <div style="flex:1 1 220px">
-            <label class="label" for="zweig-pfad">Pfad</label>
-            <input type="text" id="zweig-pfad" placeholder="Technik/Netzwerke">
-          </div>
-          <div style="flex:1 1 220px">
-            <label class="label" for="zweig-gruppen">Gruppen, mit Komma</label>
-            <input type="text" id="zweig-gruppen" placeholder="wiki-technik">
-          </div>
-          <button class="knopf" id="zweig-knopf" style="align-self:flex-end">Setzen</button>
-        </div>
-        <div style="margin-top:12px">${d.zweige.map(z =>
-          `<div style="font-size:13px;padding:6px 0;border-bottom:1px solid var(--line-soft)">
-            <span class="mono">${schuetzen(z.pfad)}</span> →
-            ${z.gruppen.map(g => `<span class="marke-badge">${schuetzen(g)}</span>`).join(' ')}
-          </div>`).join('') ||
-          '<div style="font-size:13px;color:var(--ink-3)">Keine Zweig-Freigaben gesetzt.</div>'}
-        </div>
+      <div class="verw-blaettern">
+        <button class="knopf still ed-klein" id="verw-zurueck"
+          ${v.blatt === 0 ? 'disabled' : ''}>‹ zurück</button>
+        <span class="label">${liste.length
+          ? zahl(von + 1) + '–' + zahl(Math.min(von + VERW_JE_SEITE, liste.length)) +
+            ' von ' + zahl(liste.length)
+          : '0 von 0'}${liste.length !== d.seiten.length
+            ? ' (gefiltert aus ' + zahl(d.seiten.length) + ')' : ''}</span>
+        <button class="knopf still ed-klein" id="verw-vor"
+          ${v.blatt >= blaetter - 1 ? 'disabled' : ''}>weiter ›</button>
       </div>
     </div>`;
+}
 
+/* ---------------------------------------------------- Bereich "Bereiche" */
+function verwBereiche(){
+  const v = verwStand(), d = v.daten;
+  /* Jeder Pfad, der wirklich vorkommt, mit der Anzahl der Seiten darunter -
+     und der Freigabe, die auf ihm liegt. Ein Zweig wirkt nach unten, darum
+     wird die Anzahl fuer das ganze Teilstueck gezaehlt. */
+  const pfade = [...new Set(d.seiten.map(s => (s.pfad || []).join(' / ')).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'de'));
+  const zweige = new Map((d.zweige || []).map(z => [z.pfad, z.gruppen || []]));
+  /* Auch Zweige ohne Seiten zeigen - sonst verschwindet eine Freigabe aus
+     dem Blick, sobald die letzte Seite darunter weg ist. */
+  for(const p of zweige.keys()) if(!pfade.includes(p)) pfade.push(p);
+  pfade.sort((a, b) => a.localeCompare(b, 'de'));
+  const zaehlen = (p) => d.seiten.filter(s => {
+    const eigen = (s.pfad || []).join(' / ');
+    return eigen === p || eigen.startsWith(p + ' / ');
+  }).length;
+  const zeilen = pfade.map(p => {
+    const g = zweige.get(p) || [];
+    return `<tr>
+      <td><button class="verw-titel" data-bereich="${schuetzen(p)}"
+            >${schuetzen(p)}</button></td>
+      <td class="mono rechts verw-klein">${zahl(zaehlen(p))}</td>
+      <td>${g.length
+        ? g.map(x => `<span class="marke-badge">${schuetzen(x)}</span>`).join(' ')
+        : '<span style="color:var(--ink-3)">keine — gilt für alle</span>'}</td>
+      <td class="rechts"><button class="knopf still ed-klein"
+        data-zweig="${schuetzen(p)}">Freigabe ändern</button></td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="karte">
+      <h3>Bereiche im Themenbaum</h3>
+      <div class="kontext">Eine Freigabe auf einem Bereich gilt für alles
+        darunter. Wer sie ändert, ändert sie für alle diese Seiten auf
+        einmal — die einzelnen Seiten behalten ihre eigene Freigabe
+        daneben.</div>
+      <div class="verw-tabelle" style="margin-top:12px">
+        <table><thead><tr>
+          <th scope="col">Pfad</th>
+          <th scope="col" class="rechts">Seiten</th>
+          <th scope="col">Freigabe des Bereichs</th><th></th>
+        </tr></thead><tbody>${zeilen || `<tr><td colspan="4"
+          style="color:var(--ink-3);padding:18px">Noch kein Bereich da.</td></tr>`}
+        </tbody></table>
+      </div>
+      <div id="verw-zweigkasten"></div>
+      <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;
+                  align-items:flex-end">
+        <div style="flex:1 1 220px">
+          <label class="label" for="zweig-pfad">Neuer Bereich</label>
+          <input type="text" id="zweig-pfad" list="ed-pfadliste"
+                 placeholder="Technik / Netzwerke">
+          <datalist id="ed-pfadliste">${(d.pfade || []).map(p =>
+            `<option value="${schuetzen(p)}"></option>`).join('')}</datalist>
+        </div>
+        <div style="flex:1 1 220px">
+          <label class="label" for="zweig-gruppen">Gruppen, mit Komma</label>
+          <input type="text" id="zweig-gruppen" placeholder="wiki-technik">
+        </div>
+        <button class="knopf" id="zweig-knopf">Setzen</button>
+      </div>
+    </div>`;
+}
+
+/* ---------------------------------------------------- Bereich "Gruppen" */
+function verwGruppen(){
+  const v = verwStand(), d = v.daten;
+  const zeilen = (d.gruppen || []).slice().sort((a, b) => a.localeCompare(b, 'de'))
+    .map(g => {
+      const seiten = d.seiten.filter(s => (s.gruppen || []).includes(g));
+      const zweige = (d.zweige || []).filter(z => (z.gruppen || []).includes(g));
+      const meine = ((ZUSTAND.ich && ZUSTAND.ich.gruppen) || []).includes(g);
+      return `<tr>
+        <td class="mono">${schuetzen(g)}${meine
+          ? ' <span class="marke-badge gut">du</span>' : ''}</td>
+        <td class="mono rechts verw-klein">${zahl(seiten.length)}</td>
+        <td class="mono rechts verw-klein">${zahl(zweige.length)}</td>
+        <td class="verw-klein">${zweige.map(z =>
+          `<span class="mono">${schuetzen(z.pfad)}</span>`).join(', ') ||
+          '<span style="color:var(--ink-3)">—</span>'}</td>
+        <td class="rechts"><button class="knopf still ed-klein"
+          data-gruppe="${schuetzen(g)}"${seiten.length ? '' : ' disabled'}
+          >Seiten zeigen</button></td>
+      </tr>`;
+    }).join('');
+  const ohne = d.seiten.filter(s => !(s.gruppen || []).length).length;
+  return `
+    <div class="karte">
+      <h3>Gruppen im Wiki</h3>
+      <div class="kontext">Angelegt werden Gruppen in Authentik — hier steht,
+        was sie im Wiki bewirken. Das Wiki sieht nur Gruppen, die mit
+        <span class="mono">${schuetzen((ZUSTAND.ich || {}).gruppen_praefix || 'wiki')}</span>
+        anfangen.</div>
+      <div class="verw-tabelle" style="margin-top:12px">
+        <table><thead><tr>
+          <th scope="col">Gruppe</th>
+          <th scope="col" class="rechts">Seiten</th>
+          <th scope="col" class="rechts">Bereiche</th>
+          <th scope="col">Auf welchen Bereichen</th><th></th>
+        </tr></thead><tbody>${zeilen || `<tr><td colspan="5"
+          style="color:var(--ink-3);padding:18px">Noch keine Gruppe im
+          Wiki.</td></tr>`}</tbody></table>
+      </div>
+      <div class="meldung" style="margin-top:14px">
+        <strong>${zahl(ohne)} ${ohne === 1 ? 'Seite' : 'Seiten'} ohne
+        Freigabe</strong>
+        <div style="margin-top:4px">Die sehen alle Angemeldeten. Das ist der
+        Normalfall und kein Mangel — aber es lohnt, ihn zu kennen.</div>
+        ${ohne ? `<div style="margin-top:10px"><button class="knopf rahmen ed-klein"
+          id="verw-ohne-freigabe">Diese Seiten zeigen</button></div>` : ''}
+      </div>
+    </div>`;
+}
+
+/* ---------------------------------------------------- Bereich "Wartung" */
+function verwWartung(){
+  const v = verwStand(), k = (v.daten.kennzahlen) || {};
+  const zahlen = [
+    ['Seiten', zahl(k.seiten || 0)],
+    ['Abschnitte', zahl(k.abschnitte || 0)],
+    ['Anhänge', zahl(k.anhaenge || 0) + ' · ' + bytes(k.anhaenge_b || 0)],
+    ['Seiten auf der Platte', bytes(k.seiten_b || 0)],
+    ['Zeilen im Suchindex', zahl(k.indexzeilen || 0)],
+    ['Fassungen im Archiv', zahl(k.fassungen || 0)],
+    ['Merkzettel', zahl(k.lesezeichen || 0)]
+  ];
+  return `
+    <div class="karte">
+      <h3>Bestand</h3>
+      <div class="bk-zahlen" style="margin-top:12px">${zahlen.map(([n, w]) =>
+        `<div class="bk-zahl"><span class="bk-wert">${w}</span>
+          <span class="bk-name">${n}</span></div>`).join('')}</div>
+    </div>
+    <div class="karte">
+      <h3>Suchindex</h3>
+      <div class="kontext">Der Index wird bei jedem Speichern nachgezogen. Neu
+        bauen muss man ihn nur, wenn etwas schiefgegangen ist — nach einer
+        Sicherung, nach einem Abbruch, oder wenn die Suche Stellen nicht
+        findet, die auf einer Seite stehen.</div>
+      ${(k.verwaiste || 0) ? `<div class="meldung warn" style="margin-top:12px">
+        <strong>${zahl(k.verwaiste)} verwaiste Indexzeilen</strong>
+        <div style="margin-top:4px">Reste gelöschter Seiten. Sie bringen jeden
+        weiteren Indexlauf zum Scheitern (Befund N-16) — der Neuaufbau räumt
+        sie zuerst weg.</div></div>`
+      : `<div class="meldung gut" style="margin-top:12px">Keine verwaisten
+        Zeilen. Der Index ist in Ordnung.</div>`}
+      <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;
+                  align-items:center">
+        <button class="knopf" id="verw-neuindex">Index neu bauen</button>
+        <span class="label" id="verw-index-stand"></span>
+      </div>
+      <div class="ed-merke">Dauert bei ${zahl(k.seiten || 0)}
+        ${(k.seiten === 1 ? 'Seite' : 'Seiten')} einen Moment. Gelesen wird
+        dabei jede Seite von der Platte.</div>
+    </div>
+    <div class="karte">
+      <h3>Seiten mit Hinweisen</h3>
+      <div class="kontext">Eingespielte Seiten, bei denen die Prüfung etwas
+        angemerkt hat. Kein Fehler — aber jeder Hinweis steht für etwas, das
+        beim Lesen auffällt.</div>
+      <div style="margin-top:12px">${(() => {
+        const mit = v.daten.seiten.filter(s => (s.hinweise || []).length);
+        if(!mit.length) return '<div class="meldung gut">Keine Seite hat ' +
+          'Hinweise.</div>';
+        return mit.slice(0, 12).map(s => `<div class="verw-hinweis">
+          <button class="verw-titel" data-slug="${schuetzen(s.slug)}"
+            >${schuetzen(s.titel)}</button>
+          <ul>${s.hinweise.slice(0, 4).map(h =>
+            `<li>${schuetzen(h)}</li>`).join('')}</ul></div>`).join('') +
+          (mit.length > 12 ? `<div class="label" style="margin-top:10px">
+            und ${zahl(mit.length - 12)} weitere — in der Liste unter
+            <em>Prüfung: mit Hinweisen</em></div>` : '');
+      })()}</div>
+    </div>`;
+}
+
+function sammelleisteZeigen(){
+  /* Die Leiste mit den Sammelhandlungen. Sie wird fuer sich gezeichnet und
+     nicht mit der Tabelle - ein Haken soll die Liste nicht umbauen. */
+  const v = verwStand(), z = $('verw-sammelleiste');
+  if(!z) return;
+  if(!v.wahl.size){ z.innerHTML = ''; return; }
+  z.innerHTML = `
+    <div class="verw-sammel">
+      <strong>${zahl(v.wahl.size)} ausgewählt</strong>
+      <button class="knopf rahmen ed-klein" id="verw-sammel-rechte"
+        >Freigabe setzen</button>
+      <button class="knopf rahmen ed-klein gefahr" id="verw-sammel-weg"
+        >Löschen</button>
+      <button class="knopf still ed-klein" id="verw-sammel-keine"
+        >Auswahl aufheben</button>
+    </div>`;
+  $('verw-sammel-rechte').onclick = () => sammelFreigabe();
+  $('verw-sammel-weg').onclick = () => sammelLoeschen();
+  $('verw-sammel-keine').onclick = () => {
+    v.wahl = new Set();
+    $('flaeche').querySelectorAll('[data-wahl]').forEach(k => {
+      k.checked = false;
+      const zeile = k.closest('tr');
+      if(zeile) zeile.removeAttribute('data-gewaehlt');
+    });
+    const alle = $('verw-alle');
+    if(alle) alle.checked = false;
+    sammelKasten('');
+    sammelleisteZeigen();
+  };
+}
+
+/* ---------------------------------------------------- Verdrahtung */
+function verwVerdrahten(){
+  const v = verwStand(), d = v.daten;
+  const neu = (aenderung) => { aenderung(); verwZeichnen(); };
+
+  $('flaeche').querySelectorAll('[data-reiter]').forEach(b =>
+    b.onclick = () => neu(() => { v.reiter = b.dataset.reiter; }));
+  $('ed-neu-knopf').onclick = () => {
+    history.pushState(null, '', '#/neu'); editor(null); };
+
+  /* --- Liste --- */
+  const sf = $('verw-suche');
+  if(sf){
+    sf.oninput = () => {
+      /* Nicht neu zeichnen bei jedem Zeichen und dabei den Fokus verlieren:
+         der Wert wird gemerkt, die Tabelle nach einer kurzen Ruhe erneuert
+         und die Schreibmarke danach zurueckgesetzt. */
+      v.suche = sf.value; v.blatt = 0;
+      clearTimeout(v.frist);
+      v.frist = setTimeout(() => {
+        const stelle = sf.selectionStart;
+        verwZeichnen();
+        const f = $('verw-suche');
+        if(f){ f.focus(); try { f.setSelectionRange(stelle, stelle); } catch(e){} }
+      }, 220);
+    };
+  }
+  const aus = (id, feld) => {
+    const e = $(id);
+    if(e) e.onchange = () => neu(() => { v[feld] = e.value; v.blatt = 0; });
+  };
+  aus('verw-bereich', 'bereich');
+  aus('verw-gruppe', 'gruppe');
+  aus('verw-pruefung', 'pruefung');
+  if($('verw-frei')) $('verw-frei').onclick = () => neu(() => {
+    v.suche = ''; v.bereich = ''; v.gruppe = ''; v.pruefung = ''; v.blatt = 0; });
+  $('flaeche').querySelectorAll('[data-sort]').forEach(b =>
+    b.onclick = () => neu(() => {
+      if(v.spalte === b.dataset.sort) v.richtung = -v.richtung;
+      else { v.spalte = b.dataset.sort; v.richtung = 1; }
+    }));
+  if($('verw-zurueck')) $('verw-zurueck').onclick = () => neu(() => { v.blatt--; });
+  if($('verw-vor')) $('verw-vor').onclick = () => neu(() => { v.blatt++; });
+
+  /* --- Auswahl ---
+     Ein Haken zeichnet die Tabelle NICHT neu. Sonst waere nach jedem
+     Klick die Liste neu aufgebaut, der Scrollstand verloren und die
+     naechste Zeile woanders - beim Auswaehlen von zehn Zeilen ein
+     Aergernis, und bei fuenfzig unbenutzbar. Geaendert werden nur die
+     Zeile selbst und die Sammelleiste. */
+  $('flaeche').querySelectorAll('[data-wahl]').forEach(e =>
+    e.onchange = () => {
+      if(e.checked) v.wahl.add(e.dataset.wahl); else v.wahl.delete(e.dataset.wahl);
+      const zeile = e.closest('tr');
+      if(zeile){
+        if(e.checked) zeile.dataset.gewaehlt = '1';
+        else zeile.removeAttribute('data-gewaehlt');
+      }
+      sammelleisteZeigen();
+    });
+  if($('verw-alle')) $('verw-alle').onchange = () => {
+    const an = $('verw-alle').checked;
+    $('flaeche').querySelectorAll('[data-wahl]').forEach(k => {
+      k.checked = an;
+      if(an) v.wahl.add(k.dataset.wahl); else v.wahl.delete(k.dataset.wahl);
+      const zeile = k.closest('tr');
+      if(!zeile) return;
+      if(an) zeile.dataset.gewaehlt = '1';
+      else zeile.removeAttribute('data-gewaehlt');
+    });
+    sammelleisteZeigen();
+  };
+  sammelleisteZeigen();
+
+  /* --- je Zeile --- */
   $('flaeche').querySelectorAll('[data-slug]').forEach(b =>
     b.onclick = () => oeffnen(b.dataset.slug));
   $('flaeche').querySelectorAll('[data-fassungen]').forEach(b =>
@@ -1706,32 +2232,233 @@ async function verwaltung(){
       history.pushState(null, '', '#/bearbeiten/' + b.dataset.bearbeiten);
       editor(b.dataset.bearbeiten);
     });
-  $('ed-neu-knopf').onclick = () => {
-    history.pushState(null, '', '#/neu'); editor(null); };
-  $('flaeche').querySelectorAll('[data-loeschen]').forEach(b => b.onclick = async () => {
-    const slug = b.dataset.loeschen;
-    if(!confirm(`Seite "${slug}" aus dem Wiki nehmen?\n\n` +
-      `Die Datei bleibt auf dem Server liegen und lässt sich von Hand ` +
-      `zurückholen. Aus Baum und Suche verschwindet sie sofort.`)) return;
-    try {
-      await hole('/api/loeschen', {method:'POST',
-        body:JSON.stringify({slug, bestaetigt:true})});
-      einblenden(`"${slug}" entfernt.`);
-      await baumLaden(); verwaltung();
-    } catch(e){ einblenden(e.message); }
-  });
-  $('zweig-knopf').onclick = async () => {
+  $('flaeche').querySelectorAll('[data-loeschen]').forEach(b =>
+    b.onclick = () => einzelLoeschen(b.dataset.loeschen));
+
+  /* --- Bereiche --- */
+  $('flaeche').querySelectorAll('[data-bereich]').forEach(b =>
+    b.onclick = () => neu(() => {
+      v.reiter = 'seiten'; v.suche = b.dataset.bereich; v.blatt = 0; }));
+  $('flaeche').querySelectorAll('[data-zweig]').forEach(b =>
+    b.onclick = () => zweigKasten(b.dataset.zweig));
+  if($('zweig-knopf')) $('zweig-knopf').onclick = async () => {
     const pfad = $('zweig-pfad').value.trim();
     const gruppen = $('zweig-gruppen').value.split(',').map(s => s.trim()).filter(Boolean);
-    if(!pfad){ einblenden('Bitte den Pfad des Themenzweigs angeben.'); return; }
+    if(!pfad) return einblenden('Bitte den Pfad des Bereichs angeben.');
     try {
       await hole('/api/zweig', {method:'POST', body:JSON.stringify({pfad, gruppen})});
-      einblenden('Freigabe gesetzt.'); verwaltung();
+      einblenden(gruppen.length
+        ? `„${pfad}" sieht jetzt nur: ${gruppen.join(', ')}.`
+        : `„${pfad}" ist jetzt für alle Angemeldeten da.`);
+      verwaltung();
     } catch(e){ einblenden(e.message); }
   };
 
-  ablageVerdrahten();
+  /* --- Gruppen --- */
+  $('flaeche').querySelectorAll('[data-gruppe]').forEach(b =>
+    b.onclick = () => neu(() => {
+      v.reiter = 'seiten'; v.gruppe = b.dataset.gruppe; v.suche = ''; v.blatt = 0; }));
+  if($('verw-ohne-freigabe')) $('verw-ohne-freigabe').onclick = () => neu(() => {
+    v.reiter = 'seiten'; v.gruppe = '—'; v.suche = ''; v.blatt = 0; });
+
+  /* --- Wartung --- */
+  if($('verw-neuindex')) $('verw-neuindex').onclick = async () => {
+    const b = $('verw-neuindex'), stand = $('verw-index-stand');
+    b.disabled = true; b.textContent = 'Wird gebaut …';
+    stand.textContent = 'Jede Seite wird gelesen.';
+    const t0 = Date.now();
+    try {
+      const a = await hole('/api/neuindex', {method:'POST', body:'{}'});
+      const s = Math.round((Date.now() - t0) / 100) / 10;
+      einblenden('Index neu gebaut in ' + String(s).replace('.', ',') + ' s' +
+        (a.verwaiste ? ' — ' + zahl(a.verwaiste) + ' verwaiste Zeilen entfernt.' : '.'));
+      verwaltung('wartung');
+    } catch(e){
+      b.disabled = false; b.textContent = 'Index neu bauen';
+      stand.textContent = '';
+      einblenden(e.message);
+    }
+  };
 }
+
+/* ---------------------------------------------------- Sammelhandlungen */
+function sammelKasten(html){
+  const z = $('verw-sammelkasten');
+  if(z) z.innerHTML = html;
+  return z;
+}
+function sammelFreigabe(){
+  const v = verwStand(), d = v.daten;
+  const namen = [...v.wahl];
+  const bekannt = (d.gruppen || []).slice().sort((a, b) => a.localeCompare(b, 'de'));
+  sammelKasten(`
+    <div class="karte" style="margin-top:12px">
+      <h3>Freigabe für ${zahl(namen.length)}
+        ${namen.length === 1 ? 'Seite' : 'Seiten'}</h3>
+      <div class="kontext">Leer heißt: alle Angemeldeten. Was hier steht,
+        ersetzt die bisherige Freigabe jeder ausgewählten Seite — sie wird
+        nicht ergänzt.</div>
+      <input type="text" id="sammel-feld" style="margin-top:12px"
+             placeholder="leer = alle" autocomplete="off">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${
+        bekannt.map(g => `<button type="button" class="knopf rahmen ed-klein"
+          data-sg="${schuetzen(g)}">${schuetzen(g)}</button>`).join('') ||
+        '<span class="label">Noch keine Gruppe im Wiki.</span>'}</div>
+      <div class="ed-merke">Betroffen: ${namen.slice(0, 8).map(schuetzen).join(', ')}${
+        namen.length > 8 ? ' und ' + zahl(namen.length - 8) + ' weitere' : ''}</div>
+      <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+        <button class="knopf" id="sammel-los">Freigabe setzen</button>
+        <button class="knopf still" id="sammel-ab">Abbrechen</button>
+        <span class="label" id="sammel-stand"></span>
+      </div>
+    </div>`);
+  $('verw-sammelkasten').querySelectorAll('[data-sg]').forEach(b =>
+    b.onclick = () => {
+      const f = $('sammel-feld');
+      const drin = f.value.split(',').map(x => x.trim()).filter(Boolean);
+      const i = drin.indexOf(b.dataset.sg);
+      if(i >= 0) drin.splice(i, 1); else drin.push(b.dataset.sg);
+      f.value = drin.join(', ');
+    });
+  $('sammel-ab').onclick = () => sammelKasten('');
+  $('sammel-los').onclick = async () => {
+    const gruppen = $('sammel-feld').value.split(',').map(x => x.trim()).filter(Boolean);
+    const stand = $('sammel-stand'), los = $('sammel-los');
+    los.disabled = true;
+    let fertig = 0, schief = [];
+    for(const slug of namen){
+      stand.textContent = zahl(fertig) + ' von ' + zahl(namen.length);
+      try { await hole('/api/rechte', {method:'POST',
+              body:JSON.stringify({slug, gruppen})}); fertig++; }
+      catch(e){ schief.push(slug + ': ' + e.message); }
+    }
+    sammelKasten('');
+    einblenden(schief.length
+      ? zahl(fertig) + ' gesetzt, ' + zahl(schief.length) + ' nicht: ' + schief[0]
+      : zahl(fertig) + (fertig === 1 ? ' Seite' : ' Seiten') + ' freigegeben.',
+      schief.length ? 9000 : 2600);
+    await baumLaden();
+    verwaltung();
+  };
+}
+async function einzelLoeschen(slug){
+  if(!confirm(`Seite "${slug}" aus dem Wiki nehmen?\n\n` +
+    `Die Datei bleibt auf dem Server liegen und lässt sich von Hand ` +
+    `zurückholen. Aus Baum und Suche verschwindet sie sofort.`)) return;
+  try {
+    const a = await hole('/api/loeschen', {method:'POST',
+      body:JSON.stringify({slug, bestaetigt:true})});
+    /* Der Hinweis kommt nur, wenn mit dem Ordner auf der Platte etwas
+       anderes war als erwartet (N-30). Dann gehoert er gelesen. */
+    einblenden(a.hinweis || `„${slug}" entfernt.`, a.hinweis ? 9000 : 2600);
+    await baumLaden(); verwaltung();
+  } catch(e){ einblenden(e.message); }
+}
+function sammelLoeschen(){
+  const v = verwStand();
+  const namen = [...v.wahl];
+  sammelKasten(`
+    <div class="karte" style="margin-top:12px">
+      <h3>${zahl(namen.length)} ${namen.length === 1 ? 'Seite' : 'Seiten'}
+        löschen</h3>
+      <div class="meldung warn" style="margin-top:8px">
+        <strong>Das betrifft mehrere Seiten auf einmal.</strong>
+        <div style="margin-top:4px">Aus Themenbaum und Suche verschwinden sie
+        sofort. Die Dateien bleiben auf dem Server liegen und lassen sich von
+        Hand zurückholen — Fassungen und Anhänge inbegriffen.</div>
+      </div>
+      <ul style="margin:10px 0 0 18px;padding:0;font-size:13px">${
+        namen.slice(0, 12).map(x =>
+          `<li class="mono">${schuetzen(x)}</li>`).join('')}${
+        namen.length > 12 ? `<li>und ${zahl(namen.length - 12)} weitere</li>` : ''}</ul>
+      <div style="margin-top:14px">
+        <label class="label" for="sammel-wort">Zum Bestätigen
+          <span class="mono">löschen</span> eintippen</label>
+        <input type="text" id="sammel-wort" autocomplete="off"
+               style="max-width:220px">
+      </div>
+      <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+        <button class="knopf rahmen gefahr" id="sammel-los">Endgültig aus dem
+          Wiki nehmen</button>
+        <button class="knopf still" id="sammel-ab">Abbrechen</button>
+        <span class="label" id="sammel-stand"></span>
+      </div>
+    </div>`);
+  $('sammel-ab').onclick = () => sammelKasten('');
+  $('sammel-los').onclick = async () => {
+    /* Ein Wort abtippen, nicht nur einen Knopf treffen: bei mehreren Seiten
+       auf einmal ist ein Fehlklick nicht mit einem Klick zu heilen. */
+    if($('sammel-wort').value.trim().toLowerCase() !== 'löschen')
+      return einblenden('Bitte „löschen" eintippen — dann geht es los.');
+    const stand = $('sammel-stand'), los = $('sammel-los');
+    los.disabled = true;
+    let fertig = 0, schief = [], hinweise = [];
+    for(const slug of namen){
+      stand.textContent = zahl(fertig) + ' von ' + zahl(namen.length);
+      try {
+        const a = await hole('/api/loeschen', {method:'POST',
+          body:JSON.stringify({slug, bestaetigt:true})});
+        fertig++;
+        if(a.hinweis) hinweise.push(slug + ': ' + a.hinweis);
+      }
+      catch(e){ schief.push(slug + ': ' + e.message); }
+    }
+    verwStand().wahl = new Set();
+    sammelKasten('');
+    einblenden(schief.length
+      ? zahl(fertig) + ' entfernt, ' + zahl(schief.length) + ' nicht: ' + schief[0]
+      : zahl(fertig) + (fertig === 1 ? ' Seite' : ' Seiten') + ' entfernt.' +
+        (hinweise.length ? ' ' + zahl(hinweise.length) + ' davon mit Hinweis: '
+                           + hinweise[0] : ''),
+      (schief.length || hinweise.length) ? 9000 : 2600);
+    await baumLaden();
+    verwaltung();
+  };
+}
+function zweigKasten(pfad){
+  const v = verwStand(), d = v.daten;
+  const jetzt = ((d.zweige || []).find(z => z.pfad === pfad) || {}).gruppen || [];
+  const bekannt = (d.gruppen || []).slice().sort((a, b) => a.localeCompare(b, 'de'));
+  const z = $('verw-zweigkasten');
+  if(!z) return;
+  z.innerHTML = `
+    <div class="karte" style="margin-top:12px">
+      <h3>Freigabe für „${schuetzen(pfad)}"</h3>
+      <div class="kontext">Gilt für alles unter diesem Pfad. Leer lassen hebt
+        die Einschränkung auf.</div>
+      <input type="text" id="zk-feld" style="margin-top:12px"
+             value="${schuetzen(jetzt.join(', '))}" placeholder="leer = alle"
+             autocomplete="off">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${
+        bekannt.map(g => `<button type="button" class="knopf rahmen ed-klein"
+          data-zg="${schuetzen(g)}">${schuetzen(g)}</button>`).join('')}</div>
+      <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+        <button class="knopf" id="zk-los">Setzen</button>
+        <button class="knopf still" id="zk-ab">Abbrechen</button>
+      </div>
+    </div>`;
+  z.querySelectorAll('[data-zg]').forEach(b => b.onclick = () => {
+    const f = $('zk-feld');
+    const drin = f.value.split(',').map(x => x.trim()).filter(Boolean);
+    const i = drin.indexOf(b.dataset.zg);
+    if(i >= 0) drin.splice(i, 1); else drin.push(b.dataset.zg);
+    f.value = drin.join(', ');
+  });
+  $('zk-ab').onclick = () => { z.innerHTML = ''; };
+  $('zk-los').onclick = async () => {
+    const gruppen = $('zk-feld').value.split(',').map(x => x.trim()).filter(Boolean);
+    try {
+      await hole('/api/zweig', {method:'POST', body:JSON.stringify({pfad, gruppen})});
+      einblenden(gruppen.length
+        ? `„${pfad}" sieht jetzt nur: ${gruppen.join(', ')}.`
+        : `„${pfad}" ist jetzt für alle Angemeldeten da.`);
+      await baumLaden();
+      verwaltung('bereiche');
+    } catch(e){ einblenden(e.message); }
+  };
+  z.scrollIntoView({block:'nearest'});
+}
+
 function ablageVerdrahten(){
   /* Dieselbe Ablage, egal wo sie steht (Editor). Fehlt sie, ist nichts zu
      tun - dann zeigt die Ansicht sie gerade nicht. */
@@ -1751,7 +2478,12 @@ async function rechteKasten(slug, d){
   const seite = (d.seiten || []).find(x => x.slug === slug);
   if(!seite) return;
   const bekannt = d.gruppen || [];
-  const ziel = $('bericht') || $('flaeche');
+  /* Wohin der Kasten gehoert, haengt von der Ansicht ab: in der Verwaltung
+     in den dafuer vorgesehenen Platz, im Editor unter den Pruefbericht.
+     Ohne den ersten Fall landete er als Flexkind neben der Flaeche - und
+     schob die ganze Ansicht zusammen. */
+  const platz = $('verw-sammelkasten');
+  const ziel = platz || $('bericht') || $('flaeche');
   const kasten = document.createElement('div');
   kasten.className = 'karte';
   kasten.style.marginTop = '14px';
@@ -1774,7 +2506,8 @@ async function rechteKasten(slug, d){
   const alt = $('rechte-kasten');
   if(alt) alt.remove();
   kasten.id = 'rechte-kasten';
-  ziel.parentElement.insertBefore(kasten, ziel.nextSibling);
+  if(platz){ platz.innerHTML = ''; platz.appendChild(kasten); }
+  else ziel.parentElement.insertBefore(kasten, ziel.nextSibling);
   kasten.scrollIntoView({block:'nearest'});
   kasten.querySelectorAll('[data-g]').forEach(b => b.onclick = () => {
     const f = $('rechte-feld');
@@ -1792,7 +2525,11 @@ async function rechteKasten(slug, d){
       einblenden(gruppen.length
         ? `„${seite.titel}" sieht jetzt nur: ${gruppen.join(', ')}.`
         : `„${seite.titel}" ist jetzt für alle Angemeldeten da.`);
-      await baumLaden(); verwaltung();
+      await baumLaden();
+      /* Zurueck in dieselbe Ansicht - wer aus der Liste kam, will in die
+         Liste zurueck, mit seinen Filtern. */
+      if(ZUSTAND.ansicht === 'verwaltung') verwaltung();
+      else if($('bericht')) kasten.remove();
     } catch(e){ einblenden(e.message); }
   };
 }
