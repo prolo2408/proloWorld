@@ -23,8 +23,18 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
 
 ## Fassung 1.3.2
 
-Eine Korrektur zu 1.3.1 und ein Aufraeumen - im Browser nachgestellt und
-gemessen.
+Eine Korrektur zu 1.3.1, ein Aufraeumen und eine neue Seite - im Browser
+nachgestellt und gemessen.
+
+- **Neue Seite: "Prolo bedienen und verstehen"** (`vorlagen/prolo-bedienen.html`).
+  Der ganze Stack auf einer Seite, in zehn Abschnitten und sechs Gruppen: was
+  die vier Schichten sind, wie der Aufbau auf der Platte aussieht, ein neuer
+  Server von null, ein Werkzeug einhaengen, der Alltag mit `prolo`, Sichern,
+  eine Sicherung wieder einspielen, den Agenten umziehen, Fehlersuche nach
+  Symptom. Erzeugt mit dem Erzeuger der Huelle selbst (`edSeiteBauen`), also
+  mit demselben Pflichtteil und denselben Farbtoken wie jede Seite aus dem
+  Editor. Im Browser gefahren: Verzeichnis mit allen sechs Gruppen, Strg+F
+  findet 31 Stellen zu "Sicherung", 0 Konsolenfehler.
 
 - **Aufgeraeumt** (`N-37`). Zwei Funktionen sind weg, die nur noch ihr
   eigener Test gerufen hat: `fts_ausdruck` im Server (ersetzt von
