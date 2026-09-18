@@ -21,7 +21,10 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
   Fehler - aber sie stehen vor dem "Uebernehmen"-Knopf, nicht dahinter
   (B-07).
 
-## Fassung 1.3.0
+## Fassung 1.3.1
+
+Zwei Korrekturen aus der Rueckmeldung zu 1.3.0 - beide im Browser
+nachgestellt und gemessen, nicht nur ueberlegt.
 
 - **Ein Fehler beim Speichern fuehrt jetzt an seine Stelle** (`N-35`). Die
   Zeile „Eine Sache fehlt noch" war ein Satz ohne Weg: anklickbar aussehend,
@@ -41,6 +44,8 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
   der Kopf verschwand nach oben, unten stand ein Balken in der falschen Farbe.
   Gemessen: 520 Pixel Fremdhoehe genuegten, Huellenunterkante bei 48 % der
   Fensterhoehe. Danach: 100 %, Kopf sichtbar.
+
+## Fassung 1.3.0
 
 - **Strg+S speichert** im Editor, und ein Baustein laesst sich **verdoppeln**.
 
