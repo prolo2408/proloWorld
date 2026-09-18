@@ -1777,6 +1777,94 @@ genau diesen blinden Fleck hatte.
 
 ---
 
+## N-34 — Unter der Oberfläche stand ein schwarzer Balken, der Kopf war weg
+
+### Befund
+
+Rückmeldung mit Bild: auf `#/neu` endete die Oberfläche auf halber Höhe, und
+darunter lag eine schwarze Fläche über die ganze Breite. Die Kopfzeile mit dem
+Seitentitel fehlte, die Seitenleiste zeigte nur noch ihren Fuß
+(„Einstellungen").
+
+### Was wirklich passiert war
+
+Die Hülle ist als **Rahmen** gebaut: `html, body { height:100% }`,
+`.app { height:100% }`, und gescrollt wird *innen* — in `.flaeche`, im
+Themenbaum, in der Verwaltungstabelle. Das Dokument selbst soll nie scrollen.
+
+Es *konnte* aber. An der Wurzel stand kein `overflow`. Sobald irgendetwas dem
+`<body>` Höhe gibt — eine Browsererweiterung, die ihr Overlay anhängt, ein Rest
+im Körper, eine spät geladene Schrift —, wird das ganze Dokument schiebbar. Die
+Hülle ist dann weiterhin fenstergroß, rutscht aber nach oben aus dem Bild: oben
+fehlt der Kopf, unten liegt der Rest des Dokuments frei. Und der lag in
+`var(--bg)` — im dunklen Thema `oklch(0.16 …)`, also deutlich dunkler als die
+Hülle mit `oklch(0.2 …)`. Genau der schwarze Balken.
+
+### Gemessen, nicht überlegt
+
+Nachgestellt im kopflosen Browser bei 1920 × 1000, Ansicht `#/neu`: ein Element
+von 520 Pixeln an den Körper gehängt, dann ans Bandende gescrollt.
+
+| | Dokument | scrollbar | gescrollt | Hüllenunterkante | Kopf sichtbar |
+|---|---|---|---|---|---|
+| vorher | 1000 | 0 | 0 | 1000 (100 %) | ja |
+| mit Fremdhöhe | 1520 | 520 | 0 | 1000 (100 %) | ja |
+| ans Bandende | 1520 | 520 | 520 | **480 (48 %)** | **nein** |
+
+48 % — dasselbe Verhältnis wie im Bild der Rückmeldung, und derselbe fehlende
+Kopf. Damit ist der Weg belegt, nicht nur vermutet.
+
+Was dem Körper im Browser des Nutzers die Höhe gegeben hat, ist von hier aus
+nicht feststellbar (im Bild sind mehrere Erweiterungen zu sehen). Es muss auch
+nicht feststehen: die Hülle darf sich von *nichts* aus dem Fenster schieben
+lassen.
+
+### Behoben
+
+```css
+html,body{margin:0;padding:0;height:100%;overflow:hidden}
+body{ background:var(--app); … }
+```
+
+Zwei Riegel: Die Wurzel scrollt nicht mehr — was die Hülle nicht selbst
+scrollt, kann sie nicht verschieben. Und der Körper trägt dieselbe Farbe wie
+die Hülle, damit auch dann keine fremde Fläche entsteht, wenn doch einmal etwas
+durchscheint.
+
+Nach der Korrektur, derselbe Versuch: Dokument 1000, scrollbar 0, ans Bandende
+gescrollt 0, Hüllenunterkante 1000 (100 %), Kopf sichtbar.
+
+### Damit `overflow:hidden` kein Deckel wird
+
+Ein Deckel verdeckt Fehler, statt sie zu beheben. Darum eine zweite Messung
+über fünf Ansichten × drei Größen (1920 × 1000, 1280 × 720, 390 × 780): jeder
+Kasten, der **nicht** selbst scrollt, muss seinen Inhalt fassen
+(`scrollHeight <= clientHeight`). Gefunden: **nichts geklemmt**, in keiner
+Ansicht und keiner Größe, und `.flaeche` scrollt weiter da, wo der Inhalt
+höher ist als das Fenster (bei 390 × 780 z. B. 1165 Zeilen auf 669 sichtbar).
+
+### Prüflinie
+
+`tests/test_editor.mjs`: *„Die Huelle ist ein Rahmen, kein Schriftstueck
+(N-34)"* — verlangt `overflow:hidden` und `height:100%` an der Wurzel und
+`background:var(--app)` am Körper.
+
+Mutationsproben (§13a), jede einzeln:
+
+| Mutation | Ergebnis |
+|---|---|
+| `overflow:hidden` entfernt | 1 Fehler |
+| Körperfarbe zurück auf `var(--bg)` | 1 Fehler |
+| `height:100%` entfernt | 1 Fehler |
+| unverändert | 120 ok, 0 Fehler |
+
+### Was ich dabei falsch gemacht habe
+
+Die Mutationsproben liefen mit `git checkout -- index.html` als Rückweg — und
+die Korrektur war noch nicht eingecheckt. Die dritte Probe hat sie mit
+weggeräumt, und die Kontrolle stand auf „1 Fehler". Erst das machte es
+sichtbar. Eine Probe braucht einen Rückweg, der nicht die eigene Arbeit ist.
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

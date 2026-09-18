@@ -132,9 +132,19 @@ body[data-theme="dark"]{
    display schlaegt sonst das hidden-Attribut, und ein verstecktes
    Element bleibt sichtbar. */
 [hidden]{display:none!important}
-html,body{margin:0;padding:0;height:100%}
+/* Die Huelle ist ein Rahmen, kein Schriftstueck: sie ist genau so hoch wie
+   das Fenster, und gescrollt wird INNEN (.flaeche, .baum, .verw-tabelle).
+   Ohne overflow:hidden reicht irgendetwas, das dem Koerper Hoehe gibt - eine
+   Browsererweiterung, ein Rest im Koerper, eine spaet geladene Schrift -, und
+   das ganze Dokument laesst sich schieben: die Huelle rutscht nach oben, der
+   Kopf verschwindet, und unter ihr steht ein Balken in --bg. Gemessen (N-34):
+   520 Pixel Fremdhoehe, ans Bandende gescrollt - Huellenunterkante bei 48 %
+   der Fensterhoehe, Kopf nicht mehr sichtbar.
+   Und der Koerper traegt dieselbe Farbe wie die Huelle, damit selbst dann
+   keine fremde Flaeche entsteht, wenn doch einmal etwas durchscheint. */
+html,body{margin:0;padding:0;height:100%;overflow:hidden}
 body{
-  background:var(--bg); color:var(--ink-2);
+  background:var(--app); color:var(--ink-2);
   font-family:'Instrument Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
   font-size:14px; line-height:1.55; -webkit-font-smoothing:antialiased;
 }

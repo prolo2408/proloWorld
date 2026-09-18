@@ -23,6 +23,14 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
 
 ## Fassung 1.3.0
 
+- **Der schwarze Balken unter der Oberflaeche ist weg** (`N-34`). Die Huelle
+  ist ein Rahmen und scrollt nicht mehr als Ganzes: was innen zu hoch ist,
+  scrollt innen. Gab vorher irgendetwas dem Koerper Hoehe - eine
+  Browsererweiterung zum Beispiel -, liess sich das ganze Dokument schieben:
+  der Kopf verschwand nach oben, unten stand ein Balken in der falschen Farbe.
+  Gemessen: 520 Pixel Fremdhoehe genuegten, Huellenunterkante bei 48 % der
+  Fensterhoehe. Danach: 100 %, Kopf sichtbar.
+
 - **Strg+S speichert** im Editor, und ein Baustein laesst sich **verdoppeln**.
 
 - **Drei neue Bausteine**: Bild (als Anhang, mit Bildunterschrift), Verweise

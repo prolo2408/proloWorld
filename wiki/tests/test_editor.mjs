@@ -259,6 +259,23 @@ pruefe('Pflichtangaben der Huelle: lang, viewport, focus-visible', () => {
   assert.ok(seite.includes('focus-visible'), 'ohne das warnt die Importpruefung');
   assert.ok(seite.includes('prefers-reduced-motion'));
 });
+pruefe('Die Huelle ist ein Rahmen, kein Schriftstueck (N-34)', () => {
+  /* Der Befund aus der Rueckmeldung: unter der Oberflaeche stand ein
+     schwarzer Balken und der Kopf war weg. Gemessen im Browser: 520 Pixel
+     Fremdhoehe im Koerper genuegen, dann laesst sich das ganze Dokument
+     schieben - Huellenunterkante bei 48 % der Fensterhoehe, Kopf nicht mehr
+     sichtbar. Gescrollt wird INNEN; die Wurzel scrollt nie. */
+  const wurzel = quelle.match(/^html,body\{[^}]*\}/m);
+  assert.ok(wurzel, 'keine Regel fuer html,body gefunden');
+  assert.ok(/overflow:\s*hidden/.test(wurzel[0]),
+    'ohne overflow:hidden an der Wurzel schiebt jede Fremdhoehe die Huelle aus dem Bild');
+  assert.ok(/height:\s*100%/.test(wurzel[0]),
+    'ohne height:100% ist die Huelle nicht so hoch wie das Fenster');
+  const koerper = quelle.match(/\nbody\{\n([\s\S]*?)\n\}/);
+  assert.ok(koerper, 'keine body-Regel gefunden');
+  assert.ok(/background:\s*var\(--app\)/.test(koerper[1]),
+    'der Koerper muss die Farbe der Huelle tragen - sonst ist jede Luecke ein Fremdkoerper');
+});
 pruefe('Farben nur in :root und body[data-theme]', () => {
   /* Die Importpruefung sucht Farbwerte ausserhalb des Tokenblocks. Also darf
      im Stil hinter dem Tokenblock kein oklch(/#rgb mehr stehen. */
