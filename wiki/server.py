@@ -12,6 +12,7 @@ Keine eigene Nutzerverwaltung, kein Gastzugang.
 """
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -441,6 +442,41 @@ GRENZE_STICHWORT = 60
 # bekommt der Leser nichts, egal wie voll der Meta-Block ist.
 GRENZE_SICHTBAR = 40
 
+# Der Pflichtteil ist der Skriptblock, den die Huelle in JEDE Seite legt:
+# Inhaltsverzeichnis, Suche in der Seite, PDF-Bausteine. Er ist NICHT das, was
+# der Einspielende sich holt - er ist das, was das Wiki dazugibt (N-40).
+#
+# Die Marke steht in der ersten Zeile des Blocks und ist eindeutig; "Shell"
+# steht noch in den zwei aeltesten Seiten, beide Schreibweisen muessen
+# treffen. Dasselbe Muster benutzt pflichtteil-nachziehen.mjs.
+PFLICHTTEIL_MARKE = re.compile(
+    r"/\* Pflichtteil jeder Wiki-Seite: auf die (?:Huelle|Shell) hoeren\. \*/")
+# Der Fingerabdruck steht in index.html, direkt neben dem Code, der den
+# Pflichtteil baut. Gehalten wird er von pflichtteil-nachziehen.mjs und
+# tests/test_editor.mjs.
+PFLICHTTEIL_KENNUNG_MUSTER = re.compile(
+    r"const ED_PFLICHTTEIL_KENNUNG = 'sha256:([0-9a-f]{64})';")
+_pflichtteil_kennung = []
+
+
+def pflichtteil_kennung():
+    """Der Fingerabdruck des Pflichtteils, den diese Huelle baut - oder None.
+
+    None heisst: nicht feststellbar. Dann wird der Pflichtteil NICHT erkannt
+    und alles gemeldet wie vor N-40. Lieber ein Hinweis zu viel als eine
+    stille Ausnahme - und vor allem keine falsche Entwarnung, denn "erkannt"
+    heisst hier "Zeichen fuer Zeichen der Block dieser Huelle".
+    """
+    if not _pflichtteil_kennung:
+        try:
+            with open(os.path.join(EIGENER_ORDNER, "index.html"),
+                      encoding="utf-8") as f:
+                m = PFLICHTTEIL_KENNUNG_MUSTER.search(f.read())
+            _pflichtteil_kennung.append(m.group(1) if m else None)
+        except OSError:
+            _pflichtteil_kennung.append(None)
+    return _pflichtteil_kennung[0]
+
 SKRIPT_TEXT_GRENZE = 60000
 # Wie viel Text eine Seite von sich selbst melden darf. 200 000 Zeichen sind
 # rund 30 000 Woerter - mehr hat keine Wiki-Seite, und die Grenze verhindert,
@@ -834,18 +870,49 @@ def sicherheit_pruefen(html):
     """
     hinweise = []
 
-    # Der Meta-Block ist type="application/json" und kein ausfuehrbarer Code -
-    # er darf die Zaehlung nicht aufblaehen, sonst meldet die Pruefung bei
-    # jeder voellig harmlosen Seite einen Skriptblock und wird nicht gelesen.
-    skripte = [(attr, inhalt) for attr, inhalt in
-               re.findall(r"(?is)<script\b([^>]*)>(.*?)</script>", html)]
-    code = [inhalt for attr, inhalt in skripte
-            if inhalt.strip()
-            and not re.search(r'(?i)type\s*=\s*["\']?application/(?:ld\+)?json', attr)]
+    # Zwei Bloecke zaehlen NICHT als Code, den die Seite mitbringt:
+    #
+    # 1. Der Meta-Block ist type="application/json" und gar nicht ausfuehrbar.
+    # 2. Der Pflichtteil kommt aus der Huelle selbst (N-40).
+    #
+    # Beide Male aus demselben Grund: eine Warnung, die bei JEDER harmlosen
+    # Seite angeht, wird nicht gelesen. Gemessen vor N-40 an allen sechs
+    # mitgelieferten Seiten: jede meldete "1 Skriptblock mit 12534 Zeichen"
+    # und "parent. - die Seite greift nach der Huelle", Zeichen fuer Zeichen
+    # dieselbe Zahl. Danach rutscht die eine Seite durch, die wirklich etwas
+    # Fremdes mitbringt.
+    #
+    # Erkannt wird der Pflichtteil nur bei EXAKTER Uebereinstimmung mit dem
+    # Fingerabdruck dieser Huelle. Alles andere - eine aeltere Fassung, ein
+    # Zeichen mehr, etwas Hineingeschriebenes - bleibt Code der Seite und
+    # bekommt zusaetzlich seinen eigenen Hinweis.
+    erwartet = pflichtteil_kennung()
+    code, pflicht_gleich, pflicht_anders = [], False, False
+    for m in re.finditer(r"(?is)<script\b([^>]*)>(.*?)</script>", html):
+        attr, inhalt = m.group(1), m.group(2)
+        if not inhalt.strip():
+            continue
+        if re.search(r'(?i)type\s*=\s*["\']?application/(?:ld\+)?json', attr):
+            continue
+        if erwartet and PFLICHTTEIL_MARKE.search(inhalt):
+            block = m.group(0).replace("\r\n", "\n")
+            if hashlib.sha256(block.encode("utf-8")).hexdigest() == erwartet:
+                pflicht_gleich = True
+                continue
+            pflicht_anders = True
+        code.append(inhalt)
+    if pflicht_anders:
+        hinweise.append(
+            "Der Pflichtteil dieser Seite ist nicht der dieser Huelle. Das kann "
+            "eine aeltere Fassung sein - oder etwas, das jemand hineingeschrieben "
+            "hat. Sieh ihn dir an; oder speichere die Seite einmal durch den "
+            "Editor, der legt ihn neu an.")
     if code:
         zeichen = sum(len(k) for k in code)
         hinweise.append(f"{len(code)} Skriptblock(e) mit zusammen {zeichen} "
-                        "Zeichen. Die Seite bringt eigenen Code mit.")
+                        "Zeichen. Die Seite bringt eigenen Code mit."
+                        + (" (Der Pflichtteil des Wikis ist dabei nicht "
+                           "mitgezaehlt.)" if pflicht_gleich else ""))
 
     ganz = "\n".join(code)
     for muster, was in (

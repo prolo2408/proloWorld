@@ -33,7 +33,10 @@ Wo was steht:
   Testlücke und wird geschlossen.
 - **Der Rückweg einer Probe darf nicht die eigene Arbeit sein.** Eine
   Mutationsprobe, die über `git checkout` zurückrollt, löscht eine noch
-  nicht eingecheckte Korrektur mit weg (`N-34`). Kopie im Kratzblock.
+  nicht eingecheckte Korrektur mit weg (`N-34`). Kopie im Kratzblock — und
+  zwar von allem, was die Probe **schreiben kann**, nicht nur von dem, was
+  man von Hand ändert. Ruft die Probe einen Erzeuger auf, gehören seine
+  **Ausgaben** gesichert, nicht seine Eingaben (`N-40`).
 - **Nichts still nebenbei ändern.** Ein Problem, das beim Arbeiten auffällt,
   wird ein **neuer Befund** in `NEUE-BEFUNDE.md` und bekommt seinen eigenen
   Schritt.

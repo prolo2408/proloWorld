@@ -259,5 +259,86 @@ class EineSeiteMussSichtbarenInhaltHaben(unittest.TestCase):
         self.assertTrue(any("sichtbarer Text" in f for f in fehler), fehler)
 
 
+class PflichtteilWirdErkannt(unittest.TestCase):
+    """N-40: Der Pflichtteil ist kein Code, den die Seite mitbringt.
+
+    Vor N-40 meldete die Hinweiskarte bei JEDER Seite aus dem Editor
+    "1 Skriptblock mit 12534 Zeichen" und "parent. - die Seite greift nach
+    der Huelle" - gemessen an allen sechs mitgelieferten Seiten dieselbe Zahl,
+    Zeichen fuer Zeichen. Eine Warnung, die immer angeht, wird nicht gelesen.
+
+    Die Erkennung darf aber nicht zur Entwarnung werden: sie gilt nur bei
+    EXAKTER Uebereinstimmung. Darum steht hier zu jedem "erkannt" auch ein
+    Fall, in dem etwas nicht stimmt.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.html = lies(os.path.join(WIKI, "vorlagen", "drucker-einrichten.html"))
+
+    def test_der_fingerabdruck_ist_lesbar(self):
+        # Ohne ihn ist jeder weitere Test dieser Klasse gruen aus dem
+        # falschen Grund: dann wird eben nichts erkannt.
+        self.assertIsNotNone(server.pflichtteil_kennung(),
+                             "ED_PFLICHTTEIL_KENNUNG fehlt in index.html")
+
+    def test_eine_seite_aus_dem_editor_meldet_nichts(self):
+        self.assertEqual(server.sicherheit_pruefen(self.html), [])
+
+    def test_alle_mitgelieferten_seiten_melden_keinen_pflichtteil(self):
+        # "parent." darf in KEINER mitgelieferten Seite mehr auftauchen -
+        # sonst ist der Pflichtteil dort nicht nachgezogen.
+        for pfad in seiten():
+            with self.subTest(seite=os.path.basename(pfad)):
+                hinweise = server.sicherheit_pruefen(lies(pfad))
+                self.assertFalse([h for h in hinweise if "parent." in h],
+                                 "Pflichtteil nicht erkannt: %s" % hinweise)
+
+    def test_ein_einziges_zeichen_mehr_faellt_auf(self):
+        # Die Probe mit den Zaehnen (CLAUDE.md §13a): ein Leerzeichen.
+        anders = self.html.replace("if(window.parent !== window)",
+                                   "if(window.parent !== window) ", 1)
+        self.assertNotEqual(anders, self.html, "Mutation griff nicht")
+        hinweise = server.sicherheit_pruefen(anders)
+        self.assertTrue(any("nicht der dieser Huelle" in h for h in hinweise),
+                        hinweise)
+        self.assertTrue(any("Skriptblock" in h for h in hinweise), hinweise)
+
+    def test_etwas_im_pflichtteil_versteckt_wird_gemeldet(self):
+        # Das Loch, das eine Erkennung nach blossem Kommentar haette: 12 kB
+        # fremder Code unter der Marke des Pflichtteils.
+        anders = self.html.replace("(function(){",
+                                   "(function(){\n  fetch('//fremd.tld/x');", 1)
+        self.assertNotEqual(anders, self.html, "Mutation griff nicht")
+        hinweise = server.sicherheit_pruefen(anders)
+        self.assertTrue(any("nicht der dieser Huelle" in h for h in hinweise),
+                        hinweise)
+        self.assertTrue(any("fetch(" in h for h in hinweise), hinweise)
+
+    def test_eigener_block_neben_dem_pflichtteil_wird_gemeldet(self):
+        anders = self.html.replace(
+            "</body>",
+            "<script>localStorage.setItem('x',1)</script>\n</body>", 1)
+        self.assertNotEqual(anders, self.html, "Mutation griff nicht")
+        hinweise = server.sicherheit_pruefen(anders)
+        # Von Hand gezaehlt: localStorage.setItem('x',1) sind 27 Zeichen -
+        # der Block ist genau sein Inhalt, ohne die Tags.
+        self.assertTrue(any("1 Skriptblock(e) mit zusammen 27 Zeichen" in h
+                            for h in hinweise), hinweise)
+        self.assertTrue(any("localStorage" in h for h in hinweise), hinweise)
+
+    def test_ohne_fingerabdruck_wird_gemeldet_wie_vorher(self):
+        # Keine stille Entwarnung (CLAUDE.md §11): ist der Abdruck nicht
+        # feststellbar, gilt der Pflichtteil wieder als Code der Seite.
+        vorher = list(server._pflichtteil_kennung)
+        try:
+            server._pflichtteil_kennung[:] = [None]
+            hinweise = server.sicherheit_pruefen(self.html)
+            self.assertTrue(any("Skriptblock" in h for h in hinweise), hinweise)
+            self.assertTrue(any("parent." in h for h in hinweise), hinweise)
+        finally:
+            server._pflichtteil_kennung[:] = vorher
+
+
 if __name__ == "__main__":
     unittest.main()

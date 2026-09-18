@@ -3794,6 +3794,25 @@ ED_RECHENWERK,
 '<' + '/script>'
 ].join('\n');
 
+/* Fingerabdruck des Pflichtteils - der Server liest ihn beim Einspielen aus
+   dieser Datei (N-40). Er steht BEWUSST hier und nicht in einer eigenen
+   Datei: hier entsteht der Pflichtteil, hier steht sein Abdruck, und zwei
+   Staende koennen nicht auseinanderlaufen.
+
+   Wozu: Die Hinweiskarte "Was diese Seite mitbringt" meldete bei JEDER Seite
+   aus dem Editor "1 Skriptblock mit 12534 Zeichen" und "parent. - die Seite
+   greift nach der Huelle". Gemessen an allen sechs mitgelieferten Seiten:
+   dieselbe Zahl, Zeichen fuer Zeichen. Das war richtig und trotzdem falsch -
+   eine Warnung, die immer angeht, bringt bei, sie wegzuklicken, und dann
+   rutscht die eine Seite durch, die wirklich etwas Fremdes mitbringt. Der
+   Pflichtteil ist nicht, was der Einspielende sich holt; er ist, was das
+   Wiki dazugibt.
+
+   Erzeugt von  node pflichtteil-nachziehen.mjs --schreiben
+   gehalten von tests/test_editor.mjs ("Der Fingerabdruck ... passt zum
+   Pflichtteil"), damit er nicht stillschweigend veraltet. */
+const ED_PFLICHTTEIL_KENNUNG = 'sha256:c42a270ab735af79b1bb60e8959de33d7eef4fa668f04c7d03d2009f7caa4c0f';
+
 function edListe(s){
   return String(s || '').split(',').map(x => x.trim()).filter(Boolean);
 }

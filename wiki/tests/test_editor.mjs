@@ -10,6 +10,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const quelle = readFileSync(join(HIER, '..', 'index.html'), 'utf8');
@@ -1323,6 +1324,37 @@ pruefe('Die Huelle scrollt nur ihre eigenen Kaesten (N-36)', () => {
     'ohne position:fixed haengt die Huelle am Koerper und laesst sich ' +
     'aus dem Fenster schieben');
   assert.ok(/inset:\s*0/.test(app[0]), 'die Huelle muss das ganze Fenster fuellen');
+});
+
+/* ---------------------------------------------------------------- N-40
+   Der Server erkennt den Pflichtteil an einem Fingerabdruck, der in
+   index.html steht. Laeuft der Abdruck dem Pflichtteil hinterher, erkennt
+   der Server ihn in KEINER Seite wieder - und die Hinweiskarte meldet
+   wieder bei jeder harmlosen Seite eigenen Code und "parent.".
+   Das faellt von selbst niemandem auf, also faellt es hier auf. */
+pruefe('Der Fingerabdruck passt zum Pflichtteil (N-40)', () => {
+  const m = quelle.match(/const ED_PFLICHTTEIL_KENNUNG = 'sha256:([0-9a-f]{64})';/);
+  assert.ok(m, 'ED_PFLICHTTEIL_KENNUNG fehlt in index.html');
+  const ist = createHash('sha256').update(ED_PFLICHTTEIL).digest('hex');
+  assert.equal(m[1], ist,
+    'der Fingerabdruck ist nicht auf dem Stand des Pflichtteils - ' +
+    'node pflichtteil-nachziehen.mjs --schreiben');
+});
+
+pruefe('Der Pflichtteil traegt die Marke, an der der Server ihn sucht (N-40)', () => {
+  /* Der Server sucht den Block an genau diesem Kommentar. Faellt er weg
+     oder wird er umformuliert, findet der Server nichts mehr - und der
+     Fingerabdruck oben bliebe trotzdem gruen. */
+  assert.ok(
+    /\/\* Pflichtteil jeder Wiki-Seite: auf die Huelle hoeren\. \*\//
+      .test(ED_PFLICHTTEIL),
+    'die Marke des Pflichtteils fehlt oder lautet anders');
+  /* Und sie steht im Block selbst, nicht nur irgendwo in der Datei. */
+  assert.ok(ED_PFLICHTTEIL.startsWith('<' + 'script>'),
+    'der Pflichtteil faengt nicht mit seinem eigenen Skript-Anfang an');
+  assert.ok(ED_PFLICHTTEIL.trimEnd().endsWith('<' + '/script>'),
+    'der Pflichtteil hoert nicht mit seinem eigenen Skript-Ende auf - ' +
+    'der Server hasht den Block MIT den Marken');
 });
 
 console.log('');

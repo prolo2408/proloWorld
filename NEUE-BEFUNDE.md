@@ -2445,6 +2445,111 @@ beschreibt die Bedienung des Bordbuchs im Einzelnen, das andere den
 Seitenaufbau des Wikis, auf den sich Editor, Import und Tests berufen. Beide
 sind jetzt in `CLAUDE.md` genannt, damit man sie findet.
 
+## N-40 — Die Warnung, die bei jeder Seite anging
+
+### Wie es aufgefallen ist
+
+Die fertige Anleitung `prolo-bedienen.html` wurde eingespielt. Über dem
+Knopf „Übernehmen" stand:
+
+> **Was diese Seite mitbringt**
+> · 1 Skriptblock(e) mit zusammen 12534 Zeichen. Die Seite bringt eigenen Code mit.
+> · parent. – die Seite greift nach der Huelle
+
+Die Frage dazu war die richtige: *Warum passiert sowas?*
+
+### Was gemessen wurde
+
+`sicherheit_pruefen()` über alle mitgelieferten Seiten:
+
+| Seite | Hinweise |
+|---|---|
+| `bausteine-im-editor.html` | 12534 Zeichen · `parent.` |
+| `drucker-einrichten.html` | 12534 Zeichen · `parent.` |
+| `git-und-github.html` | **13134** Zeichen · `parent.` |
+| `netzwerk-grundlagen.html` | 12534 Zeichen · `parent.` |
+| `prolo-bedienen.html` | 12534 Zeichen · `parent.` |
+| `stromkosten-verstehen.html` | 12534 Zeichen · `parent.` |
+
+**Jede** Seite, und auf das Zeichen dieselbe Zahl. Die 12534 sind der
+**Pflichtteil** — der Skriptblock, den `edSeiteBauen` in jede Seite legt:
+Inhaltsverzeichnis, Sprung zum Anker, Markieren bei „In dieser Seite suchen",
+die PDF-Bausteine. Die `parent.`-Stellen sind die fünf
+`window.parent.postMessage`-Aufrufe darin, die einzige Verbindung, die eine
+Seite zur Hülle hat: sie läuft in einem **opaken Origin** (Sandbox ohne
+`allow-same-origin`), und die Hülle nimmt eine Nachricht nur an, wenn sie aus
+ihrem eigenen Rahmen kommt.
+
+Die Meldung war also **wahr** und trotzdem **falsch**. Der Pflichtteil ist
+nicht, was der Einspielende sich holt; er ist, was das Wiki dazugibt.
+
+### Warum das mehr ist als Kosmetik
+
+Die Prüfung machte dieselbe Überlegung **eine Zeile weiter oben schon** — der
+JSON-Metablock wird aus der Zählung genommen, mit dieser Begründung im Code:
+
+> „er darf die Zaehlung nicht aufblaehen, sonst meldet die Pruefung bei jeder
+> voellig harmlosen Seite einen Skriptblock und wird nicht gelesen."
+
+Genau das war beim Pflichtteil eingetreten, eine Stufe höher. Eine Warnung,
+die immer angeht, bringt bei, sie wegzuklicken — und dann rutscht die eine
+Seite durch, die wirklich etwas Fremdes mitbringt. In der Tabelle oben steht
+so ein Fall: `git-und-github.html` bringt **600 Zeichen eigenen Code** über
+den Pflichtteil hinaus, und in dieser Darstellung sah man den Unterschied
+nicht.
+
+### Was daraus wurde
+
+Der Pflichtteil wird **wiedererkannt** und aus der Zählung genommen — aber
+nur bei **exakter** Übereinstimmung.
+
+- `index.html` trägt neben dem Pflichtteil seinen **Fingerabdruck**
+  (`ED_PFLICHTTEIL_KENNUNG`, SHA-256). Er steht dort und nicht in einer
+  eigenen Datei, damit die beiden Stände nicht auseinanderlaufen können.
+- `pflichtteil-nachziehen.mjs` hält ihn auf dem Stand, `test_editor.mjs`
+  verlangt es.
+- `server.py` liest ihn aus `index.html` und vergleicht den Block einer
+  eingespielten Seite Zeichen für Zeichen.
+
+Drei Fälle, drei Antworten:
+
+| Fall | Was gemeldet wird |
+|---|---|
+| Pflichtteil stimmt | **nichts** — und der Zusatz „(Der Pflichtteil des Wikis ist dabei nicht mitgezählt.)", falls die Seite eigenen Code hat |
+| Pflichtteil weicht ab | „nicht der dieser Hülle … sieh ihn dir an; oder speichere die Seite einmal durch den Editor" — **und** der ganze Block zählt wieder als Code der Seite |
+| Fingerabdruck nicht lesbar | alles wie vor `N-40` — keine stille Entwarnung |
+
+Gemessen danach: fünf Seiten melden **gar nichts** mehr, `git-und-github.html`
+meldet seine **600 Zeichen** — die Information, die vorher unterging.
+
+### Die Probe
+
+| Mutation | Ergebnis |
+|---|---|
+| ein **Leerzeichen** im Pflichtteil | „nicht der dieser Hülle" + 12535 Zeichen als eigener Code |
+| `fetch('//fremd.tld/x')` in den Pflichtteil geschmuggelt | Abweichung **und** `fetch(` gemeldet |
+| eigener Block daneben | nur dessen 27 Zeichen, `localStorage` gemeldet |
+| Fingerabdruck auf `None` | Meldung wie vor `N-40` |
+| Fingerabdruck um ein Zeichen verdreht | 1 Fehler (Node) |
+| das `continue` entfernt, das den Pflichtteil herausnimmt | 9 Fehler (Python) |
+| Hashvergleich immer wahr | 2 Fehler (Python) |
+| Marke umformuliert, Fingerabdruck nachgezogen | 1 Fehler (Node) |
+| unverändert | 0 Fehler |
+
+### Und ein eigener Fehler dabei
+
+Die letzte Probe hat mehr angefasst, als ich gesichert hatte. Im Kratzblock
+lagen `index.html` und `server.py` — aber die Probe rief
+`pflichtteil-nachziehen.mjs --schreiben`, und das schreibt **alle sieben
+Seiten** mit. Nach dem Zurückrollen waren 17 Prüflinien rot.
+
+Die Lehre schärft die Regel aus `N-34`: gesichert wird nicht, was die Probe
+verändert, sondern **alles, was sie schreiben kann** — bei einem Erzeuger
+also seine Ausgaben, nicht seine Eingaben. Die sieben Seiten ließen sich
+hier gefahrlos aus git zurückholen, weil ihr Unterschied nachweislich aus
+genau einer Zeile bestand (der Mutation selbst) und keine eigene Arbeit
+darin lag; nachgesehen wurde das **vor** dem Zurückholen, nicht danach.
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
