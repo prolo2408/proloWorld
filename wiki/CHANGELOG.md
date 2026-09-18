@@ -21,10 +21,9 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
   Fehler - aber sie stehen vor dem "Uebernehmen"-Knopf, nicht dahinter
   (B-07).
 
-## Fassung 1.3.2
+## Fassung 1.3.3
 
-Eine Korrektur zu 1.3.1, ein Aufraeumen und eine neue Seite - im Browser
-nachgestellt und gemessen.
+Aufgeraeumt, eine neue Seite und eine Regeldatei statt drei.
 
 - **Neue Seite: "Prolo bedienen und verstehen"** (`vorlagen/prolo-bedienen.html`).
   Der ganze Stack auf einer Seite, in zehn Abschnitten und sechs Gruppen: was
@@ -45,6 +44,22 @@ nachgestellt und gemessen.
   `.dockerignore` haelt den Baukontext klein: gemessen 50 -> 15 Dateien
   (1149,9 -> 510,9 kB); beim Bordbuch war sie unvollstaendig, jetzt
   41 -> 15 Dateien.
+
+- **Eine Regeldatei** (`N-39`). `prolo-regelblatt.md` und
+  `prolo-betriebsregeln.md` sind in `CLAUDE.md` zusammengezogen; die
+  Handgriffe stehen in der neuen Wiki-Seite. Die 148 Verweise quer durch den
+  Stack sind auf die neue Nummerierung umgeschrieben, und
+  `werkzeuge/regeln-pruefen.sh` haelt fest, dass jeder von ihnen einen
+  Abschnitt trifft, den es wirklich gibt.
+
+- **`prolo` holt den neuen Stand selbst** (`N-38`). Beim Aktualisieren wird
+  der Quellstand nicht nur geprueft, sondern geholt - und der Lauf mit dem
+  geholten Stand neu gestartet. Neuer Befehl `prolo quelle [--holen]`, und
+  `prolo status` zeigt den Stand in einer Zeile.
+
+## Fassung 1.3.2
+
+Eine Korrektur zu 1.3.1 - im Browser nachgestellt und gemessen.
 
 - **Eine HTML-Datei anfuegen fuehrt nicht mehr auf eine schwarze Seite**
   (`N-36`). Die Kachel "Ich habe eine HTML-Datei" klappte die Ablage auf und
