@@ -2,7 +2,7 @@ services:
   postgresql:
     # Feste Nebenversion (B-28). "16-alpine" ist ein wandernder
     # Kennzeichner: ein docker compose pull holt heute 16.4 und morgen 16.9.
-    # Der Geist von Betriebsregeln 5 ist, dass man weiss, was laeuft - und
+    # Der Geist von CLAUDE.md §19 ist, dass man weiss, was laeuft - und
     # bei der DATENBANK ist das besonders wichtig, weil dort ein
     # unbeabsichtigter Fassungswechsel am teuersten ist. Authentik, n8n und
     # Traefik waren sauber festgelegt; die Datenbank war die einzige Ausnahme.
@@ -10,10 +10,10 @@ services:
     # Die tatsaechlich laufende Fassung feststellen und hier eintragen:
     #   docker exec authentik-db postgres --version
     # Nur NEBENVERSIONEN ohne Weiteres anheben. Ein Sprung von 16 auf 17
-    # verlangt pg_upgrade oder Sichern und Einspielen (Betriebsregeln 23).
+    # verlangt pg_upgrade oder Sichern und Einspielen (CLAUDE.md §25).
     image: docker.io/library/postgres:16.10-alpine
     container_name: authentik-db
-    # Grenzen nach Betriebsregeln 5 (B-29).
+    # Grenzen nach CLAUDE.md §19 (B-29).
     mem_limit: 1g
     pids_limit: 256
     security_opt:
@@ -50,7 +50,7 @@ services:
   server:
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2026.8.2}
     container_name: authentik-server
-    # Grenzen nach Betriebsregeln 5 (B-29).
+    # Grenzen nach CLAUDE.md §19 (B-29).
     mem_limit: 1g
     pids_limit: 512
     security_opt:
@@ -112,7 +112,7 @@ services:
   worker:
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2026.8.2}
     container_name: authentik-worker
-    # Grenzen nach Betriebsregeln 5 (B-29).
+    # Grenzen nach CLAUDE.md §19 (B-29).
     mem_limit: 1g
     pids_limit: 512
     security_opt:

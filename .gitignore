@@ -1,4 +1,4 @@
-# Pflichtliste, Betriebsregeln Abschnitt 10
+# Pflichtliste, CLAUDE.md §21
 **/.env
 **/.env.*
 # Die Beispieldatei soll ausdruecklich im Repository stehen - ohne diese
@@ -36,7 +36,7 @@ authentik/certs/
 **/.vorschau/
 *.tar.gz
 *.tar.gz.age
-# Kopien, die eine Migration vor dem Umbau anlegt (Betriebsregeln 19a)
+# Kopien, die eine Migration vor dem Umbau anlegt (CLAUDE.md §24a)
 **/*.vor-stand-*
 
 # Traefik-Zugriffsprotokolle - Zugriffsdaten, gehoeren nicht ins Git (B-26)

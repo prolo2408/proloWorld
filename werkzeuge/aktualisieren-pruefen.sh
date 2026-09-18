@@ -6,7 +6,7 @@
 # gesund, krank, Dauerneustart, tot.
 #
 # Der Grund fuer dieses Skript: die beiden Fehler, die im Entwurf aus
-# Betriebsregeln 20 steckten, waren beide nur im Ablauf zu sehen, nicht beim
+# CLAUDE.md §24 steckten, waren beide nur im Ablauf zu sehen, nicht beim
 # Lesen. Ohne ausgefuehrte Probe faellt so etwas erst im Ernstfall auf - und
 # das ist genau der Moment, in dem man sich darauf verlassen wollte.
 set -uo pipefail
@@ -122,7 +122,7 @@ S=$(date +%s); lauf gesund >/dev/null; D=$(( $(date +%s) - S ))
 pruefe "Erfolg wartet nicht die vollen 4s (gebraucht: ${D}s)" "ja" "$E"
 
 # 3. Der Kern: Rueckweg kommt vom letzten ERFOLG, nicht vom Stand beim Start.
-#    Genau hier lag der Fehler im Entwurf aus Betriebsregeln 20.
+#    Genau hier lag der Fehler im Entwurf aus CLAUDE.md §24.
 rm -f "$T/stack/probe/.stand-erfolgreich.yml"
 fassung_setzen 1.0.0
 lauf gesund >/dev/null                      # Lauf 1: Erfolg, legt Rueckweg an
@@ -185,7 +185,7 @@ mkdir -p "$T/stack/komm"
 cat > "$T/stack/komm/docker-compose.yml" <<'Y'
 services:
   x:
-    image: ghcr.io/beispiel/ding:0.3.0   # feste Fassung, Betriebsregeln 5
+    image: ghcr.io/beispiel/ding:0.3.0   # feste Fassung, CLAUDE.md §19
 Y
 Z=$(PATH="$T/bin:$PATH" LAGE=gesund "$T/stack/werkzeuge/aktualisieren.sh" --trocken komm 2>&1 \
     | sed -n '/Eingetragene Fassung/,/Rueckweg/p' | grep -c '^        ')

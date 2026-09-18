@@ -13,7 +13,7 @@ services:
     # Die Fassung passt zum CHANGELOG.md und wird dort mitgezogen.
     image: wiki:1.3.2
     container_name: wiki
-    # Grenzen nach Betriebsregeln 5 (B-29). Vorher hatte KEIN Container
+    # Grenzen nach CLAUDE.md §19 (B-29). Vorher hatte KEIN Container
     # mem_limit, pids_limit, cap_drop oder security_opt. Folgen: ein
     # Speicherleck in einem Tool brachte den GANZEN Server in den OOM-Killer,
     # nicht nur sich selbst; die Container liefen mit dem vollen

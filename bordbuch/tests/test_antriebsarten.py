@@ -6,7 +6,7 @@ Art nicht gibt, eine 0 - und die 0 fiel in die Plausibilitaetspruefung
 (0,5 bis 60 l/100 km, 1 bis 100 kWh/100 km). Ein neuer Benutzer sass damit
 im Assistenten fest, weil ohne Auto kein Weg daran vorbeifuehrt.
 
-Erwartungswerte von Hand, wie Regelblatt 13 es verlangt: 18,0 kWh/100 km und
+Erwartungswerte von Hand, wie CLAUDE.md §13 es verlangt: 18,0 kWh/100 km und
 7,0 l/100 km sind die Vorgaben des Programms, 0 steht fuer "gibt es hier
 nicht".
 """

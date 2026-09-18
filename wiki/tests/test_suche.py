@@ -7,7 +7,7 @@ und "Adressierung" (nur als Gruppe im Inhaltsverzeichnis). Genau die Woerter,
 mit denen ein Mensch anfaengt, wenn er den Titel nicht mehr weiss.
 
 Hier laeuft der echte Indexaufbau gegen eine kleine Datenbank, und danach die
-echte Suche. Erwartungen von Hand (Regelblatt 13).
+echte Suche. Erwartungen von Hand (CLAUDE.md §13).
 """
 import json
 import os

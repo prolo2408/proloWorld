@@ -114,7 +114,7 @@ fi
 # --- --holen ------------------------------------------------------------
 # Zwei Faelle, in denen NICHT geholt wird. Beide enden mit dem Weg heraus,
 # nicht mit einem stillen Fehlschlag: ein Skript, das eigene Arbeit
-# wegraeumt, ist schlimmer als eins, das nichts tut (Regelblatt 15).
+# wegraeumt, ist schlimmer als eins, das nichts tut (CLAUDE.md §15).
 if [ -n "$SCHMUTZ" ]; then
   melde "  NICHT geholt: im Arbeitsstand liegen eigene Aenderungen an"
   melde "                verfolgten Dateien."

@@ -119,7 +119,7 @@ hat, sollte einmal nachsehen.
   Element auf, auf dem die Zeile steht — die Aliase griffen deshalb immer die
   hellen Werte und vererbten sie nach unten, während die Dunkel-Werte am
   `<body>` hängen. Die Aliase stehen jetzt ebenfalls am `<body>`.
-- **Alle Emojis sind raus** (Regelblatt 1: keine Emojis). Betroffen waren
+- **Alle Emojis sind raus** (CLAUDE.md §1: keine Emojis). Betroffen waren
   Abschnittstitel („⚡ Strom"), Knopfbeschriftungen und Listenzeilen. Wo das
   Symbol wirklich etwas unterschied — Laden gegen Tanken in einer gemischten
   Liste — steht jetzt eine Wortmarke statt eines Bildchens.
@@ -129,14 +129,14 @@ hat, sollte einmal nachsehen.
 ## 2.5.0 — 2026-09-13
 
 ### Neu
-- **Das Prolo-Designsystem gilt jetzt** (Regelblatt Teil I, Abschnitt 2). Alle
+- **Das Prolo-Designsystem gilt jetzt** (CLAUDE.md §2). Alle
   Farben kommen aus den vorgegebenen Token in `oklch`; feste Farbwerte stehen
   nur noch im weißen Druckblatt, wo sie hingehören. Die Akzentfarbe ist Blau
   statt Gelb.
 - **Hell- und Dunkelmodus.** Dunkel ist der Standard, oben rechts wird
   umgeschaltet, die Wahl bleibt auf dem Gerät. Beide Themen sind auf Kontrast
   nachgerechnet: 14 Text-zu-Fläche-Paare, alle über der Vorgabe.
-- **Schriftrollen nach Regelblatt:** Sora für Überschriften, Kennzahlen und
+- **Schriftrollen nach CLAUDE.md §3:** Sora für Überschriften, Kennzahlen und
   Beträge (mit engerer Laufweite), Instrument Sans als Grundschrift, JetBrains
   Mono für Rohwerte.
 
@@ -144,7 +144,7 @@ hat, sollte einmal nachsehen.
 - **Im Hellmodus wäre die Meldung unlesbar gewesen** — dunkler Text auf dunkler
   Fläche (1,24:1). Die Meldefläche ist in beiden Themen dunkel, der Text erbte
   aber die Themenfarbe. Jetzt gibt es dafür ein eigenes Token.
-- Der dekorative Farbverlauf im Seitenhintergrund ist entfernt (Regelblatt 1:
+- Der dekorative Farbverlauf im Seitenhintergrund ist entfernt (CLAUDE.md §1:
   keine Verläufe).
 
 ### Hinweis zu den Schriften
@@ -154,7 +154,7 @@ hat, sollte einmal nachsehen.
   werden — das ist bewusst offen gelassen.
 
 ### Noch offen
-- Der Seitenaufbau aus Regelblatt 5 (Sidebar 248 px und Kopf 76 px am Rechner,
+- Der Seitenaufbau aus CLAUDE.md §5 (Sidebar 248 px und Kopf 76 px am Rechner,
   Tabbar mit vier Einträgen am Handy) ist **nicht** umgesetzt. Bordbuch hat
   weiterhin seine Reiterleiste.
 
@@ -180,7 +180,7 @@ hat, sollte einmal nachsehen.
 > umhängen (Befehle unten), sonst startet Bordbuch mit leeren Volumes.
 
 ### Neu
-- **`aktualisierung.conf`** liegt bei (Pflichtdatei der Betriebsregeln):
+- **`aktualisierung.conf`** liegt bei (Pflichtdatei nach CLAUDE.md §16):
   `TYP="build"`, Prüfadresse `http://bordbuch:8080/`, 20 Sekunden Wartezeit.
   Die Prüfung funktioniert, weil Bordbuch `/` bewusst ohne Anmeldekopf
   beantwortet — die Seite selbst ist leer, alle Daten kommen über `/api`.

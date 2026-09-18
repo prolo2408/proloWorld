@@ -18,7 +18,7 @@ mit den `B`-Nummern gibt.
 **Datei:** `wiki/index.html`, Tokenblock
 **Gefunden bei:** B-30 Teil 2
 
-Mit B-30 sind die drei Token ins Regelblatt aufgenommen worden, weil das
+Mit B-30 sind die drei Token in die Regeldatei aufgenommen worden, weil das
 Bordbuch sie sinnvoll ergänzt hatte. Das Wiki definiert sie nicht — geprüft:
 alle drei fehlen im Tokenblock.
 
@@ -26,8 +26,8 @@ Das ist kein rein theoretischer Punkt:
 
 - Das Wiki hat **zerstörende Aktionen** (Seite löschen, Fassung
   zurücksetzen). Ohne `--danger` sehen sie aus wie gewöhnliche Knöpfe oder
-  wie eine Warnung — Regelblatt §2 unterscheidet beides bewusst.
-- Es stehen **vier hartkodierte `#fff`** in der Datei. Regelblatt §1 erlaubt
+  wie eine Warnung — CLAUDE.md §2 unterscheidet beides bewusst.
+- Es stehen **vier hartkodierte `#fff`** in der Datei. CLAUDE.md §1 erlaubt
   `#fff` ausdrücklich nur als Text auf `--accent`. Ob alle vier dort stehen,
   ist nachzusehen; wenn ja, gehören sie auf `--on-accent`.
 
@@ -42,15 +42,15 @@ in beiden Tools gleich aussehen.
 zum Bordbuch (nachgemessen, alle sechs Werte identisch). Die beiden harten
 `#fff` standen tatsächlich beide auf `--accent` und laufen jetzt über
 `--on-accent`; übrig bleibt `--surface:#fff`, und das ist die Definition aus
-dem Regelblatt selbst. Löschen und Zurücksetzen tragen `gefahr` und färben sich
+der Regeldatei selbst. Löschen und Zurücksetzen tragen `gefahr` und färben sich
 im Hover auf `--danger` — dieselbe Kette wie `.danger` im Bordbuch.
 
 Eine Abweichung von der ursprünglichen Notiz: `--overlay` hat im Wiki **keine
 Fundstelle**. Es gibt dort keinen eigenen Dialog, gefragt wird über `confirm()`.
-Das Token ist trotzdem definiert, weil genau das sein im Regelblatt genannter
+Das Token ist trotzdem definiert, weil genau das sein in der Regeldatei genannter
 Zweck ist — damit der nächste Dialog nicht sein eigenes `rgba(0,0,0,.5)`
 erfindet. `--danger-soft` und `--on-overlay` sind **nicht** übernommen worden:
-die sind Ergänzungen des Bordbuchs, stehen nicht im Regelblatt und hätten hier
+die sind Ergänzungen des Bordbuchs, stehen nicht in der Regeldatei und hätten hier
 keine Verwendung.
 
 ---
@@ -68,7 +68,7 @@ laufenden Server.
 Der Grund ist die Vorbelegung in `car_save()`:
 `name = (data.get("name") or "").strip()[:60] or "Auto"`. Für das Anlegen aus
 dem Formular heraus ist diese Vorbelegung sinnvoll; für eine Anfrage ganz ohne
-Inhalt ist sie eine stille Vorgabe im Sinne von Regelblatt §11 — nur an einer
+Inhalt ist sie eine stille Vorgabe im Sinne von CLAUDE.md §11 — nur an einer
 Stelle, die B-05 nicht erfasst hat, weil dort Zahlen geprüft wurden und nicht
 Text.
 
@@ -110,7 +110,7 @@ Namen, Ändern), Wiederherstellung mit namenlosem Auto geht weiter durch,
 ## N-03 — Der Vorab-Test im Bericht selbst funktioniert nicht
 
 **Stufe:** mittel (betrifft das Regelwerk, nicht den Stack)
-**Datei:** Prüfbericht, B-49, und `prolo-betriebsregeln.md` §11
+**Datei:** Prüfbericht, B-49, und `CLAUDE.md` §21
 **Gefunden bei:** B-49 — **bereits behoben**, hier nur zur Kenntnis
 
 Der im Bericht vorgeschlagene `pre-commit`-Haken benutzt `grep -PE`. Diese
@@ -147,7 +147,7 @@ weiteren Commits stillschweigend mitgelaufen, weil sie sich bei jedem Serverlauf
 
 Der entscheidende Punkt: `__pycache__/` steht inzwischen in **allen drei**
 `.gitignore`-Dateien. Das hat nichts geholfen — **`.gitignore` wirkt nicht auf
-bereits verfolgte Dateien.** Eine vollständige Pflichtliste nach Betriebsregeln
+bereits verfolgte Dateien.** Eine vollständige Pflichtliste nach CLAUDE.md
 §10 ist also keine Garantie für das, was schon im Git liegt.
 
 Der Vorab-Test aus B-49 greift hier ebenfalls nicht: er prüft Namensmuster für
@@ -230,7 +230,7 @@ Dienst tut, was er soll". Bei Traefik ist das derselbe Unterschied wie
 zwischen einem laufenden Motor und einem Auto, das fährt. Ein Tool ohne
 `PRUEF_URL` (Traefik hat keine, siehe `traefik/aktualisierung.conf`) ist
 damit nur oberflächlich geprüft. Offen und in Abschnitt 20 der
-Betriebsregeln als Grenze benannt.
+CLAUDE.md als Grenze benannt.
 
 ---
 
@@ -570,7 +570,7 @@ Betrag. An einer wirklich verdorbenen Datenbank ausgeführt: 11 sichere Zeilen
 standen alle Preise wieder im plausiblen Bereich (0,296–0,445 €/kWh,
 1,73–1,77 €/l) und die Nachprüfung meldete nichts Offenes.
 
-**Vor dem Berichtigen sichern** (Regelblatt 15) — der Schalter sagt es selbst
+**Vor dem Berichtigen sichern** (CLAUDE.md §15) — der Schalter sagt es selbst
 und nennt den Weg.
 
 ### Was daraus folgt
@@ -785,7 +785,7 @@ geprüft werden kann.
 Bestehende Datenbanken bekommen die Spalte beim Start nachgetragen und aus
 der Fassungsgeschichte gefüllt: Die erste archivierte Fassung trägt die
 Kennung dessen, der sie geschrieben hat. Es wird nur hinzugefügt, nichts
-überschrieben, und das Protokoll sagt es (Regelblatt §15).
+überschrieben, und das Protokoll sagt es (CLAUDE.md §15).
 
 **Was daraus folgt:** Ein Rechtemodell ist erst geprüft, wenn die *Reihenfolge*
 der Handlungen mitgeprüft wird. Jede einzelne Prüfung war richtig — anlegen,
@@ -994,10 +994,10 @@ finden — nur damit, dass jemand es benutzt und sagt, was er erwartet hat.
 **Stufe:** mittel — kein Datenverlust, aber die Oberfläche wird am Handy
 unbenutzbar, und es lässt sich von außen auslösen
 **Datei:** `wiki/server.py` (`regeln_pruefen`), `wiki/index.html`
-**Gefunden bei:** dem Bedienungsdurchgang, Punkt 12 aus Regelblatt §14b
+**Gefunden bei:** dem Bedienungsdurchgang, Punkt 12 aus CLAUDE.md §14b
 („ganz falsche Eingabe")
 
-Regelblatt §11 fragt ausdrücklich: *„Text auf sinnvolle Länge begrenzt?"* Für
+CLAUDE.md §11 fragt ausdrücklich: *„Text auf sinnvolle Länge begrenzt?"* Für
 den Titel einer Seite war die Antwort nein. Geprüft wurde nur, **ob** er da
 ist. Eine Seite mit einem Titel von 376 Zeichen und einem „Satz" von 669
 Zeichen ging ohne eine einzige Warnung durch.
@@ -1399,7 +1399,7 @@ Das ist die richtige Aussage — mit der zurückgedrehten Zeile. Die Namen im
 Funktionskopf heißen jetzt `gesucht` und `getippt`, damit die Verwechslung
 nicht noch einmal passiert.
 
-**Was daraus folgt:** Regelblatt §14 („tatsächlich ausprobiert, nicht nur
+**Was daraus folgt:** CLAUDE.md §14 („tatsächlich ausprobiert, nicht nur
 gedanklich") gilt auch für das Lesen von Code, nicht nur für das Prüfen von
 Funktionen. Zwei Variablennamen, die das Gegenteil von dem bedeuten, was sie
 sagen, haben mich in eine Änderung geführt, die alle Tests bestanden hätte —
@@ -1931,7 +1931,7 @@ bekommen `aria-invalid`, Karten `data-fehler="1"` mit warmem Rand. Und wer im
 Feld etwas ändert, verliert Marke **und** Meldung dazu (`edMarkeWeg`) — sonst
 stünde dort weiter „fehlt der Titel", während der Titel schon da ist.
 
-### Im Browser gefahren (Regelblatt 14, CLAUDE.md)
+### Im Browser gefahren (CLAUDE.md §14, CLAUDE.md)
 
 Leere Vorlage geöffnet, *Speichern* gedrückt, nichts ausgefüllt — 1440 × 900:
 
@@ -2191,7 +2191,7 @@ Wegwerfen ist einfach; das Behalten braucht den Grund.
 
 | Verdacht | Warum es bleibt |
 |---|---|
-| `wiki/.gitignore`, `bordbuch/.gitignore` — die Wurzeldatei deckt alles ab | Betriebsregeln §10 verlangt **zusätzlich eine je Tool**: die Wurzeldatei ist leicht zu übersehen, und ein Tool bringt seine Regel dort mit, wo die Daten entstehen |
+| `wiki/.gitignore`, `bordbuch/.gitignore` — die Wurzeldatei deckt alles ab | CLAUDE.md §21 verlangt **zusätzlich eine je Tool**: die Wurzeldatei ist leicht zu übersehen, und ein Tool bringt seine Regel dort mit, wo die Daten entstehen |
 | `traefik/logrotate.conf` — von nirgendwo erwähnt | erklärt sich selbst: der Einrichtungsbefehl steht im Kopf der Datei |
 | `bordbuch/tests/gegenprobe.sh` — läuft nicht in `alle.sh` | Absicht: sie baut echte Fehler in `server.py` ein und prüft die Testsuite selbst. Von Hand, nicht bei jedem Lauf |
 | dieselben neun Schriftdateien in beiden Tools | zwei getrennte Baukontexte — ein gemeinsamer Ordner wäre von keinem `Dockerfile` erreichbar |
@@ -2258,7 +2258,7 @@ Also `exec` mit denselben Argumenten, einmal, gesichert über eine Marke in der
 Umgebung.
 
 **Zwei Fälle, in denen ausdrücklich NICHT geholt wird**, beide mit dem Weg
-heraus statt mit einem stillen Fehlschlag (Regelblatt §15):
+heraus statt mit einem stillen Fehlschlag (CLAUDE.md §15):
 
 - **eigene Änderungen an verfolgten Dateien** → Abbruch, der Stand bleibt
   stehen, die Dateien werden aufgelistet;
@@ -2345,6 +2345,98 @@ Mutationsproben (§13a), Rückweg über Kopien im Kratzblock:
 Dazu alle vorhandenen Gegenproben unverändert grün:
 `aktualisieren-pruefen.sh`, `prolo-pruefen.sh`, `dockerfile-pruefen.sh`,
 `schriften-pruefen.sh`.
+
+## N-39 — Zwei Regeldateien, 148 Verweise, und keiner davon geprüft
+
+### Auftrag
+
+„Die alten `anleitungen.md` können weg und in die `CLAUDE.md` umgezogen
+werden."
+
+Es gab drei Dateien mit Regeln: `CLAUDE.md` (57 Zeilen, eine Kurzfassung),
+`prolo-regelblatt.md` (562 Zeilen, Oberfläche und Codequalität) und
+`prolo-betriebsregeln.md` (1104 Zeilen, Betrieb). Die Kurzfassung sagte
+selbst, die beiden anderen seien „im Zweifel maßgeblich" — also musste man
+immer alle drei lesen.
+
+### Was daraus wurde
+
+**Eine Regeldatei.** `CLAUDE.md`, 821 Zeilen, in vier Teilen: wie hier
+gearbeitet wird, Oberfläche, Robustheit, Betrieb, dazu die Checkliste. Die
+Nummerierung des Regelblatts (§1–§15) bleibt erhalten, weil hunderte Verweise
+darauf stehen; die Betriebsregeln schließen ab §16 an.
+
+**Was dabei nicht mitgewandert ist**, und warum:
+
+| Was | Wohin |
+|---|---|
+| die **Handgriffe** (neuer Server, Tool einhängen, Alltag, Sichern, Wiederherstellen, Fehlersuche) | in die Wiki-Seite „Prolo bedienen und verstehen" — sie sind Bedienung, keine Regel |
+| die abgedruckten **Skripte** (`backup.sh`, `backup-sync.sh`, der Wachhund für die Sicherung) | sie liegen als echte Dateien im Repository und erklären sich dort selbst |
+| die **Entstehungsgeschichte** jeder Regel | steht hier in `NEUE-BEFUNDE.md`, wo sie hingehört |
+
+**Drei Token sind endlich eingetragen.** Das Regelblatt sagte „gibt es kein
+passendes Token, wird eines ergänzt — ergänzt werden muss es dann aber hier"
+und führte `--danger`, `--on-accent` und `--overlay` in einer Fußnote, ohne
+Werte. Die Werte stehen im Wiki und im Bordbuch längst; jetzt stehen sie im
+Tokenblock.
+
+### Der eigentliche Aufwand: die Verweise
+
+Quer durch den Stack standen **148 Verweise** auf die beiden Dateien — in
+Kommentaren, Tests, Meldungen, `.conf`-Dateien, sogar in `.gitignore`. Die
+Regelblatt-Nummern stimmen weiter; die Betriebsregeln-Nummern haben sich alle
+verschoben (`Betriebsregeln 5` → `§19`, `10` → `§21`, `12` → `§22`,
+`13`–`17` → `§23`, `19a` → `§24a`, `23` → `§25` …).
+
+Ein Verweis auf einen Abschnitt, den es nicht mehr gibt, fällt beim Lesen
+**nicht** auf: er sieht aus wie eine Begründung und ist eine Sackgasse. Also
+mechanisch umgeschrieben, in 46 Dateien, und danach 22 Nennungen ohne Nummer
+von Hand nachgezogen.
+
+### Die Prüflinie, die das festhält
+
+Neu: `werkzeuge/regeln-pruefen.sh`. Es prüft drei Dinge:
+
+1. **Jeder Verweis `CLAUDE.md §N` trifft einen Abschnitt, den es gibt.**
+   Gemessen: 29 verschiedene Abschnitte werden zitiert, alle vorhanden.
+2. **Niemand nennt die beiden abgeschafften Dateien mehr.**
+3. **`CLAUDE.md` bringt die Blöcke mit, auf die sich die Werkzeuge berufen:**
+   Farbtoken, Pflichtblock für Fokus, `[hidden]`, Checkliste.
+
+Mutationsproben (§13a), Rückweg über Kopien im Kratzblock:
+
+| Mutation | Ergebnis |
+|---|---|
+| ein Verweis zeigt ins Leere (`§11` → `§99`) | 1 Fehler |
+| jemand nennt wieder eine der alten Dateien | 1 Fehler |
+| der Farbtokenblock fällt aus `CLAUDE.md` | Fehler |
+| die Checkliste fällt weg | Fehler |
+| unverändert | 0 Fehler |
+
+### Zum dritten Mal dieselbe Falle
+
+Der erste Lauf des neuen Prüfskripts meldete zwei Fehler — **über sich
+selbst**: sein eigener Kommentar erklärte, warum es die alten Dateinamen
+sucht, und nannte sie dabei. Dasselbe Muster wie `N-33` (ein Kommentar mit
+`</script>` schaltete die Oberfläche ab) und `N-36` (eine Prüfzeile suchte das
+Wort `scrollIntoView` und fiel über den Kommentar, der es erklärt).
+
+Gelöst wie dort: die Namen werden zusammengesetzt statt ausgeschrieben
+(`"prolo-" + "regelblatt.md"`).
+
+Eine Ausnahme gibt es trotzdem, und die ist ausdrücklich: **diese Datei
+hier.** Ein Archiv nennt, was es nicht mehr gibt — das ist sein Zweck. Damit
+die Ausnahme kein Versteck wird, zählt das Prüfskript die Nennungen und
+schreibt sie hin:
+`(im Archiv NEUE-BEFUNDE.md genannt: prolo-betriebsregeln.md 1x, prolo-regelblatt.md 1x)`.
+
+### Was ausdrücklich geblieben ist
+
+`bordbuch/ANLEITUNG.md` und `wiki/EINRICHTUNG.md` sind **keine** „alten
+Anleitungen", sondern die Handbücher der beiden Werkzeuge: das eine
+beschreibt die Bedienung des Bordbuchs im Einzelnen, das andere den
+Seitenaufbau des Wikis, auf den sich Editor, Import und Tests berufen. Beide
+sind jetzt in `CLAUDE.md` genannt, damit man sie findet.
 
 ## Was daraus für die Abnahme folgt
 

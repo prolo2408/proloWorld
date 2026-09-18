@@ -73,7 +73,7 @@ pruefe "und die aktualisierung.conf" "ja" "$E"
 grep -q 'authentik@file' "$T/stack/pdfeditor/docker-compose.yml" && E=ja || E=nein
 pruefe "das Geruest haengt Authentik davor" "ja" "$E"
 grep -q 'cap_drop' "$T/stack/pdfeditor/docker-compose.yml" && E=ja || E=nein
-pruefe "und setzt die Grenzen aus Betriebsregeln 5" "ja" "$E"
+pruefe "und setzt die Grenzen aus CLAUDE.md §19" "ja" "$E"
 grep -qE '^\s+ports:' "$T/stack/pdfeditor/docker-compose.yml" && E=ja || E=nein
 pruefe "und oeffnet KEINEN Port am Host" "nein" "$E"
 python3 -c "import yaml,sys; yaml.safe_load(open('$T/stack/pdfeditor/docker-compose.yml'))" 2>/dev/null \

@@ -1,6 +1,6 @@
 """Geldrechnung in Cent-Ganzzahlen (B-04).
 
-Regelblatt 13 verlangt hier ausdruecklich VON HAND GERECHNETE Erwartungswerte.
+CLAUDE.md §13 verlangt hier ausdruecklich VON HAND GERECHNETE Erwartungswerte.
 Keiner der Werte unten ist aus der Ausgabe des Codes uebernommen - jeder ist
 im Kommentar nachgerechnet. Pflichtfaelle je Berechnung: ein normaler Fall,
 der Grenzfall (null, negativ, sehr gross), der Fall mit fehlenden Daten.
@@ -88,7 +88,7 @@ class CentEinlesen(unittest.TestCase):
         self.assertEqual(cent("1284500.55"), 128450055)
 
     def test_keine_stille_null(self):
-        # Regelblatt 11: fehlt ein Wert, wird das gemeldet - nicht durch eine
+        # CLAUDE.md §11: fehlt ein Wert, wird das gemeldet - nicht durch eine
         # Null ersetzt. cent() liefert darum None, nicht 0.
         self.assertIsNone(cent("abc"))
         self.assertIsNone(cent("12,34,56"))

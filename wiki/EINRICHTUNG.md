@@ -1,6 +1,6 @@
 # Wiki einhängen
 
-Ablauf nach Betriebsregeln Abschnitt 7. Dauert etwa zwanzig Minuten.
+Ablauf nach CLAUDE.md §16. Dauert etwa zwanzig Minuten.
 
 ## 1. DNS
 
@@ -23,7 +23,7 @@ Sobald die Gruppe in Authentik steht, wird er geleert.
 
 ## 3. `.gitignore` ergänzen
 
-Betriebsregeln Abschnitt 10 verlangt das **im selben Arbeitsschritt**. Das
+CLAUDE.md §21 verlangt das **im selben Arbeitsschritt**. Das
 Wiki legt eine neue Art von Daten ab:
 
 ```
@@ -183,7 +183,7 @@ den richtigen Bereich öffnen, bevor sie scrollen.
 
 ## 3. Tokens und Zustandsblock
 
-Farben nur über die Tokens aus Regelblatt Abschnitt 2, dazu der
+Farben nur über die Tokens aus CLAUDE.md §2, dazu der
 Pflichtblock aus 8.1 (`focus-visible`, `prefers-reduced-motion`). Der
 Import prüft beides und meldet, was fehlt.
 

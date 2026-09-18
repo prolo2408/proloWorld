@@ -282,7 +282,7 @@ befehl_neu() {
   local NAME="${1:-}"
   [ -n "$NAME" ] || { fehler "Aufruf: prolo neu <name>"; exit 1; }
   case "$NAME" in
-    *[!a-z0-9-]*) fehler "Nur Kleinbuchstaben, Ziffern und Bindestrich (Betriebsregeln 1)."; exit 1 ;;
+    *[!a-z0-9-]*) fehler "Nur Kleinbuchstaben, Ziffern und Bindestrich (CLAUDE.md §16)."; exit 1 ;;
   esac
   [ -e "$STACK/$NAME" ] && { fehler "$STACK/$NAME gibt es schon."; exit 1; }
 
@@ -293,12 +293,12 @@ befehl_neu() {
     *:latest|*[!:]) : ;;
   esac
   if ! printf '%s' "$ABBILD" | grep -q ':'; then
-    fehler "Ohne Fassung nicht erlaubt (Betriebsregeln 5: nie latest, immer fest)."
+    fehler "Ohne Fassung nicht erlaubt (CLAUDE.md §19: nie latest, immer fest)."
     fehler "Beispiel: ${ABBILD}:1.2.3"
     exit 1
   fi
   if printf '%s' "$ABBILD" | grep -q ':latest$'; then
-    fehler "'latest' ist verboten (Betriebsregeln 5). Feste Fassung eintragen."
+    fehler "'latest' ist verboten (CLAUDE.md §19). Feste Fassung eintragen."
     exit 1
   fi
   read -rp "  Interner Port des Dienstes [8080]: " PORT
@@ -309,7 +309,7 @@ befehl_neu() {
 
   melde ""
   melde "Angelegt: $STACK/$NAME"
-  melde "  docker-compose.yml   Geruest nach Betriebsregeln 1 und 5"
+  melde "  docker-compose.yml   Geruest nach CLAUDE.md §16 und 5"
   melde "  sicherung.conf       ist damit in backup.sh aufgenommen"
   melde "  aktualisierung.conf  ist damit in prolo aktualisieren aufgenommen"
   melde ""
@@ -338,7 +338,7 @@ services:
   $NAME:
     image: $ABBILD          # feste Fassung, nie latest
     container_name: $NAME
-    # Grenzen nach Betriebsregeln 5. Die Werte sind ein Anfang - anpassen,
+    # Grenzen nach CLAUDE.md §19. Die Werte sind ein Anfang - anpassen,
     # wenn der Dienst mehr braucht, aber nicht ersatzlos streichen.
     mem_limit: 512m
     pids_limit: 256

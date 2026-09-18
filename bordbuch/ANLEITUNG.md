@@ -73,7 +73,7 @@ Bis Fassung 2.5.2 lagen hier zusätzlich `install.sh`, `update.sh` und
 `bordbuch.service` für einen einzelnen Raspberry Pi. Dieser Weg **entfällt**
 (Befund B-34). Drei Gründe:
 
-* Die Betriebsregeln des Stacks kennen nur den Docker-Weg. Zwei parallele
+* Die Regeln des Stacks kennen nur den Docker-Weg. Zwei parallele
   Betriebsarten ohne klare Trennung führen dazu, dass für keine von beiden
   die Regeln gelten.
 * `bordbuch.service` setzte `User=pi` fest, während `install.sh` einen
@@ -130,7 +130,7 @@ Die Datenbank wird beim Start automatisch auf den aktuellen Stand gebracht.
 Steht eine Änderung an, die Daten anfasst, sagt Bordbuch das **vor** der
 ersten Änderung, legt eine Kopie unter `<datenbank>.vor-stand-<n>` an und
 führt alles in einer Transaktion aus — entweder ganz oder gar nicht
-(Betriebsregeln 19a). Eine Migration von Hand anstoßen, etwa zum
+(CLAUDE.md §24a). Eine Migration von Hand anstoßen, etwa zum
 Ausprobieren auf einer Kopie:
 
 ```bash
@@ -213,7 +213,7 @@ Zusätzlich kannst du in der Oberfläche unter *Einstellungen → Sicherung
 herunterladen* eine JSON-Datei ziehen — die lässt sich in jedes Profil
 zurückspielen, auch auf einem anderen Server. Die Belegbilder fehlen darin.
 
-Wiederherstellen, Ablauf nach Betriebsregeln 17:
+Wiederherstellen, Ablauf nach CLAUDE.md §23:
 
 ```bash
 # Auf dem Arbeitsrechner entschluesseln

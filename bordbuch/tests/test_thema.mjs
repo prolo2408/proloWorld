@@ -48,7 +48,7 @@ t('System bei hellem Geraet -> light', ()=>{
   const a=bauen(false); a.themaAnwenden('system');
   assert.equal(a.body.dataset.theme,'light');
 });
-t('Voreinstellung ist System (Regelblatt 6a)', ()=>{
+t('Voreinstellung ist System (CLAUDE.md §6a)', ()=>{
   const a=bauen(false);
   assert.equal(a.themaAnwenden(undefined),'system');
   assert.equal(a.body.dataset.theme,'light');

@@ -2,7 +2,7 @@ services:
   n8n:
     image: docker.n8n.io/n8nio/n8n:1.121.0
     container_name: n8n
-    # Grenzen nach Betriebsregeln 5 (B-29). Vorher hatte KEIN Container
+    # Grenzen nach CLAUDE.md §19 (B-29). Vorher hatte KEIN Container
     # mem_limit, pids_limit, cap_drop oder security_opt. Folgen: ein
     # Speicherleck in einem Tool brachte den GANZEN Server in den OOM-Killer,
     # nicht nur sich selbst; die Container liefen mit dem vollen

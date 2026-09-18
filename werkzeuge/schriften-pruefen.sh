@@ -1,7 +1,7 @@
 #!/bin/bash
 # Prueft, dass beide Tools byteweise dieselben Schriften ausliefern (B-19).
 #
-# Das Regelblatt verlangt, dass die Tools als Familie erkennbar sind. Wenn
+# CLAUDE.md verlangt, dass die Tools als Familie erkennbar sind. Wenn
 # Bordbuch und Wiki verschiedene Schriftfassungen ausliefern, fliegt das
 # niemandem auf - man sieht es erst, wenn zwei Fenster nebeneinander stehen.
 #

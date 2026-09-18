@@ -340,7 +340,7 @@ ADD_COLUMNS = [
     # Der Anmeldename von dort ist der Schluessel zum Profil.
     ("users", "authentik_user", "TEXT NOT NULL DEFAULT ''"),
     ("users", "email", "TEXT NOT NULL DEFAULT ''"),
-    # Geldbetraege als Cent-Ganzzahl (B-04). Regelblatt 13 und Betriebsregeln 6
+    # Geldbetraege als Cent-Ganzzahl (B-04). CLAUDE.md §13 und CLAUDE.md §20
     # verlangen beides: keine Fliesskommazahl fuer Geld, und die Einheit im
     # Namen. Die alten REAL-Spalten bleiben vorerst stehen und werden nur noch
     # mitgeschrieben, nicht gelesen - sie sind der Rueckweg, solange noch
@@ -500,7 +500,7 @@ def spalten_von(con, tabelle):
 def migration_hinweis(aenderungen):
     """Vor jeder Aenderung, die Daten anfasst, auf die Sicherung hinweisen.
 
-    Regelblatt 15: "Vor Migrationen, die Daten veraendern, weist das Tool auf
+    CLAUDE.md §15: "Vor Migrationen, die Daten veraendern, weist das Tool auf
     die Sicherung hin." Der Hinweis steht bewusst VOR der ersten Aenderung -
     danach waere er wertlos.
     """
@@ -513,7 +513,7 @@ def migration_hinweis(aenderungen):
 
 
 def migration_kopie():
-    """Eine Kopie des bisherigen Stands anlegen - der Rueckweg (Regelblatt 15).
+    """Eine Kopie des bisherigen Stands anlegen - der Rueckweg (CLAUDE.md §15).
 
     Die Kopie bleibt liegen. Sie kostet einmalig den Platz der Datenbank und
     ist das Einzige, was nach einer schiefgegangenen Migration noch hilft.
@@ -531,7 +531,7 @@ def init_db():
     """Datenbank anlegen oder auf den aktuellen Stand bringen.
 
     Ablauf in drei Schritten, die seit B-13 fuer jede Migration gelten und in
-    prolo-betriebsregeln.md 19 festgeschrieben sind:
+    CLAUDE.md §24a festgeschrieben sind:
 
       1. Hinweis auf die Sicherung - bevor etwas passiert.
       2. Kopie der bisherigen Datei anlegen - der Rueckweg.
@@ -637,21 +637,21 @@ def num(v, d=0.0):
 # ----------------------------------------------------------------------
 # Eingaben pruefen statt still ersetzen (B-05)
 #
-# Regelblatt 11, woertlich: "Keine stillen Vorgabewerte. Fehlt ein Wert, wird
+# CLAUDE.md §11, woertlich: "Keine stillen Vorgabewerte. Fehlt ein Wert, wird
 # das gemeldet - nicht durch eine Null ersetzt. Eine Null in der
 # Verbrauchsrechnung ist schlimmer als eine Fehlermeldung, weil sie falsche
 # Ergebnisse erzeugt, die niemandem auffallen."
 #
 # Belegt war: 40 Liter fuer "abc" Euro bei Kilometerstand 9 000 000 wurden
 # angenommen, gespeichert und als Erfolg gemeldet - in der Datenbank stand
-# cost 0.0. Neun Millionen Kilometer ist das Beispiel aus dem Regelblatt selbst.
+# cost 0.0. Neun Millionen Kilometer ist das Beispiel aus CLAUDE.md selbst.
 # ----------------------------------------------------------------------
 
 FEHLT = object()          # Kennzeichen: der Wert war nicht lesbar
 
 
 def zahl(v, d=FEHLT):
-    """Eine Zahl lesen. Ohne d kommt FEHLT zurueck, nicht 0 (Regelblatt 11)."""
+    """Eine Zahl lesen. Ohne d kommt FEHLT zurueck, nicht 0 (CLAUDE.md §11)."""
     if v is None or (isinstance(v, str) and not v.strip()):
         return d
     try:
@@ -704,7 +704,7 @@ def pflicht_zahl(data, feld, grenze, pflicht=True):
     """Einen Zahlenwert lesen und pruefen.
 
     Rueckgabe (wert, fehlertext). fehlertext ist None, wenn alles passt.
-    Die Meldung sagt, was zu tun ist (Regelblatt 7) - nicht nur, was kaputt ist.
+    Die Meldung sagt, was zu tun ist (CLAUDE.md §7) - nicht nur, was kaputt ist.
     """
     name = FELD_NAMEN.get(feld, "Der Wert '%s'" % feld)
     roh = data.get(feld)
@@ -784,8 +784,7 @@ def pflicht_text(data, feld, grenze, meldung):
 
     Das Gegenstueck zu pflicht_zahl/pflicht_cent fuer Text. Vorher stand an
     den Aufrufstellen ein 'or "Vorgabe"' - ein POST ganz ohne Inhalt legte
-    damit einen Datensatz mit erfundenem Namen an und meldete 200. Regelblatt
-    11 verbietet stille Vorgabewerte; B-05 hat das fuer Zahlen umgesetzt,
+    damit einen Datensatz mit erfundenem Namen an und meldete 200. CLAUDE.md §11 verbietet stille Vorgabewerte; B-05 hat das fuer Zahlen umgesetzt,
     Text war uebersehen worden.
 
     Gibt (wert, fehler) zurueck - nie beides. Leerzeichen zaehlen als leer.
@@ -804,7 +803,7 @@ def pflicht_text(data, feld, grenze, meldung):
 # ----------------------------------------------------------------------
 # Geld (B-04)
 #
-# Regelblatt 13 und Betriebsregeln 6, beide wortgleich: Geldbetraege niemals
+# CLAUDE.md §13 und CLAUDE.md §20, beide wortgleich: Geldbetraege niemals
 # als Fliesskommazahl. Der Grund ist nicht Kosmetik - drei Tankungen zu 0,10
 # EUR und eine zu 8,72 EUR ergaben als REAL summiert 9.020000000000001 statt
 # 9,02. Der Fehler ist systematisch, waechst mit der Datenmenge und faellt
@@ -819,7 +818,7 @@ def pflicht_text(data, feld, grenze, meldung):
 def cent(v, d=None):
     """Einen Betrag als Cent-Ganzzahl lesen.
 
-    Kein stiller Vorgabewert (Regelblatt 11, siehe B-05): ist der Wert nicht
+    Kein stiller Vorgabewert (CLAUDE.md §11, siehe B-05): ist der Wert nicht
     lesbar, kommt None zurueck - nicht 0. Eine Null in der Kostenrechnung ist
     schlimmer als eine Fehlermeldung, weil sie falsche Ergebnisse erzeugt, die
     niemandem auffallen.
@@ -851,7 +850,7 @@ def ct_lesen(v, d=None):
     beim Einspielen einer Sicherung. 14,21 EUR wurden zu 1421,00 EUR, eine
     Tankung fuer 74,12 EUR zu 7412,00 EUR.
 
-    Kein stiller Vorgabewert (Regelblatt 11): ist der Wert nicht lesbar, kommt
+    Kein stiller Vorgabewert (CLAUDE.md §11): ist der Wert nicht lesbar, kommt
     None zurueck, damit der Aufrufer auf die Euro-Spalte ausweichen kann.
     """
     if v is None or (isinstance(v, str) and not v.strip()):
@@ -907,7 +906,7 @@ def cent_aus_sicherung(satz, ct_schluessel, euro_schluessel):
 
     Bevorzugt wird die Cent-Angabe. Eine Sicherung aus einer aelteren Fassung
     kennt nur den Euro-Wert - dann wird von dort umgerechnet, sonst liefe ein
-    alter Stand auf Nullen ein. Regelblatt 15: Datenverlust ist die einzige
+    alter Stand auf Nullen ein. CLAUDE.md §15: Datenverlust ist die einzige
     echte Katastrophe.
     """
     w = satz.get(ct_schluessel)
@@ -2217,7 +2216,7 @@ class App(BaseHTTPRequestHandler):
         kind = data.get("kind") if data.get("kind") in ("bev", "phev", "petrol", "diesel") else "bev"
         # Der Name ist Pflicht (N-02). Vorher stand hier ein 'or "Auto"': ein
         # POST ganz ohne Inhalt legte ein Auto namens "Auto" an und meldete
-        # 200. Das ist eine stille Vorgabe im Sinne von Regelblatt 11, nur an
+        # 200. Das ist eine stille Vorgabe im Sinne von CLAUDE.md §11, nur an
         # einer Stelle, die B-05 nicht erfasst hat - dort ging es um Zahlen.
         # Die Oberflaeche verlangt den Namen ohnehin schon selbst
         # ("Bitte gib dem Auto einen Namen."), erreichbar war der Vorgabewert
@@ -2317,7 +2316,7 @@ class App(BaseHTTPRequestHandler):
         cols = ",".join(["nutzer_id", "car_id"] + SESSION_FIELDS)
         ph = ",".join(["?"] * (len(SESSION_FIELDS) + 2))
         added = dup = 0
-        # Ganz oder gar nicht (B-05 Schritt 6, Regelblatt 12): "Import von 200
+        # Ganz oder gar nicht (B-05 Schritt 6, CLAUDE.md §12): "Import von 200
         # Zeilen, Zeile 137 ist kaputt: Die Datei wird entweder ganz uebernommen
         # oder gar nicht - und es steht im Klartext da, welche Zeile das Problem
         # war." Vorher wurden kaputte Zeilen mit continue stillschweigend
@@ -2408,7 +2407,7 @@ class App(BaseHTTPRequestHandler):
             # Ein vorhandenes Ende BEHALTEN (B-40). Vorher wurde finish hart
             # auf start gesetzt: bei einer importierten Ladung mit echter
             # Endzeit ging diese Angabe verloren, sobald jemand einen
-            # Tippfehler im Betrag korrigierte. Regelblatt 15 - stille
+            # Tippfehler im Betrag korrigierte. CLAUDE.md §15 - stille
             # Datenverluste sind das Schlimmste, was ein Tool tun kann.
             mitgeschickt = valid_ts(data.get("finish") or data.get("end"))
             finish = mitgeschickt or row["finish"] or start
@@ -2723,7 +2722,7 @@ def main():
     # Ladelisten und Einspielen einer Sicherung). Der Fehler ist behoben,
     # aber bereits gespeicherte Zeilen bleiben falsch. Gemeldet wird von
     # --betraege-pruefen, geaendert nur von --betraege-richten - und das
-    # sagt vorher, dass eine Sicherung dazugehoert (Regelblatt 15).
+    # sagt vorher, dass eine Sicherung dazugehoert (CLAUDE.md §15).
     p.add_argument("--betraege-pruefen", action="store_true",
                    help="Nach hundertfach gespeicherten Betraegen suchen und "
                         "beenden. Aendert nichts.")

@@ -1,7 +1,7 @@
 #!/bin/bash
 # werkzeuge/aktualisieren.sh
 #
-# Zentrales Aktualisierungsskript (Betriebsregeln 20).
+# Zentrales Aktualisierungsskript (CLAUDE.md §24).
 #
 # Aufruf:
 #   aktualisieren.sh <tool> [<tool> ...]   ein oder mehrere Tools
@@ -16,7 +16,7 @@
 # Dateisystem erkannt, alles Tool-eigene steht in der jeweiligen
 # aktualisierung.conf. Ein neues Tool braucht damit keine Zeile hier.
 #
-# Abweichungen vom Entwurf in Betriebsregeln 20, jede aus einem konkreten
+# Abweichungen vom Entwurf in CLAUDE.md §24, jede aus einem konkreten
 # Fehler heraus:
 #
 #   1. Container werden ueber "docker compose ps -q" gefunden, nicht ueber
@@ -33,7 +33,7 @@
 #
 #   3. Geprueft wird zuerst ueber die Gesundheitspruefung des Containers und
 #      nur ersatzweise ueber PRUEF_URL. Der Entwurf holte dafuer
-#      curlimages/curl:latest - ein latest-Abbild, was Betriebsregeln 5
+#      curlimages/curl:latest - ein latest-Abbild, was CLAUDE.md §19
 #      gerade verbietet, bei jedem Lauf neu geladen und im internen Netz von
 #      socket-proxy gar nicht erreichbar. Bordbuch, Wiki und Authentik haben
 #      eine eigene Gesundheitspruefung; die ist naeher an der Wahrheit.
@@ -141,7 +141,7 @@ ein_tool() {
     # shellcheck disable=SC1090
     . "$ORDNER/aktualisierung.conf"
   else
-    melde "HINWEIS: keine aktualisierung.conf - Betriebsregeln 1 verlangt sie."
+    melde "HINWEIS: keine aktualisierung.conf - CLAUDE.md §16 verlangt sie."
     melde "         Es gilt: TYP=image, keine URL-Pruefung, ${PRUEF_WARTEN}s Grenze."
   fi
 
@@ -160,7 +160,7 @@ ein_tool() {
              | tr -d '"' || true)
   if [ -z "$ABBILDER" ]; then
     melde "ABBRUCH: in $ORDNER/docker-compose.yml fehlt eine image:-Zeile."
-    melde "         Ohne sie gibt es keinen Rueckweg (Betriebsregeln 5, B-23)."
+    melde "         Ohne sie gibt es keinen Rueckweg (CLAUDE.md §19, B-23)."
     melde "         Auch bei eigenem Dockerfile gehoert sie dazu -"
     melde "         'build: .' UND 'image: <tool>:<fassung>'."
     return 1
@@ -369,7 +369,7 @@ zurueckrollen() {
   melde ""
   melde "ACHTUNG: hat die neue Fassung die Datenbank schon migriert, reicht"
   melde "das Zurueckrollen nicht. Dann die Sicherung einspielen -"
-  melde "Betriebsregeln 17 und 22. Bordbuch legt zusaetzlich eine Kopie"
+  melde "CLAUDE.md §23 und 22. Bordbuch legt zusaetzlich eine Kopie"
   melde "neben die Datenbank (.vor-stand-<n>), siehe B-13."
 }
 
@@ -496,13 +496,13 @@ vorpruefung() {
   fi
 
   # Der Schluessel laesst sich NICHT selbst erzeugen: der private Teil
-  # gehoert auf den Arbeitsrechner, nicht hierher (Betriebsregeln 15).
+  # gehoert auf den Arbeitsrechner, nicht hierher (CLAUDE.md §23).
   # Ein Skript, das ihn hier anlegt, macht die Verschluesselung wertlos.
   local SCHL="$STACK/.backup-schluessel.pub"
   if [ ! -f "$SCHL" ]; then
     melde "  FEHLER: $SCHL fehlt."
     melde "          Er kann hier NICHT erzeugt werden - der private Teil"
-    melde "          gehoert auf den Arbeitsrechner (Betriebsregeln 15)."
+    melde "          gehoert auf den Arbeitsrechner (CLAUDE.md §23)."
     melde "          Dort:  age-keygen -o ~/.age/prolo.key"
     melde "          Dann:  den age1...-Teil hierher in $SCHL"
     FEHLT=1

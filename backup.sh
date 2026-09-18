@@ -2,7 +2,7 @@
 # /opt/stack/backup.sh
 #
 # Zentrale Sicherung aller Tools. Liest je Tool die sicherung.conf
-# (Betriebsregeln 14) und legt genau EINEN Stand pro Tag ab.
+# (CLAUDE.md §23) und legt genau EINEN Stand pro Tag ab.
 #
 # Aus B-08 geaendert - vorher waren es fuenf getrennte Probleme:
 #   a) Keine Verschluesselung. acme.json mit den privaten TLS-Schluesseln
@@ -173,7 +173,7 @@ if [ -f "$SCHLUESSEL" ] && command -v age >/dev/null 2>&1; then
   fi
 elif [ ! -f "$SCHLUESSEL" ]; then
   echo "WARNUNG: kein Schluessel unter $SCHLUESSEL - Sicherung bleibt im KLARTEXT." >&2
-  echo "         Betriebsregeln 13 verlangt eine verschluesselte Sicherung." >&2
+  echo "         CLAUDE.md §23 verlangt eine verschluesselte Sicherung." >&2
   FEHLER=1
 else
   echo "WARNUNG: 'age' ist nicht installiert (apt install age) - Sicherung bleibt im KLARTEXT." >&2

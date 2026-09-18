@@ -1,7 +1,7 @@
 /* Der Seiten-Editor: Auszeichnung, Suchtext und die erzeugte Seite.
  *
  * Die Funktionen werden aus index.html herausgeschnitten und hier gegen VON
- * HAND geschriebene Erwartungen geprueft (Regelblatt 13). Kein Wert unten ist
+ * HAND geschriebene Erwartungen geprueft (CLAUDE.md §13). Kein Wert unten ist
  * aus der Ausgabe des Codes uebernommen.
  *
  * Aufruf:  node tests/test_editor.mjs
