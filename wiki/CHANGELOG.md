@@ -21,6 +21,22 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
   Fehler - aber sie stehen vor dem "Uebernehmen"-Knopf, nicht dahinter
   (B-07).
 
+## Fassung 1.3.2
+
+Eine Korrektur zu 1.3.1 - im Browser nachgestellt und gemessen.
+
+- **Eine HTML-Datei anfuegen fuehrt nicht mehr auf eine schwarze Seite**
+  (`N-36`). Die Kachel "Ich habe eine HTML-Datei" klappte die Ablage auf und
+  scrollte sie ins Bild - mit scrollIntoView. Das scrollt aber JEDEN
+  scrollbaren Vorfahren, auch den Koerper. Der hat seit N-34 kein
+  overflow, also keine Leiste - vom Programm laesst er sich aber sehr wohl
+  schieben. Die Huelle stand danach vollstaendig ausserhalb des Fensters
+  (gemessen: Unterkante bei -122 Pixeln), und es gab keinen Weg zurueck.
+  Jetzt scrollt die Oberflaeche nur noch die Kaesten, die wirklich scrollen,
+  und die Huelle haengt am Fenster statt am Koerper. Das Hinscrollen tut
+  weiter, was es soll: die Karte steht im Bild (Flaeche 0 -> 1351), die
+  Huelle bleibt stehen.
+
 ## Fassung 1.3.1
 
 Zwei Korrekturen aus der Rueckmeldung zu 1.3.0 - beide im Browser

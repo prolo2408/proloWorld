@@ -165,7 +165,10 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible{
 [data-noscroll]::-webkit-scrollbar{width:0;height:0}
 
 /* ------------------------------------------------ Grundgeruest */
-.app{display:flex;height:100%;background:var(--app)}
+/* position:fixed ist der zweite Riegel zu N-36: ein Element mit fixer Lage
+   haengt am Fenster, nicht am Koerper - kein Scrollen des Koerpers kann die
+   Huelle noch verschieben, auch keins, das erst morgen dazukommt. */
+.app{position:fixed;inset:0;display:flex;height:100%;background:var(--app)}
 
 #seitenleiste{
   width:248px;flex:0 0 248px;background:var(--chrome);
@@ -862,6 +865,33 @@ function schuetzen(s){
   return String(s??'').replace(/[&<>"']/g, c =>
     ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+function scrollKasten(el){
+  /* Der naechste Vorfahre, der wirklich senkrecht scrollt. */
+  for(let p = el && el.parentElement; p && p !== document.body; p = p.parentElement){
+    const o = getComputedStyle(p).overflowY;
+    if((o === 'auto' || o === 'scroll') && p.scrollHeight > p.clientHeight + 1) return p;
+  }
+  return null;
+}
+function hinscrollen(el, mitte){
+  /* NICHT scrollIntoView (N-36). Das scrollt JEDEN scrollbaren Vorfahren -
+     auch den Koerper. Der hat overflow:hidden und darum keine Leiste, laesst
+     sich aber vom Programm sehr wohl schieben: die Huelle stand danach
+     vollstaendig ausserhalb des Fensters (gemessen: Unterkante bei -122 px)
+     und es gab keinen Weg zurueck. Eine schwarze Seite.
+
+     Hier wird nur der Kasten gescrollt, der wirklich scrollt. Gibt es keinen,
+     ist auch nichts zu tun - das Ziel steht dann schon im Bild. */
+  if(!el) return;
+  const kasten = scrollKasten(el);
+  if(!kasten) return;
+  const kr = kasten.getBoundingClientRect(), er = el.getBoundingClientRect();
+  const oben = er.top - kr.top + kasten.scrollTop;
+  const ziel = mitte
+    ? oben - Math.max(0, (kasten.clientHeight - er.height) / 2)
+    : oben - 12;
+  kasten.scrollTop = Math.max(0, Math.min(ziel, kasten.scrollHeight - kasten.clientHeight));
+}
 function zahl(n){ return new Intl.NumberFormat('de-DE').format(n); }
 function bytes(b){
   if(b >= 1048576) return new Intl.NumberFormat('de-DE',{maximumFractionDigits:1})
@@ -1395,7 +1425,7 @@ function aktivSetzen(i){
     const an = (j === i);
     b.dataset.aktiv = an ? '1' : '0';
     b.setAttribute('aria-selected', String(an));
-    if(an) b.scrollIntoView({block:'nearest'});
+    if(an) hinscrollen(b);
   });
 }
 function pdfZeigen(slug, datei, seite){
@@ -2560,7 +2590,7 @@ function zweigKasten(pfad){
       verwaltung('bereiche');
     } catch(e){ einblenden(e.message); }
   };
-  z.scrollIntoView({block:'nearest'});
+  hinscrollen(z);
 }
 
 function ablageVerdrahten(){
@@ -2612,7 +2642,7 @@ async function rechteKasten(slug, d){
   kasten.id = 'rechte-kasten';
   if(platz){ platz.innerHTML = ''; platz.appendChild(kasten); }
   else ziel.parentElement.insertBefore(kasten, ziel.nextSibling);
-  kasten.scrollIntoView({block:'nearest'});
+  hinscrollen(kasten);
   kasten.querySelectorAll('[data-g]').forEach(b => b.onclick = () => {
     const f = $('rechte-feld');
     const drin = f.value.split(',').map(x => x.trim()).filter(Boolean);
@@ -5570,7 +5600,7 @@ function editorZeichnen(opt){
   if(opt.fokus){
     const z = $(opt.fokus);
     if(z){
-      z.scrollIntoView({block:'nearest'});
+      hinscrollen(z);
       const f = z.querySelector('textarea, input') ||
                 (z.tagName === 'INPUT' ? z : null);
       if(f) f.focus();
@@ -5582,7 +5612,7 @@ function editorZeichnen(opt){
     const karte = $(opt.aufklappen === 'ki' ? 'ki-karte' : 'datei-karte');
     if(karte){
       karte.open = true;
-      karte.scrollIntoView({block:'center'});
+      hinscrollen(karte, true);
       const erst = karte.querySelector('input, button');
       if(erst) erst.focus();
     }
@@ -5823,7 +5853,7 @@ function edZumFehler(nr){
   const el = b.ziel && $(b.ziel);
   if(!el) return einblenden(b.text);
   const zeile = $('ed-fehlerzeile-' + liste.indexOf(b));
-  (zeile || el).scrollIntoView({block:'center'});
+  hinscrollen(zeile || el, true);
   if(typeof el.focus === 'function') el.focus({preventScroll:true});
 }
 async function edSenden(weg){

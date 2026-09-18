@@ -1297,6 +1297,37 @@ pruefe('Die Standzeile ist ein Knopf, der zur Stelle fuehrt (N-35)', () => {
     'solange nichts fehlt, muss die Zeile gesperrt sein');
 });
 
+pruefe('Die Huelle scrollt nur ihre eigenen Kaesten (N-36)', () => {
+  /* Der Befund: "eine HTML anfuegen" fuehrte auf eine schwarze Seite.
+     scrollIntoView scrollt JEDEN scrollbaren Vorfahren - auch den Koerper.
+     Der hat seit N-34 overflow:hidden und darum keine Leiste, laesst sich
+     vom Programm aber sehr wohl schieben: gemessen stand die Huelle danach
+     mit der Unterkante bei -122 px, also vollstaendig ausserhalb des
+     Fensters, und es gab keinen Weg zurueck.
+
+     Im Pflichtteil der SEITE ist das Dokument der richtige Scrollbereich -
+     die Seite laeuft in ihrem eigenen Rahmen. Der Block wird darum
+     herausgenommen. */
+  const pflicht = quelle.match(/const ED_PFLICHTTEIL = \[[\s\S]*?\]\.join\('\\n'\);/);
+  assert.ok(pflicht, 'ED_PFLICHTTEIL nicht gefunden - Test anpassen');
+  const huelle = quelle.replace(pflicht[0], '');
+  /* Gesucht ist der AUFRUF, nicht das Wort: der Kommentar in hinscrollen()
+     nennt scrollIntoView absichtlich, damit der naechste Leser weiss, warum
+     es hier nicht steht. Genau diese Falle war N-33. */
+  assert.ok(!/\.scrollIntoView\s*\(/.test(huelle),
+    'ein scrollIntoView-Aufruf in der Huelle - das scrollt auch den ' +
+    'Koerper, hinscrollen() nehmen');
+  assert.ok(/function hinscrollen\(el, mitte\)\{/.test(quelle),
+    'ohne hinscrollen() gibt es keinen Ersatz');
+  assert.ok(/function scrollKasten\(el\)\{/.test(quelle));
+  const app = quelle.match(/^\.app\{[^}]*\}/m);
+  assert.ok(app, 'keine Regel fuer .app gefunden');
+  assert.ok(/position:\s*fixed/.test(app[0]),
+    'ohne position:fixed haengt die Huelle am Koerper und laesst sich ' +
+    'aus dem Fenster schieben');
+  assert.ok(/inset:\s*0/.test(app[0]), 'die Huelle muss das ganze Fenster fuellen');
+});
+
 console.log('');
 console.log(`${gut} ok, ${schlecht} Fehler`);
 process.exit(schlecht ? 1 : 0);
