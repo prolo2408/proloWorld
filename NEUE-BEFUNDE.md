@@ -1865,6 +1865,138 @@ die Korrektur war noch nicht eingecheckt. Die dritte Probe hat sie mit
 weggeräumt, und die Kontrolle stand auf „1 Fehler". Erst das machte es
 sichtbar. Eine Probe braucht einen Rückweg, der nicht die eigene Arbeit ist.
 
+## N-35 — „Eine Sache fehlt noch" war ein Satz ohne Weg
+
+### Befund
+
+Rückmeldung, mit Bild von der Leiste: *„Wenn ich da auf Speichern drücke, will
+ich zu dem Punkt geführt werden, wo der Fehler ist. Beziehungsweise müssen
+Fehler besser erkennbar sein."* Auf dem Bild ist „Eine Sache fehlt noch"
+blau hinterlegt — der Nutzer hat es angeklickt, und markiert wurde nur der
+Text.
+
+Zwei Sachen waren falsch:
+
+**1. Die Standzeile war ein `<span>`.** Sie sieht aus wie etwas, das man
+anklicken kann, und ist es nicht. Ein Klick markiert Text.
+
+**2. Markiert wurden drei von elf Fällen.** `edFehlerMarkieren` kannte genau
+drei: fehlender Titel, fehlender Pfad, fehlender Abschnittstitel. Die Prüfung
+`edPruefbar` fand aber elf Arten von Befunden. Fehlte etwas anderes — ein
+leerer Abschnitt, ein PDF- oder Bild-Baustein ohne Datei, eine unerlaubte
+Adresse, ein doppelter Anker, ein zu langer Titel oder Satz —, dann
+
+- wurde **kein Feld markiert**,
+- **sprang der Blick nirgendwohin** (`erstes` blieb `null`),
+- und die Liste stand in `#ed-bericht` **am Ende des Formulars**, also
+  außerhalb des Bildes, wenn man oben war.
+
+Genau der Fall aus der Rückmeldung: „Eine Sache fehlt noch" — und beim Drücken
+von *Speichern* passiert sichtbar nichts.
+
+### Behoben
+
+**Eine Quelle, jeder Befund mit Stelle.** `edBefunde()` liefert jetzt Objekte
+`{text, ziel}`; `ziel` ist die Kennung des Feldes oder der Karte, um die es
+geht. `edPruefbar()` ist nur noch die Textsicht darauf
+(`edBefunde().map(b => b.text)`) — zwei Prüfungen wären zwei Wahrheiten.
+
+Die Ziele, alle elf Fälle abgedeckt:
+
+| Befund | Stelle |
+|---|---|
+| Titel fehlt / zu lang | `ed-titel` |
+| Satz zu lang | `ed-kurz` |
+| Adresse fehlt / unerlaubt | `ed-slug` |
+| Pfad fehlt | `ed-pfad` |
+| Abschnittstitel fehlt | `ed-a-titel-«i»` |
+| Anker fehlt / doppelt | `ed-a-anker-«i»` |
+| Abschnitt leer | `ed-abschnitt-«i»` *(neu vergebene Kennung)* |
+| PDF- oder Bild-Baustein ohne Datei | `ed-block-«i»-«j»` |
+
+**Drei Wege zur Stelle**, alle über `edZumFehler(nr)`:
+
+- die **Standzeile** ist ein `<button>` — gesperrt, solange nichts fehlt (ein
+  Knopf, der nichts tut, ist schlimmer als kein Knopf), sonst warm hinterlegt
+  mit „→ hin";
+- **jeder Punkt der Fehlerliste** ist ein Knopf und führt an *seine* Stelle;
+- **Speichern, Ansehen und Als Datei sichern** springen von selbst an den
+  ersten Befund — erst der Bericht, dann der Sprung, damit der Blick am Ende
+  auf der Stelle steht und nicht auf dem Bericht.
+
+**Besser erkennbar:** Die Meldung steht jetzt **am Feld** (`.ed-fehlerzeile`,
+warm hinterlegt, mit Balken links) — am Feld darunter, an einer Karte oben,
+weil „darunter" bei einem langen Kasten weit weg von der Sache wäre. Felder
+bekommen `aria-invalid`, Karten `data-fehler="1"` mit warmem Rand. Und wer im
+Feld etwas ändert, verliert Marke **und** Meldung dazu (`edMarkeWeg`) — sonst
+stünde dort weiter „fehlt der Titel", während der Titel schon da ist.
+
+### Im Browser gefahren (Regelblatt 14, CLAUDE.md)
+
+Leere Vorlage geöffnet, *Speichern* gedrückt, nichts ausgefüllt — 1440 × 900:
+
+| | Wert |
+|---|---|
+| Standzeile | `BUTTON`, „4 Sachen fehlen noch", nicht gesperrt |
+| Meldungen am Feld | **4** |
+| markierte Felder / Karten | **3 / 1** ← die Karte ist der Fall, den es vorher nicht gab |
+| Punkte in der Liste | **4**, alle anklickbar |
+| erste Meldung im Bild | **ja** |
+| Konsolenfehler | **0** |
+
+Dann weit weggescrollt (`flaeche.scrollTop` 1477, erste Meldung außer Bild)
+und die Standzeile gedrückt → `scrollTop` 0, erste Meldung im Bild.
+
+Und jeder Punkt der Liste einzeln, jedes Mal vorher ans Ende gescrollt:
+
+| Punkt | Meldung im Bild | `scrollTop` danach |
+|---|---|---|
+| Der Seite fehlt der Titel. | ja | 0 |
+| Der Pfad im Themenbaum fehlt. | ja | 0 |
+| Abschnitt 1 hat keinen Titel. | ja | 321 |
+| Im Abschnitt 1 steht noch nichts. | ja | 187 |
+
+Titel getippt → markierte Felder 3 → **2**, Meldungen 4 → **3**, Standzeile
+„3 Sachen fehlen noch".
+
+Kontrast der neuen Teile, gegen den Grund gemessen, der wirklich dahinterliegt:
+schlechtester Wert **7,69:1** (dunkel) und **6,38:1** (hell) — verlangt sind
+4,5:1.
+
+Klickdurchlauf über alle sechs Ansichten danach: 79 Klicks, **0**
+Konsolenfehler, Oberfläche intakt.
+
+### Prüflinien
+
+`tests/test_editor.mjs`, fünf neue Linien. Die Erwartungen von Hand (§13) —
+ein Zustand, der alle Arten auslöst, ergibt zehn Befunde in dieser Reihenfolge:
+
+```
+ed-titel, ed-kurz, ed-slug, ed-pfad,
+ed-a-titel-0, ed-abschnitt-0, ed-block-0-0,
+ed-a-anker-2, ed-abschnitt-2, ed-block-2-0
+```
+
+Der eigentliche Zahn ist *„Jede genannte Stelle gibt es wirklich"*: jedes
+`ziel` wird gegen `id="…"` in `index.html` geprüft. Ein verschriebenes Ziel
+wäre ein Sprung ins Leere — und der sieht genauso aus wie der Fehler aus der
+Rückmeldung.
+
+Mutationsproben (§13a), jede einzeln angebracht und zurückgenommen:
+
+| Mutation | Ergebnis |
+|---|---|
+| einem Befund die Stelle nehmen (`ziel: null`) | 3 Fehler |
+| Ziel verschrieben (`ed-abschnit-`) | 3 Fehler |
+| Standzeile wieder als `<span>` | 1 Fehler |
+| Fall `zumfehler` aus dem Verteiler entfernt | 1 Fehler |
+| `edPruefbar` mit eigener Wahrheit (`return []`) | 3 Fehler |
+| Sperre der Standzeile entfernt | 1 Fehler |
+| unverändert | 125 ok, 0 Fehler |
+
+Diesmal lief der Rückweg der Proben über eine Kopie im Kratzblock, nicht über
+`git checkout` — die Lehre aus `N-34`.
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
