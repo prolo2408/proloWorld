@@ -442,6 +442,20 @@ GRENZE_STICHWORT = 60
 # bekommt der Leser nichts, egal wie voll der Meta-Block ist.
 GRENZE_SICHTBAR = 40
 
+# Die Marke, an der der Editor erkennt, dass er das Markup einer Seite lesen
+# darf. Sie steht auch in index.html (EDITOR_WERKZEUG) und im Prompt fuer eine
+# KI; tests/test_seiten.py haelt die beiden Stellen zusammen.
+EDITOR_WERKZEUG = "editor-1"
+# Die Meldung zu einem Entwurf steht genau einmal, weil die Oberflaeche sie
+# wiedererkennen muss: sie zeigt dem Entwurf eine eigene Karte und blendet
+# DIESE eine Zeile aus der Fehlerliste aus - verglichen wird der Wert, den
+# der Server selbst geliefert hat, nicht ein erratener Wortanfang (N-36).
+ENTWURF_MELDUNG = (
+    "Das ist ein Entwurf fuer den Editor, noch keine Seite: der Meta-Block "
+    "steht, der Koerper ist leer. Genau so liefert der Prompt fuer eine KI "
+    "ihn ab. Lade ihn in den Editor - der baut Gestaltung, Technik und "
+    "Abschnitte daraus.")
+
 # Der Pflichtteil ist der Skriptblock, den die Huelle in JEDE Seite legt:
 # Inhaltsverzeichnis, Suche in der Seite, PDF-Bausteine. Er ist NICHT das, was
 # der Einspielende sich holt - er ist das, was das Wiki dazugibt (N-40).
@@ -688,9 +702,48 @@ ERLAUBT_FARBE_IM_TOKENBLOCK = re.compile(r"(?s):root\s*\{.*?\}|\[data-theme[^\]]
                                          r"|body\[data-theme[^\]]*\]\s*\{.*?\}")
 
 
+def sichtbarer_text(html):
+    """Was im Koerper an Text uebrig bleibt, ohne Skript, Stil und Marken."""
+    t = re.sub(r"(?is)<(script|style|template)\b[^>]*>.*?</\1\s*>", " ",
+               koerper_von(html))
+    t = re.sub(r"(?s)<!--.*?-->", " ", t)
+    t = re.sub(r"(?s)<[^>]*>", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def ist_entwurf(html, meta):
+    """Ist das noch keine Seite, sondern der Rohstoff fuer den Editor? (N-41)
+
+    Genau so eine Datei liefert der Prompt fuer eine KI: Meta-Block mit
+    Markup, leerer Koerper, kein CSS, kein Skript - so ist er ausdruecklich
+    formuliert ("Schreibe KEIN CSS, KEIN JavaScript"). Gemessen hat die
+    Pruefung sie mit einem Fehler und vier Warnungen abgelehnt, also genau
+    die Datei, um die das Werkzeug selbst gebeten hatte.
+
+    Uebernehmbar ist sie damit trotzdem nicht - eine Seite ohne Inhalt bleibt
+    eine leere Flaeche (N-23). Aber sie ist kein Fehler, sondern ein
+    Zwischenschritt, und der Weg dahin ist der Editor.
+    """
+    if not isinstance(meta, dict) or meta.get("werkzeug") != EDITOR_WERKZEUG:
+        return False
+    abschnitte = meta.get("abschnitte")
+    if not isinstance(abschnitte, list) or not abschnitte:
+        return False
+    if not all(isinstance(a, dict) and str(a.get("markup") or "").strip()
+               for a in abschnitte):
+        return False
+    return len(sichtbarer_text(html)) < GRENZE_SICHTBAR
+
+
 def regeln_pruefen(html, meta):
     """Gibt (fehler, warnungen) zurueck. Fehler verhindern die Uebernahme."""
     fehler, warnungen = [], []
+    # Warnungen ueber Dinge, die der Editor selbst baut: Kopfangaben, Stil,
+    # Pflichtblock, die Abschnitte samt ihrer id. Bei einem Entwurf (N-41)
+    # sind sie kein Befund, sondern die Beschreibung des Zwischenschritts -
+    # sie stehen ueber etwas, das es erst nach dem Editor gibt.
+    huelle = []
+    entwurf = ist_entwurf(html, meta)
 
     slug = (meta.get("slug") or "").strip()
     if not slug:
@@ -769,7 +822,7 @@ def regeln_pruefen(html, meta):
         if not (a.get("titel") or "").strip():
             fehler.append(f"Abschnitt mit Anker '{anker}' hat keinen Titel.")
         if not re.search(r'\bid=["\']' + re.escape(anker) + r'["\']', html):
-            warnungen.append(f"Zum Anker '{anker}' gibt es im HTML kein Element mit "
+            huelle.append(f"Zum Anker '{anker}' gibt es im HTML kein Element mit "
                              f'id="{anker}". Der Sprung aus der Suche landet dann oben '
                              "auf der Seite.")
         if not (a.get("text") or "").strip() and not (a.get("stichworte") or []):
@@ -777,10 +830,10 @@ def regeln_pruefen(html, meta):
                              "Er ist dann kaum auffindbar.")
 
     if not re.search(r"(?i)<html[^>]*\slang=", html):
-        warnungen.append('Dem <html>-Tag fehlt lang="de".')
+        huelle.append('Dem <html>-Tag fehlt lang="de".')
     if not re.search(r"(?i)<meta[^>]+viewport", html):
-        warnungen.append("Es fehlt die viewport-Angabe. Am Handy wird die Seite "
-                         "dann winzig dargestellt.")
+        huelle.append("Es fehlt die viewport-Angabe. Am Handy wird die Seite "
+                      "dann winzig dargestellt.")
 
     # Schemalose Verweise (//fremd.tld/x.js) und javascript:-Ziele wurden
     # bisher nicht erkannt (B-07 Nebenbefund, B-48). Die CSP faengt sie zwar
@@ -806,12 +859,12 @@ def regeln_pruefen(html, meta):
     ohne_token = re.sub(r"(?is)<script\b.*?</script>", " ", ohne_token)
     treffer = FARB_MUSTER.findall(ohne_token)
     if treffer:
-        warnungen.append(f"{len(treffer)} Farbwerte ausserhalb des Tokenblocks "
-                         "gefunden. Die Regeln verlangen Tokens aus CLAUDE.md \u00a72.")
+        huelle.append(f"{len(treffer)} Farbwerte ausserhalb des Tokenblocks "
+                      "gefunden. Die Regeln verlangen Tokens aus CLAUDE.md \u00a72.")
 
     if not re.search(r"focus-visible", html):
-        warnungen.append("Der Pflichtblock aus CLAUDE.md §8.1 fehlt "
-                         "(focus-visible, prefers-reduced-motion).")
+        huelle.append("Der Pflichtblock aus CLAUDE.md §8.1 fehlt "
+                      "(focus-visible, prefers-reduced-motion).")
 
     # Steht im Koerper ueberhaupt etwas? Ein voller Meta-Block mit leerem
     # <body> ging vorher fehlerfrei durch (N-23): die Seite landete im
@@ -822,22 +875,29 @@ def regeln_pruefen(html, meta):
     # bauen, sind ausdruecklich erlaubt (siehe N-11). Traegt die Seite also
     # einen ausfuehrbaren Skriptblock, wird nichts beanstandet - lieber keine
     # Beanstandung als eine falsche.
-    sichtbar = re.sub(r"(?is)<(script|style|template)\b[^>]*>.*?</\1\s*>", " ", koerper_von(html))
-    sichtbar = re.sub(r"(?s)<!--.*?-->", " ", sichtbar)
-    sichtbar = re.sub(r"(?s)<[^>]*>", " ", sichtbar)
-    sichtbar = re.sub(r"\s+", " ", sichtbar).strip()
+    sichtbar = sichtbarer_text(html)
     baut_selbst = any(
         inhalt.strip() and not re.search(
             r'(?i)type\s*=\s*["\']?(?:application/(?:ld\+)?json|text/plain)', attr)
         for attr, inhalt in re.findall(r"(?is)<script\b([^>]*)>(.*?)</script\s*>", html))
     if len(sichtbar) < GRENZE_SICHTBAR and not baut_selbst:
-        fehler.append(
-            f"Im <body> steht fast kein sichtbarer Text ({len(sichtbar)} Zeichen). "
-            "Der Meta-Block allein ist keine Seite: Themenbaum und Suche haetten "
-            "Eintraege, der Leser eine leere Flaeche. Wenn die Datei nur als "
-            "Entwurf gedacht war, lade sie in den Editor - er baut die Seite "
-            "aus dem Meta-Block.")
+        if entwurf:
+            # Derselbe Sachverhalt, andere Lage: hier fehlt nichts, hier ist
+            # nur noch ein Schritt offen. Die Oberflaeche zeigt das an
+            # bericht["entwurf"] und stellt den Editor nach vorn (N-41).
+            # Ein Fehler bleibt es trotzdem - sonst liesse sich der Entwurf
+            # einspielen und der Leser bekaeme eine leere Flaeche (N-23).
+            fehler.append(ENTWURF_MELDUNG)
+        else:
+            fehler.append(
+                f"Im <body> steht fast kein sichtbarer Text ({len(sichtbar)} Zeichen). "
+                "Der Meta-Block allein ist keine Seite: Themenbaum und Suche haetten "
+                "Eintraege, der Leser eine leere Flaeche. Wenn die Datei nur als "
+                "Entwurf gedacht war, lade sie in den Editor - er baut die Seite "
+                "aus dem Meta-Block.")
 
+    if not entwurf:
+        warnungen += huelle
     return fehler, warnungen
 
 
@@ -1081,6 +1141,10 @@ def pruefen(rohbytes, nutzer):
                # die Oberflaeche zeigt ihn als eigenen Abschnitt vor dem
                # Uebernehmen-Knopf.
                "sicherheit": [],
+               # Entwurf: Meta-Block mit Markup, leerer Koerper - die Datei,
+               # um die der Prompt fuer eine KI bittet (N-41). Leer, wenn es
+               # keiner ist; sonst genau der Satz, der auch in "fehler" steht.
+               "entwurf": "",
                "meta": None, "groesse_vorher_b": len(rohbytes), "groesse_nachher_b": 0,
                "neu": True, "fassung": 1}
     try:
@@ -1104,6 +1168,7 @@ def pruefen(rohbytes, nutzer):
         return bericht, None, None
 
     bericht["meta"] = meta
+    bericht["entwurf"] = ENTWURF_MELDUNG if ist_entwurf(html, meta) else ""
     fehler, warnungen = regeln_pruefen(html, meta)
     bericht["fehler"] += fehler
     bericht["warnungen"] += warnungen

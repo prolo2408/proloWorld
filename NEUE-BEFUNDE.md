@@ -2550,6 +2550,123 @@ hier gefahrlos aus git zurückholen, weil ihr Unterschied nachweislich aus
 genau einer Zeile bestand (der Mutation selbst) und keine eigene Arbeit
 darin lag; nachgesehen wurde das **vor** dem Zurückholen, nicht danach.
 
+## N-41 — Das Werkzeug lehnte die Datei ab, um die es selbst gebeten hatte
+
+### Wie es aufgefallen ist
+
+Im selben Zug wie `N-40`: *„Wenn ich den Prompt ausführe und die HTML
+einfüge kommt auch der Fehler."*
+
+### Was gemessen wurde
+
+Eine Datei, die **genau** dem Gerüst aus dem Prompt „Eine KI schreiben
+lassen" folgt — Meta-Block mit `markup`, leerer `<body>`, kein CSS, kein
+Skript —, durch dieselbe Prüfung geschickt, die beim Einspielen läuft:
+
+```
+FEHLER:    Im <body> steht fast kein sichtbarer Text (0 Zeichen). …
+WARNUNGEN: Zum Anker 'vorbereitung' gibt es im HTML kein Element mit id=…
+           Zum Anker 'einrichten'   gibt es im HTML kein Element mit id=…
+           Es fehlt die viewport-Angabe. …
+           Der Pflichtblock aus CLAUDE.md §8.1 fehlt …
+```
+
+**Ein Fehler, vier Warnungen** — unter der roten Überschrift „Nicht
+übernehmbar". Der Prompt sagt wörtlich „Schreibe deshalb KEIN CSS, KEIN
+JavaScript und keine eigene Gestaltung", und das Wiki wies die Datei
+dann dafür ab. Alle vier Warnungen betrafen Dinge, die der Editor selbst
+baut: Kopfangaben, Pflichtblock, `lang`, die Abschnitte samt ihrer `id`.
+
+Einen Weg gab es: den Kasten „Aber der Inhalt ist lesbar" mit dem Knopf
+„In den Editor laden". Er stand aber **unter** der roten Liste — nach fünf
+Punkten, die aussahen, als sei etwas kaputt.
+
+### Was daraus wurde
+
+Ein **Entwurf** ist ein eigener Zustand, kein misslungener Versuch.
+`ist_entwurf()` erkennt ihn an drei Dingen zusammen: die Werkzeugmarke
+`editor-1`, `markup` in **jedem** Abschnitt und ein leerer Körper.
+
+| | vorher | jetzt |
+|---|---|---|
+| Überschrift | „Nicht übernehmbar" (rot) | „Ein Entwurf — noch keine Seite" (neutral) |
+| Punkte | 1 Fehler + 4 Warnungen | **einer**, und der ist der nächste Schritt |
+| Knopf | unter der Liste | **in** der Karte, als Hauptsache |
+
+Übernehmbar ist ein Entwurf weiter **nicht** — sonst stünde eine leere
+Fläche im Themenbaum (`N-23`). Echte Fehler bleiben stehen: ein ungültiger
+`slug` erscheint weiter, unter der Überschrift „Das bleibt auch nach dem
+Editor stehen".
+
+Dazu zwei Kleinigkeiten am selben Weg:
+
+- Der Kasten „Eine KI schreiben lassen" sagte, die Antwort „passt hier oben
+  unter *Ich habe schon eine HTML-Datei* hinein". Jetzt sagt er auch, was
+  dann passiert: das Wiki erkennt sie als Entwurf und bringt sie in den
+  Editor.
+- Steht ein Bericht, wird aus „Datei auswählen" ein Rahmenknopf — zwei blaue
+  Knöpfe nebeneinander sind einer zu viel (`CLAUDE.md §5`).
+
+### Im Browser gefahren
+
+Mit einem echten Chromium gegen den laufenden Dienst, drei Breiten (360,
+768, 1920) und **beide** Themen:
+
+| Fall | Was auf dem Schirm steht |
+|---|---|
+| Entwurf aus dem Prompt | **eine** neutrale Karte, „Ein Entwurf — noch keine Seite … 2 Abschnitte", Knopf „In den Editor laden" |
+| `prolo-bedienen.html` | nur die grüne Zeile — die Karte „Was diese Seite mitbringt" ist weg (`N-40`) |
+| Seite mit verbogenem Pflichtteil | Karte mit **vier** Zeilen: Abweichung, 12560 Zeichen, `fetch(`, `parent.` |
+
+Gemessen dabei: Knopf 44 px hoch am Handy / 38 px am Schirm, **kein**
+seitliches Scrollen bei 360 px, 0 Skriptfehler.
+
+Kontrast, mit einem Messwerkzeug, das vorher selbst gegengeprobt wurde
+(grau auf grau 1,24:1, schwarz auf weiß 21,00:1 — es kann also messen):
+
+| | dunkel | hell |
+|---|---|---|
+| Kartentitel auf Karte | 11,33:1 | 13,66:1 |
+| Kartentext auf Karte | 11,33:1 | 13,66:1 |
+| Knopftext auf `--accent` | 5,23:1 | 5,52:1 |
+
+### Die Probe
+
+| Mutation | Ergebnis |
+|---|---|
+| die Hüllen-Warnungen immer anhängen | 1 Fehler |
+| `ist_entwurf` immer `False` | 2 Fehler |
+| `ist_entwurf` immer `True` | 1 Fehler |
+| `markup` nicht mehr verlangt | 1 Fehler |
+| leerer Körper nicht mehr verlangt | 6 Fehler |
+| Entwurf wird kein Fehler mehr (wäre einspielbar) | 2 Fehler |
+| `berichtFehler` filtert nicht mehr | 1 Fehler (Node) |
+| Gerüst im Prompt bekommt Inhalt in den Körper | 1 Fehler (Node) |
+| unverändert | 0 Fehler |
+
+## N-42 — *(offen)* Jeder Seitenaufruf holt sich ein 404
+
+Beim Browserlauf zu `N-41` aufgefallen: `GET /favicon.ico` → **404**, bei
+jedem Laden der Hülle. Sichtbar ist es im Tab (Standardsymbol statt Marke)
+und im Protokoll, wo es zwischen den echten Zeilen steht. Keine Wirkung auf
+die Bedienung, darum hier notiert statt still nebenbei behoben.
+
+## N-43 — *(offen)* Drei blaue Knöpfe auf einem Schirm
+
+Im selben Lauf gemessen, mit einem Messwerkzeug, das die Fläche gegen den
+berechneten Wert von `--accent` vergleicht (nicht gegen eine Klasse):
+
+```
+nach dem Einspielen sichtbar in --accent:
+  "In den Editor laden" · "Prompt kopieren" · "Speichern"
+```
+
+`CLAUDE.md §5` erlaubt **einen** Primärbutton je Screen. Zwei der drei gab
+es schon vorher; einen vierten („Datei auswählen") hat `N-41` entfernt.
+Die Frage, welcher der drei der Primärbutton der Seite ist — die
+Speicherleiste unten oder der Knopf im Bericht —, gehört in einen eigenen
+Arbeitsschritt, nicht in diesen.
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
