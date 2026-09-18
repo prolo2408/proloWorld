@@ -508,8 +508,10 @@ pruefe('Ein leerer Block zwischen zwei vollen hinterlaesst keine Luecke', () => 
 pruefe('Jede Blockart im Kasten hat Name und Hilfe', () => {
   for (const [art, f] of Object.entries(ED_FORM)) {
     assert.ok(f.name && f.hilfe, art + ' unvollstaendig');
-    // Die Zeilenarten brauchen Spaltennamen, sonst steht im Formular nichts.
-    if (!['text', 'klapp', 'rechner'].includes(art))
+    /* Die ZEILENARTEN brauchen Spaltennamen, sonst steht im Formular nichts.
+       Die anderen haben ein eigenes Formular: Text und Klapptext ein
+       Textfeld, der Rechner seine Felder, Bild eine Dateiwahl. */
+    if (!['text', 'klapp', 'rechner', 'bild'].includes(art))
       assert.ok((f.spalten || []).length >= 2, art + ' ohne Spalten');
   }
 });
@@ -972,6 +974,87 @@ pruefe('Die leere Vorlage ist wirklich leer', () => {
   const e = ED_VORLAGEN.leer.bauen();
   assert.equal(e.abschnitte.length, 1);
   assert.equal(String(e.abschnitte[0].markup || '').trim(), '');
+});
+
+/* ------------------------------------------------ Die drei neuen Bausteine */
+pruefe('Ein Bild holt seine Adresse aus der Marke, nicht aus dem HTML', () => {
+  /* Im HTML steht nur die Kennung. Die Adresse setzt der Pflichtteil beim
+     Laden - so ueberlebt sie eine Umbenennung des Anhangs (N-18). */
+  const h = edBaustein('bild', 'Der Schrank von hinten',
+                       ['datei: bild-schrank', 'Die Anschluesse liegen links.']);
+  assert.ok(h.includes('data-wiki-bild="bild-schrank"'), h);
+  assert.ok(!/src=/.test(h), 'die Adresse steht schon im HTML: ' + h);
+  assert.ok(h.includes('<figcaption>Der Schrank von hinten</figcaption>'), h);
+  assert.ok(h.includes('Die Anschluesse liegen links.'), h);
+});
+pruefe('Ein Bild ohne Datei sagt das, statt leer zu bleiben', () => {
+  const h = edBaustein('bild', 'Ohne alles', []);
+  assert.ok(h.includes('Bild-Baustein ohne Datei'), h);
+  assert.ok(!h.includes('data-wiki-bild'), h);
+});
+pruefe('Verweise werden Knoepfe, keine Adressen', () => {
+  /* Eine Seite im Rahmen darf nicht selbst navigieren - sie bittet die
+     Huelle. Ein href waere ein Ausbruch aus genau dieser Regel. */
+  const h = edBaustein('verweise', 'Weiterlesen',
+                       ['netzwerk-grundlagen | Netzwerk-Grundlagen',
+                        'drucker-einrichten | Drucker einrichten']);
+  assert.ok(!/href=/.test(h), 'da steht ein href: ' + h);
+  assert.equal((h.match(/class="verweis"/g) || []).length, 2);
+  assert.ok(h.includes('data-slug="netzwerk-grundlagen"'), h);
+  assert.ok(h.includes('>Netzwerk-Grundlagen</button>'), h);
+});
+pruefe('Eine erfundene Kennung im Verweis wird entschaerft', () => {
+  /* Was keine Kennung sein kann, darf auch keine werden. */
+  const h = edBaustein('verweise', '', ['../../etc/passwd | Boese']);
+  assert.ok(!h.includes('..'), h);
+  assert.ok(h.includes('data-slug="etcpasswd"'), h);
+});
+pruefe('Die Checkliste zaehlt von Hand nachgerechnet', () => {
+  const h = edBaustein('checkliste', 'Vor dem Losfahren',
+                       ['Ladekabel dabei', 'Reifendruck geprueft',
+                        '', 'Papiere dabei | Gruene Mappe']);
+  /* Drei nicht leere Zeilen - die leere zaehlt nicht mit. */
+  assert.equal((h.match(/type="checkbox"/g) || []).length, 3);
+  assert.ok(h.includes('<span class="bk-stand-zahl">0</span> von 3'), h);
+  assert.ok(h.includes('Gruene Mappe'), h);
+  assert.ok(h.includes('nichts davon wird gespeichert'),
+            'der Leser erfaehrt nicht, dass die Haken nirgends landen');
+});
+pruefe('Die neuen Bausteine ueberstehen den Rundlauf', () => {
+  const markup = [
+    ':::bild Der Schrank\ndatei: bild-schrank\nVon hinten.\n:::',
+    ':::verweise Weiterlesen\nnetzwerk-grundlagen | Netzwerke\n:::',
+    ':::checkliste Vorher\nEins\nZwei | dazu\n:::'
+  ].join('\n\n');
+  const bloecke = edMarkupZuBloecken(markup);
+  assert.deepEqual(bloecke.map(b => b.art), ['bild', 'verweise', 'checkliste']);
+  assert.equal(bloecke[0].kennung, 'bild-schrank');
+  assert.equal(bloecke[0].titel, 'Der Schrank');
+  assert.equal(bloecke[0].hinweis, 'Von hinten.');
+  assert.deepEqual(bloecke[1].zeilen, [['netzwerk-grundlagen', 'Netzwerke']]);
+  assert.deepEqual(bloecke[2].zeilen, [['Eins', ''], ['Zwei', 'dazu']]);
+  /* Und wieder zurueck: derselbe Text, Zeichen fuer Zeichen. */
+  assert.equal(edBloeckeZuMarkup(bloecke), markup);
+});
+pruefe('Ein Bild wird beim Speichern als Anhang genannt', () => {
+  const markup = ':::bild Der Schrank\ndatei: bild-schrank\n:::';
+  const bloecke = edMarkupZuBloecken(markup);
+  bloecke[0].daten64 = 'iVBORw0KGgo=';
+  const html = edSeiteBauen({slug:'probe', titel:'Probe', kurz:'', pfad:'Technik',
+    gruppen:'', abschnitte:[{anker:'a', titel:'A', stichworte:'', gruppe:'',
+    markup:markup, bloecke:bloecke}]});
+  assert.ok(html.includes('id="bild-schrank" data-wiki-anhang=""'), html.slice(0, 400));
+  assert.ok(html.includes('iVBORw0KGgo='), 'die Daten fehlen');
+});
+pruefe('Ein Bild ohne Datei kommt nicht durch die Pruefung', () => {
+  const markup = ':::bild Der Schrank\ndatei: bild-schrank\n:::';
+  ZUSTAND.editor = {neu:true, slug:'probe', titel:'Probe', kurz:'',
+    pfad:'Technik', gruppen:'', abschnitte:[{anker:'a', titel:'A',
+    stichworte:'', gruppe:'', markup:markup,
+    bloecke:edMarkupZuBloecken(markup)}]};
+  const m = edPruefbar(true);
+  assert.equal(m.length, 1, m.join(' / '));
+  assert.ok(/Bild-Baustein 1/.test(m[0]), m[0]);
 });
 
 console.log('');

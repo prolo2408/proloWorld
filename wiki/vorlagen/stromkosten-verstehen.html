@@ -425,6 +425,41 @@ mark.wiki-fund{background:var(--accent-soft);color:var(--accent-ink);border-radi
     setTimeout(textMelden, 2500);
   });
   bkRechnerStarten();
+  /* Bilder: die Adresse steht nicht im HTML, sondern in der Marke am
+     Anhangsblock - so ueberlebt sie eine Umbenennung (N-18). Ohne diesen
+     Schritt bliebe eine leere Flaeche stehen. */
+  document.querySelectorAll('img[data-wiki-bild]').forEach(function(bild){
+    var quelle = document.getElementById(bild.dataset.wikiBild);
+    var name = quelle ? (quelle.getAttribute('data-wiki-anhang') || '') : '';
+    if(name){
+      bild.setAttribute('src', 'anhaenge/' + encodeURIComponent(name));
+      return;
+    }
+    /* Kein Anhang unter dieser Kennung: sagen, statt eine leere Flaeche
+       stehen zu lassen (dieselbe Regel wie beim PDF, N-22). */
+    var hin = document.createElement('div');
+    hin.className = 'warn';
+    hin.textContent = 'Zu diesem Bild liegt keine Datei bei. Die Seite ruft \u201e' +
+      (bild.dataset.wikiBild || '') + '\u201c auf.';
+    bild.replaceWith(hin);
+  });
+  /* Checklisten: der Zaehler unter der Liste. Der Haken lebt nur hier im
+     Browser und wird nirgends gespeichert - das steht auch dabei. */
+  document.querySelectorAll('.bk-checkliste').forEach(function(liste){
+    var kaesten = liste.querySelectorAll('input[type=checkbox]');
+    var zahl = liste.querySelector('.bk-stand-zahl');
+    function zaehlen(){
+      var n = 0;
+      kaesten.forEach(function(k){
+        if(k.checked) n++;
+        var p = k.closest('li');
+        if(p) p.dataset.fertig = k.checked ? '1' : '0';
+      });
+      if(zahl) zahl.textContent = String(n);
+    }
+    kaesten.forEach(function(k){ k.addEventListener('change', zaehlen); });
+    zaehlen();
+  });
   /* PDF-Knoepfe: die Seite kann ein PDF nicht selbst zeigen (frame-src
 '     'none'), darum bittet sie die Huelle. Der Dateiname kommt aus der
      Marke, die der Server beim Ausgliedern gesetzt hat - so bleibt der

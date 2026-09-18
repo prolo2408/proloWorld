@@ -3103,6 +3103,61 @@ function edBaustein(art, titel, zeilen){
       '<div class="bk-hinweis">Das PDF liegt als Anhang dieser Seite bei und ' +
       'oeffnet sich im Wiki.</div></div>';
   }
+  if(art === 'bild'){
+    /* Ein Bild liegt als Anhang bei. Die Adresse steht NICHT hier: sie kommt
+       zur Laufzeit aus der Marke, die der Server beim Ausgliedern setzt -
+       derselbe Weg wie beim PDF, und aus demselben Grund (eine Umbenennung
+       darf das Bild nicht verlieren, N-18). */
+    let kennung = '';
+    const text = [];
+    zeilen.forEach(z => {
+      const d = z.trim().match(/^datei\s*:\s*(.+)$/i);
+      if(d) kennung = d[1].trim();
+      else if(z.trim()) text.push(z.trim());
+    });
+    if(!kennung) return '<div class="warn"><b>Bild-Baustein ohne Datei</b> ' +
+      'Im Editor ist kein Bild ausgewaehlt.</div>';
+    return '<figure class="bk bk-bild"><img alt="' +
+      edEscape(t || text.join(' ') || 'Bild') + '" data-wiki-bild="' +
+      edEscape(kennung) + '">' +
+      (t ? '<figcaption>' + edInline(t) + '</figcaption>' : '') +
+      (text.length ? '<div class="bk-hinweis">' + edInline(text.join(' ')) +
+        '</div>' : '') + '</figure>';
+  }
+  if(art === 'verweise'){
+    /* Verweise auf andere Wiki-Seiten. Kein href: eine Seite im Rahmen darf
+       nicht selbst navigieren - der Knopf bittet die Huelle, genau wie
+       [[kennung]] im Text. */
+    const punkte = zeilen.filter(z => z.trim()).map(z => {
+      const s = spalten(z);
+      const slug = (s[0] || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+      if(!slug) return '';
+      return '<li><button type="button" class="verweis" data-slug="' +
+        edEscape(slug) + '">' + edInline(s[1] || slug) + '</button>' +
+        (s[2] ? '<span class="bk-klein">' + edInline(s.slice(2).join(' | ')) +
+          '</span>' : '') + '</li>';
+    }).join('');
+    return '<div class="bk bk-verweise">' +
+      (kopf || '<div class="bk-kopf">Weiterlesen</div>') +
+      '<ul>' + punkte + '</ul></div>';
+  }
+  if(art === 'checkliste'){
+    /* Zum Abhaken. Der Haken lebt nur im Browser des Lesers und wird
+       nirgends gespeichert - das steht auch dabei, damit niemand eine
+       gemeinsame Liste darin sieht. */
+    const echt = zeilen.filter(z => z.trim());
+    const punkte = echt.map(z => {
+      const s = spalten(z);
+      return '<li><label><input type="checkbox"><span>' +
+        edInline(s[0] || '') + '</span></label>' +
+        (s[1] ? '<span class="bk-klein">' + edInline(s.slice(1).join(' | ')) +
+          '</span>' : '') + '</li>';
+    }).join('');
+    return '<div class="bk bk-checkliste">' + kopf + '<ul>' + punkte + '</ul>' +
+      '<div class="bk-stand"><b><span class="bk-stand-zahl">0</span> von ' +
+      echt.length + '</b> erledigt<span class="bk-klein"> \u00b7 nur in ' +
+      'deinem Browser, nichts davon wird gespeichert</span></div></div>';
+  }
   if(art === 'rechner'){
     /* Felder, Formel, Einheit. Die Formel steht in einem data-Attribut und
        wird von einem winzigen Rechenwerk gelesen - kein eval, sondern ein
@@ -3206,6 +3261,32 @@ const ED_STIL_BAUSTEINE = [
 '  cursor:pointer}',
 '.bk-pdf-knopf:hover{border-color:var(--accent);color:var(--accent-ink)}',
 '.bk-pdf-fehlt{margin-top:10px}',
+'/* ---------- Bild ---------- */',
+'.bk-bild{margin:16px 0;padding:0;overflow:hidden}',
+'.bk-bild img{display:block;width:100%;height:auto;background:var(--surface)}',
+'.bk-bild figcaption{padding:10px 16px 0;font-weight:600;color:var(--ink)}',
+'.bk-bild .bk-hinweis{padding:0 16px 14px;margin-top:4px}',
+'/* ---------- Verweise ---------- */',
+'.bk-verweise ul{margin:0;padding:0;list-style:none;display:grid;gap:6px}',
+'.bk-verweise li{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}',
+'.bk-verweise .verweis{font-size:14px}',
+'/* ---------- Checkliste ---------- */',
+'.bk-checkliste ul{margin:0;padding:0;list-style:none;display:grid;gap:2px}',
+'.bk-checkliste li{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;',
+'  padding:6px 0;border-bottom:1px solid var(--line-soft)}',
+'.bk-checkliste li:last-child{border-bottom:0}',
+'.bk-checkliste label{display:flex;align-items:center;gap:10px;cursor:pointer;',
+'  min-height:32px;flex:1 1 auto}',
+'.bk-checkliste input{width:18px;height:18px;accent-color:var(--accent);',
+'  cursor:pointer;flex:0 0 auto}',
+'.bk-checkliste li[data-fertig="1"] label span{text-decoration:line-through;',
+'  color:var(--ink-3)}',
+'.bk-stand{margin-top:12px;padding-top:10px;',
+'  border-top:1px solid var(--line);font-size:12.5px;color:var(--ink-2)}',
+'@media (max-width:432px){',
+'  .bk-checkliste label{min-height:44px}',
+'  .bk-checkliste input{width:24px;height:24px}',
+'}',
 ".bk-pdf-seite{font-family:'JetBrains Mono',ui-monospace,monospace;",
 '  font-size:11.5px;color:var(--ink-3)}',
 '@media (max-width:432px){',
@@ -3538,6 +3619,41 @@ ED_RECHENWERK,
 '    setTimeout(textMelden, 2500);',
 '  });',
 '  bkRechnerStarten();',
+'  /* Bilder: die Adresse steht nicht im HTML, sondern in der Marke am',
+'     Anhangsblock - so ueberlebt sie eine Umbenennung (N-18). Ohne diesen',
+'     Schritt bliebe eine leere Flaeche stehen. */',
+"  document.querySelectorAll('img[data-wiki-bild]').forEach(function(bild){",
+'    var quelle = document.getElementById(bild.dataset.wikiBild);',
+"    var name = quelle ? (quelle.getAttribute('data-wiki-anhang') || '') : '';",
+'    if(name){',
+"      bild.setAttribute('src', 'anhaenge/' + encodeURIComponent(name));",
+'      return;',
+'    }',
+'    /* Kein Anhang unter dieser Kennung: sagen, statt eine leere Flaeche',
+'       stehen zu lassen (dieselbe Regel wie beim PDF, N-22). */',
+"    var hin = document.createElement('div');",
+"    hin.className = 'warn';",
+"    hin.textContent = 'Zu diesem Bild liegt keine Datei bei. Die Seite ruft \\u201e' +",
+"      (bild.dataset.wikiBild || '') + '\\u201c auf.';",
+'    bild.replaceWith(hin);',
+'  });',
+'  /* Checklisten: der Zaehler unter der Liste. Der Haken lebt nur hier im',
+'     Browser und wird nirgends gespeichert - das steht auch dabei. */',
+"  document.querySelectorAll('.bk-checkliste').forEach(function(liste){",
+"    var kaesten = liste.querySelectorAll('input[type=checkbox]');",
+"    var zahl = liste.querySelector('.bk-stand-zahl');",
+'    function zaehlen(){',
+'      var n = 0;',
+'      kaesten.forEach(function(k){',
+'        if(k.checked) n++;',
+"        var p = k.closest('li');",
+"        if(p) p.dataset.fertig = k.checked ? '1' : '0';",
+'      });',
+'      if(zahl) zahl.textContent = String(n);',
+'    }',
+"    kaesten.forEach(function(k){ k.addEventListener('change', zaehlen); });",
+'    zaehlen();',
+'  });',
 '  /* PDF-Knoepfe: die Seite kann ein PDF nicht selbst zeigen (frame-src',
 "'     'none'), darum bittet sie die Huelle. Der Dateiname kommt aus der",
 '     Marke, die der Server beim Ausgliedern gesetzt hat - so bleibt der',
@@ -3615,7 +3731,7 @@ function edSeiteBauen(e){
      Registrierung nicht verliert (N-18). */
   const anhaenge = [];
   (e.abschnitte || []).forEach(a => (a.bloecke || []).forEach(b => {
-    if(b.art !== 'pdf' || !b.kennung) return;
+    if((b.art !== 'pdf' && b.art !== 'bild') || !b.kennung) return;
     if(b.daten64){
       anhaenge.push('<' + 'script type="text/plain" id="' + edEscape(b.kennung) +
         '" data-wiki-anhang="">' + b.daten64 + '<' + '/script>');
@@ -3798,6 +3914,17 @@ strich('BAUSTEINE'),
 'Der Hintergrund, der nicht jeden interessiert.',
 ':::',
 '',
+':::checkliste Vor dem ersten Druck',
+'Netzwerkkabel steckt',
+'Treiber eingerichtet',
+'Testseite gedruckt | Die kommt aus Fach 1.',
+':::',
+'',
+':::verweise Weiterlesen',
+'netzwerk-grundlagen | Netzwerk-Grundlagen',
+'drucker-einrichten | Drucker einrichten',
+':::',
+'',
 ':::rechner Kosten je Monat',
 'Seiten pro Monat=500',
 'Preis je Seite=0.04',
@@ -3810,7 +3937,11 @@ strich('BAUSTEINE'),
 'nur Feldnamen, Zahlen und + - * / ( ) enthalten. In der Formel zaehlt das',
 'ERSTE WORT des Feldnamens — oben also "Seiten" und "Preis".',
 '',
-strich('EIN PDF DAZU'),
+'Der Baustein "verweise" nimmt die KENNUNG einer Seite, nicht ihren Titel -',
+'die steht in der Adresse. Nenne nur Seiten, die es gibt; erfundene Kennungen',
+'werden zu Knoepfen, die nichts tun.',
+'',
+strich('EIN BILD ODER EIN PDF DAZU'),
 '',
 'Gehoert zu dem Thema ein PDF, schreibe diesen Baustein — mit Sprungzielen auf',
 'einzelne Seiten, damit niemand ein 200-Seiten-Papier durchblaettern muss:',
@@ -3819,6 +3950,13 @@ strich('EIN PDF DAZU'),
 'datei: handbuch',
 'Einrichtung | 12',
 'Fehlersuche | 88',
+':::',
+'',
+'Fuer ein Bild genauso, mit der Bildunterschrift als Titel:',
+'',
+':::bild Der Drucker im zweiten Stock',
+'datei: bild-drucker',
+'Die Anschluesse liegen hinten links.',
 ':::',
 '',
 'Die Datei selbst kannst du nicht mitschicken; lass den Baustein genau so',
@@ -3944,7 +4082,12 @@ const ED_FORM = {
               spalten:['Begriff', 'Erklärung']},
   klapp:     {name:'Klapptext', hilfe:'Überschrift, die man aufklappt.'},
   pdf:       {name:'PDF', hilfe:'Ein PDF als Anhang, mit Sprungzielen auf einzelne Seiten.',
-              spalten:['Beschriftung', 'Seite']}
+              spalten:['Beschriftung', 'Seite']},
+  bild:      {name:'Bild', hilfe:'Ein Bild als Anhang, mit Bildunterschrift.'},
+  verweise:  {name:'Verweise', hilfe:'Andere Wiki-Seiten zum Weiterlesen.',
+              spalten:['Kennung der Seite', 'Beschriftung']},
+  checkliste:{name:'Checkliste', hilfe:'Punkte zum Abhaken, mit Zaehler.',
+              spalten:['Punkt', 'Zusatz']}
 };
 
 function edBlockNeu(art){
@@ -3961,6 +4104,13 @@ function edBlockNeu(art){
        daten64  = die Datei selbst, nur bis zum naechsten Speichern */
     b.kennung = ''; b.dateiname = ''; b.daten64 = ''; b.urname = '';
     b.zeilen = [['', '']];
+  }
+  if(art === 'bild'){
+    /* Dieselben vier Felder wie beim PDF - es ist derselbe Weg: Datei
+       waehlen, beim Speichern als Anhang mitschicken, Adresse zur Laufzeit
+       aus der Marke holen. */
+    b.kennung = ''; b.dateiname = ''; b.daten64 = ''; b.urname = '';
+    b.zeilen = [];
   }
   return b;
 }
@@ -4028,6 +4178,19 @@ function edBlockLesen(art, titel, zeilen){
     if(!b.zeilen.length) b.zeilen = [['', '']];
     return b;
   }
+  if(art === 'bild'){
+    /* datei: die Kennung des Anhangs. Alles andere ist die Erklaerung
+       unter dem Bild - der Titel des Bausteins ist die Bildunterschrift. */
+    b.zeilen = [];
+    const rest = [];
+    echt.forEach(z => {
+      const d = z.trim().match(/^datei\s*:\s*(.+)$/i);
+      if(d){ b.kennung = d[1].trim(); return; }
+      rest.push(z.trim());
+    });
+    b.hinweis = rest.join(' ');
+    return b;
+  }
   const breite = (ED_FORM[art].spalten || []).length;
   b.zeilen = echt.map(z => {
     const teile = z.split('|').map(x => x.trim());
@@ -4058,9 +4221,23 @@ function edBlockZuZeilen(b){
     });
     return z;
   }
+  if(b.art === 'bild'){
+    const z = [];
+    if(String(b.kennung || '').trim()) z.push('datei: ' + b.kennung.trim());
+    if(String(b.hinweis || '').trim()) z.push(b.hinweis.trim());
+    return z;
+  }
   return (b.zeilen || [])
     .filter(r => r.some(x => String(x || '').trim()))
-    .map(r => r.map(x => String(x || '').trim()).join(' | '));
+    .map(r => {
+      /* Leere Spalten am Ende weglassen: sonst steht im Markup "Eins | "
+         mit einem Strich, hinter dem nichts kommt. Beim Einlesen werden
+         fehlende Spalten wieder mit Leer aufgefuellt, der Rundlauf bleibt
+         also gleich - nur lesbarer. */
+      const w = r.map(x => String(x || '').trim());
+      while(w.length > 1 && !w[w.length - 1]) w.pop();
+      return w.join(' | ');
+    });
 }
 
 function edBloeckeZuMarkup(bloecke){
@@ -4208,6 +4385,33 @@ function edBlockFormular(i, j, b){
       ${ziele}
       <div style="margin-top:6px">${kn('zeile-neu', 'Sprungziel hinzufügen')}</div>`;
   }
+  if(b.art === 'bild'){
+    const stand = b.daten64
+      ? `<span class="ed-gut">${schuetzen(b.urname || 'Bild')} ausgewählt, wird
+           beim Speichern angehängt</span>`
+      : (b.dateiname
+         ? `<span class="ed-gut">${schuetzen(b.dateiname)} liegt als Anhang bei</span>`
+         : `<span class="ed-merke">Noch kein Bild ausgewählt.</span>`);
+    return titelfeld('Bildunterschrift, z. B. Der Drucker von hinten') + `
+      <div class="label" style="margin-top:10px">Bilddatei</div>
+      <div class="ed-reihe">
+        <label class="knopf rahmen ed-klein" for="ed-bbild-${i}-${j}"
+          >Bild auswählen</label>
+        <input type="file" id="ed-bbild-${i}-${j}"
+               accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+               data-bbild="${i}-${j}" aria-label="Bilddatei auswählen"
+               style="position:absolute;left:-9999px">
+      </div>
+      <div style="margin-top:4px">${stand}</div>
+      <div class="ed-merke">Das Bild wird ein Anhang dieser Seite. Große
+        Bilder bitte vorher verkleinern — was hier hineingeht, lädt
+        jeder Leser mit.</div>
+      <label class="label" for="ed-bhinweis-${i}-${j}" style="margin-top:12px"
+        >Erklärung darunter, freiwillig</label>
+      <input type="text" id="ed-bhinweis-${i}-${j}" data-bfeld="hinweis"
+             value="${schuetzen(b.hinweis || '')}"
+             placeholder="Was auf dem Bild zu sehen ist">`;
+  }
   /* Die Zeilenarten: Schritte, Kennzahlen, Gegenueberstellung, Begriffe. */
   const spalten = (ED_FORM[b.art] || {}).spalten || ['Inhalt'];
   const reihen = (b.zeilen || []).map((r, k) => `
@@ -4315,19 +4519,55 @@ function edPdfWaehlen(i, j, feld){
   };
   leser.readAsDataURL(datei);
 }
+function edBildWaehlen(i, j, feld){
+  /* Dasselbe wie beim PDF: die Datei wird hier gelesen und erst beim
+     Speichern mitgeschickt. Unterschied ist nur die Pruefung des Typs und
+     die Kennung, damit ein Bild und ein PDF gleichen Namens sich nicht in
+     die Quere kommen. */
+  const e = ZUSTAND.editor;
+  const b = e && e.abschnitte[i] && e.abschnitte[i].bloecke[j];
+  const datei = feld.files && feld.files[0];
+  if(!b || !datei) return;
+  if(!/^image\//.test(datei.type || '') &&
+     !/\.(png|jpe?g|gif|webp|svg)$/i.test(datei.name))
+    return einblenden('Das ist keine Bilddatei.');
+  const leser = new FileReader();
+  leser.onerror = () => einblenden('Die Datei ließ sich nicht lesen.');
+  leser.onload = () => {
+    const roh = String(leser.result || '');
+    const komma = roh.indexOf(',');
+    b.daten64 = komma >= 0 ? roh.slice(komma + 1) : '';
+    b.urname = datei.name;
+    b.kennung = edAnhangKennung(e, i, j, 'bild-' +
+      (edSlug(datei.name.replace(/\.[a-z0-9]+$/i, '')) || 'bild'));
+    b.dateiname = '';
+    if(!String(b.titel || '').trim())
+      b.titel = datei.name.replace(/\.[a-z0-9]+$/i, '');
+    einblenden(datei.name + ' ausgewählt (' + bytes(datei.size) + ').');
+    editorZeichnen({fokus: 'ed-block-' + i + '-' + j});
+  };
+  leser.readAsDataURL(datei);
+}
+function edAnhangKennung(e, i, j, basis){
+  /* Eine Kennung, die in DIESER Seite noch frei ist. Gilt fuer PDF und
+     Bild gemeinsam: beide werden Anhaenge, und zwei Anhaenge mit derselben
+     Kennung liessen einen Knopf auf die falsche Datei zeigen. */
+  const belegt = new Set();
+  (e.abschnitte || []).forEach((a, ai) => (a.bloecke || []).forEach((b, bj) => {
+    if((b.art === 'pdf' || b.art === 'bild') && b.kennung &&
+       !(ai === i && bj === j)) belegt.add(b.kennung);
+  }));
+  if(!belegt.has(basis)) return basis;
+  for(let n = 2; n < 99; n++) if(!belegt.has(basis + '-' + n)) return basis + '-' + n;
+  return basis + '-' + Date.now();
+}
 function edPdfKennung(e, i, j, dateiname){
   /* Aus "Kompendium Netzwerke.pdf" wird "anhang-kompendium-netzwerke". Der
      Server bildet daraus "anhang-kompendium-netzwerke.pdf". Kommt dieselbe
      Kennung in der Seite schon vor, wird gezaehlt - sonst haengt der Server
      zwei Dateien an denselben Namen und ein Knopf zeigt auf die falsche. */
-  const basis = 'anhang-' + (edSlug(dateiname.replace(/\.pdf$/i, '')) || 'pdf');
-  const belegt = new Set();
-  (e.abschnitte || []).forEach((a, ai) => (a.bloecke || []).forEach((b, bj) => {
-    if(b.art === 'pdf' && b.kennung && !(ai === i && bj === j)) belegt.add(b.kennung);
-  }));
-  if(!belegt.has(basis)) return basis;
-  for(let n = 2; n < 99; n++) if(!belegt.has(basis + '-' + n)) return basis + '-' + n;
-  return basis + '-' + Date.now();
+  return edAnhangKennung(e, i, j,
+    'anhang-' + (edSlug(dateiname.replace(/\.pdf$/i, '')) || 'pdf'));
 }
 function edBlockTun(was, i, j, knopf){
   const e = ZUSTAND.editor;
@@ -4887,13 +5127,14 @@ function edAusHtml(roh, slug, neu){
     /<script[^>]*\bdata-wiki-anhang=["']([^"']*)["'][^>]*\bid=["']([^"']+)["']/gi,
     (_, name, kennung) => { merken(kennung, name); return ''; });
   e.abschnitte.forEach(a => (a.bloecke || []).forEach(b => {
-    if(b.art === 'pdf' && b.kennung && marken[b.kennung]) b.dateiname = marken[b.kennung];
+    if((b.art === 'pdf' || b.art === 'bild') && b.kennung && marken[b.kennung])
+      b.dateiname = marken[b.kennung];
   }));
   /* Anhaenge, die kein Block kennt (Bilder in eigenem HTML): merken, damit
      die gespeicherte Seite sie weiter nennt. */
   e.fremdeAnhaenge = Object.entries(marken)
     .filter(([k]) => !e.abschnitte.some(a => (a.bloecke || [])
-      .some(b => b.art === 'pdf' && b.kennung === k)))
+      .some(b => (b.art === 'pdf' || b.art === 'bild') && b.kennung === k)))
     .map(([kennung, name]) => ({kennung, name}));
   return e;
 }
@@ -5175,6 +5416,8 @@ function editorZeichnen(opt){
       }));
     const dat = karte.querySelector('[data-bpdf]');
     if(dat) dat.addEventListener('change', () => edPdfWaehlen(i, j, dat));
+    const bild = karte.querySelector('[data-bbild]');
+    if(bild) bild.addEventListener('change', () => edBildWaehlen(i, j, bild));
   }));
   if(opt.fokus){
     const z = $(opt.fokus);
@@ -5330,11 +5573,14 @@ function edPruefbar(nurNachsehen){
        zeigt, den die Seite nicht mitbringt - ein Klick ins Leere (N-22).
        Lieber hier abfangen als den Leser ratlos lassen. */
     (a.bloecke || []).forEach((b, j) => {
-      if(b.art !== 'pdf') return;
+      if(b.art !== 'pdf' && b.art !== 'bild') return;
       if(b.daten64 || b.dateiname) return;
       const wo = t ? '„' + t + '"' : 'Abschnitt ' + (i + 1);
-      m.push('Im PDF-Baustein ' + (j + 1) + ' in ' + wo +
-             ' ist keine Datei ausgewählt — seine Knöpfe würden ins Leere führen.');
+      m.push(b.art === 'pdf'
+        ? 'Im PDF-Baustein ' + (j + 1) + ' in ' + wo +
+          ' ist keine Datei ausgewählt — seine Knöpfe würden ins Leere führen.'
+        : 'Im Bild-Baustein ' + (j + 1) + ' in ' + wo +
+          ' ist kein Bild ausgewählt — da bliebe eine leere Fläche.');
     });
   });
   return m;

@@ -459,6 +459,23 @@ Zeile
 | `:::gegenueber` | zwei bis vier Seiten nebeneinander | `Titel \| Inhalt` |
 | `:::begriffe` | Wort und Erklärung als Tabelle | `Wort \| Erklärung` |
 | `:::klapp` | Überschrift, die man aufklappt | normaler Text |
+| `:::pdf` | Knöpfe, die ein PDF im Wiki öffnen | `datei: kennung`, dann `Beschriftung \| Seite` |
+| `:::bild` | Bild mit Bildunterschrift | `datei: kennung`, dann die Erklärung |
+| `:::verweise` | Knöpfe zu anderen Wiki-Seiten | `kennung \| Beschriftung` |
+| `:::checkliste` | Punkte zum Abhaken, mit Zähler | `Punkt \| Zusatz` |
+
+**Bild und PDF** laufen gleich: Datei im Editor auswählen, beim Speichern wird
+sie ein Anhang der Seite. Im HTML steht nur die **Kennung** — die Adresse setzt
+der Pflichtteil beim Laden aus der Marke `data-wiki-anhang`. So übersteht sie
+eine Umbenennung des Anhangs (`N-18`), und ein Baustein ohne Datei sagt das,
+statt leer zu bleiben (`N-22`). Ohne Datei lässt der Editor nicht speichern.
+
+**Verweise** werden Knöpfe, keine Adressen: Eine Seite im Rahmen darf nicht
+selbst navigieren — sie bittet die Hülle, genau wie `[[kennung]]` im Text.
+
+**Die Haken einer Checkliste** leben nur im Browser des Lesers und werden
+nirgends gespeichert. Das steht auch unter der Liste, damit niemand eine
+gemeinsame Liste darin sieht.
 
 Der **Rechner** nimmt die Feldnamen aus dem ersten Wort jeder Feldzeile. Aus
 

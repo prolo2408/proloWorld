@@ -23,6 +23,10 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
 
 ## Noch nicht veroeffentlicht
 
+- **Drei neue Bausteine**: Bild (als Anhang, mit Bildunterschrift), Verweise
+  (Knoepfe zu anderen Wiki-Seiten) und Checkliste (Punkte zum Abhaken, mit
+  Zaehler - die Haken leben nur im Browser des Lesers).
+
 - **Eine neue Seite faengt mit einer Frage an, nicht mit einem leeren
   Formular.** Sieben Wege: leere Seite, vier Vorlagen (Anleitung, Uebersicht
   und Vergleich, Zum Nachschlagen, Rechnen und Zahlen), HTML-Datei, KI-Prompt.
