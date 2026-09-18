@@ -45,8 +45,8 @@ Aufgeraeumt, eine neue Seite und eine Regeldatei statt drei.
   (1149,9 -> 510,9 kB); beim Bordbuch war sie unvollstaendig, jetzt
   41 -> 15 Dateien.
 
-- **Eine Regeldatei** (`N-39`). `prolo-regelblatt.md` und
-  `prolo-betriebsregeln.md` sind in `CLAUDE.md` zusammengezogen; die
+- **Eine Regeldatei** (`N-39`). Das frühere Regelblatt und die
+  Betriebsregeln sind in `CLAUDE.md` zusammengezogen; die
   Handgriffe stehen in der neuen Wiki-Seite. Die 148 Verweise quer durch den
   Stack sind auf die neue Nummerierung umgeschrieben, und
   `werkzeuge/regeln-pruefen.sh` haelt fest, dass jeder von ihnen einen

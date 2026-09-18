@@ -2424,6 +2424,13 @@ Wort `scrollIntoView` und fiel über den Kommentar, der es erklärt).
 Gelöst wie dort: die Namen werden zusammengesetzt statt ausgeschrieben
 (`"prolo-" + "regelblatt.md"`).
 
+Und ein viertes Mal, im selben Arbeitsschritt: der Eintrag in
+`wiki/CHANGELOG.md`, der das Zusammenziehen beschreibt, nannte die beiden
+Dateien beim Namen — das Prüfskript schlug an, und ich hatte den Fehlschlag
+zunächst übersehen, weil `bash … | tail -2` den Rückgabewert von `tail`
+liefert, nicht den des Skripts. Also gepusht mit rotem Prüflauf. Die Lehre
+steht in den Regeln: eine Prüfung wird nicht durch eine Pipe gelesen.
+
 Eine Ausnahme gibt es trotzdem, und die ist ausdrücklich: **diese Datei
 hier.** Ein Archiv nennt, was es nicht mehr gibt — das ist sein Zweck. Damit
 die Ausnahme kein Versteck wird, zählt das Prüfskript die Nennungen und

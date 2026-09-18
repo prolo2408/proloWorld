@@ -42,6 +42,9 @@ Wo was steht:
   Zweimal hat ein Fehler auf oberster Skriptebene die ganze Hülle gekostet,
   während alle Tests grün waren (`N-14`, `N-17`), und einmal hat ein
   Kommentar sie abgeschaltet (`N-33`).
+- **Eine Prüfung wird nicht durch eine Pipe gelesen.** `bash pruefen.sh |
+  tail -2 && commit` liefert den Rückgabewert von `tail`, nicht den der
+  Prüfung — der Commit läuft dann auch bei rotem Lauf durch (`N-39`).
 - **Eine Meldung ist kein Beweis.** Eine Prüflinie, die den Text einer
   Ankündigung sucht, bleibt grün, wenn die Tat entfällt (`N-38`). Geprüft
   wird die Wirkung.
