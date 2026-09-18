@@ -21,7 +21,7 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
   Fehler - aber sie stehen vor dem "Uebernehmen"-Knopf, nicht dahinter
   (B-07).
 
-## Noch nicht veroeffentlicht
+## Fassung 1.3.0
 
 - **Strg+S speichert** im Editor, und ein Baustein laesst sich **verdoppeln**.
 
