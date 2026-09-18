@@ -65,6 +65,7 @@ const quellen = [
   hol(/function edLeer\(\)\{[\s\S]*?\n\}/, 'edLeer'),
   hol(/function edVorlageBauen\(abschnitte\)\{[\s\S]*?\n\}/, 'edVorlageBauen'),
   hol(/const ED_VORLAGEN = \{[\s\S]*?\n\};/, 'ED_VORLAGEN'),
+  hol(/const ED_GRUPPEN = \[[\s\S]*?\n\];/, 'ED_GRUPPEN'),
   'var ZUSTAND = {editor:null};',
 ].join('\n');
 
@@ -73,14 +74,14 @@ const { edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
         edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
         ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
         edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, edGruppenWiederholt,
-        kiPrompt, ED_VORLAGEN, edLeer, ZUSTAND } =
+        kiPrompt, ED_VORLAGEN, ED_GRUPPEN, edLeer, ZUSTAND } =
   new Function(quellen + `
     return {edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
             ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
             edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
             ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
             edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, edGruppenWiederholt,
-            kiPrompt, ED_VORLAGEN, edLeer, ZUSTAND};`)();
+            kiPrompt, ED_VORLAGEN, ED_GRUPPEN, edLeer, ZUSTAND};`)();
 
 /* Das Rechenwerk der erzeugten Seite - hier einzeln herausgeholt, damit die
    Formelauswertung geprueft werden kann, ohne einen Browser zu starten. */
@@ -506,8 +507,15 @@ pruefe('Ein leerer Block zwischen zwei vollen hinterlaesst keine Luecke', () => 
   assert.equal(edBloeckeZuMarkup([a, edBlockNeu('text'), c]), 'Davor.\n\nDanach.');
 });
 pruefe('Jede Blockart im Kasten hat Name und Hilfe', () => {
+  const gruppen = new Set(ED_GRUPPEN.map(g => g[0]));
   for (const [art, f] of Object.entries(ED_FORM)) {
     assert.ok(f.name && f.hilfe, art + ' unvollstaendig');
+    /* Ohne Zeichen und Gruppe faellt der Baustein aus der Auswahl heraus -
+       er waere im Editor nicht mehr zu finden, ohne dass etwas kaputt
+       aussieht. */
+    assert.ok(f.zeichen, art + ' ohne Zeichen');
+    assert.ok(gruppen.has(f.gruppe),
+              art + ': Gruppe "' + f.gruppe + '" gibt es nicht');
     /* Die ZEILENARTEN brauchen Spaltennamen, sonst steht im Formular nichts.
        Die anderen haben ein eigenes Formular: Text und Klapptext ein
        Textfeld, der Rechner seine Felder, Bild eine Dateiwahl. */
@@ -1055,6 +1063,15 @@ pruefe('Ein Bild ohne Datei kommt nicht durch die Pruefung', () => {
   const m = edPruefbar(true);
   assert.equal(m.length, 1, m.join(' / '));
   assert.ok(/Bild-Baustein 1/.test(m[0]), m[0]);
+});
+
+pruefe('Jede Gruppe der Auswahl hat mindestens einen Baustein', () => {
+  /* Eine leere Ueberschrift in der Auswahl waere ein Versprechen ohne
+     Inhalt. */
+  for(const [g, name] of ED_GRUPPEN){
+    const drin = Object.values(ED_FORM).filter(f => f.gruppe === g);
+    assert.ok(drin.length, 'Gruppe "' + name + '" ist leer');
+  }
 });
 
 console.log('');

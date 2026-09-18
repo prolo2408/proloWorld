@@ -586,6 +586,29 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
   #ed-leiste{padding-left:20px;padding-right:20px}
 }
 
+/* ---------- Die Auswahl der Bausteine ----------
+   Elf Knoepfe in einer Reihe sind eine Wand. In vier Gruppen, jeder mit
+   Zeichen, Namen und einem Satz, sind es elf Angebote. */
+.ed-palette-gruppe{margin-top:10px}
+.ed-palette-name{display:block;font-size:11px;font-weight:600;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);
+  margin-bottom:6px}
+.ed-palette{display:grid;gap:6px;
+  grid-template-columns:repeat(auto-fit,minmax(168px,1fr))}
+.ed-baustein{display:grid;grid-template-columns:22px 1fr;
+  grid-template-areas:"zeichen name" "zeichen satz";
+  gap:0 8px;align-items:start;text-align:left;padding:8px 10px;
+  border-radius:10px;border:1px solid var(--line);background:var(--bg);
+  font:inherit;cursor:pointer;min-height:44px}
+.ed-baustein:hover{border-color:var(--accent);background:var(--hover)}
+.ed-baustein:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.ed-baustein-zeichen{grid-area:zeichen;font-size:16px;line-height:1.3;
+  color:var(--accent-ink);text-align:center}
+.ed-baustein-name{grid-area:name;font-size:13px;font-weight:600;
+  color:var(--ink);line-height:1.3}
+.ed-baustein-satz{grid-area:satz;font-size:11.5px;color:var(--ink-3);
+  line-height:1.4}
+
 /* ---------- Blockkarten im Editor ----------
    Links das Formular, rechts das fertige Ergebnis. Der Sinn der Aufteilung:
    man sieht sofort, was entsteht, statt sich Markup vorzustellen. */
@@ -4069,25 +4092,47 @@ const ED_HILFE = [
 
    Hier stehen nur die beiden Uebersetzungen zwischen den zwei Formen. */
 
+/* Jeder Baustein traegt seine Gruppe und ein Zeichen. Die Gruppe ordnet die
+   Auswahl unter dem Abschnitt: elf Knoepfe in einer Reihe sind eine Wand,
+   elf in vier Gruppen sind ein Angebot. Das Zeichen ist keine Zierde - es
+   ist das, was man im Augenwinkel wiedererkennt, wenn man den Baustein zum
+   dritten Mal sucht. */
+const ED_GRUPPEN = [
+  ['schreiben',  'Schreiben'],
+  ['ordnen',     'Ordnen und vergleichen'],
+  ['mitmachen',  'Zum Mitmachen'],
+  ['mitbringen', 'Dateien und Wege']
+];
 const ED_FORM = {
-  text:      {name:'Text', hilfe:'Absätze, Titel, Listen, Kästen, Tabellen.'},
-  rechner:   {name:'Rechner', hilfe:'Felder und eine Formel. Rechnet beim Leser mit.'},
+  text:      {name:'Text', hilfe:'Absätze, Titel, Listen, Kästen, Tabellen.',
+              zeichen:'¶', gruppe:'schreiben'},
+  klapp:     {name:'Klapptext', hilfe:'Überschrift, die man aufklappt.',
+              zeichen:'▸', gruppe:'schreiben'},
   schritte:  {name:'Schritte', hilfe:'Nummerierte Abfolge.',
+              zeichen:'①', gruppe:'ordnen',
               spalten:['Schritt', 'Erklärung']},
   kennzahlen:{name:'Kennzahlen', hilfe:'Werte groß nebeneinander.',
+              zeichen:'▦', gruppe:'ordnen',
               spalten:['Name', 'Wert', 'Zusatz']},
   gegenueber:{name:'Gegenüberstellung', hilfe:'Zwei bis vier Seiten nebeneinander.',
+              zeichen:'⇄', gruppe:'ordnen',
               spalten:['Seite', 'Inhalt']},
   begriffe:  {name:'Begriffsliste', hilfe:'Wort und Erklärung zum Nachschlagen.',
+              zeichen:'≡', gruppe:'ordnen',
               spalten:['Begriff', 'Erklärung']},
-  klapp:     {name:'Klapptext', hilfe:'Überschrift, die man aufklappt.'},
+  rechner:   {name:'Rechner', hilfe:'Felder und eine Formel. Rechnet beim Leser mit.',
+              zeichen:'∑', gruppe:'mitmachen'},
+  checkliste:{name:'Checkliste', hilfe:'Punkte zum Abhaken, mit Zähler.',
+              zeichen:'☑', gruppe:'mitmachen',
+              spalten:['Punkt', 'Zusatz']},
+  bild:      {name:'Bild', hilfe:'Ein Bild als Anhang, mit Bildunterschrift.',
+              zeichen:'▣', gruppe:'mitbringen'},
   pdf:       {name:'PDF', hilfe:'Ein PDF als Anhang, mit Sprungzielen auf einzelne Seiten.',
+              zeichen:'⎙', gruppe:'mitbringen',
               spalten:['Beschriftung', 'Seite']},
-  bild:      {name:'Bild', hilfe:'Ein Bild als Anhang, mit Bildunterschrift.'},
   verweise:  {name:'Verweise', hilfe:'Andere Wiki-Seiten zum Weiterlesen.',
-              spalten:['Kennung der Seite', 'Beschriftung']},
-  checkliste:{name:'Checkliste', hilfe:'Punkte zum Abhaken, mit Zaehler.',
-              spalten:['Punkt', 'Zusatz']}
+              zeichen:'↗', gruppe:'mitbringen',
+              spalten:['Kennung der Seite', 'Beschriftung']}
 };
 
 function edBlockNeu(art){
@@ -5221,10 +5266,21 @@ function editorZeichnen(opt){
       </div>
       <div class="ed-kasten">
         <span class="label">Hier noch etwas einfügen</span>
-        ${Object.entries(ED_FORM).map(([k, f]) =>
-          `<button type="button" class="knopf rahmen ed-klein" data-ed="block"
-             data-art="${k}" data-i="${i}" title="${schuetzen(f.hilfe)}"
-             >${schuetzen(f.name)}</button>`).join('')}
+        ${ED_GRUPPEN.map(([g, name]) => `
+          <div class="ed-palette-gruppe">
+            <span class="ed-palette-name">${schuetzen(name)}</span>
+            <div class="ed-palette">
+              ${Object.entries(ED_FORM).filter(([, f]) => f.gruppe === g)
+                .map(([k, f]) => `
+                <button type="button" class="ed-baustein" data-ed="block"
+                        data-art="${k}" data-i="${i}">
+                  <span class="ed-baustein-zeichen" aria-hidden="true"
+                    >${f.zeichen}</span>
+                  <span class="ed-baustein-name">${schuetzen(f.name)}</span>
+                  <span class="ed-baustein-satz">${schuetzen(f.hilfe)}</span>
+                </button>`).join('')}
+            </div>
+          </div>`).join('')}
       </div>
     </div>`).join('');
 
