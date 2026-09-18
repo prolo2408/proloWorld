@@ -1032,6 +1032,751 @@ der Blick in den Code, sondern Punkt 12 einer Liste, die genau dafür da ist.
 
 ---
 
+## N-21 — Entscheidung: Schreiben braucht eine Gruppe, und nur `wiki`-Gruppen zählen
+
+**Kein Befund, sondern eine Korrektur meiner Annahme.** In `N-13` habe ich
+„jeder Angemeldete darf Seiten anlegen" umgesetzt — das war die Antwort auf
+„es ist wichtig, dass jeder Seiten erstellen kann". Gemeint war: nicht nur der
+Verwalter. Nicht: jeder im Haus.
+
+**Jetzt drei Stufen:**
+
+| Wer | Darf | Gruppe |
+|---|---|---|
+| jeder Angemeldete | lesen, was für ihn freigegeben ist; suchen; Merkzettel | — |
+| Editor | Seiten anlegen, eigene ändern, zurücksetzen, löschen | `wiki-editor` |
+| Verwalter | alle Seiten, alle Freigaben, Verwaltung, Index | `wiki-admin` |
+
+Ein Verwalter ist immer auch Editor — sonst bräuchte man zwei Gruppen, um eine
+Seite anzulegen. Beide Namen stehen in Umgebungsvariablen
+(`WIKI_EDITOR_GRUPPE`, `WIKI_ADMIN_GRUPPE`).
+
+**Und: Das Wiki sieht nur Gruppen an, die mit `wiki` anfangen.** In Authentik
+hängen an einem Nutzer die Gruppen aller Werkzeuge. `vertrieb` oder
+`bordbuch-admin` haben hier nichts zu entscheiden — und eine **Freigabe** auf
+so eine Gruppe war vorher ein stiller Fehler: Sie nimmt die Seite allen weg
+und gibt sie niemandem. Das wird jetzt abgewiesen, mit Begründung. Das Präfix
+steht in `WIKI_GRUPPEN_PRAEFIX`.
+
+Wichtig dabei: Der Filter darf die Rollenprüfung nicht aushebeln. Eine Gruppe
+`admin` (ohne Präfix) macht niemanden zum Verwalter, eine Gruppe `wiki` auch
+nicht — geprüft wird auf den ganzen Namen. Dafür gibt es einen Test.
+
+**Was der Knopf nicht tut:** Wer nicht schreiben darf, sieht *Neue Seite* und
+*Bearbeiten* nicht. Ein Knopf, der in ein 403 führt, ist schlimmer als kein
+Knopf — und in den Einstellungen steht, welche Gruppe fehlt und wer sie
+vergibt.
+
+---
+
+## N-22 — Ein PDF-Knopf ohne PDF tat gar nichts
+
+### Befund
+
+Der PDF-Baustein baut Knöpfe, die die Hülle bitten, ein Anhang-PDF zu öffnen.
+Welche Datei gemeint ist, steht nicht im Knopf, sondern in der Marke
+`data-wiki-anhang` an dem Anhangsblock, auf den der Knopf zeigt — genau so
+soll es sein (siehe `N-18`: nur so übersteht der Knopf eine Umbenennung).
+
+Fehlt dieser Anhangsblock, war die Zeile im Pflichtteil jeder Seite:
+
+```js
+if(!name || window.parent === window) return;
+```
+
+Der Leser klickt, und **nichts** passiert. Keine Meldung, kein Hinweis, kein
+Eintrag in der Leiste. Das kommt auf zwei Wegen zustande:
+
+1. Im Editor einen PDF-Baustein anlegen, Sprungziele eintragen, aber keine
+   Datei auswählen und speichern. Der Editor hat das erlaubt.
+2. Eine von Hand oder von einer KI geschriebene Seite mit `datei: handbuch`
+   im Baustein einspielen, ohne den Anhang mitzuschicken.
+
+### Ausgeführt, nicht überlegt
+
+`scratchpad/n22/probe.mjs` baut mit `edSeiteBauen` genau so eine Seite und
+liest das Ergebnis:
+
+```
+Knopf mit data-wiki-pdf="handbuch" im HTML: true
+Skriptblock id="handbuch" im HTML:         false
+=> Der Knopf zeigt auf einen Block, den es nicht gibt: true
+Pflichtteil bricht bei fehlendem Namen still ab: true
+```
+
+### Behoben an beiden Enden
+
+**Im Editor:** `edPruefbar` beanstandet jetzt jeden PDF-Baustein ohne Datei —
+mit Abschnitt und Nummer: *„Im PDF-Baustein 1 in „Netzwerke" ist keine Datei
+ausgewählt — seine Knöpfe würden ins Leere führen."* Damit kommt Weg 1 gar
+nicht mehr bis zum Speichern.
+
+**In der Seite:** Weg 2 kann der Editor nicht verhindern — eine eingespielte
+Seite bringt ihr HTML selbst mit. Darum sagt der Pflichtteil beim Klick, was
+fehlt, statt zu schweigen: ein Warnkasten unter den Knöpfen nennt die
+gesuchte Kennung.
+
+Drei Tests in `wiki/tests/test_editor.mjs`, jeder mit einer Mutationsprobe
+belegt: Prüfung entfernt → Test 1 rot, `||` zu `&&` → Test 2 rot, alte stille
+Zeile zurück → Test 3 rot.
+
+### Was daraus folgt
+
+Der Baustein war für sich richtig, die Marke war richtig, `N-18` war richtig.
+Falsch war nur die Annahme, dass die beiden immer zusammen in einer Seite
+ankommen. Ein `return` ohne Meldung ist im Zweifel die schlechteste von drei
+Möglichkeiten — schlechter als eine Absage und schlechter als ein Absturz,
+weil niemand ihn melden kann.
+
+---
+
+## N-23 — Ein voller Meta-Block mit leerem `<body>` galt als fehlerfreie Seite
+
+### Befund
+
+Gefunden beim Bau des KI-Prompts: Ich habe eine Datei geschrieben, wie sie
+eine KI liefern würde — Meta-Block mit Titel, vier Abschnitten, Markup,
+Stichworten, und ein leerer `<body>`. Die Prüfung sagte:
+
+```
+fehler: []
+warnungen: [6 Hinweise]
+```
+
+Und `/api/import` sagte `"ok": true`. Danach:
+
+| Was | Ergebnis |
+|---|---|
+| Datei auf dem Server | 3703 Byte |
+| Sichtbarer Text im Körper | **0 Zeichen** |
+| Im Themenbaum | ja, unter Technik / Geräte |
+| Suche nach „Buchse" | ein Treffer, mit Schnipsel |
+| Was der Leser sieht | eine weiße Fläche |
+
+Das ist der schlechteste Zustand von allen: Die Seite ist **auffindbar und
+leer**. Wer den Treffer anklickt, denkt, das Wiki sei kaputt.
+
+Die Ursache ist eine Lücke in `regeln_pruefen`: Sie prüft den Meta-Block sehr
+genau (Slug, Titellänge, Anker, Stichwortlängen, Farben, externe Verweise) —
+aber nie, ob im Körper überhaupt etwas steht. Die Prüfung nimmt den Meta-Block
+für die Seite.
+
+### Behoben
+
+**Der Körper muss etwas hergeben.** Weniger als 40 Zeichen sichtbarer Text
+(ohne Skripte, Stile, Kommentare und Marken) ist jetzt ein Fehler, nicht eine
+Warnung — mit der Zahl in der Meldung und dem Weg heraus: *„Wenn die Datei nur
+als Entwurf gedacht war, lade sie in den Editor — er baut die Seite aus dem
+Meta-Block."*
+
+**Eine Ausnahme, bewusst:** Seiten, die ihren Inhalt erst im Browser bauen,
+sind ausdrücklich erlaubt — genau darum ging `N-11`. Trägt die Datei einen
+ausführbaren Skriptblock, wird nichts beanstandet. Der Meta-Block
+(`application/json`) und ein Anhang (`text/plain`) zählen dabei **nicht** als
+Code, sonst würde die Ausnahme jede Datei decken: der Meta-Block ist in jeder
+drin. Lieber keine Beanstandung als eine falsche.
+
+**Und der Weg heraus wurde erst gebaut.** Vorher bot der Bericht *In den
+Editor laden* nur an, wenn die Prüfung **keine** Fehler fand. Das ist genau
+verkehrt: Der Editor baut Gestaltung, Pflichtteil und Farben selbst neu — er
+räumt diese Fehler auf. Jetzt steht der Knopf da, sobald der Meta-Block
+lesbar ist, mit der Erklärung, warum die Fehler danach weg sind.
+
+### Ausgeführt
+
+Der ganze Weg im Browser, nicht im Kopf: Entwurf hochgeladen → *Nicht
+übernehmbar* mit dem neuen Fehler, kein *Übernehmen*-Knopf → *In den Editor
+laden* → 4 Abschnitte, 7 Blöcke (Text, Schritte, Kennzahlen, Rechner, Text,
+PDF, Text), Titel, Pfad, Kennung und Satz gefüllt → PDF ausgewählt →
+gespeichert → das Verzeichnis links zeigt die Abschnitte → der PDF-Knopf in
+der Seite öffnet `anhang-kompendium.pdf#page=12`. Der Rechnerblock zeigte in
+der lebenden Vorschau **20** — 500 × 0,04 = 20, von Hand nachgerechnet.
+
+Neun Tests in `wiki/tests/test_seiten.py`, vier Mutationsproben: Prüfung aus
+→ 7 rot, Grenze um eins verschoben → der Grenzfall rot, Ausnahme für
+Aufbaucode entfernt → die JS-Seite rot, jede Skriptart als Aufbaucode → 7 rot.
+
+### Was daraus folgt
+
+Die Prüfung war gründlich in allem, was im Meta-Block steht — und blind für
+die Frage, ob die Seite eine Seite ist. Dasselbe Muster wie `N-05`, `N-06`,
+`N-08` und `N-10`: Jede einzelne Prüfung war richtig, keine hat gefragt, was
+am Ende beim Menschen ankommt. Gefunden hat es nicht die Prüfung, sondern der
+Versuch, den neuen Weg wirklich zu gehen.
+
+---
+
+## N-24 — Dieselbe Gruppe stand zweimal im Verzeichnis
+
+### Befund
+
+Gefunden an der Seite, die ich nach meinem eigenen KI-Prompt gebaut habe.
+Ihre vier Abschnitte tragen die Gruppen:
+
+```
+Grundlagen · Anleitung · Grundlagen · Wenn es klemmt
+```
+
+Das Verzeichnis links zeigte daraufhin gemessen:
+
+```
+Grundlagen → Was du vorher brauchst
+Anleitung  → Drucker anmelden
+Grundlagen → Aufwand und Kosten      ← dieselbe Überschrift zum zweiten Mal
+Wenn es klemmt → Wenn es klemmt
+```
+
+Das ist kein Fehler der Anzeige. `abschnittsleiste` fasst bewusst nur
+**aufeinanderfolgende** Abschnitte unter eine Überschrift, weil die
+Reihenfolge der Abschnitte die Aussage des Autors ist — sie umzusortieren
+wäre schlimmer. Der Aufbau ist also so gemeint, wie er dasteht. Nur hat ihn
+niemand so gemeint.
+
+### Behoben, wo es hingehört: beim Schreiben
+
+Der Editor sagt es jetzt beim Anlegen, an dem Abschnitt, der die Überschrift
+ein zweites Mal aufmacht:
+
+> „Grundlagen" kommt weiter oben schon vor, und dazwischen steht eine andere
+> Gruppe. Im Verzeichnis erscheint die Überschrift dann zweimal. Verschiebe
+> die Abschnitte nebeneinander — mit ↑ und ↓ oben.
+
+Warm, nicht rot, und **ohne Sperre**: Der Aufbau ist erlaubt, nur selten
+gewollt. Der Hinweis steht nur an der Wiederholung, nicht am ersten
+Abschnitt der Gruppe — dort wäre der Satz „kommt weiter oben schon vor"
+schlicht falsch. Dieselbe Regel steht auch im KI-Prompt, damit sie gar nicht
+erst entsteht.
+
+Ein Abschnitt **ohne** Gruppe zählt dabei als Trennung: Im Verzeichnis steht
+dort eine Lücke, und danach fängt die Überschrift wieder an. „A, ohne, A"
+zeigt „A" also genauso zweimal wie „A, B, A". Der erste Entwurf der Funktion
+hatte die leeren Gruppen weggefiltert und diesen Fall verschluckt — aufgefallen
+ist es an einem Test, den ich vorher von Hand berechnet hatte.
+
+Fünf Tests in `wiki/tests/test_editor.mjs`, drei Mutationsproben: falsche
+Nummer gemeldet → 3 rot, leere Gruppen wieder wegfiltern → 1 rot,
+Nachbarschaft ignorieren → 1 rot. Im Browser nachgesehen: genau ein Hinweis,
+an „Abschnitt 3 · Aufwand und Kosten".
+
+---
+
+## N-25 — Eine Klasse wurde benutzt, hatte aber keine Regel
+
+### Befund
+
+Die Erfolgsmeldung im PDF-Baustein — *„kompendium.pdf ausgewählt, wird beim
+Speichern angehängt"* — steht in `<span class="ed-gut">`. Zu dieser Klasse gab
+es im ganzen Stilblock keine Regel. Gemessen im Browser:
+
+| | Farbe | Größe | Fett |
+|---|---|---|---|
+| `.ed-gut` | `oklch(0.3 0.01 250)` | 14 px | 400 |
+| `body` | `oklch(0.3 0.01 250)` | 14 px | 400 |
+| `.ed-merke` (der Hinweis daneben) | `oklch(0.52 0.01 250)` | 11,5 px | 400 |
+
+Zeichen für Zeichen dasselbe wie gewöhnlicher Fließtext — und **größer und
+dunkler** als die Hinweise ringsherum. Die eine Zeile, die den Erfolg bestätigt,
+sah damit aus wie ein Satz, der vergessen wurde, und drängte sich optisch vor
+die Erklärungen. Eine Prüfung im Browser hätte sie auch gefunden; gesucht habe
+ich sie erst, weil im Quelltext eine Klasse ohne Regel stand.
+
+### Behoben
+
+`.ed-gut{font-size:12px;color:var(--good);font-weight:500}` — grün, etwas
+kleiner als Fließtext, halbfett. Nachgemessen: `oklch(0.45 0.14 158)`, 12 px,
+500. Damit liest sich die Zeile als Bestätigung, nicht als Absatz.
+
+Geprüft wurde beides mit derselben Messung, vor und nach der Änderung, und
+zusätzlich, ob überhaupt eine Regel für den Selektor existiert
+(`regelVorhanden`: vorher `false`, nachher `true`).
+
+---
+
+## N-26 — Die Suchhervorhebung übersprang Fundstellen, weil das Muster mitzählte
+
+### Befund
+
+Im Pflichtteil jeder Seite stand, um die Textknoten mit einem Treffer zu
+sammeln:
+
+```js
+var re = new RegExp('(' + worte.join('|') + ')', 'gi');
+while((n = lauf.nextNode())) if(re.test(n.nodeValue)) knoten.push(n);
+```
+
+Ein Muster mit `/g` **merkt sich seine Position**. `test()` sucht beim nächsten
+Aufruf erst hinter dem letzten Treffer weiter — auch wenn der nächste Aufruf
+eine völlig andere Zeichenkette prüft. Nachgemessen in Node:
+
+```
+mit /g, so wie im Pflichtteil:   gefunden in Knoten [ 0, 2 ]
+mit lastIndex=0 vor jedem Test:  gefunden in Knoten [ 0, 1, 2 ]
+Erwartet (von Hand): alle drei Knoten enthalten tcp -> [ 0, 1, 2 ]
+```
+
+### Die Falle an diesem Befund
+
+Auf `netzwerk-grundlagen.html` war **nichts** zu sehen: vier Vorkommen von
+„TCP", vier Marken. Ich hatte drei vorhergesagt und lag falsch — zwischen zwei
+Absätzen steht im HTML ein Textknoten aus Zeilenumbruch und Einrückung, der
+nicht trifft, und ein **fehlgeschlagener** `test()` setzt `lastIndex` wieder
+auf 0. Der Leerraum hat den Fehler verdeckt.
+
+Er bricht erst, wenn zwei treffende Textknoten **direkt** benachbart sind.
+Dafür habe ich eine Seite gebaut, deren Körper von Hand so aussieht:
+
+```html
+<p><b>Ein Absatz, der lang genug ist, damit die Fundstelle weit hinten liegt: tcp</b>tcp</p>
+```
+
+Gemessen im Browser, an der eingespielten Seite:
+
+| | Vorkommen im Text | gesetzte Marken |
+|---|---|---|
+| vorher | 2 | **1** |
+| nachher | 2 | 2 |
+
+Das ist genau die Lage, die `edInline` erzeugt: `**fett**` wird ein `<b>`, und
+unmittelbar danach geht der Text weiter — ohne Leerraum dazwischen.
+
+### Behoben, mit einer zweiten Sache gleich dazu
+
+- `re.lastIndex = 0` vor jedem `test()`.
+- Die Marken kommen jetzt über ein `DocumentFragment` **ohne zusätzliches
+  `<span>`** in den Text. Vorher wurde jeder treffende Textknoten durch ein
+  `<span>` ersetzt, und das blieb nach dem Aufräumen stehen. Nach einigen
+  Suchläufen war der Text dauerhaft zerschnitten, und ein Wort über eine alte
+  Schnittstelle hinweg war nicht mehr zu finden.
+- Beim Entfernen der Marken wird `normalize()` auf dem Elternknoten gerufen,
+  damit die Textknoten wieder zusammenwachsen.
+
+### Und der Grund, warum das allein nicht reicht
+
+Jede Seite trägt ihren Pflichtteil **selbst** — das ist der Kern der
+Architektur und soll so bleiben. Der Preis: Eine Korrektur am Pflichtteil
+erreicht bestehende Seiten nicht. Eine gespeicherte Seite behält den Code, mit
+dem sie gebaut wurde.
+
+Für die Seiten im Repository macht das jetzt `wiki/pflichtteil-nachziehen.mjs`
+— es ersetzt **nur** den Pflichtteil und lässt Inhalt, Meta-Block und Stil in
+Ruhe. Darum geht es auch bei `git-und-github.html`, die von Hand gebaut ist und
+kein `markup` im Meta-Block hat; ein Rundlauf durch den Editor hätte ihre
+Struktur verloren. Sechs Seiten nachgezogen, danach im Browser gegengeprüft:
+2/2, 4/4 und 0/0 Marken, keine Fehler auf der Konsole.
+
+Ein Test in `wiki/tests/test_editor.mjs` vergleicht den Pflichtteil jeder
+mitgelieferten Seite mit dem der Hülle und wird rot, sobald einer
+zurückfällt. Vier Mutationsproben, alle vier erkannt.
+
+**Für Seiten, die schon im Betrieb liegen,** gilt das nicht automatisch. Sie
+bekommen den korrigierten Pflichtteil beim nächsten Speichern über den Editor.
+Das ist kein Datenverlust und keine Wanderung — nur eine Korrektur, die
+langsam durchsickert.
+
+---
+
+## N-27 — *(zurückgezogen)* Meine „Korrektur" der Korrekturzeile war der Fehler
+
+Beim Umbau der Suche hielt ich diese Zeile für vertauscht:
+
+```js
+Nichts zu <span class="mono">${statt}</span> — Treffer für <strong>${q}</strong>
+```
+
+Der Aufruf lautet `trefferZeichnen(d.statt || q, ms, d.statt ? q : null)` —
+also steht im Parameter `q` das **wirksame** Wort und in `statt` das
+**getippte**. Genau umgekehrt, als die Namen vermuten lassen. Die Zeile war
+richtig; ich habe sie gedreht und damit falsch gemacht.
+
+Aufgefallen ist es, weil ich die Ausgabe danach im Browser nachgelesen habe
+statt im Quelltext:
+
+```
+Nichts zu Netzwek — Treffer für netzwerk
+```
+
+Das ist die richtige Aussage — mit der zurückgedrehten Zeile. Die Namen im
+Funktionskopf heißen jetzt `gesucht` und `getippt`, damit die Verwechslung
+nicht noch einmal passiert.
+
+**Was daraus folgt:** Regelblatt §14 („tatsächlich ausprobiert, nicht nur
+gedanklich") gilt auch für das Lesen von Code, nicht nur für das Prüfen von
+Funktionen. Zwei Variablennamen, die das Gegenteil von dem bedeuten, was sie
+sagen, haben mich in eine Änderung geführt, die alle Tests bestanden hätte —
+weil es für diese Zeile keinen Test gab.
+
+---
+
+## N-28 — Der Pflichtteil jeder Seite stand im Suchindex
+
+### Befund
+
+Der Suchindex hat ein drittes Netz für Inhalte, die erst im Browser
+entstehen (`N-11`): Zeichenketten aus den Skriptblöcken der Seite. Der
+Pflichtteil ist aber auch ein Skriptblock — und er steht **in jeder Seite**,
+mit demselben Inhalt. Gemessen an fünf eingespielten Seiten:
+
+| Suchbegriff | Treffer | von |
+|---|---|---|
+| `dark` | 5 Seiten | 5 |
+| `light` | 5 Seiten | 5 |
+| `prefers` | 5 Seiten | 5 |
+| `section` | 5 Seiten | 5 |
+| `details` | 5 Seiten | 5 |
+| `warn` | 5 Seiten | 5 |
+
+Sechs Wörter, die auf alles passen. Das ist das Gegenteil einer Suche. Im
+Index stand zum Beispiel:
+
+```
+(prefers-color-scheme: dark) · dark · light · gi · SCRIPT · start ·
+section[id] · h1,h2,h3 · details:not([open]) · warn bk-pdf-fehlt
+```
+
+`text_aus_skripten` filtert schon ordentlich — Kennungen mit Bindestrich oder
+Punkt, Selektoren, Adressen, eine Liste technischer Wörter. Aber
+`(prefers-color-scheme: dark)` hat ein Leerzeichen und fällt damit durch alle
+Einzelwort-Regeln, und `section[id]` kannte die Filterliste nicht. Jede neue
+Zeile im Pflichtteil hätte neue Wörter nachgeliefert — ein Wettlauf, den die
+Filterliste nicht gewinnt.
+
+### Behoben an der Wurzel
+
+Der Pflichtteil wird **ganz** aus dem HTML genommen, bevor Zeichenketten
+gesammelt werden. Erkannt wird er an seiner ersten Zeile
+(`/* Pflichtteil jeder Wiki-Seite: … */`) — dieselbe Marke, die auch
+`pflichtteil-nachziehen.mjs` benutzt.
+
+Danach gemessen: `dark`, `prefers`, `section`, `details` → **0 Treffer**.
+`warn` → 13 Stellen, aber aus `abschnitt` und `seite`, also aus sichtbarem
+Text. `tcp` (5), `netzwerk` (6) und `Gastnetz` (4) unverändert — die Heilung
+hat den Inhalt nicht mitgenommen.
+
+Zwei Wörter blieben zunächst übrig: `git-und-github.html` bringt einen
+**eigenen** Skriptblock mit, der dasselbe tut wie der Pflichtteil (ein
+Überrest aus `N-06`, bevor die Zeile dorthin wanderte). Dafür gibt es jetzt
+eine allgemeine Marke: `<script data-wiki-technik>` sagt „hier steht nichts
+zum Suchen". Damit sind es 0.
+
+Acht Tests, davon einer über die **echten** mitgelieferten Seiten mit dem
+**echten** Pflichtteil. Zwei Mutationsproben: Pflichtteil-Filter entfernt →
+8 rot, Technikmarke ohne Wirkung → 3 rot.
+
+### Was daraus folgt
+
+`N-11` war richtig, und diese Quelle bleibt nötig. Sie hat nur eine
+Nebenwirkung, die niemand nachgerechnet hat: Was in jeder Seite steht, taugt
+nicht zum Unterscheiden von Seiten. Ein Index, der auf alles passt, ist
+schlimmer als eine Lücke — eine Lücke merkt man.
+
+---
+
+## N-29 — Den Suchindex konnte man nur mit `curl` neu bauen
+
+### Befund
+
+`N-16` endete mit einem Neuaufbau des Index, der auch Reste wegräumt. Der ist
+als Schnittstelle da und tut, was er soll:
+
+```
+POST /api/neuindex  als Verwalter  ->  {"ok": true, "verwaiste": 0}
+POST /api/neuindex  als Editor     ->  403
+```
+
+Nur: In der Oberfläche gab es dazu **keinen Knopf**. Nicht in der Verwaltung,
+nicht in den Einstellungen, nirgends — gesucht mit `grep -n "neuindex"` über
+`index.html`: null Treffer.
+
+Das heißt: Die einzige Reparatur für einen Index, der nicht mehr aufbaut,
+stand einem Verwalter nur zur Verfügung, wenn er eine Kommandozeile und die
+Adresse kannte. Ein Werkzeug hinter einer Tür ohne Klinke.
+
+### Behoben
+
+Der Knopf steht jetzt in der Verwaltung unter **Wartung**, zusammen mit dem,
+was ein Verwalter dabei wissen will: wie viele Zeilen im Index stehen, wie
+viele davon verwaist sind (mit dem Verweis auf `N-16` und der Erklärung, dass
+der Neuaufbau sie zuerst wegräumt), und wie lange es gedauert hat.
+
+Ausgeführt: Knopf gedrückt, Meldung *„Index neu gebaut in 0 s"*, danach die
+Kennzahlen neu gelesen. Der Rechtetest dazu steht in `test_dienst.py`.
+
+### Was daraus folgt
+
+Eine Schnittstelle ohne Bedienung ist für den, der sie braucht, nicht
+vorhanden. Beim Beheben von `N-16` war der Weg über `curl` der schnellste —
+und danach hat niemand gefragt, wie ein Verwalter ihn findet.
+
+---
+
+## N-30 — Löschen meldete einen Serverfehler, obwohl die Seite weg war
+
+### Befund
+
+Gefunden beim Bau der neuen Verwaltung, an einem Bestand von 305 Testseiten.
+Das Sammellöschen meldete:
+
+```
+0 entfernt, 2 nicht: seite-238-drucker: Auf dem Server ist etwas
+schiefgegangen (FileNotFoundError, Kennung 57731).
+```
+
+Nachgestellt mit einer einzelnen Seite, deren Ordner von Hand entfernt wurde:
+
+| | |
+|---|---|
+| Antwort | `HTTP 500` — „Auf dem Server ist etwas schiefgegangen" |
+| Seiten vorher | 5 |
+| Seiten nachher | **4** |
+
+Die Seite war **weg** — aus Datenbank, Themenbaum und Suche. Die Meldung sagte
+das Gegenteil.
+
+Die Ursache steht in der Reihenfolge: Erst `index_leeren`, dann `DELETE FROM
+seite`, dann `db().commit()` — und **danach** `shutil.move` des Ordners. Fehlt
+der Ordner, fliegt an dieser Stelle ein `FileNotFoundError`, den der allgemeine
+Fänger in eine 500 verwandelt. Das Festschreiben ist da längst passiert und
+lässt sich nicht zurücknehmen.
+
+Dieselbe Familie wie `N-12` („Server Fehler beim Einspielen, obwohl die Seite
+gespeichert war") — und schlimmer: Wer die Meldung glaubt, sucht die Seite
+weiter oder drückt noch einmal (dann 404) und hält das Wiki für kaputt.
+
+### Behoben
+
+Nach dem Festschreiben wird nichts mehr geworfen. Fehlt der Ordner, ist nichts
+beiseitezulegen; das ist kein Fehler, sondern eine Auskunft:
+
+> Die Seite ist entfernt. Einen Ordner auf der Platte hatte sie nicht mehr —
+> es war nichts beiseitezulegen.
+
+Jeder andere Ordnerfehler (Rechte, volle Platte) landet im Protokoll des
+Containers und kommt als Hinweis zurück, mit der klaren Aussage, dass die Seite
+entfernt ist und der Ordner noch liegt. Die Oberfläche zeigt einen solchen
+Hinweis neun Sekunden statt der üblichen zweieinhalb.
+
+### Neu dabei: Tests gegen den laufenden Dienst
+
+Alle bisherigen Tests rufen **Funktionen** auf. Die Behandlung der Anfragen
+selbst — Rechte, Rückgabewerte, was nach einem Fehler in der Datenbank steht —
+war damit nicht abgedeckt, und genau dort saß dieser Befund.
+
+`wiki/tests/test_dienst.py` startet `server.py` als eigenen Prozess auf einem
+freien Port und spricht ihn über HTTP an, mit denselben Kopfzeilen, die der
+Anmelde-Stellvertreter im Betrieb setzt. Neun Tests: die drei Löschwege, die
+Rechte an `/api/import`, `/api/verwaltung` und `/api/neuindex`, und die Abwehr
+einer Anfrage von fremder Seite.
+
+Mutationsproben: der Fänger für den fehlenden Ordner entfernt → rot; kein
+Hinweis gesetzt → rot; Hinweis auch im Normalfall → rot; die Editorprüfung
+beim Einspielen entfernt → rot.
+
+---
+
+## N-31 — Jedes eingebettete Bild über 200 kB wurde beim Einspielen zerstört
+
+### Befund
+
+Gefunden beim Vorbereiten eines Bild-Bausteins, mit einer Seite, die zwei
+echte PNG enthält: eines mit 74 Byte, eines mit 307 613 Byte. Nach dem
+Einspielen steht in der gespeicherten Seite:
+
+```html
+<img id="klein" src="data:image/png;base64,iVBORw0KGgoAAAAN…">   ← heil
+<img id="gross" src="data:image/png;base64,anhaenge/eingebettet.png">
+```
+
+Die zweite Adresse ist Unsinn: Der Browser liest alles hinter `base64,` als
+Base64, bekommt `anhaenge/eingebettet.png` und zeigt **nichts**.
+
+Die Ursache steht in einer einzigen Zeile von `anhaenge_ausgliedern`:
+
+```python
+return f'{praefix}anhaenge/{name}'
+```
+
+`praefix` ist die Gruppe `(data:image/png;base64,)` aus dem Muster. Ersetzt
+werden sollte die **ganze** Adresse, ersetzt wurde nur der Datenteil — und der
+Präfix blieb davorstehen.
+
+Und wie immer bei dieser Familie: Die Prüfung meldete nichts. `/api/import`
+sagte `"ok": true`, der Anhang lag mit 307 613 Byte korrekt im Ordner, die
+Größenersparnis stand im Bericht. Kaputt war nur das, was der Leser sieht.
+
+### Behoben
+
+Die ganze Adresse wird ersetzt. Danach im Browser nachgemessen, an der
+eingespielten Seite im abgeschotteten Rahmen:
+
+| Bild | Adresse | geladen | Größe |
+|---|---|---|---|
+| klein | `data:image/png;base64,…` | ja | 8 × 8 |
+| groß | `anhaenge/eingebettet.png` | **ja** | 320 × 320 |
+
+Das ist zugleich die Antwort auf eine Frage, die ich nicht raten wollte: Ob
+ein Bild aus dem Anhangsordner in einem Rahmen mit *opakem* Origin überhaupt
+lädt, wo die CSP `img-src 'self'` sagt. Es lädt. Gemessen, nicht geschlossen.
+
+Vier Tests in `wiki/tests/test_anhaenge.py`, drei Mutationsproben: Präfix
+wieder davor → 2 rot, Schwelle ohne Wirkung → 1 rot, gleicher Name für zwei
+Bilder → 1 rot.
+
+Dabei fiel noch etwas auf: Die Schwelle wurde **zweimal** geprüft — einmal im
+Aufruf, einmal in der Funktion. Zwei Riegel für dieselbe Sache, von denen
+keiner für sich prüfbar ist: Nimmt man einen weg, bleibt alles grün. Jetzt
+steht sie einmal, in der Funktion, und die Mutationsprobe greift.
+
+### Eine Warnung zur Prüftechnik
+
+Beim ersten Durchlauf blieben zwei von drei Mutationen unentdeckt — und eine
+davon zu Unrecht: Python hatte den übersetzten Zwischenstand von `server.py`
+im `__pycache__` und las die Mutation gar nicht ein. Aufgefallen ist es, weil
+derselbe Test einzeln aufgerufen sofort rot wurde. Seither wird der Cache vor
+jeder Probe gelöscht. Eine Mutationsprobe, die aus Versehen den alten Code
+prüft, ist schlimmer als keine: Sie bescheinigt einem Test Zähne, die er
+nicht hat.
+
+---
+
+## N-32 — Ein Titel mit `</script>` brach den Meta-Block der eigenen Seite auf
+
+### Befund
+
+Gefunden beim Bau einer Sicherheitsprobe, die jeden Baustein mit bösartigem
+Text füttert. Der Meta-Block entsteht so:
+
+```js
+'<' + 'script type="application/json" id="wiki-meta">',
+JSON.stringify(meta, null, 2),
+'<' + '/script>',
+```
+
+`JSON.stringify` maskiert `<` **nicht** — es besteht kein Grund dazu, solange
+das Ergebnis JSON bleibt. Hier steht es aber in einem `<script>`-Element, und
+dort beendet die Zeichenfolge `</script>` den Block, egal wo sie steht. Ein
+Titel wie
+
+```
+</script><img src=x onerror=alert(1)>
+```
+
+zerlegt damit die eigene Seite: Der Meta-Block endet mitten im JSON, der Rest
+wird Text, und das Bild-Tag ist echtes Markup.
+
+Ausgeführt, mit genau diesem Titel:
+
+```
+POST /api/pruefen
+fehler: ["Der Block wiki-meta ist kein gueltiges JSON:
+          Unterminated string starting at: line 4 column 12 (char 33)"]
+meta lesbar: False
+```
+
+Der Server **lehnt die Seite ab** — das ist die gute Nachricht, und die Grenze
+hält. Aber die Meldung spricht von JSON, wo es um einen Titel geht: Wer das
+liest, sucht den Fehler an der falschen Stelle. Und „Als Datei sichern" erzeugt
+eine Datei, die niemand mehr einspielen kann.
+
+### Behoben
+
+Ein Zeichen: `JSON.stringify(meta, null, 2).replace(/</g, '\\u003c')`. Das ist
+**dasselbe JSON** — jeder Leser gibt denselben Text zurück —, aber die Folge
+`</script>` kann darin nicht mehr vorkommen.
+
+Nachgemessen mit demselben Titel:
+
+```
+JSON lesbar, Titel kommt heil zurueck: true
+POST /api/pruefen   fehler: []   meta lesbar: True
+Titel: </script><img src=x onerror=alert(1)>
+```
+
+### Dazu: eine Probe über alle elf Bausteine
+
+`wiki/tests/test_editor.mjs` fährt jetzt jeden Baustein mit demselben
+bösartigen Text durch — Titel, Zeilen, Formel, Einheit, Dateiname. Geprüft
+wird nicht, wie das Ergebnis aussieht, sondern dass daraus **nirgends
+Auszeichnung wird**: kein `script`-Element, kein Attribut, das mit `on`
+anfängt, kein `javascript:` in `src` oder `href`, und ein `img` nur im
+Bild-Baustein.
+
+Der erste Anlauf dieses Tests suchte nach dem Wort `onerror` im Ergebnis und
+wurde rot — bei harmlosem Text: `&lt;img src=x onerror=…` ist geschützter
+Text und keine Marke. Jetzt tastet ein kleiner Scanner nur **echte** Marken
+ab; geschützter Text trägt `&lt;` und wird gar nicht erst gefunden.
+
+Dieselbe Sorte Fehler steckte in der zweiten Prüfung: Sie suchte `</script>`
+im Bereich bis zum `<style>` — darin steht aber auch das **richtige** Ende
+des Blocks. Der Test wäre immer rot gewesen. Jetzt wird geprüft, was ein
+Browser sieht: alles bis zum ersten Skript-Ende muss lesbares JSON sein, aus
+dem der Titel Zeichen für Zeichen zurückkommt. Mutationsprobe: Maskierung
+entfernt → rot.
+
+---
+
+## N-33 — Ein Kommentar hat die ganze Oberfläche abgeschaltet
+
+### Befund
+
+Beim Beheben von `N-32` habe ich in den Kommentar daneben geschrieben, worum
+es geht — mit der Zeichenfolge als Beispiel:
+
+```js
+/* … Ohne diesen Schritt bricht ein Titel wie
+   "</script><img src=x onerror=…>" den Meta-Block auf … */
+```
+
+Ein Browser beendet ein `<script>`-Element beim **ersten** Vorkommen dieser
+Folge. In einer Zeichenkette, in einem Kommentar — überall. Der gesamte Rest
+von `index.html` war damit kein Programm mehr, sondern Text.
+
+Was der Browser dazu sagte:
+
+```
+Uncaught SyntaxError: Invalid or unexpected token   (Zeile 3807)
+Uncaught SyntaxError: Unexpected end of input       (Zeile 3810)
+```
+
+Die Oberfläche lud, zeigte ein Gerüst — und konnte nichts. Kein Knopf, keine
+Suche, kein Editor.
+
+### Warum nichts davon aufgefallen ist
+
+| Prüfung | Ergebnis |
+|---|---|
+| 118 Node-Tests | grün |
+| 117 Python-Tests | grün |
+| `js_pruefen.sh` (Syntaxprobe) | „block1.js: lesbar" |
+
+Die Funktionstests schneiden sich ihre Funktionen mit regulären Ausdrücken
+aus der Datei und sehen sie nie als Ganzes. Und die Syntaxprobe schnitt
+**genauso wie der Browser** am ersten Skript-Ende ab — meldete das Bruchstück
+aber als vollständigen Block und damit als lesbar. Sie hat den Fehler also
+gesehen und für richtig erklärt.
+
+Aufgefallen ist es erst im Browser, beim Rundgang durch alle Ansichten.
+Genau dafür steht die Regel in `CLAUDE.md`: *Eine Oberfläche ist erst
+geprüft, wenn sie im Browser geladen wurde.* Es ist das dritte Mal
+(`N-14`, `N-17`, jetzt `N-33`), dass ein Fehler auf oberster Ebene die
+ganze Hülle gekostet hat, während alles grün war.
+
+### Behoben, und diesmal mit einer Bremse
+
+Der Kommentar nennt die Folge nicht mehr — er sagt stattdessen, warum er sie
+nicht nennt.
+
+Neu ist ein Test, der prüft, **was der Browser sieht**: vom ersten
+`<script>` bis zum ersten Skript-Ende schneiden und das Ergebnis übersetzen
+lassen. Ist die Datei dort aufgebrochen, ist das Stück kein gültiges
+Programm und der Test wird rot. Dazu die Gegenprobe, dass hinter diesem Ende
+nur noch der Abspann der Seite steht. Mutationsprobe: ein Kommentar mit der
+Folge irgendwo in der Datei → rot.
+
+`js_pruefen.sh` im Kratzblock trägt jetzt einen Vermerk, dass sein Ergebnis
+genau diesen blinden Fleck hatte.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

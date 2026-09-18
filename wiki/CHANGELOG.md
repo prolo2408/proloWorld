@@ -21,6 +21,74 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
   Fehler - aber sie stehen vor dem "Uebernehmen"-Knopf, nicht dahinter
   (B-07).
 
+## Fassung 1.3.0
+
+- **Strg+S speichert** im Editor, und ein Baustein laesst sich **verdoppeln**.
+
+- **Drei neue Bausteine**: Bild (als Anhang, mit Bildunterschrift), Verweise
+  (Knoepfe zu anderen Wiki-Seiten) und Checkliste (Punkte zum Abhaken, mit
+  Zaehler - die Haken leben nur im Browser des Lesers).
+
+- **Eine neue Seite faengt mit einer Frage an, nicht mit einem leeren
+  Formular.** Sieben Wege: leere Seite, vier Vorlagen (Anleitung, Uebersicht
+  und Vergleich, Zum Nachschlagen, Rechnen und Zahlen), HTML-Datei, KI-Prompt.
+  Die Vorlagen bringen Abschnitte mit Titel und Gruppe, die passenden
+  Bausteine und Platzhalter mit - aber keinen Titel und keinen Pfad.
+- **Entwuerfe gehen nicht mehr verloren.** Was im Editor steht, merkt sich der
+  Browser und bietet es beim naechsten Mal an. Nach dem Speichern und nach
+  einem ausdruecklichen Abbrechen wird er geloescht.
+- **Am Handy nimmt die Speicherleiste ein Drittel weniger Platz**: die selten
+  gebrauchten Knoepfe stehen hinter "Mehr" (gemessen 206 -> 123 Pixel bei
+  einem 640 Pixel hohen Bild).
+
+- **Die Verwaltung ist auf hunderte Seiten ausgelegt.** Vier Bereiche
+  (Seiten, Bereiche, Gruppen, Wartung) statt einer einzigen langen Tabelle.
+  In der Liste: Suche, Filter nach Bereich, Freigabe und Pruefung, Sortierung
+  ueber jede Spalte, Blaettern in Fuenfzigern und Mehrfachauswahl fuer
+  Freigabe und Loeschen. Gemessen mit 305 Seiten: 80 ms bis die Liste steht,
+  Blaettern und Sortieren ohne merkliche Pause.
+- **Index neu bauen hat jetzt einen Knopf** (`N-29`). Die Schnittstelle gab es
+  seit N-16, erreichbar war sie nur mit curl.
+- **Loeschen sagt die Wahrheit** (`N-30`). Fehlte der Ordner einer Seite auf
+  der Platte, kam HTTP 500 - und die Seite war trotzdem weg.
+
+- **Genauer suchen.** Im Suchfeld gelten jetzt fuenf Zeichen: `"zwei worte"`
+  fuer genau diese Folge, `-wort` fuer "darf nicht vorkommen",
+  `bereich:Technik`, `gruppe:wiki-technik` und `seite:kennung` fuer die
+  Einschraenkung. Was als Einschraenkung gelesen wurde, steht ueber der
+  Trefferliste und laesst sich dort mit einem Klick aufheben. Steht nur eine
+  Einschraenkung und kein Wort da, kommen die Seiten dieses Bereichs.
+- **Der Pflichtteil steht nicht mehr im Suchindex** (`N-28`). Vorher fanden
+  `dark`, `light`, `prefers`, `section`, `details` und `warn` jeweils alle
+  Seiten - sechs Woerter, die auf alles passen.
+
+- **In einer einzelnen Seite suchen.** Strg+F oder der Knopf *Finden* oeffnet
+  eine Leiste ueber der Seite: Wort eingeben, "3 von 17" lesen, mit Eingabe
+  weiterspringen, mit Esc schliessen. Die Leiste nennt auch den Abschnitt, in
+  dem man gerade steht. Steckt eine Fundstelle in einem zugeklappten
+  Klapptext, klappt die Seite ihn auf.
+  Seiten, die vorher gespeichert wurden, markieren die Stellen, koennen aber
+  nicht mitzaehlen - die Leiste sagt das. Ein Durchlauf ueber Bearbeiten und
+  Speichern bringt sie auf den Stand.
+
+- **Eine KI kann die Seite schreiben.** Im Editor steht unter *Eine KI
+  schreiben lassen* ein Prompt zum Kopieren (rund 5,8 kB). Er verlangt keinen
+  fertigen Seitenaufbau, sondern einen Entwurf: Meta-Block mit Abschnitten und
+  Markup. Gestaltung, Pflichtteil und Farbtokens baut der Editor daraus selbst
+  - die muessen stimmen, und ein Meta-Block ist kurz genug, um richtig zu sein.
+  Der Weg: Datei waehlen, *In den Editor laden*, PDF auswaehlen, speichern.
+- **Ein Entwurf ist keine Seite mehr** (`N-23`). Ein Meta-Block mit leerem
+  Koerper ging vorher fehlerfrei durch und lag danach als auffindbare, leere
+  Seite im Wiki. Jetzt ist er ein Fehler - mit dem Weg heraus in derselben
+  Meldung.
+- **Der Weg in den Editor steht auch bei Fehlern offen.** Er raeumt genau die
+  Fehler auf, die eine solche Datei hat.
+- **Ein PDF-Knopf ohne PDF** wird nicht mehr gespeichert und sagt in einer
+  eingespielten Seite, was fehlt (`N-22`).
+- **Dieselbe Gruppe zweimal im Verzeichnis** wird beim Schreiben gemeldet
+  (`N-24`).
+- **`.ed-gut` hat jetzt einen Stil** (`N-25`).
+
 ## Fassung 1.2.0
 
 ### Behoben: die Suche fand nicht, was auf der Seite steht

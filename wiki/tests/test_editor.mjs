@@ -6,7 +6,7 @@
  *
  * Aufruf:  node tests/test_editor.mjs
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -57,19 +57,31 @@ const quellen = [
   hol(/function edListe\(s\)\{[\s\S]*?\n\}/, 'edListe'),
   hol(/function edPfadListe\(s\)\{[\s\S]*?\n\}/, 'edPfadListe'),
   hol(/function edSeiteBauen\(e\)\{[\s\S]*?\n\}/, 'edSeiteBauen'),
+  /* edPruefbar liest im Normalfall die Felder der Seite. Hier laeuft es nur
+     mit nurNachsehen=true - dann braucht es kein Dokument, nur ZUSTAND. */
+  hol(/function edPruefbar\(nurNachsehen\)\{[\s\S]*?\n\}/, 'edPruefbar'),
+  hol(/function edGruppenWiederholt\(abschnitte\)\{[\s\S]*?\n\}/, 'edGruppenWiederholt'),
+  hol(/function kiPrompt\(thema\)\{[\s\S]*?\n\}/, 'kiPrompt'),
+  hol(/function edLeer\(\)\{[\s\S]*?\n\}/, 'edLeer'),
+  hol(/function edVorlageBauen\(abschnitte\)\{[\s\S]*?\n\}/, 'edVorlageBauen'),
+  hol(/const ED_VORLAGEN = \{[\s\S]*?\n\};/, 'ED_VORLAGEN'),
+  hol(/const ED_GRUPPEN = \[[\s\S]*?\n\];/, 'ED_GRUPPEN'),
+  'var ZUSTAND = {editor:null};',
 ].join('\n');
 
 const { edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
         ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
         edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
         ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
-        edBlockZuZeilen, edBlockHtml, edAusHtml } =
+        edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, edGruppenWiederholt,
+        kiPrompt, ED_VORLAGEN, ED_GRUPPEN, edLeer, ZUSTAND } =
   new Function(quellen + `
     return {edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
             ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
             edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
             ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
-            edBlockZuZeilen, edBlockHtml, edAusHtml};`)();
+            edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, edGruppenWiederholt,
+            kiPrompt, ED_VORLAGEN, ED_GRUPPEN, edLeer, ZUSTAND};`)();
 
 /* Das Rechenwerk der erzeugten Seite - hier einzeln herausgeholt, damit die
    Formelauswertung geprueft werden kann, ohne einen Browser zu starten. */
@@ -495,10 +507,19 @@ pruefe('Ein leerer Block zwischen zwei vollen hinterlaesst keine Luecke', () => 
   assert.equal(edBloeckeZuMarkup([a, edBlockNeu('text'), c]), 'Davor.\n\nDanach.');
 });
 pruefe('Jede Blockart im Kasten hat Name und Hilfe', () => {
+  const gruppen = new Set(ED_GRUPPEN.map(g => g[0]));
   for (const [art, f] of Object.entries(ED_FORM)) {
     assert.ok(f.name && f.hilfe, art + ' unvollstaendig');
-    // Die Zeilenarten brauchen Spaltennamen, sonst steht im Formular nichts.
-    if (!['text', 'klapp', 'rechner'].includes(art))
+    /* Ohne Zeichen und Gruppe faellt der Baustein aus der Auswahl heraus -
+       er waere im Editor nicht mehr zu finden, ohne dass etwas kaputt
+       aussieht. */
+    assert.ok(f.zeichen, art + ' ohne Zeichen');
+    assert.ok(gruppen.has(f.gruppe),
+              art + ': Gruppe "' + f.gruppe + '" gibt es nicht');
+    /* Die ZEILENARTEN brauchen Spaltennamen, sonst steht im Formular nichts.
+       Die anderen haben ein eigenes Formular: Text und Klapptext ein
+       Textfeld, der Rechner seine Felder, Bild eine Dateiwahl. */
+    if (!['text', 'klapp', 'rechner', 'bild'].includes(art))
       assert.ok((f.spalten || []).length >= 2, art + ' ohne Spalten');
   }
 });
@@ -681,6 +702,509 @@ pruefe('Ein Anhang, den kein Block kennt, wird trotzdem weiter genannt', () => {
   const wieder = edSeiteBauen(e);
   assert.ok(wieder.includes('data-wiki-anhang="bild-eins.png"'),
             'der Anhang wird nicht mehr genannt');
+});
+
+/* ------------------------------------------------ N-22: PDF ohne Datei */
+function nurPdfSeite(zusatz){
+  /* Eine Seite mit genau einem PDF-Baustein. zusatz setzt daten64 oder
+     dateiname - damit sich beide Richtungen pruefen lassen. */
+  const markup = ':::pdf Das Handbuch\ndatei: handbuch\nInstallation | 4\n:::';
+  const bloecke = edMarkupZuBloecken(markup);
+  Object.assign(bloecke[0], zusatz || {});
+  return {neu:true, slug:'probe', titel:'Probe', kurz:'', pfad:'Technik',
+          gruppen:'', abschnitte:[{anker:'a', titel:'A', stichworte:'',
+          gruppe:'', markup:markup, bloecke:bloecke}]};
+}
+pruefe('Ein PDF-Baustein ohne Datei wird nicht gespeichert', () => {
+  ZUSTAND.editor = nurPdfSeite(null);
+  const m = edPruefbar(true);
+  /* Genau ein Mangel, und der nennt den Baustein - nicht "Abschnitt leer". */
+  assert.equal(m.length, 1, 'erwartet genau einen Mangel, bekommen: ' + m.join(' / '));
+  assert.ok(/PDF-Baustein 1 in „A"/.test(m[0]), 'Mangel benennt den Baustein nicht: ' + m[0]);
+  assert.ok(/keine Datei/.test(m[0]), 'Mangel sagt nicht, dass die Datei fehlt: ' + m[0]);
+});
+pruefe('Ein PDF-Baustein mit Datei auf dem Server ist in Ordnung', () => {
+  ZUSTAND.editor = nurPdfSeite({dateiname:'handbuch.pdf'});
+  assert.deepEqual(edPruefbar(true), [], 'ein beiliegendes PDF wird beanstandet');
+  ZUSTAND.editor = nurPdfSeite({daten64:'JVBERi0x'});
+  assert.deepEqual(edPruefbar(true), [], 'ein neu gewaehltes PDF wird beanstandet');
+});
+pruefe('Die fertige Seite sagt, wenn zu einem PDF-Knopf nichts beiliegt', () => {
+  /* Gebaut wird eine Seite, deren PDF-Knopf auf eine Kennung zeigt, zu der
+     kein Anhangsblock im HTML steht. Vorher tat dieser Knopf gar nichts. */
+  const html = edSeiteBauen(nurPdfSeite(null));
+  assert.ok(html.includes('data-wiki-pdf="handbuch"'), 'kein PDF-Knopf gebaut');
+  assert.ok(!/id="handbuch"/.test(html), 'unerwartet doch ein Anhangsblock dabei');
+  assert.ok(html.includes('bk-pdf-fehlt'),
+            'die Seite hat keinen Hinweis fuer den Fall ohne Anhang');
+  assert.ok(!html.includes('if(!name || window.parent === window) return;'),
+            'der Pflichtteil bricht noch still ab');
+  /* Der Hinweis muss beim Leser lesbar ankommen: die Anfuehrung steht im
+     Pflichtteil als \u-Escape, nicht roh. */
+  const zeile = html.split('\n').find(z => z.includes('liegt kein PDF bei'));
+  assert.ok(zeile, 'der Hinweistext steht nicht in der Seite');
+  assert.ok(zeile.includes('\\u201e'),
+            'die Anfuehrung ist nicht als Escape gesetzt: ' + zeile);
+});
+
+/* ------------------------------------------------ N-24: geteilte Gruppen */
+function gr(namen){ return namen.map(g => ({gruppe: g})); }
+pruefe('Eine Gruppe, die getrennt wieder anfaengt, wird gemeldet', () => {
+  /* Reihenfolge Grundlagen, Anleitung, Grundlagen: das Verzeichnis fasst nur
+     aufeinanderfolgende Abschnitte, also stuende "Grundlagen" zweimal da.
+     Gemeldet wird Abschnitt 3 - Nummer 2, von null gezaehlt. */
+  const w = edGruppenWiederholt(gr(['Grundlagen', 'Anleitung', 'Grundlagen']));
+  assert.deepEqual([...w], [2]);
+});
+pruefe('Der erste Abschnitt einer Gruppe wird nie gemeldet', () => {
+  /* Sonst stuende an Abschnitt 1 "kommt weiter oben schon vor" - und
+     darueber steht nichts. */
+  const w = edGruppenWiederholt(gr(['Grundlagen', 'Anleitung', 'Grundlagen']));
+  assert.ok(!w.has(0), 'der erste Abschnitt wurde angemahnt');
+});
+pruefe('Zwei Abschnitte nebeneinander sind in Ordnung', () => {
+  const w = edGruppenWiederholt(gr(['Grundlagen', 'Grundlagen', 'Anleitung']));
+  assert.deepEqual([...w], [], 'nebeneinander ist genau der richtige Aufbau');
+});
+pruefe('Ohne Gruppen gibt es nichts zu melden', () => {
+  assert.deepEqual([...edGruppenWiederholt(gr(['', '', '']))], []);
+  assert.deepEqual([...edGruppenWiederholt([])], []);
+  /* Eine Luecke zwischen zwei gleichen Gruppen zaehlt: dazwischen steht dann
+     ein Abschnitt ohne Ueberschrift, und die Ueberschrift kommt wieder. */
+  assert.deepEqual([...edGruppenWiederholt(gr(['A', '', 'A']))], [2]);
+});
+pruefe('Mehrere Wiederholungen werden alle gemeldet', () => {
+  const w = edGruppenWiederholt(gr(['A', 'B', 'A', 'B', 'A']));
+  assert.deepEqual([...w], [2, 3, 4]);
+});
+
+/* ------------------------------------------------ Der Prompt fuer eine KI */
+pruefe('Das Geruest aus dem Prompt laesst sich wirklich in den Editor laden', () => {
+  /* Der wichtigste Test am Prompt: Was er einer KI vorgibt, muss der Editor
+     hinterher lesen koennen. Also wird das Geruest aus dem Prompt
+     herausgeschnitten und genau durch die Funktion geschickt, die auch
+     "In den Editor laden" benutzt. */
+  const p = kiPrompt('Drucker einrichten');
+  const von = p.indexOf('<!DOCTYPE html>');
+  const bis = p.indexOf('</html>');
+  assert.ok(von >= 0 && bis > von, 'im Prompt steht kein vollstaendiges Geruest');
+  const geruest = p.slice(von, bis + 7);
+  const e = edAusHtml(geruest, '', true);
+  assert.ok(e, 'edAusHtml kommt mit dem Geruest aus dem Prompt nicht zurecht');
+  assert.equal(e.titel, 'Drucker einrichten');
+  assert.equal(e.slug, 'drucker-einrichten');
+  assert.equal(e.pfad, 'Technik / Geraete');
+  assert.equal(e.quelle, 'editor',
+               'das Geruest nennt ein anderes Werkzeug - dann warnt der Editor');
+  assert.equal(e.abschnitte.length, 1);
+  assert.equal(e.abschnitte[0].anker, 'vorbereitung');
+  assert.equal(e.abschnitte[0].gruppe, 'Grundlagen');
+  assert.equal(e.abschnitte[0].stichworte, 'drucker, netzwerk, treiber');
+  /* Das Markup im Geruest ist ein Absatz und zwei Listenpunkte. Der Editor
+     macht daraus EINEN Textblock - Absaetze zerfallen nicht. */
+  assert.equal(e.abschnitte[0].bloecke.length, 1);
+  assert.equal(e.abschnitte[0].bloecke[0].art, 'text');
+  assert.equal(e.abschnitte[0].bloecke[0].text,
+               'Erster Absatz.\n\n- Punkt eins\n- Punkt zwei');
+});
+pruefe('Der Prompt nennt genau das Werkzeug, auf das der Editor hoert', () => {
+  /* Steht dort ein anderer Wert, halten der Editor und der Server jede
+     Antwort der KI fuer eine fremde Seite und werfen ihr Markup weg. */
+  const p = kiPrompt('');
+  assert.ok(p.includes('"werkzeug": "' + EDITOR_WERKZEUG + '"'),
+            'der Prompt nennt nicht ' + EDITOR_WERKZEUG);
+});
+pruefe('Jeder Baustein des Editors steht im Prompt', () => {
+  /* Sonst kennt die KI ihn nicht und schreibt Text, wo ein Baustein
+     gehoert hat. "text" ist kein :::-Baustein, sondern der Normalfall. */
+  const p = kiPrompt('');
+  const fehlen = Object.keys(ED_FORM)
+    .filter(k => k !== 'text' && !p.includes(':::' + k));
+  assert.deepEqual(fehlen, [], 'nicht im Prompt erklaert: ' + fehlen.join(', '));
+});
+pruefe('Ohne Thema bleibt eine Stelle zum Ausfuellen', () => {
+  const p = kiPrompt('   ');
+  assert.ok(p.includes('THEMA: <HIER DEIN THEMA EINTRAGEN>'),
+            'ohne Thema steht keine Stelle zum Ausfuellen im Prompt');
+});
+pruefe('Das Thema kommt unveraendert in den Prompt', () => {
+  const p = kiPrompt('  Drucker im 2. Stock  ');
+  assert.ok(p.includes('THEMA: Drucker im 2. Stock'), 'Thema fehlt oder ist entstellt');
+});
+
+/* --------------------------------- N-26 und der Stand des Pflichtteils */
+pruefe('Das Fundmuster wird vor jedem Test zurueckgesetzt', () => {
+  /* Ein Muster mit /g merkt sich, wo es zuletzt getroffen hat; test() sucht
+     dann erst dahinter. Zwei benachbarte Textknoten mit demselben Wort
+     verlieren so den zweiten Treffer (N-26). Im Browser gemessen: zwei
+     Vorkommen, eine Marke. */
+  assert.ok(ED_PFLICHTTEIL.includes('re.lastIndex = 0'),
+            'der Pflichtteil setzt lastIndex nicht zurueck');
+  assert.ok(!/while\(\(n = lauf\.nextNode\(\)\)\) if\(re\.test/.test(ED_PFLICHTTEIL),
+            'die alte, zustandsbehaftete Zeile steht noch drin');
+});
+pruefe('Die Marken kommen ohne zusaetzliche Huelle in den Text', () => {
+  /* Ein <span> um jede Fundstelle bliebe nach dem Aufraeumen stehen und
+     zerschnitte den Text dauerhaft - der naechste Lauf faende ein Wort
+     ueber die Schnittstelle hinweg nicht mehr. */
+  assert.ok(ED_PFLICHTTEIL.includes('createDocumentFragment'),
+            'die Fundstellen werden noch in ein Element gehuellt');
+  assert.ok(ED_PFLICHTTEIL.includes('eltern.normalize()'),
+            'nach dem Aufraeumen werden die Textknoten nicht zusammengelegt');
+});
+pruefe('Jede mitgelieferte Seite traegt den Pflichtteil der Huelle', () => {
+  /* Eine Seite behaelt den Code, mit dem sie gebaut wurde - eine Korrektur
+     am Pflichtteil erreicht sie nicht von selbst. Dieser Test ist die
+     Bremse dagegen; nachziehen: node pflichtteil-nachziehen.mjs
+     --schreiben */
+  const namen = [join(HIER, '..', 'test-seite.html')].concat(
+    readdirSync(join(HIER, '..', 'vorlagen')).sort()
+      .filter(n => n.endsWith('.html'))
+      .map(n => join(HIER, '..', 'vorlagen', n)));
+  assert.ok(namen.length >= 3, 'keine Seiten gefunden - der Test waere leer gruen');
+  const alt = [];
+  for(const pfad of namen){
+    const html = readFileSync(pfad, 'utf8');
+    if(!html.includes(ED_PFLICHTTEIL)) alt.push(pfad.split('/').slice(-2).join('/'));
+  }
+  assert.deepEqual(alt, [], 'Pflichtteil nicht auf dem Stand: ' + alt.join(', '));
+});
+
+/* ------------------------------ Suche in der Seite: beide Haelften */
+pruefe('Huelle und Seite reden ueber dieselben Nachrichten', () => {
+  /* Die zwei Haelften stehen an verschiedenen Stellen derselben Datei: die
+     Huelle als gewoehnliches Skript, die Seite als Zeichenkette im
+     Pflichtteil. Ein Tippfehler in einem der Namen faellt sonst erst im
+     Browser auf - und auch dort nur, wenn man genau hinsieht. */
+  /* Ohne den Pflichtteil - sonst bestaetigt sich der Test mit derselben
+     Zeichenkette selbst. Und geprueft wird die AUSWERTUNG, nicht das
+     Vorkommen des Namens: in den Kommentaren steht er auch, und ein
+     geloeschter Empfaenger waere sonst unentdeckt geblieben. */
+  const huelle = quelle.replace(ED_PFLICHTTEIL, ' ');
+  assert.ok(/postMessage\(\{typ:'wiki-finden'/.test(huelle),
+            'die Huelle schickt kein wiki-finden');
+  assert.ok(/e\.data\.typ === 'wiki-funde'\) findenStandZeigen\(/.test(huelle),
+            'die Huelle wertet wiki-funde nicht aus');
+  assert.ok(ED_PFLICHTTEIL.includes("e.data.typ === 'wiki-finden'"),
+            'die Seite wertet wiki-finden nicht aus');
+  assert.ok(ED_PFLICHTTEIL.includes("typ:'wiki-funde'"),
+            'die Seite schickt kein wiki-funde zurueck');
+});
+pruefe('Die Seite schickt jedes Feld, das die Huelle liest', () => {
+  /* findenStandZeigen liest anzahl, nr, abschnitt und anker. Fehlt eines
+     im Pflichtteil, steht in der Leiste "undefined von 4". */
+  for(const feld of ['anzahl:', 'nr:', 'anker:', 'abschnitt:', 'begriff:']){
+    assert.ok(ED_PFLICHTTEIL.includes(feld),
+              'die Rueckmeldung der Seite hat kein Feld ' + feld);
+  }
+});
+pruefe('Eine Fundstelle in einem zugeklappten Klapptext wird aufgeklappt', () => {
+  /* Ohne das hat die Marke kein Layout, scrollIntoView tut nichts, und der
+     Sprung landet irgendwo. Im Browser gemessen: Klapptext vorher zu,
+     nachher offen, Marke mit Hoehe > 0. */
+  /* Geprueft wird die Zuweisung, nicht bloss das Vorkommen der
+     Zeichenkette: die Schleife darueber nennt denselben Selektor noch
+     einmal, und ein "var d = null" waere sonst unentdeckt geblieben. */
+  assert.ok(/var d = m\.closest \? m\.closest\('details:not\(\[open\]\)'\)/
+            .test(ED_PFLICHTTEIL),
+            'die Seite sucht keinen zugeklappten Klapptext um die Fundstelle');
+  assert.ok(ED_PFLICHTTEIL.includes('d.open = true;'),
+            'die Seite klappt den Klapptext nicht auf');
+});
+
+/* ------------------------------------------------ Die Vorlagen */
+pruefe('Jede Vorlage baut einen Zustand, den der Editor kennt', () => {
+  for(const [name, v] of Object.entries(ED_VORLAGEN)){
+    const e = v.bauen();
+    assert.ok(e && Array.isArray(e.abschnitte) && e.abschnitte.length,
+              name + ': keine Abschnitte');
+    assert.equal(e.neu, true, name + ': die Vorlage gilt nicht als neue Seite');
+    for(const a of e.abschnitte){
+      assert.ok(Array.isArray(a.bloecke) && a.bloecke.length,
+                name + ': ein Abschnitt ohne Bloecke');
+      /* Die leere Vorlage ist genau das: ein leerer Abschnitt, den der
+         Mensch benennt. Alle anderen bringen ihr Geruest mit. */
+      if(name === 'leer') continue;
+      assert.ok(String(a.titel || '').trim(), name + ': ein Abschnitt ohne Titel');
+      assert.ok(String(a.anker || '').trim(), name + ': ein Abschnitt ohne Anker');
+      assert.ok(/^[a-z0-9]+(-[a-z0-9]+)*$/.test(a.anker),
+                name + ': Anker "' + a.anker + '" ist nicht erlaubt');
+      assert.ok(String(a.markup || '').trim(),
+                name + ': ein Abschnitt ohne Inhalt');
+    }
+  }
+});
+pruefe('Jede Vorlage bringt genau die Bausteine mit, die sie meint', () => {
+  /* Von Hand aufgeschrieben, aus dem Markup der Vorlagen gelesen. Nicht
+     "irgendein bekannter Baustein": ein Tippfehler wie ":::schritt" statt
+     ":::schritte" wird vom Editor stillschweigend zu einem TEXTBLOCK - die
+     Zeilen bleiben stehen, der Baustein ist weg, und niemand merkt es,
+     bevor die Seite beim Leser liegt. */
+  const ERWARTET = {
+    leer:         ['text'],
+    anleitung:    ['text', 'schritte', 'text', 'klapp'],
+    vergleich:    ['text', 'gegenueber', 'kennzahlen', 'text'],
+    nachschlagen: ['text', 'begriffe', 'text'],
+    rechnen:      ['text', 'rechner', 'text']
+  };
+  assert.deepEqual(Object.keys(ED_VORLAGEN).sort(), Object.keys(ERWARTET).sort(),
+                   'es gibt eine Vorlage, die hier nicht aufgeschrieben ist');
+  for(const [name, v] of Object.entries(ED_VORLAGEN)){
+    const arten = v.bauen().abschnitte.flatMap(a => a.bloecke.map(b => b.art));
+    assert.deepEqual(arten, ERWARTET[name], name);
+    for(const art of arten) assert.ok(ED_FORM[art], name + ': "' + art + '" gibt es nicht');
+  }
+});
+pruefe('Das Markup einer Vorlage uebersteht den Rundlauf', () => {
+  /* Bloecke -> Markup -> Bloecke muss dasselbe ergeben. Sonst veraendert
+     sich die Seite beim ersten Speichern, ohne dass jemand etwas getan
+     hat. */
+  for(const [name, v] of Object.entries(ED_VORLAGEN)){
+    for(const a of v.bauen().abschnitte){
+      const zurueck = edMarkupZuBloecken(edBloeckeZuMarkup(a.bloecke));
+      assert.equal(zurueck.length, a.bloecke.length,
+                   name + ' / ' + a.titel + ': andere Anzahl Bloecke');
+      zurueck.forEach((b, i) => assert.equal(b.art, a.bloecke[i].art,
+        name + ' / ' + a.titel + ': Baustein ' + (i + 1) + ' wurde zu ' + b.art));
+    }
+  }
+});
+pruefe('Eine Vorlage bringt Titel und Pfad NICHT mit', () => {
+  /* Der Titel ist die Aussage des Menschen. Stuende dort ein Vorschlag,
+     hiesse die erste Seite "Neue Seite" - und keiner merkt es. */
+  for(const [name, v] of Object.entries(ED_VORLAGEN)){
+    const e = v.bauen();
+    assert.equal(String(e.titel || ''), '', name + ': die Vorlage setzt einen Titel');
+    assert.equal(String(e.pfad || ''), '', name + ': die Vorlage setzt einen Pfad');
+  }
+});
+pruefe('Die leere Vorlage ist wirklich leer', () => {
+  const e = ED_VORLAGEN.leer.bauen();
+  assert.equal(e.abschnitte.length, 1);
+  assert.equal(String(e.abschnitte[0].markup || '').trim(), '');
+});
+
+/* ------------------------------------------------ Die drei neuen Bausteine */
+pruefe('Ein Bild holt seine Adresse aus der Marke, nicht aus dem HTML', () => {
+  /* Im HTML steht nur die Kennung. Die Adresse setzt der Pflichtteil beim
+     Laden - so ueberlebt sie eine Umbenennung des Anhangs (N-18). */
+  const h = edBaustein('bild', 'Der Schrank von hinten',
+                       ['datei: bild-schrank', 'Die Anschluesse liegen links.']);
+  assert.ok(h.includes('data-wiki-bild="bild-schrank"'), h);
+  assert.ok(!/src=/.test(h), 'die Adresse steht schon im HTML: ' + h);
+  assert.ok(h.includes('<figcaption>Der Schrank von hinten</figcaption>'), h);
+  assert.ok(h.includes('Die Anschluesse liegen links.'), h);
+});
+pruefe('Ein Bild ohne Datei sagt das, statt leer zu bleiben', () => {
+  const h = edBaustein('bild', 'Ohne alles', []);
+  assert.ok(h.includes('Bild-Baustein ohne Datei'), h);
+  assert.ok(!h.includes('data-wiki-bild'), h);
+});
+pruefe('Verweise werden Knoepfe, keine Adressen', () => {
+  /* Eine Seite im Rahmen darf nicht selbst navigieren - sie bittet die
+     Huelle. Ein href waere ein Ausbruch aus genau dieser Regel. */
+  const h = edBaustein('verweise', 'Weiterlesen',
+                       ['netzwerk-grundlagen | Netzwerk-Grundlagen',
+                        'drucker-einrichten | Drucker einrichten']);
+  assert.ok(!/href=/.test(h), 'da steht ein href: ' + h);
+  assert.equal((h.match(/class="verweis"/g) || []).length, 2);
+  assert.ok(h.includes('data-slug="netzwerk-grundlagen"'), h);
+  assert.ok(h.includes('>Netzwerk-Grundlagen</button>'), h);
+});
+pruefe('Eine erfundene Kennung im Verweis wird entschaerft', () => {
+  /* Was keine Kennung sein kann, darf auch keine werden. */
+  const h = edBaustein('verweise', '', ['../../etc/passwd | Boese']);
+  assert.ok(!h.includes('..'), h);
+  assert.ok(h.includes('data-slug="etcpasswd"'), h);
+});
+pruefe('Die Checkliste zaehlt von Hand nachgerechnet', () => {
+  const h = edBaustein('checkliste', 'Vor dem Losfahren',
+                       ['Ladekabel dabei', 'Reifendruck geprueft',
+                        '', 'Papiere dabei | Gruene Mappe']);
+  /* Drei nicht leere Zeilen - die leere zaehlt nicht mit. */
+  assert.equal((h.match(/type="checkbox"/g) || []).length, 3);
+  assert.ok(h.includes('<span class="bk-stand-zahl">0</span> von 3'), h);
+  assert.ok(h.includes('Gruene Mappe'), h);
+  assert.ok(h.includes('nichts davon wird gespeichert'),
+            'der Leser erfaehrt nicht, dass die Haken nirgends landen');
+});
+pruefe('Die neuen Bausteine ueberstehen den Rundlauf', () => {
+  const markup = [
+    ':::bild Der Schrank\ndatei: bild-schrank\nVon hinten.\n:::',
+    ':::verweise Weiterlesen\nnetzwerk-grundlagen | Netzwerke\n:::',
+    ':::checkliste Vorher\nEins\nZwei | dazu\n:::'
+  ].join('\n\n');
+  const bloecke = edMarkupZuBloecken(markup);
+  assert.deepEqual(bloecke.map(b => b.art), ['bild', 'verweise', 'checkliste']);
+  assert.equal(bloecke[0].kennung, 'bild-schrank');
+  assert.equal(bloecke[0].titel, 'Der Schrank');
+  assert.equal(bloecke[0].hinweis, 'Von hinten.');
+  assert.deepEqual(bloecke[1].zeilen, [['netzwerk-grundlagen', 'Netzwerke']]);
+  assert.deepEqual(bloecke[2].zeilen, [['Eins', ''], ['Zwei', 'dazu']]);
+  /* Und wieder zurueck: derselbe Text, Zeichen fuer Zeichen. */
+  assert.equal(edBloeckeZuMarkup(bloecke), markup);
+});
+pruefe('Ein Bild wird beim Speichern als Anhang genannt', () => {
+  const markup = ':::bild Der Schrank\ndatei: bild-schrank\n:::';
+  const bloecke = edMarkupZuBloecken(markup);
+  bloecke[0].daten64 = 'iVBORw0KGgo=';
+  const html = edSeiteBauen({slug:'probe', titel:'Probe', kurz:'', pfad:'Technik',
+    gruppen:'', abschnitte:[{anker:'a', titel:'A', stichworte:'', gruppe:'',
+    markup:markup, bloecke:bloecke}]});
+  assert.ok(html.includes('id="bild-schrank" data-wiki-anhang=""'), html.slice(0, 400));
+  assert.ok(html.includes('iVBORw0KGgo='), 'die Daten fehlen');
+});
+pruefe('Ein Bild ohne Datei kommt nicht durch die Pruefung', () => {
+  const markup = ':::bild Der Schrank\ndatei: bild-schrank\n:::';
+  ZUSTAND.editor = {neu:true, slug:'probe', titel:'Probe', kurz:'',
+    pfad:'Technik', gruppen:'', abschnitte:[{anker:'a', titel:'A',
+    stichworte:'', gruppe:'', markup:markup,
+    bloecke:edMarkupZuBloecken(markup)}]};
+  const m = edPruefbar(true);
+  assert.equal(m.length, 1, m.join(' / '));
+  assert.ok(/Bild-Baustein 1/.test(m[0]), m[0]);
+});
+
+pruefe('Jede Gruppe der Auswahl hat mindestens einen Baustein', () => {
+  /* Eine leere Ueberschrift in der Auswahl waere ein Versprechen ohne
+     Inhalt. */
+  for(const [g, name] of ED_GRUPPEN){
+    const drin = Object.values(ED_FORM).filter(f => f.gruppe === g);
+    assert.ok(drin.length, 'Gruppe "' + name + '" ist leer');
+  }
+});
+
+/* ------------------------------------------- Sicherheit: jede Blockart */
+function tagsUndAttribute(html){
+  /* Ein winziger Abtaster: er findet nur ECHTE Marken. Geschuetzter Text
+     traegt &lt; und wird darum gar nicht erst gefunden - genau das ist die
+     Trennung, auf die es ankommt. Ein Test, der stattdessen nach dem Wort
+     "onerror" sucht, faellt auf harmlosen Text herein: &lt;img src=x
+     onerror=... ist Text und keine Marke. */
+  const marken = [];
+  const attribute = [];
+  const re = /<([a-zA-Z][\w-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
+  let m;
+  while((m = re.exec(html))){
+    marken.push(m[1].toLowerCase());
+    const ra = /([a-zA-Z_:][-\w:.]*)\s*(?:=\s*("[^"]*"|'[^']*'|[^\s>]*))?/g;
+    let a;
+    while((a = ra.exec(m[2]))){
+      attribute.push([a[1].toLowerCase(),
+                      (a[2] || '').replace(/^["']|["']$/g, '')]);
+    }
+  }
+  return {marken, attribute};
+}
+pruefe('Kein Baustein laesst getippten Text zu HTML werden', () => {
+  /* Der Reihe nach durch ALLE Bausteine, mit demselben boesartigen Text in
+     Titel und Zeilen. Geprueft wird nicht, wie das Ergebnis aussieht,
+     sondern dass daraus nirgends Auszeichnung wird. Ein neuer Baustein,
+     der das Schuetzen vergisst, faellt hier auf und nicht beim Leser. */
+  const boese = '"><img src=x onerror=alert(1)><script>alert(2)</scr' + 'ipt>';
+  const fuer = new Set();
+  for(const art of Object.keys(ED_FORM)){
+    const spalten = (ED_FORM[art].spalten || ['Inhalt']).map(() => boese);
+    const zeilen = art === 'pdf' || art === 'bild'
+      ? ['datei: ' + boese, spalten.join(' | ')]
+      : art === 'rechner'
+        ? [boese + '=' + boese, '=' + boese, 'Einheit: ' + boese, boese]
+        : [spalten.join(' | ')];
+    const h = edBaustein(art, boese, zeilen);
+    fuer.add(art);
+    const {marken, attribute} = tagsUndAttribute(h);
+    assert.ok(!marken.includes('script'), art + ': ein script-Element');
+    for(const [name, wert] of attribute){
+      assert.ok(!/^on/.test(name),
+                art + ': Attribut "' + name + '" - da haengt Verhalten dran');
+      if(name === 'src' || name === 'href')
+        assert.ok(!/^\s*javascript:/i.test(wert),
+                  art + ': ' + name + '="' + wert + '"');
+    }
+    /* Ein img gibt es nur im Bild-Baustein, und dort ohne Adresse im HTML. */
+    if(marken.includes('img'))
+      assert.equal(art, 'bild', art + ': ein img-Element');
+    /* Gegenprobe, damit der Test nicht nur bestaetigt, dass ueberhaupt
+       nichts drinsteht: der geschuetzte Text muss da sein. */
+    assert.ok(h.includes('&lt;') || h.includes('&quot;') ||
+              /Baustein ohne Datei/.test(h),
+              art + ': vom Text ist gar nichts uebrig - ' + h.slice(0, 120));
+  }
+  assert.equal(fuer.size, Object.keys(ED_FORM).length);
+});
+pruefe('Eine ganze Seite mit boesem Text bleibt harmlos', () => {
+  /* Derselbe Text durch den ganzen Erzeuger - Titel, Satz, Pfad, Gruppen,
+     Anker, Stichworte und Markup. Der Meta-Block ist JSON und muss die
+     Zeichen ebenfalls halten. */
+  const boese = '</scr' + 'ipt><img src=x onerror=alert(1)>';
+  const html = edSeiteBauen({
+    slug: 'probe', titel: boese, kurz: boese, pfad: boese, gruppen: boese,
+    abschnitte: [{anker: 'a', titel: boese, stichworte: boese,
+                  gruppe: boese, markup: boese}]
+  });
+  const koerper = html.slice(html.indexOf('<body'),
+                             html.indexOf('<' + 'script>'));
+  const {marken, attribute} = tagsUndAttribute(koerper);
+  assert.ok(!marken.includes('script'), 'ein script-Element im Koerper');
+  assert.ok(!marken.includes('img'), 'ein img-Element im Koerper');
+  for(const [name, wert] of attribute){
+    assert.ok(!/^on/.test(name), 'Attribut "' + name + '" im Koerper');
+    if(name === 'src' || name === 'href')
+      assert.ok(!/^\s*javascript:/i.test(wert), name + '="' + wert + '"');
+  }
+  /* Der Meta-Block darf sich nicht selbst aufbrechen. Geprueft wird das
+     so, wie ein Browser es sieht: alles bis zum ERSTEN Skript-Ende ist der
+     Block - und das muss lesbares JSON sein, aus dem der Titel Zeichen fuer
+     Zeichen zurueckkommt.
+     (Die erste Fassung dieses Tests suchte nach "</scr"+"ipt>" im Bereich
+     bis zum <style> - darin steht aber auch das richtige Ende des Blocks.
+     Der Test war damit immer rot, auch bei harmlosen Titeln.) */
+  const auf = html.indexOf('id="wiki-meta"');
+  const anfang = html.indexOf('>', auf) + 1;
+  const ende = html.indexOf('</scr' + 'ipt>', anfang);
+  const roh = html.slice(anfang, ende);
+  let gelesen = null;
+  try { gelesen = JSON.parse(roh); } catch(err){
+    assert.fail('der Meta-Block ist kein lesbares JSON: ' + err.message);
+  }
+  assert.equal(gelesen.titel, boese,
+               'der Titel kommt nicht unveraendert zurueck');
+  assert.equal(gelesen.kurz, boese);
+});
+
+/* ------------------------------------------- Die Huelle als Ganzes */
+pruefe('Die Huelle bricht ihren eigenen Skriptblock nicht auf', () => {
+  /* Ein Browser beendet ein <script> beim ERSTEN Skript-Ende - auch wenn
+     es in einer Zeichenkette oder in einem Kommentar steht. Passiert das,
+     ist der Rest der Datei kein Programm mehr, sondern Text: die Huelle
+     laedt, zeigt aber nichts und kann nichts.
+     Gemessen ist das einmal passiert, an einem Kommentar, der die
+     Zeichenfolge als Beispiel nannte (N-33). Die Funktionstests liefen
+     dabei alle gruen - sie schneiden sich ihre Funktionen mit regulaeren
+     Ausdruecken heraus und sehen die Datei nie als Ganzes.
+
+     Hier wird genau das geprueft, was der Browser tut: von der ersten
+     oeffnenden Marke bis zum ersten Ende schneiden, und das Ergebnis
+     uebersetzen lassen. */
+  const auf = quelle.indexOf('<' + 'script>');
+  assert.ok(auf > 0, 'kein Skriptblock in index.html gefunden');
+  const anfang = auf + ('<' + 'script>').length;
+  const ende = quelle.indexOf('<' + '/script>', anfang);
+  assert.ok(ende > anfang, 'der Skriptblock wird nie geschlossen');
+  const koerper = quelle.slice(anfang, ende);
+  /* new Function wirft bei einem abgeschnittenen Programm - genau das
+     wollen wir wissen. Ausgefuehrt wird nichts. */
+  try {
+    new Function(koerper);
+  } catch(err){
+    assert.fail('was der Browser vom Skript sieht, ist kein Programm: ' +
+                err.message);
+  }
+  /* Und die Gegenprobe: hinter diesem Ende darf nur noch der Abspann der
+     Seite stehen, kein weiterer Code. */
+  const rest = quelle.slice(ende + ('<' + '/script>').length).trim();
+  assert.ok(rest.length < 200,
+            'hinter dem Skriptende stehen noch ' + rest.length + ' Zeichen');
 });
 
 console.log('');

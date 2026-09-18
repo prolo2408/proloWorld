@@ -259,6 +259,76 @@ Abschnitt:
 Eine Gruppe ist außerdem **durchsuchbar**: „Adressierung" findet die Seite und
 springt an den Abschnitt.
 
+## Genauer suchen: Zeichen im Suchfeld
+
+Fünf Zeichen haben im Suchfeld eine Bedeutung. Sie stehen auch in der
+Trefferliste, unter *Genauer suchen*, wenn nichts gefunden wurde:
+
+| Eingabe | Wirkung |
+|---|---|
+| `netz kabel` | beide Wörter, Wortanfang genügt (`netz` findet `Netzwerkkabel`) |
+| `"rotes kabel"` | genau diese Folge |
+| `netzwerk -tcp` | `netzwerk`, aber keine Stelle, in der `tcp` steht |
+| `bereich:Technik` | nur Seiten unter diesem Pfad, von oben gezählt |
+| `bereich:"Technik / Geräte"` | auch mehrstufig |
+| `gruppe:wiki-technik` | nur Seiten mit dieser Freigabe |
+| `seite:drucker-einrichten` | nur in dieser einen Seite |
+
+Ein `feld:wert` mit einem Feld, das es nicht gibt (`farbe:rot`), bleibt ein
+gewöhnliches Wort — sonst verschwände ein Doppelpunkt aus dem Text
+stillschweigend aus der Suche.
+
+Steht nur eine Einschränkung da und kein Wort (`bereich:Buero`), ist die Frage
+„was liegt da überhaupt" — und die Antwort sind die Seiten dieses Bereichs.
+Was die Suche als Einschränkung gelesen hat, steht über der Trefferliste und
+lässt sich dort mit einem Klick wieder aufheben.
+
+Zwei Dinge, die dabei wichtig waren:
+
+- **Die Anführungszeichen gelten auch im zweiten Durchgang.** Die Suche
+  probiert erst „alle Wörter", dann „ein Wort genügt". Der zweite Durchgang
+  wird neu gebaut und nicht durch Textersetzung aus dem ersten — sonst würde
+  aus `"rotes kabel" AND "kabel"*` ein `OR` mitten in der Phrase.
+- **Ausgeschlossene Wörter werden am Ende noch einmal gegen den Inhalt der
+  Fundstelle geprüft.** Die Teilwortsuche (das zweite Netz gegen Komposita
+  und Tippfehler) kennt die Ausschlüsse nicht; gemessen holte sie bei
+  `netzwerk -tcp` genau die drei Zeilen zurück, die gerade herausgenommen
+  worden waren.
+
+## In einer einzelnen Seite suchen
+
+`Strg+F` in einer offenen Seite (oder der Knopf **Finden** im Kopf) öffnet eine
+Leiste über der Seite:
+
+```
+In dieser Seite  [ tcp          ]  3 von 17 · TCP und UDP   ↑  ↓  ✕
+```
+
+`Eingabe` springt zur nächsten Stelle, `Umschalt+Eingabe` zur vorigen, `Esc`
+schließt und nimmt die Markierungen weg. Die Zahl hinter dem Punkt sagt, in
+welchem **Abschnitt** man gerade steht — bei einer langen Seite ist das die
+eigentliche Auskunft.
+
+Wie das geht, ist nicht selbstverständlich: Die Seite läuft in einem
+abgeschotteten Rahmen mit **eigenem, opakem Origin**. Die Hülle kann ihren Text
+nicht lesen und nicht durchsuchen. Also fragt sie:
+
+| Richtung | Nachricht | Inhalt |
+|---|---|---|
+| Hülle → Seite | `wiki-finden` | `begriff`, `nr` (welche Stelle) |
+| Seite → Hülle | `wiki-funde` | `anzahl`, `nr`, `anker`, `abschnitt` |
+
+Markieren, Aufklappen und Hinscrollen macht die Seite selbst — sie ist die
+einzige, die ihren Text kennt. Steckt eine Fundstelle in einem **zugeklappten
+Klapptext**, klappt die Seite ihn auf; sonst hätte die Markierung kein Layout
+und der Sprung landete irgendwo.
+
+**Seiten, die vor dieser Fassung gespeichert wurden**, kennen `wiki-finden`
+nicht. Sie markieren die Stellen trotzdem (das gab es vorher schon), können
+aber nicht mitzählen. Die Leiste sagt das dann in einem Satz. Ein Durchlauf
+über *Bearbeiten → Speichern* bringt die Seite auf den Stand; für die Seiten im
+Repository macht das `node pflichtteil-nachziehen.mjs --schreiben`.
+
 ## Was die Suche findet
 
 Der Index hat fünf Quellen, und die Reihenfolge ist Absicht:
@@ -308,11 +378,26 @@ nicht selbst anfasst.
 
 ## Wer darf was
 
-| Wer | Darf |
-|---|---|
-| jeder Angemeldete | Seiten anlegen; eigene Seiten ändern, zurücksetzen, löschen |
-| jeder Angemeldete | Freigabe setzen — aber nur auf **eigene** Gruppen |
-| Verwalter | alle Seiten sehen und ändern; Freigabe je Seite setzen; Themenzweige freigeben; Index neu bauen |
+| Wer | Darf | Gruppe |
+|---|---|---|
+| jeder Angemeldete | lesen, was für ihn freigegeben ist; suchen; Merkzettel setzen | — |
+| **Editor** | Seiten anlegen; eigene Seiten ändern, zurücksetzen, löschen; Freigabe setzen, aber nur auf **eigene** Gruppen | `wiki-editor` |
+| **Verwalter** | alle Seiten sehen und ändern; Freigabe je Seite setzen; Themenzweige freigeben; Index neu bauen | `wiki-admin` |
+
+Ein Verwalter ist immer auch Editor. Die Gruppennamen sind einstellbar:
+
+```yaml
+environment:
+  WIKI_EDITOR_GRUPPE: wiki-editor     # Vorgabe
+  WIKI_ADMIN_GRUPPE: wiki-admin       # Vorgabe
+  WIKI_GRUPPEN_PRAEFIX: wiki          # Vorgabe
+```
+
+**Das Wiki beachtet nur Gruppen, die mit `wiki` anfangen.** In Authentik hängen
+an einem Nutzer die Gruppen aller Werkzeuge; `vertrieb` oder `bordbuch-admin`
+entscheiden hier nichts. Eine Freigabe auf eine Gruppe ohne dieses Präfix wird
+abgewiesen — sie würde die Seite allen wegnehmen und niemandem geben. In den
+Einstellungen steht, wie viele Gruppen aussortiert wurden.
 
 „Eigene Seite" heißt: die, die man **angelegt** hat — nicht die, die man
 zuletzt gespeichert hat. Der Unterschied ist wichtig: Wenn du als Verwalter
@@ -374,6 +459,23 @@ Zeile
 | `:::gegenueber` | zwei bis vier Seiten nebeneinander | `Titel \| Inhalt` |
 | `:::begriffe` | Wort und Erklärung als Tabelle | `Wort \| Erklärung` |
 | `:::klapp` | Überschrift, die man aufklappt | normaler Text |
+| `:::pdf` | Knöpfe, die ein PDF im Wiki öffnen | `datei: kennung`, dann `Beschriftung \| Seite` |
+| `:::bild` | Bild mit Bildunterschrift | `datei: kennung`, dann die Erklärung |
+| `:::verweise` | Knöpfe zu anderen Wiki-Seiten | `kennung \| Beschriftung` |
+| `:::checkliste` | Punkte zum Abhaken, mit Zähler | `Punkt \| Zusatz` |
+
+**Bild und PDF** laufen gleich: Datei im Editor auswählen, beim Speichern wird
+sie ein Anhang der Seite. Im HTML steht nur die **Kennung** — die Adresse setzt
+der Pflichtteil beim Laden aus der Marke `data-wiki-anhang`. So übersteht sie
+eine Umbenennung des Anhangs (`N-18`), und ein Baustein ohne Datei sagt das,
+statt leer zu bleiben (`N-22`). Ohne Datei lässt der Editor nicht speichern.
+
+**Verweise** werden Knöpfe, keine Adressen: Eine Seite im Rahmen darf nicht
+selbst navigieren — sie bittet die Hülle, genau wie `[[kennung]]` im Text.
+
+**Die Haken einer Checkliste** leben nur im Browser des Lesers und werden
+nirgends gespeichert. Das steht auch unter der Liste, damit niemand eine
+gemeinsame Liste darin sieht.
 
 Der **Rechner** nimmt die Feldnamen aus dem ersten Wort jeder Feldzeile. Aus
 
@@ -414,13 +516,53 @@ erreichbar.
 
 ---
 
+# Die Verwaltung
+
+Nur für Verwalter (`wiki-admin`). Vier Bereiche:
+
+**Seiten** — die Liste aller Seiten. Sie ist auf hunderte Zeilen ausgelegt:
+
+- **Suchen** in Titel, Kennung, Pfad, Freigabe und Urheber — alles, was in der
+  Zeile steht.
+- **Filtern** nach Bereich, Freigabe und Prüfung. Jede Auswahl nennt ihre
+  Anzahl, also sieht man vorher, wie viel kommt.
+- **Sortieren** über jede Spaltenüberschrift, zweiter Klick dreht die Richtung.
+- **Blättern** in Fünfzigern, mit „51–100 von 305".
+- **Mehrfachauswahl**: Häkchen setzen, dann *Freigabe setzen* oder *Löschen*
+  für alle auf einmal. Beim Löschen muss das Wort `löschen` abgetippt werden —
+  bei mehreren Seiten ist ein Fehlklick nicht mit einem Klick zu heilen.
+
+Gefiltert und sortiert wird im Browser, nicht am Server: `/api/verwaltung`
+liefert den Bestand einmal (gemessen mit 305 Seiten: 90 kB in 8 ms), danach ist
+jeder Handgriff ohne Netz. Das trägt weit; bei einem Bestand, der darüber
+hinauswächst, gehört das Blättern an den Server.
+
+**Bereiche** — jeder Pfad, der vorkommt, mit der Anzahl der Seiten darunter und
+der Freigabe, die auf ihm liegt. Eine Freigabe auf einem Bereich gilt für alles
+darunter und lässt sich hier direkt ändern.
+
+**Gruppen** — welche Gruppe wie viele Seiten und wie viele Bereiche freigibt,
+und auf welchen. Dazu die Zahl der Seiten **ohne** Freigabe — der Normalfall,
+aber einer, den man kennen sollte.
+
+**Wartung** — der Bestand in Zahlen (Seiten, Abschnitte, Anhänge, Zeilen im
+Index, Fassungen) und der Knopf **Index neu bauen**. Den gab es lange nur als
+Schnittstelle ohne Knopf (`N-29`); gebraucht wird er nach einer Sicherung, nach
+einem Abbruch, oder wenn die Suche Stellen nicht findet, die auf einer Seite
+stehen. Verwaiste Indexzeilen (`N-16`) werden hier gezählt und beim Neuaufbau
+zuerst weggeräumt.
+
 # Einspielen
 
 Verwaltung → Datei hineinziehen. Was dann passiert:
 
 1. **Geprüft.** Fehler verhindern die Übernahme und stehen im Klartext da:
-   fehlender Meta-Block, doppelte Anker, externe Verweise. Hinweise
+   fehlender Meta-Block, doppelte Anker, externe Verweise, ein Titel über 120
+   Zeichen — und seit `N-23` auch ein `<body>` ohne sichtbaren Text. Hinweise
    verhindern nichts, werden aber an der Seite vermerkt.
+   Ist der Meta-Block lesbar, steht neben den Fehlern **In den Editor laden**:
+   Der Editor baut Gestaltung, Pflichtteil und Farben selbst neu und räumt
+   damit genau diese Fehler auf.
 2. **Anhänge ausgelagert.** Base64-Blöcke über 200 kB werden Dateien. Bei
    PDFs wird zusätzlich der Text seitenweise indexiert — ein Suchtreffer
    nennt dann die Seitenzahl im Dokument.
@@ -430,6 +572,84 @@ Verwaltung → Datei hineinziehen. Was dann passiert:
 
 Gleiche `slug` noch einmal einspielen heißt: Seite ersetzen. Neue `slug`
 heißt: neue Seite. Mehr Regeln gibt es nicht.
+
+## Womit eine neue Seite anfängt
+
+*Neue Seite* führt nicht mehr direkt in ein leeres Formular, sondern stellt
+eine Frage. Sieben Wege:
+
+| Weg | Was dabei entsteht |
+|---|---|
+| Leere Seite | ein Abschnitt, ein Textfeld |
+| Anleitung | „Was du brauchst / So geht es / Wenn es klemmt", mit Schrittebaustein, Warnkasten und Klapptext |
+| Übersicht und Vergleich | Gegenüberstellung und Kennzahlen |
+| Zum Nachschlagen | Begriffsliste und eine Tabelle |
+| Rechnen und Zahlen | ein Rechner mit Feldern, Formel und Einheit |
+| Ich habe eine HTML-Datei | öffnet die Dateiablage |
+| Eine KI schreiben lassen | öffnet den Prompt (siehe unten) |
+
+Die Vorlagen sind ein **Gerüst**, kein Beispieltext: Abschnitte mit Titel und
+Gruppe, die passenden Bausteine, und in jedem Feld ein Platzhalter, der sagt,
+was dort hingehört. Titel und Pfad bringt keine Vorlage mit — das ist die
+Aussage des Menschen.
+
+Der Grund für den Umbau: Die beiden anderen Wege — HTML-Datei und KI-Prompt —
+standen vorher als zugeklappte Kästen **unter** dem Formular. Wer sie nicht
+kannte, fand sie nicht.
+
+**Entwürfe gehen nicht mehr verloren.** Was im Editor steht, merkt sich der
+Browser (nur dort, nichts davon geht an den Server). Kommt man später wieder
+auf *Neue Seite*, steht der Entwurf oben mit Titel, Alter und Anzahl der
+Abschnitte und lässt sich weiterschreiben oder verwerfen. Nach dem Speichern
+und nach einem ausdrücklichen *Abbrechen* wird er gelöscht; nach zwei Wochen
+vergisst der Browser ihn von selbst.
+
+## Eine Seite von einer KI schreiben lassen
+
+Im Editor unter **Eine KI schreiben lassen** steht ein Prompt zum Kopieren.
+Thema eintippen, *Prompt kopieren*, in die KI einfügen — sie antwortet mit
+einer HTML-Datei.
+
+Der Prompt verlangt **keine fertige Seite**, sondern einen Entwurf: Meta-Block
+mit Titel, Pfad, Abschnitten und deren Markup, und ein leerer Körper. Das ist
+Absicht:
+
+- Gestaltung, Pflichtteil, Farbtokens und CSP-Regeln macht der **Editor**. Sie
+  müssen stimmen, und eine KI, die 300 Zeilen CSS nachbaut, trifft sie
+  irgendwann nicht mehr.
+- Ein Meta-Block ist kurz genug, um richtig zu sein. Der Prompt ist deshalb
+  rund 5,8 kB statt 40.
+
+Der Weg danach, vier Klicks:
+
+1. Editor → **Ich habe schon eine HTML-Datei** → Datei wählen.
+2. Die Prüfung sagt *Nicht übernehmbar* — richtig, der Entwurf ist noch keine
+   Seite (`N-23`). Darunter steht **In den Editor laden**.
+3. Der Editor ist gefüllt: Titel, Pfad, Kennung, Satz, alle Abschnitte mit
+   Gruppen und Stichworten, das Markup als Blöcke mit lebender Vorschau.
+4. **Speichern.** Erst jetzt entsteht die richtige Seite.
+
+Ein PDF kann die KI nicht mitschicken. Der Prompt lässt sie deshalb nur den
+Baustein mit den Sprungzielen schreiben:
+
+```
+:::pdf Handbuch des Herstellers
+datei: handbuch
+Einrichtung | 12
+Fehlersuche | 88
+:::
+```
+
+Die Datei wählst du danach im PDF-Baustein mit einem Klick aus. Ohne Datei
+lässt der Editor nicht speichern (`N-22`) — ein PDF-Knopf ohne PDF wäre ein
+Klick ins Leere.
+
+Zwei Regeln, die der Prompt mitgibt und die auch für Seiten von Hand gelten:
+
+- `werkzeug` muss genau `editor-1` sein. Steht dort etwas anderes, hält der
+  Editor die Datei für eine fremde Seite und wirft ihr Markup weg.
+- Abschnitte derselben Gruppe müssen **direkt aufeinander folgen**, sonst
+  steht die Überschrift links zweimal (`N-24`).
 
 ## Fertige Seiten im Repository
 
@@ -447,9 +667,8 @@ Repository nehmen.
 
 ## Was noch fehlt
 
-- Der Skill, mit dem Claude Seiten nach diesem Schema erzeugt. Bis dahin
-  reicht es, `test-seite.html` und diesen Abschnitt mitzugeben. Für Seiten
-  von Hand ist der Editor der kürzere Weg.
+- Ein Skill, der ganze Seitenreihen auf einmal erzeugt. Fuer eine einzelne
+  Seite gibt es jetzt den Prompt im Editor (siehe oben).
 - Weitere Bausteine: Bild mit Beschriftung, Ablaufdiagramm, Zeitleiste,
   Tabelle mit Summenzeile. Der Aufbau (`:::art`) trägt beliebig viele; jeder
   neue Baustein ist eine Funktion in `edBaustein()` plus ein Eintrag in

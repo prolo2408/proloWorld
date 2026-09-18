@@ -105,7 +105,9 @@ class PruefungFaengtDasOffensichtliche(unittest.TestCase):
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script type="application/json" id="wiki-meta">%s</script>
 <style>:focus-visible{outline:2px solid #000} @media (prefers-reduced-motion:reduce){*{transition:none}}</style>
-</head><body><section id="a"><h2>A</h2><p>Text</p></section></body></html>"""
+</head><body><section id="a"><h2>A</h2>
+<p>Ein Absatz mit genug Text, damit die Seite eine Seite ist und nicht nur ein
+Meta-Block mit leerem Koerper (N-23).</p></section></body></html>"""
 
     def bauen(self, **aender):
         meta = {"slug": "probe", "titel": "Probe", "pfad": ["Technik"],
@@ -172,6 +174,89 @@ class PruefungFaengtDasOffensichtliche(unittest.TestCase):
             {"anker": "fehlt-im-html", "titel": "A", "text": "x"}])
         self.assertEqual(fehler, [])
         self.assertTrue(any("fehlt-im-html" in w for w in warnungen))
+
+
+class EineSeiteMussSichtbarenInhaltHaben(unittest.TestCase):
+    """N-23: Ein voller Meta-Block mit leerem <body> ging fehlerfrei durch.
+
+    Die Seite landete im Themenbaum, die Suche fand ihre Abschnitte, und der
+    Leser bekam eine weisse Flaeche. Gemessen wurde das an einer Datei mit
+    3703 Byte und 0 Zeichen sichtbarem Text.
+    """
+
+    META = {"slug": "probe", "titel": "Probe", "pfad": ["Technik"],
+            "gruppen": [], "stand": "2026-09-17",
+            "abschnitte": [{"anker": "a", "titel": "A", "text": "Text"}]}
+
+    def bauen(self, koerper):
+        html = ('<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">'
+                '<script type="application/json" id="wiki-meta">'
+                + json.dumps(self.META) + '</script></head><body>'
+                + koerper + '</body></html>')
+        return server.regeln_pruefen(html, dict(self.META))
+
+    def test_leerer_koerper_ist_ein_fehler(self):
+        fehler, _ = self.bauen("\n")
+        self.assertTrue(any("sichtbarer Text" in f for f in fehler), fehler)
+        self.assertTrue(any("(0 Zeichen)" in f for f in fehler), fehler)
+
+    def test_der_hinweis_nennt_den_weg_ueber_den_editor(self):
+        # Wer eine solche Datei einspielt, hat meist einen Entwurf in der
+        # Hand. Die Absage muss sagen, was dann zu tun ist.
+        fehler, _ = self.bauen("")
+        self.assertTrue(any("in den Editor" in f for f in fehler), fehler)
+
+    def test_neununddreissig_zeichen_sind_zu_wenig(self):
+        # Die Grenze steht bei 40. 39 Zeichen liegen darunter - von Hand
+        # gezaehlt, indem genau 39 Zeichen gesetzt werden.
+        fehler, _ = self.bauen("<p>" + "x" * 39 + "</p>")
+        self.assertTrue(any("(39 Zeichen)" in f for f in fehler), fehler)
+
+    def test_vierzig_zeichen_reichen(self):
+        fehler, _ = self.bauen("<p>" + "x" * 40 + "</p>")
+        self.assertEqual(
+            [f for f in fehler if "sichtbarer Text" in f], [],
+            "40 Zeichen sind die Grenze und muessen durchgehen")
+
+    def test_marken_und_kommentare_sind_kein_inhalt(self):
+        # Ein Koerper voller Auszeichnung ohne ein Wort Text ist leer.
+        fehler, _ = self.bauen(
+            '<div class="a"><span></span><!-- ein langer Kommentar, der '
+            'nach Inhalt aussieht, aber keiner ist --></div>')
+        self.assertTrue(any("sichtbarer Text" in f for f in fehler), fehler)
+
+    def test_eine_seite_die_sich_selbst_baut_wird_nicht_beanstandet(self):
+        # Seiten, deren Inhalt erst im Browser entsteht, sind erlaubt
+        # (N-11). Lieber keine Beanstandung als eine falsche.
+        fehler, _ = self.bauen(
+            '<div id="ziel"></div><script>'
+            'document.getElementById("ziel").textContent = "erst hier";'
+            '</script>')
+        self.assertEqual([f for f in fehler if "sichtbarer Text" in f], [],
+                         "eine Seite mit eigenem Aufbaucode wurde beanstandet")
+
+    def test_der_meta_block_selbst_zaehlt_nicht_als_aufbaucode(self):
+        # Sonst wuerde die Ausnahme jede Datei decken - der Meta-Block ist
+        # in jeder drin.
+        fehler, _ = self.bauen(
+            '<script type="application/json" id="noch-einer">{"a":1}</script>')
+        self.assertTrue(any("sichtbarer Text" in f for f in fehler), fehler)
+
+    def test_ein_anhang_zaehlt_nicht_als_aufbaucode(self):
+        # Ein PDF liegt als <script type="text/plain"> in der Seite. Das ist
+        # eine Datei, kein Code.
+        fehler, _ = self.bauen(
+            '<script type="text/plain" id="anhang-x" data-wiki-anhang="">'
+            'JVBERi0xLjQK</script>')
+        self.assertTrue(any("sichtbarer Text" in f for f in fehler), fehler)
+
+    def test_ohne_body_wird_die_ganze_datei_angesehen(self):
+        # Eine Datei ohne <body> darf nicht durchgewinkt werden, nur weil das
+        # Muster nicht greift.
+        html = ('<script type="application/json" id="wiki-meta">'
+                + json.dumps(self.META) + '</script>')
+        fehler, _ = server.regeln_pruefen(html, dict(self.META))
+        self.assertTrue(any("sichtbarer Text" in f for f in fehler), fehler)
 
 
 if __name__ == "__main__":

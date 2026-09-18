@@ -34,12 +34,20 @@ from urllib.parse import unquote, urlparse, parse_qs
 # hatte VERSION, --version und /api/version, das Wiki gar nichts. Gelesen von
 # --version, /api/version und der image:-Zeile im docker-compose.yml; die
 # drei muessen zusammenpassen.
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 
 DATEN = os.environ.get("WIKI_DATEN", "/daten")
 SEITEN = os.environ.get("WIKI_SEITEN", "/seiten")
 PORT = int(os.environ.get("WIKI_PORT", "8080"))
 ADMIN_GRUPPE = os.environ.get("WIKI_ADMIN_GRUPPE", "wiki-admin")
+# Wer schreiben darf: Seiten anlegen und die eigenen aendern. Lesen darf jeder
+# Angemeldete (im Rahmen der Freigaben), verwalten nur ADMIN_GRUPPE.
+EDITOR_GRUPPE = os.environ.get("WIKI_EDITOR_GRUPPE", "wiki-editor")
+# Das Wiki sieht nur Gruppen an, die so anfangen. In Authentik haengen an einem
+# Nutzer die Gruppen aller Tools; "vertrieb" oder "bordbuch-admin" haben hier
+# nichts zu entscheiden, und eine Freigabe auf so eine Gruppe waere ein stiller
+# Fehler - sie wuerde niemandem etwas geben.
+GRUPPEN_PRAEFIX = os.environ.get("WIKI_GRUPPEN_PRAEFIX", "wiki")
 # Notnagel fuer den allerersten Start, solange die Gruppe in Authentik fehlt.
 ADMIN_NUTZER = {n.strip() for n in os.environ.get("WIKI_ADMIN_NUTZER", "").split(",") if n.strip()}
 # Ab dieser Groesse wird ein eingebetteter Base64-Block zum Anhang.
@@ -314,14 +322,27 @@ def einstellung_setzen(kennung, schluessel, wert):
 
 # ---------------------------------------------------------------- Anmeldung
 
+def wiki_gruppen(gruppen):
+    """Nur die Gruppen, die dieses Wiki angehen."""
+    return {g for g in gruppen if g.startswith(GRUPPEN_PRAEFIX)}
+
+
 class Nutzer:
     def __init__(self, kennung, name, email, gruppen):
         self.kennung = kennung
         self.name = name or kennung
         self.email = email or ""
-        self.gruppen = set(gruppen)
+        alle = {g for g in gruppen if g}
+        self.gruppen = wiki_gruppen(alle)
+        # Was aussortiert wurde, bleibt zaehlbar: die Einstellungsseite sagt
+        # "3 Gruppen anderer Tools ignoriert", damit niemand raetselt, warum
+        # seine Gruppe hier nicht auftaucht.
+        self.gruppen_andere = sorted(alle - self.gruppen)
         self.gruppen_roh = ""
         self.ist_admin = (ADMIN_GRUPPE in self.gruppen) or (kennung in ADMIN_NUTZER)
+        # Verwalter duerfen alles, was ein Editor darf - sonst muesste man sich
+        # zwei Gruppen geben, um eine Seite anzulegen.
+        self.ist_editor = self.ist_admin or (EDITOR_GRUPPE in self.gruppen)
 
 
 def nutzer_aus_kopf(kopf):
@@ -415,6 +436,10 @@ GRENZE_TITEL = 120
 GRENZE_KURZ = 300
 GRENZE_PFADTEIL = 60
 GRENZE_STICHWORT = 60
+# Wie viel sichtbarer Text im Koerper mindestens stehen muss, damit eine Seite
+# als Seite gilt (N-23). Vierzig Zeichen sind eine halbe Zeile - darunter
+# bekommt der Leser nichts, egal wie voll der Meta-Block ist.
+GRENZE_SICHTBAR = 40
 
 SKRIPT_TEXT_GRENZE = 60000
 # Wie viel Text eine Seite von sich selbst melden darf. 200 000 Zeichen sind
@@ -436,10 +461,25 @@ def text_aus_skripten(html):
     Code aussieht (Klammern, Semikolon, Selektoren, Adressen), fliegt raus.
     Der Meta-Block bleibt aussen vor, der ist schon im Index.
     """
+    # Der Pflichtteil steht in JEDER Seite und ist Technik, kein Inhalt.
+    # Ohne diesen Schritt fand die Suche nach "dark", "light", "prefers",
+    # "section", "details" oder "warn" jeweils ALLE fuenf Seiten - sechs
+    # Woerter, die auf alles passen, sind das Gegenteil einer Suche (N-28).
+    # Erkannt wird der Block an seiner ersten Zeile; beide Schreibweisen,
+    # weil die zwei aeltesten Seiten noch "Shell" sagen.
+    html = re.sub(r"(?is)<script>\s*/\*\s*Pflichtteil jeder Wiki-Seite:"
+                  r"\s*auf die (?:Huelle|Shell) hoeren\.\s*\*/.*?</script>",
+                  " ", html)
     bloecke = re.findall(r"(?is)<script([^>]*)>(.*?)</script>", html)
     stuecke = []
     for attr, inhalt in bloecke:
         if "application/json" in attr.lower() or "wiki-meta" in attr.lower():
+            continue
+        # Ein Block, der ausdruecklich Technik ist und kein Inhalt. Damit
+        # kann eine von Hand gebaute Seite sagen: hier steht nichts zum
+        # Suchen. Der Pflichtteil braucht das nicht - der wird oben schon
+        # an seiner ersten Zeile erkannt.
+        if "data-wiki-technik" in attr.lower():
             continue
         for muster in (r"'((?:[^'\\\n]|\\.)*)'",
                        r'"((?:[^"\\\n]|\\.)*)"',
@@ -565,7 +605,7 @@ def anhaenge_ausgliedern(html, slug, schwelle=ANHANG_SCHWELLE_B):
     neu = re.sub(r"(?is)(<script\b[^>]*>)(.*?)</script>", script_ersetzen, html)
 
     def uri_ersetzen(m):
-        praefix, roh = m.group(1), m.group(2)
+        roh = m.group(2)
         if len(roh) < schwelle:
             return m.group(0)
         typ, endung = typ_erkennen(roh[:10])
@@ -575,10 +615,19 @@ def anhaenge_ausgliedern(html, slug, schwelle=ANHANG_SCHWELLE_B):
         except Exception:
             return m.group(0)
         gefunden.append({"name": name, "typ": typ, "daten": daten, "marke": ""})
-        return f'{praefix}anhaenge/{name}'
+        # Der GANZE Ausdruck wird ersetzt, nicht nur der Datenteil. Vorher
+        # blieb das "data:image/png;base64," davor stehen, und heraus kam
+        #     src="data:image/png;base64,anhaenge/eingebettet.png"
+        # Der Browser liest das als Base64, bekommt Unsinn und zeigt nichts
+        # (N-31). Die Pruefung meldete dabei "eingespielt" und legte den
+        # Anhang sauber ab - kaputt war nur das, was der Leser sieht.
+        return f"anhaenge/{name}"
 
+    # Die Schwelle steht EINMAL, in uri_ersetzen. Vorher stand sie auch hier
+    # noch als Bedingung - zwei Riegel fuer dieselbe Sache, von denen keiner
+    # fuer sich pruefbar ist: nimmt man einen weg, faellt es nicht auf.
     neu = re.sub(r"(data:[a-zA-Z0-9/.+-]+;base64,)([A-Za-z0-9+/=]{1000,})",
-                 lambda m: uri_ersetzen(m) if len(m.group(2)) >= schwelle else m.group(0), neu)
+                 uri_ersetzen, neu)
     return neu, gefunden
 
 
@@ -728,7 +777,45 @@ def regeln_pruefen(html, meta):
         warnungen.append("Der Pflichtblock aus Regelblatt 8.1 fehlt "
                          "(focus-visible, prefers-reduced-motion).")
 
+    # Steht im Koerper ueberhaupt etwas? Ein voller Meta-Block mit leerem
+    # <body> ging vorher fehlerfrei durch (N-23): die Seite landete im
+    # Themenbaum, die Suche fand ihre Abschnitte - und der Leser bekam eine
+    # weisse Flaeche. Gemessen: 3703 Byte Datei, 0 Zeichen sichtbarer Text.
+    #
+    # Eine Ausnahme braucht es: Seiten, die ihren Inhalt erst im Browser
+    # bauen, sind ausdruecklich erlaubt (siehe N-11). Traegt die Seite also
+    # einen ausfuehrbaren Skriptblock, wird nichts beanstandet - lieber keine
+    # Beanstandung als eine falsche.
+    sichtbar = re.sub(r"(?is)<(script|style|template)\b[^>]*>.*?</\1\s*>", " ", koerper_von(html))
+    sichtbar = re.sub(r"(?s)<!--.*?-->", " ", sichtbar)
+    sichtbar = re.sub(r"(?s)<[^>]*>", " ", sichtbar)
+    sichtbar = re.sub(r"\s+", " ", sichtbar).strip()
+    baut_selbst = any(
+        inhalt.strip() and not re.search(
+            r'(?i)type\s*=\s*["\']?(?:application/(?:ld\+)?json|text/plain)', attr)
+        for attr, inhalt in re.findall(r"(?is)<script\b([^>]*)>(.*?)</script\s*>", html))
+    if len(sichtbar) < GRENZE_SICHTBAR and not baut_selbst:
+        fehler.append(
+            f"Im <body> steht fast kein sichtbarer Text ({len(sichtbar)} Zeichen). "
+            "Der Meta-Block allein ist keine Seite: Themenbaum und Suche haetten "
+            "Eintraege, der Leser eine leere Flaeche. Wenn die Datei nur als "
+            "Entwurf gedacht war, lade sie in den Editor - er baut die Seite "
+            "aus dem Meta-Block.")
+
     return fehler, warnungen
+
+
+def koerper_von(html):
+    """Der Inhalt zwischen <body> und </body>, oder alles, wenn es kein body gibt.
+
+    Ohne <body> ist die Datei kein vollstaendiges HTML - dann wird sie ganz
+    betrachtet, statt sie durchzuwinken.
+    """
+    m = re.search(r"(?is)<body[^>]*>(.*)</body\s*>", html)
+    if m:
+        return m.group(1)
+    m = re.search(r"(?is)<body[^>]*>(.*)$", html)
+    return m.group(1) if m else html
 
 
 def sicherheit_pruefen(html):
@@ -866,17 +953,21 @@ def urheber_von(z):
     return (u or "") or (z["nutzer_id"] or "")
 
 
-def darf_aendern(z, kennung, ist_admin):
-    """Darf dieser Nutzer diese bestehende Seite aendern? (N-13, N-15)
+def darf_aendern(z, nutzer):
+    """Darf dieser Nutzer diese bestehende Seite aendern? (N-13, N-15, N-21)
 
-    Jeder darf Seiten anlegen. Eine bestehende Seite aendert, wer sie
-    angelegt hat - und jeder Verwalter. Sonst koennte jeder die Arbeit aller
-    anderen ueberschreiben, und das waere in einem Wiki mit Freigaben genau
-    das falsche Signal.
+    Drei Stufen:
+      lesen     jeder Angemeldete, im Rahmen der Freigaben
+      schreiben wer in EDITOR_GRUPPE ist - anlegen und die EIGENEN Seiten
+                aendern. Sonst koennte jeder die Arbeit aller anderen
+                ueberschreiben.
+      verwalten ADMIN_GRUPPE: alle Seiten, alle Freigaben, loeschen.
     """
-    if ist_admin:
+    if not getattr(nutzer, "ist_editor", False):
+        return False
+    if nutzer.ist_admin:
         return True
-    return bool(kennung) and urheber_von(z) == kennung
+    return bool(nutzer.kennung) and urheber_von(z) == nutzer.kennung
 
 
 def spalte_nachtragen(v, tabelle, spalte, bauart):
@@ -1268,12 +1359,117 @@ def index_neu_bauen(seite_id, html=None):
 
 # ---------------------------------------------------------------- Suche
 
-def fts_ausdruck(begriff, praefix=True):
-    worte = re.findall(r"[\wÄÖÜäöüß]{2,}", begriff, re.UNICODE)
-    if not worte:
+# Die Felder, die im Suchbegriff als "feld:wert" stehen duerfen. Bewusst
+# wenige: jedes weitere ist ein Wort, das nicht mehr als Wort gesucht wird.
+SUCH_FELDER = ("bereich", "gruppe", "seite")
+
+
+def suchbegriff_lesen(roh):
+    """Einen Suchbegriff in seine Teile zerlegen.
+
+    Erkannt werden:
+
+        wort              muss vorkommen, Wortanfang genuegt
+        "mehrere worte"   genau diese Folge
+        -wort             darf nicht vorkommen
+        bereich:Technik   nur Seiten unter diesem Pfad
+        gruppe:wiki-x     nur Seiten mit dieser Freigabe
+        seite:kennung     nur diese eine Seite
+
+    Alles andere bleibt ein gewoehnliches Wort - auch ein "feld:wert" mit
+    einem Feld, das es hier nicht gibt. Sonst verschwindet ein Doppelpunkt
+    im Text stillschweigend aus der Suche.
+    """
+    teile = {"worte": [], "phrasen": [], "ohne": [],
+             "bereich": "", "gruppe": "", "seite": ""}
+    s = roh or ""
+    i, n = 0, len(s)
+    while i < n:
+        if s[i].isspace():
+            i += 1
+            continue
+        minus = False
+        if s[i] == "-" and i + 1 < n and not s[i + 1].isspace():
+            minus = True
+            i += 1
+        feld = ""
+        m = re.match(r"([a-zA-ZäöüÄÖÜ]+):", s[i:])
+        if m and m.group(1).lower() in SUCH_FELDER:
+            feld = m.group(1).lower()
+            i += m.end()
+        if i < n and s[i] == '"':
+            ende = s.find('"', i + 1)
+            if ende < 0:
+                ende = n
+            wert, i, phrase = s[i + 1:ende], ende + 1, True
+        else:
+            ende = i
+            while ende < n and not s[ende].isspace():
+                ende += 1
+            wert, i, phrase = s[i:ende], ende, False
+        wert = wert.strip()
+        if not wert:
+            continue
+        if feld:
+            # Ein Minus vor einem Feld waere ein Ausschluss von Seiten - das
+            # gibt es hier nicht, und stillschweigend etwas anderes tun ist
+            # schlimmer als es zu ignorieren.
+            teile[feld] = wert
+        elif minus:
+            teile["ohne"].append(wert)
+        elif phrase:
+            teile["phrasen"].append(wert)
+        else:
+            teile["worte"].append(wert)
+    return teile
+
+
+def fts_wort(text, praefix):
+    """Ein Stueck Suchbegriff in ein FTS5-Wort verwandeln.
+
+    Alles, was FTS5 als Operator lesen koennte, fliegt heraus - uebrig
+    bleiben Woerter in Anfuehrungszeichen. Ohne das wirft ein Suchbegriff
+    mit Klammer oder Stern einen Fehler, und die Suche liefert nichts.
+    """
+    kern = " ".join(re.findall(r"[\wÄÖÜäöüß]+", text, re.UNICODE))
+    if not kern:
         return None
-    teile = [f'"{w}"*' if praefix else f'"{w}"' for w in worte]
-    return " AND ".join(teile)
+    # Ein Stern hinter einer Wortfolge gilt in FTS5 nur fuer das letzte Wort.
+    # Das ist genau richtig: "netz karte" soll "netzwerkkarte" nicht finden,
+    # aber "netzwerk kar" darf auf "karte" hinauslaufen.
+    return '"%s"%s' % (kern, "*" if praefix else "")
+
+
+def fts_ausdruck_aus_teilen(teile, praefix=True, wortverbund="AND"):
+    """Aus den Teilen eines Suchbegriffs einen FTS5-Ausdruck bauen.
+
+    wortverbund entscheidet, wie die einzelnen WOERTER verbunden werden:
+    "AND" verlangt alle, "OR" genuegt eines. Phrasen bleiben in beiden
+    Faellen Pflicht - wer Anfuehrungszeichen setzt, meint sie. Vorher wurde
+    fuer den weiten Durchgang " AND " in " OR " getauscht; das traf auch die
+    Phrase, und "kabel \"rotes kabel\"" fand wieder beide Seiten.
+    """
+    phrasen = [a for a in (fts_wort(p, False) for p in teile["phrasen"]) if a]
+    worte = [a for a in (fts_wort(w, praefix) for w in teile["worte"]) if a]
+    if not phrasen and not worte:
+        return None
+    stuecke = list(phrasen)
+    if worte:
+        verbund = (" %s " % wortverbund).join(worte)
+        # Klammern nur, wenn sie etwas aendern: neben einer Pflicht-Phrase
+        # muss ein OR zusammenbleiben, sonst waere die Phrase mit oder-bar.
+        stuecke.append("(%s)" % verbund if phrasen and len(worte) > 1 else verbund)
+    aus = " AND ".join(stuecke)
+    nein = [a for a in (fts_wort(w, praefix) for w in teile["ohne"]) if a]
+    if nein:
+        # NOT ist in FTS5 ein zweistelliger Operator: links das Gesuchte,
+        # rechts das Unerwuenschte.
+        aus = "(%s) NOT (%s)" % (aus, " OR ".join(nein))
+    return aus
+
+
+def fts_ausdruck(begriff, praefix=True):
+    return fts_ausdruck_aus_teilen(suchbegriff_lesen(begriff), praefix)
 
 
 def schnipsel(text, begriffe, laenge=170):
@@ -1365,7 +1561,30 @@ def suchen(nutzer, begriff, grenze=40, mit_anhaengen=True):
     begriff = (begriff or "").strip()
     if len(begriff) < 2:
         return []
+    teile = suchbegriff_lesen(begriff)
     erlaubt = {z["id"]: z for z in sichtbare_seiten(nutzer)}
+
+    # Die Einschraenkungen greifen VOR der Suche, auf der Menge der Seiten:
+    # damit bleibt die Abfrage selbst unveraendert, und "bereich:Technik"
+    # ohne weiteres Wort kann trotzdem etwas liefern.
+    if teile["seite"]:
+        gesucht = teile["seite"].strip().lower()
+        erlaubt = {i: z for i, z in erlaubt.items()
+                   if z["slug"].lower() == gesucht}
+    if teile["bereich"]:
+        stufen = [x.strip().lower() for x in teile["bereich"].split("/") if x.strip()]
+
+        def im_bereich(z):
+            pfad = [str(x).strip().lower()
+                    for x in json.loads(z["pfad_json"] or "[]")]
+            return pfad[:len(stufen)] == stufen
+
+        erlaubt = {i: z for i, z in erlaubt.items() if im_bereich(z)}
+    if teile["gruppe"]:
+        gesucht = teile["gruppe"].strip().lower()
+        erlaubt = {i: z for i, z in erlaubt.items()
+                   if gesucht in [str(x).strip().lower()
+                                  for x in json.loads(z["gruppen_json"] or "[]")]}
     if not erlaubt:
         return []
     v = db()
@@ -1378,10 +1597,27 @@ def suchen(nutzer, begriff, grenze=40, mit_anhaengen=True):
         if vorher is None or punkte > vorher[0]:
             gefunden[tid] = (punkte, quelle)
 
-    aus = fts_ausdruck(begriff, praefix=True)
+    aus = fts_ausdruck_aus_teilen(teile, praefix=True)
+    # Nur eine Einschraenkung, kein Wort: dann ist die Frage "was steht
+    # ueberhaupt da" - und die Antwort sind die Seiten selbst, nicht nichts.
+    if not aus and (teile["bereich"] or teile["gruppe"] or teile["seite"]):
+        arten = ("kopf", "abschnitt") if teile["seite"] else ("kopf",)
+        platz3 = ",".join("?" * len(arten))
+        for z in v.execute(
+                f"SELECT id AS tid FROM treffer WHERE art IN ({platz3}) "
+                f"AND seite_id IN ({platz}) LIMIT ?",
+                list(arten) + ids + [grenze * 3]).fetchall():
+            aufnehmen(z["tid"], 1.0, "eingrenzung")
     if aus:
         for modus in ("und", "oder"):
-            frage = aus if modus == "und" else aus.replace(" AND ", " OR ")
+            # Der zweite Durchgang laesst EIN Wort genuegen. Gebaut wird er
+            # neu, nicht durch Ersetzen im fertigen Ausdruck: ein " AND ",
+            # das zu einer Phrase oder zu einem Ausschluss gehoert, darf
+            # dabei nicht mitwandern.
+            frage = (aus if modus == "und"
+                     else fts_ausdruck_aus_teilen(teile, True, "OR"))
+            if not frage:
+                continue
             try:
                 zeilen = v.execute(
                     f"SELECT t.id AS tid, bm25(suche, 12.0, 8.0, 1.0) AS rang "
@@ -1396,8 +1632,19 @@ def suchen(nutzer, begriff, grenze=40, mit_anhaengen=True):
                 break
 
     # Teilwortsuche als zweites Netz: greift bei Komposita und Tippfehlern.
-    if len(gefunden) < grenze:
-        kern = max(re.findall(r"[\wÄÖÜäöüß]{3,}", begriff, re.UNICODE) or [""], key=len)
+    # Das zweite Netz greift bei Komposita und Tippfehlern - und es sucht
+    # dafuer nur mit dem LAENGSTEN Wort. Bei einer Phrase in
+    # Anfuehrungszeichen ist das genau falsch: gemessen wurde aus
+    # "TCP und UDP" (3 Stellen auf 1 Seite) ueber dieses Netz 5 Stellen auf
+    # 2 Seiten - das Gegenteil dessen, was die Anfuehrungszeichen sagen.
+    #
+    # Ausschluesse braucht es hier NICHT abzufangen: die haelt der Nachfilter
+    # weiter unten, und zwar fuer jede Quelle. Zwei Riegel fuer dieselbe
+    # Sache waeren zwei, von denen keiner geprueft werden kann.
+    if len(gefunden) < grenze and aus and not teile["phrasen"]:
+        # Nur die gesuchten Woerter, nicht die Werte der Felder.
+        positiv = " ".join(teile["worte"])
+        kern = max(re.findall(r"[\wÄÖÜäöüß]{3,}", positiv, re.UNICODE) or [""], key=len)
         if len(kern) >= 3:
             try:
                 zeilen = v.execute(
@@ -1421,7 +1668,15 @@ def suchen(nutzer, begriff, grenze=40, mit_anhaengen=True):
         f"FROM treffer t JOIN suche s ON s.rowid = t.id WHERE t.id IN ({platz2})",
         tids).fetchall()
 
-    worte = re.findall(r"[\wÄÖÜäöüß]{2,}", begriff, re.UNICODE)
+    # Hervorgehoben wird, was gesucht war - nicht, was ausgeschlossen wurde,
+    # und nicht "Technik" aus bereich:Technik.
+    worte = re.findall(r"[\wÄÖÜäöüß]{2,}",
+                       " ".join(teile["worte"] + teile["phrasen"]), re.UNICODE)
+    # Ausschluesse gelten fuer das, was in der Zeile WIRKLICH steht. Das
+    # FTS-NOT allein hat sie nur aus dem einen Netz genommen - ein zweiter
+    # Weg (oder eine kuenftige dritte Quelle) haette sie wieder hereingeholt.
+    # Hier steht die Regel einmal, am Ende, fuer jede Quelle.
+    ohne = [w for w in (entwerten(x) for x in teile["ohne"]) if w]
     ergebnis = []
     for z in zeilen:
         if z["art"] == "anhang" and not mit_anhaengen:
@@ -1429,7 +1684,10 @@ def suchen(nutzer, begriff, grenze=40, mit_anhaengen=True):
         seite = erlaubt[z["seite_id"]]
         punkte, quelle = gefunden[z["id"]]
         titel = z["abschnittstitel"] or seite["titel"]
-        if entwerten(begriff) in entwerten(titel):
+        # Der Bonus gilt fuer die gesuchten Woerter, nicht fuer den Rohtext:
+        # "tcp bereich:Technik" steht in keinem Titel.
+        gesuchter_text = " ".join(teile["worte"] + teile["phrasen"]).strip()
+        if gesuchter_text and entwerten(gesuchter_text) in entwerten(titel):
             punkte += 25
         # Der Kopftreffer zeigt den Satz der Seite, nicht seinen Suchstoff.
         # Im Index stehen dort auch Pfad, Gruppen und alle Abschnittstitel -
@@ -1438,6 +1696,12 @@ def suchen(nutzer, begriff, grenze=40, mit_anhaengen=True):
         stoff = z["s_text"] or z["s_stich"] or ""
         if z["art"] == "kopf":
             stoff = seite["kurz"] or stoff
+        if ohne:
+            heuhaufen = entwerten(" ".join([
+                titel or "", z["s_titel"] or "", z["s_stich"] or "",
+                z["s_text"] or ""]))
+            if any(w in heuhaufen for w in ohne):
+                continue
         ergebnis.append({
             "slug": seite["slug"], "seitentitel": seite["titel"],
             "pfad": json.loads(seite["pfad_json"] or "[]"),
@@ -1557,7 +1821,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def darf_schreiben(self, z, n):
         """Siehe darf_aendern - hier nur der Weg vom Nutzer zur Auskunft."""
-        return darf_aendern(z, n.kennung, n.ist_admin)
+        return darf_aendern(z, n)
+
+    def editor(self):
+        """Der Nutzer, wenn er schreiben darf - sonst 403 mit dem Gruppennamen."""
+        n = self.nutzer()
+        if not n.ist_editor:
+            raise Antwort(403,
+                          "Zum Schreiben im Wiki brauchst du die Gruppe '%s'. "
+                          "Lesen darfst du alles, was fuer dich freigegeben "
+                          "ist. Die Gruppe vergibt ein Verwalter in Authentik."
+                          % EDITOR_GRUPPE)
+        return n
 
     def gruppen_pruefen(self, meta, n):
         """Eine Freigabe darf nur auf eigene Gruppen zeigen (N-13).
@@ -1567,9 +1842,20 @@ class Handler(BaseHTTPRequestHandler):
         legen, die man nicht kennt, und sie sich damit selbst wegnehmen.
         Verwalter duerfen jede Gruppe setzen.
         """
+        gewuenscht = [g for g in (meta.get("gruppen") or []) if g]
+        # Erst die Form, dann die Berechtigung: eine Freigabe auf eine Gruppe
+        # ohne das Praefix ist ein stiller Fehler - sie nimmt die Seite allen
+        # weg und gibt sie niemandem (N-21).
+        falsch = [g for g in gewuenscht if not g.startswith(GRUPPEN_PRAEFIX)]
+        if falsch:
+            raise Antwort(400,
+                          "Diese Gruppen gehoeren nicht zum Wiki: %s. Das Wiki "
+                          "beachtet nur Gruppen, die mit '%s' anfangen - alles "
+                          "andere gehoert anderen Werkzeugen und wuerde die "
+                          "Seite fuer alle unsichtbar machen."
+                          % (", ".join(sorted(falsch)), GRUPPEN_PRAEFIX))
         if n.ist_admin:
             return
-        gewuenscht = [g for g in (meta.get("gruppen") or []) if g]
         fremd = [g for g in gewuenscht if g not in n.gruppen]
         if fremd:
             raise Antwort(403,
@@ -1729,8 +2015,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_senden({
                 "kennung": n.kennung, "name": n.name, "email": n.email,
                 "gruppen": sorted(n.gruppen), "ist_admin": n.ist_admin,
+                "ist_editor": n.ist_editor,
+                "gruppen_andere": n.gruppen_andere,
+                "gruppen_praefix": GRUPPEN_PRAEFIX,
                 "gruppen_roh": n.gruppen_roh,
                 "admin_gruppe": ADMIN_GRUPPE,
+                "editor_gruppe": EDITOR_GRUPPE,
                 "einstellungen": einstellungen_lesen(n.kennung),
                 "abmelden": "/outpost.goauthentik.io/sign_out"})
 
@@ -1752,15 +2042,36 @@ class Handler(BaseHTTPRequestHandler):
             t0 = time.time()
             mit_a = einstellungen_lesen(n.kennung)["pdf_treffer"] == "1"
             treffer = suchen(n, q, mit_anhaengen=mit_a)
+            zerlegt = suchbegriff_lesen(q)
             statt = None
             if not treffer:
-                statt = wortvorschlag(q)
-                if statt:
-                    treffer = suchen(n, statt, mit_anhaengen=mit_a)
-                    if not treffer:
-                        statt = None
-            return self.json_senden({"q": q, "statt": statt, "treffer": treffer,
-                                     "dauer_ms": round((time.time() - t0) * 1000, 1)})
+                # Der Rechtschreibvorschlag gilt fuer die gesuchten Woerter.
+                # Mit "bereich:Technik" im Begriff waere sonst "Technik" das
+                # falsch geschriebene Wort.
+                positiv = " ".join(zerlegt["worte"] + zerlegt["phrasen"])
+                vorschlag = wortvorschlag(positiv) if positiv else None
+                if vorschlag and vorschlag != positiv:
+                    # Die Einschraenkungen bleiben stehen - nur die Woerter
+                    # werden ersetzt.
+                    rest = " ".join(
+                        ["%s:%s" % (f, zerlegt[f]) for f in SUCH_FELDER if zerlegt[f]]
+                        + ["-" + w for w in zerlegt["ohne"]])
+                    treffer = suchen(n, (vorschlag + " " + rest).strip(),
+                                     mit_anhaengen=mit_a)
+                    if treffer:
+                        # statt = das Wort, mit dem die Treffer gefunden
+                        # wurden. Die Oberflaeche sagt damit "Nichts zu
+                        # <q> - Treffer fuer <statt>" (N-27).
+                        statt = vorschlag
+            return self.json_senden({
+                "q": q, "statt": statt, "treffer": treffer,
+                # Was von dem Begriff als Einschraenkung gelesen wurde. Die
+                # Oberflaeche zeigt es an - sonst sucht jemand nach
+                # "bereich:Tehcnik" und sieht nur, dass nichts kommt.
+                "eingrenzung": {f: zerlegt[f] for f in SUCH_FELDER if zerlegt[f]},
+                "ohne": zerlegt["ohne"],
+                "phrasen": zerlegt["phrasen"],
+                "dauer_ms": round((time.time() - t0) * 1000, 1)})
 
         if len(teile) == 2 and teile[0] == "seite":
             slug = teile[1]
@@ -1828,8 +2139,32 @@ class Handler(BaseHTTPRequestHandler):
             for z in zweige:
                 bekannt |= set(z["gruppen"])
             bekannt |= self.nutzer().gruppen
+            # Kennzahlen fuer die Wartung. Eine Verwaltung, die auf
+            # hunderte Seiten ausgelegt ist, muss sagen koennen, wie gross
+            # der Bestand ist - sonst ist "es geht langsam" nicht greifbar.
+            def eine(frage, *werte):
+                z = db().execute(frage, werte).fetchone()
+                return (z[0] if z and z[0] is not None else 0)
+
+            kennzahlen = {
+                "seiten": len(zeilen),
+                "abschnitte": eine("SELECT COUNT(*) FROM abschnitt"),
+                "anhaenge": eine("SELECT COUNT(*) FROM anhang"),
+                "anhaenge_b": eine("SELECT SUM(groesse_b) FROM anhang"),
+                "seiten_b": eine("SELECT SUM(groesse_b) FROM seite"),
+                "indexzeilen": eine("SELECT COUNT(*) FROM treffer"),
+                # Reste, die einen Indexlauf zum Scheitern bringen (N-16).
+                # Hier nur GEZAEHLT - aufgeraeumt wird beim Neuaufbau, damit
+                # ein Blick in die Verwaltung nichts veraendert.
+                "verwaiste": eine(
+                    "SELECT COUNT(*) FROM suche WHERE rowid NOT IN "
+                    "(SELECT id FROM treffer)"),
+                "fassungen": eine("SELECT COUNT(*) FROM fassung"),
+                "lesezeichen": eine("SELECT COUNT(*) FROM lesezeichen"),
+            }
             return self.json_senden({"seiten": zeilen, "zweige": zweige,
                                      "pfade": pfade,
+                                     "kennzahlen": kennzahlen,
                                      "gruppen": sorted(g for g in bekannt if g)})
 
         raise Antwort(404, "Unbekannter Aufruf.")
@@ -1946,10 +2281,10 @@ class Handler(BaseHTTPRequestHandler):
         self.typ_pruefen(rest)
 
         if rest == ["pruefen"] or rest == ["import"]:
-            # Jeder Angemeldete darf Seiten anlegen (N-13). Wer eine
+            # Schreiben darf, wer in EDITOR_GRUPPE ist (N-21). Wer eine
             # BESTEHENDE Seite ersetzt, muss sie angelegt haben oder Verwalter
             # sein - das wird unten geprueft, wenn die Kennung feststeht.
-            n = self.nutzer()
+            n = self.editor()
             roh = self.koerper_lesen()
             if not roh:
                 raise Antwort(400, "Es wurde keine Datei uebertragen.")
@@ -1993,7 +2328,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_senden(antwort)
 
         if rest == ["loeschen"]:
-            n = self.nutzer()
+            n = self.editor()
             daten = json.loads(self.koerper_lesen() or b"{}")
             slug = (daten.get("slug") or "").strip()
             if daten.get("bestaetigt") is not True:
@@ -2011,12 +2346,37 @@ class Handler(BaseHTTPRequestHandler):
             db().commit()
             # Dateien bleiben liegen - Datenverlust ist die einzige echte
             # Katastrophe. Aufgeraeumt wird von Hand.
-            shutil.move(seitenordner(slug),
-                        os.path.join(SEITEN, f".geloescht-{slug}-{int(time.time())}"))
-            return self.json_senden({"ok": True})
+            #
+            # Die Datenbank ist an dieser Stelle schon geschrieben UND
+            # festgeschrieben. Scheitert das Verschieben, ist die Seite also
+            # trotzdem weg - eine 500 waere dann eine Luege (N-30). Gemessen:
+            # fehlender Ordner -> "Auf dem Server ist etwas schiefgegangen",
+            # HTTP 500, und die Seite war aus Baum und Suche verschwunden.
+            hinweis = ""
+            try:
+                shutil.move(seitenordner(slug),
+                            os.path.join(SEITEN,
+                                         f".geloescht-{slug}-{int(time.time())}"))
+            except FileNotFoundError:
+                hinweis = ("Die Seite ist entfernt. Einen Ordner auf der "
+                           "Platte hatte sie nicht mehr - es war nichts "
+                           "beiseitezulegen.")
+            except OSError as fehler:
+                # Der zweite Zweig ist ein Fangnetz: er greift bei allem
+                # anderen, was ein Verschieben verhindern kann (Rechte, volle
+                # Platte). In den Tests laesst sich das nicht ausloesen, ohne
+                # das Dateisystem zu manipulieren - darum steht hier, was er
+                # tut, statt so zu tun, als waere er geprueft.
+                sys.stderr.write("FEHLER: Ordner von '%s' nicht verschoben: "
+                                 "%s\n" % (slug, fehler))
+                hinweis = ("Die Seite ist aus Themenbaum und Suche entfernt. "
+                           "Ihr Ordner liess sich nicht beiseitelegen "
+                           f"({fehler.__class__.__name__}) und liegt noch da, "
+                           "wo er war.")
+            return self.json_senden({"ok": True, "hinweis": hinweis})
 
         if rest == ["zuruecksetzen"]:
-            n = self.nutzer()
+            n = self.editor()
             daten = json.loads(self.koerper_lesen() or b"{}")
             slug, nummer = (daten.get("slug") or "").strip(), int(daten.get("nummer") or 0)
             z = db().execute("SELECT * FROM seite WHERE slug=?", (slug,)).fetchone()
@@ -2046,6 +2406,13 @@ class Handler(BaseHTTPRequestHandler):
             daten = json.loads(self.koerper_lesen() or b"{}")
             slug = (daten.get("slug") or "").strip()
             gruppen = [str(g).strip() for g in (daten.get("gruppen") or []) if str(g).strip()]
+            falsch = [g for g in gruppen if not g.startswith(GRUPPEN_PRAEFIX)]
+            if falsch:
+                raise Antwort(400,
+                              "Diese Gruppen gehoeren nicht zum Wiki: %s. Nur "
+                              "Gruppen, die mit '%s' anfangen, entscheiden hier "
+                              "ueber Sichtbarkeit." % (", ".join(sorted(falsch)),
+                                                       GRUPPEN_PRAEFIX))
             z = db().execute("SELECT * FROM seite WHERE slug=?", (slug,)).fetchone()
             if not z:
                 raise Antwort(404, "Diese Seite gibt es nicht.")

@@ -45,27 +45,69 @@ class UrheberLesen(unittest.TestCase):
         self.assertEqual(urheber_von(z), "lena")
 
 
+def nutzer(kennung, gruppen=("wiki-editor",)):
+    """Ein Nutzer wie ihn die Kopfzeilen liefern."""
+    return server.Nutzer(kennung, kennung.title(), "", list(gruppen))
+
+
 class WerAendernDarf(unittest.TestCase):
     ZEILE = {"urheber": "lena", "nutzer_id": "artur"}   # Verwalter war zuletzt dran
 
     def test_der_urheber_darf(self):
-        self.assertTrue(darf_aendern(self.ZEILE, "lena", False))
+        self.assertTrue(darf_aendern(self.ZEILE, nutzer("lena")))
 
     def test_wer_zuletzt_speicherte_darf_deswegen_nicht(self):
         # Genau der Fehler: artur darf nur, WEIL er Verwalter ist - nicht,
         # weil er zuletzt gespeichert hat.
-        self.assertFalse(darf_aendern(self.ZEILE, "artur", False))
+        self.assertFalse(darf_aendern(self.ZEILE, nutzer("artur")))
 
     def test_jeder_verwalter_darf(self):
-        self.assertTrue(darf_aendern(self.ZEILE, "artur", True))
-        self.assertTrue(darf_aendern(self.ZEILE, "max", True))
+        self.assertTrue(darf_aendern(self.ZEILE, nutzer("artur", ["wiki-admin"])))
+        self.assertTrue(darf_aendern(self.ZEILE, nutzer("max", ["wiki-admin"])))
 
     def test_ein_fremder_darf_nicht(self):
-        self.assertFalse(darf_aendern(self.ZEILE, "max", False))
+        self.assertFalse(darf_aendern(self.ZEILE, nutzer("max")))
 
     def test_ohne_kennung_darf_niemand(self):
         # Sonst wuerde eine leere Kennung auf eine leere Spalte passen.
-        self.assertFalse(darf_aendern({"urheber": "", "nutzer_id": ""}, "", False))
+        self.assertFalse(darf_aendern({"urheber": "", "nutzer_id": ""}, nutzer("")))
+
+    # ---------------------------------------------------- N-21: die Gruppe
+    def test_ohne_editorgruppe_darf_auch_der_urheber_nicht(self):
+        """Wer die Schreibgruppe verliert, aendert auch die eigene Seite nicht.
+
+        Das ist der Sinn der Gruppe: Sie wird vergeben und wieder entzogen.
+        Wuerde die Urheberschaft sie ueberstimmen, waere der Entzug wirkungslos.
+        """
+        self.assertFalse(darf_aendern(self.ZEILE, nutzer("lena", ["wiki-technik"])))
+
+    def test_leser_ohne_jede_wiki_gruppe(self):
+        self.assertFalse(darf_aendern(self.ZEILE, nutzer("lena", [])))
+
+    def test_verwalter_ist_auch_editor(self):
+        # Sonst braeuchte man zwei Gruppen, um eine Seite anzulegen.
+        self.assertTrue(nutzer("artur", ["wiki-admin"]).ist_editor)
+
+
+class NurWikiGruppenZaehlen(unittest.TestCase):
+    """N-21: In Authentik haengen an einem Nutzer die Gruppen aller Tools."""
+
+    def test_fremde_gruppen_werden_aussortiert(self):
+        n = nutzer("lena", ["wiki-technik", "vertrieb", "bordbuch-admin", "wiki-editor"])
+        self.assertEqual(n.gruppen, {"wiki-technik", "wiki-editor"})
+        self.assertEqual(n.gruppen_andere, ["bordbuch-admin", "vertrieb"])
+
+    def test_wer_nur_fremde_gruppen_hat_darf_lesen(self):
+        n = nutzer("max", ["vertrieb"])
+        self.assertEqual(n.gruppen, set())
+        self.assertFalse(n.ist_editor)
+        self.assertFalse(n.ist_admin)
+
+    def test_eine_fremde_gruppe_macht_niemanden_zum_verwalter(self):
+        # Der Praefixfilter darf die Rollenpruefung nicht aushebeln, und eine
+        # fremde Gruppe darf sie nicht bestehen.
+        self.assertFalse(nutzer("max", ["admin", "wiki"]).ist_admin)
+        self.assertTrue(nutzer("max", ["wiki-admin"]).ist_admin)
 
 
 def alte_datenbank():
