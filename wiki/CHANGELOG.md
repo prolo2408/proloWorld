@@ -21,10 +21,9 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
   Fehler - aber sie stehen vor dem "Uebernehmen"-Knopf, nicht dahinter
   (B-07).
 
-## Fassung 1.3.1
+## Fassung 1.3.2
 
-Drei Korrekturen aus der Rueckmeldung zu 1.3.0 - alle im Browser
-nachgestellt und gemessen, nicht nur ueberlegt.
+Eine Korrektur zu 1.3.1 - im Browser nachgestellt und gemessen.
 
 - **Eine HTML-Datei anfuegen fuehrt nicht mehr auf eine schwarze Seite**
   (`N-36`). Die Kachel "Ich habe eine HTML-Datei" klappte die Ablage auf und
@@ -37,6 +36,11 @@ nachgestellt und gemessen, nicht nur ueberlegt.
   und die Huelle haengt am Fenster statt am Koerper. Das Hinscrollen tut
   weiter, was es soll: die Karte steht im Bild (Flaeche 0 -> 1351), die
   Huelle bleibt stehen.
+
+## Fassung 1.3.1
+
+Zwei Korrekturen aus der Rueckmeldung zu 1.3.0 - beide im Browser
+nachgestellt und gemessen, nicht nur ueberlegt.
 
 - **Ein Fehler beim Speichern fuehrt jetzt an seine Stelle** (`N-35`). Die
   Zeile „Eine Sache fehlt noch" war ein Satz ohne Weg: anklickbar aussehend,
