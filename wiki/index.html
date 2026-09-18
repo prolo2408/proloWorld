@@ -1090,6 +1090,15 @@ document.addEventListener('keydown', (e) => {
     pdfSchliessen();
     if(!$('finden').hidden) findenZu();
   }
+  /* Strg+S im Editor. Der Browser wuerde sonst die Huelle als Datei
+     speichern wollen - das ist nie gemeint, wenn jemand beim Schreiben
+     Strg+S drueckt. */
+  if((e.key === 's' || e.key === 'S') && (e.ctrlKey || e.metaKey) && !e.altKey){
+    if(ZUSTAND.ansicht === 'editor' && ZUSTAND.editor){
+      e.preventDefault();
+      edSpeichern();
+    }
+  }
 });
 $('finden-knopf').onclick = () => $('finden').hidden ? findenAuf() : findenZu();
 $('finden-zu').onclick = () => findenZu();
@@ -4486,6 +4495,7 @@ function edBlockKarte(i, j, b, anzahl){
         <div class="ed-block-knoepfe">
           ${kn('hoch', '↑', 'nach oben', j === 0)}
           ${kn('runter', '↓', 'nach unten', j === anzahl - 1)}
+          ${kn('doppelt', '⧉', 'Block verdoppeln')}
           ${kn('weg', '✕', 'Block entfernen', anzahl < 2)}
         </div>
       </div>
@@ -4626,6 +4636,24 @@ function edBlockTun(was, i, j, knopf){
     if(!leer && !confirm('Diesen Block entfernen?')) return;
     a.bloecke.splice(j, 1);
     return editorZeichnen();
+  }
+  if(was === 'doppelt'){
+    /* Eine Kopie direkt darunter. Eine tiefe Kopie, sonst teilen sich
+       beide dieselben Zeilen und das Aendern der einen aendert die andere.
+       Die Kennung eines Anhangs wird NICHT mitkopiert: zwei Bausteine mit
+       derselben Kennung liessen den Server zwei Dateien an einen Namen
+       haengen, und ein Knopf zeigte auf die falsche. */
+    const kopie = JSON.parse(JSON.stringify(b));
+    if(kopie.art === 'pdf' || kopie.art === 'bild'){
+      kopie.kennung = ''; kopie.dateiname = ''; kopie.daten64 = '';
+      kopie.urname = '';
+    }
+    a.bloecke.splice(j + 1, 0, kopie);
+    a.markup = edBloeckeZuMarkup(a.bloecke);
+    editorZeichnen({fokus: 'ed-block-' + i + '-' + (j + 1)});
+    if(kopie.art === 'pdf' || kopie.art === 'bild')
+      einblenden('Verdoppelt — die Datei musst du neu auswählen.');
+    return;
   }
   if(was === 'hoch' && j > 0){
     a.bloecke.splice(j - 1, 0, a.bloecke.splice(j, 1)[0]);
@@ -5386,7 +5414,8 @@ function editorZeichnen(opt){
   $('ed-leiste').innerHTML = `
     <div class="mitte" style="display:flex;gap:10px;flex-wrap:wrap;
                               align-items:center">
-      <button class="knopf" data-ed="speichern">Speichern</button>
+      <button class="knopf" data-ed="speichern"
+        title="Speichern (Strg+S)">Speichern</button>
       <button class="knopf rahmen" data-ed="vorschau">Ansehen</button>
       <span class="ed-stand" id="ed-stand"></span>
       <div class="ed-nebenweg" style="margin-left:auto">

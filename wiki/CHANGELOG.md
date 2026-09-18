@@ -23,6 +23,8 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
 
 ## Noch nicht veroeffentlicht
 
+- **Strg+S speichert** im Editor, und ein Baustein laesst sich **verdoppeln**.
+
 - **Drei neue Bausteine**: Bild (als Anhang, mit Bildunterschrift), Verweise
   (Knoepfe zu anderen Wiki-Seiten) und Checkliste (Punkte zum Abhaken, mit
   Zaehler - die Haken leben nur im Browser des Lesers).
