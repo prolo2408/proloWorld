@@ -132,9 +132,19 @@ body[data-theme="dark"]{
    display schlaegt sonst das hidden-Attribut, und ein verstecktes
    Element bleibt sichtbar. */
 [hidden]{display:none!important}
-html,body{margin:0;padding:0;height:100%}
+/* Die Huelle ist ein Rahmen, kein Schriftstueck: sie ist genau so hoch wie
+   das Fenster, und gescrollt wird INNEN (.flaeche, .baum, .verw-tabelle).
+   Ohne overflow:hidden reicht irgendetwas, das dem Koerper Hoehe gibt - eine
+   Browsererweiterung, ein Rest im Koerper, eine spaet geladene Schrift -, und
+   das ganze Dokument laesst sich schieben: die Huelle rutscht nach oben, der
+   Kopf verschwindet, und unter ihr steht ein Balken in --bg. Gemessen (N-34):
+   520 Pixel Fremdhoehe, ans Bandende gescrollt - Huellenunterkante bei 48 %
+   der Fensterhoehe, Kopf nicht mehr sichtbar.
+   Und der Koerper traegt dieselbe Farbe wie die Huelle, damit selbst dann
+   keine fremde Flaeche entsteht, wenn doch einmal etwas durchscheint. */
+html,body{margin:0;padding:0;height:100%;overflow:hidden}
 body{
-  background:var(--bg); color:var(--ink-2);
+  background:var(--app); color:var(--ink-2);
   font-family:'Instrument Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
   font-size:14px; line-height:1.55; -webkit-font-smoothing:antialiased;
 }
@@ -587,8 +597,6 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
   .ed-nebenweg[data-offen="1"]{flex:1 1 100%}
   .ed-nebenweg[data-offen="1"] .ed-nebeninhalt{flex:1 1 100%;margin-top:4px}
 }
-.ed-stand{font-size:12.5px;color:var(--ink-3)}
-.ed-stand[data-fehlt="1"]{color:var(--warm-ink)}
 @media (max-width:432px){
   #ed-leiste{padding-left:20px;padding-right:20px}
 }
@@ -669,6 +677,35 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
 /* Ein fehlendes Pflichtfeld zeigt sich am Feld, nicht nur in einer Liste. */
 .flaeche input[aria-invalid="true"], .flaeche textarea[aria-invalid="true"]{
   border-color:var(--warm-ink);background:var(--warm-soft)}
+/* ---------- N-35: einen Fehler muss man sehen UND anspringen koennen ----
+   Die Standzeile war ein <span>: "Eine Sache fehlt noch" liess sich
+   anklicken, markierte aber nur den Text. Jetzt ist sie ein Knopf, der zur
+   Stelle springt - und solange nichts fehlt, ist sie gesperrt und sieht aus
+   wie vorher (ein Knopf, der nichts tut, ist schlimmer als kein Knopf). */
+.ed-stand{font-family:inherit;font-size:12.5px;color:var(--ink-3);
+  border:1px solid transparent;background:transparent;padding:0;
+  text-align:left;min-width:0}
+.ed-stand[data-fehlt="1"]{color:var(--warm-ink);background:var(--warm-soft);
+  border-color:var(--warm-ink);border-radius:9px;padding:7px 12px;
+  cursor:pointer;font-weight:600;min-height:34px}
+.ed-stand[data-fehlt="1"]::after{content:' \2192 hin';font-weight:400;
+  opacity:.75}
+/* Die Meldung steht AM Feld, nicht nur unten in einer Liste. */
+.ed-fehlerzeile{font-size:11.5px;color:var(--warm-ink);
+  background:var(--warm-soft);border-left:3px solid var(--warm-ink);
+  border-radius:0 8px 8px 0;padding:6px 10px;margin-top:6px;line-height:1.45}
+.ed-abschnitt[data-fehler="1"], .ed-block[data-fehler="1"]{
+  border-color:var(--warm-ink)}
+/* Und die Liste der Befunde ist anklickbar: jeder Punkt fuehrt an seine
+   Stelle. Ein Fehlertext, dem man nicht folgen kann, ist eine Zumutung. */
+.ed-befund{display:block;width:100%;text-align:left;border:0;padding:3px 0;
+  background:transparent;font:inherit;color:inherit;cursor:pointer;
+  text-decoration:underline;text-underline-offset:3px;min-height:32px}
+.ed-befund:hover{opacity:.8}
+@media (max-width:860px){
+  .ed-stand[data-fehlt="1"]{min-height:44px}
+  .ed-befund{min-height:44px}
+}
 @media (max-width:432px){
   .marke .wortmarke{font-size:14px}
   #treffer{position:fixed;left:8px;right:8px;top:auto}
@@ -4716,12 +4753,20 @@ function edStandZeigen(){
   if(!e || !z) return;
   const abschnitte = (e.abschnitte || []).length;
   const bloecke = (e.abschnitte || []).reduce((n, a) => n + (a.bloecke || []).length, 0);
-  const fehlt = edPruefbar(true);
+  const fehlt = edBefunde(true);
   z.textContent = fehlt.length
     ? (fehlt.length === 1 ? 'Eine Sache fehlt noch' : fehlt.length + ' Sachen fehlen noch')
     : zahl(abschnitte) + (abschnitte === 1 ? ' Abschnitt' : ' Abschnitte') + ', ' +
       zahl(bloecke) + (bloecke === 1 ? ' Block' : ' Blöcke') + ' — bereit';
   z.dataset.fehlt = fehlt.length ? '1' : '0';
+  /* Solange nichts fehlt, ist die Zeile eine Zeile - gesperrt, ohne Rahmen,
+     ohne Zeiger. Erst wenn etwas fehlt, wird sie der Weg dorthin. Ein Knopf,
+     der nichts tut, ist schlimmer als kein Knopf (N-35). */
+  z.disabled = !fehlt.length;
+  z.title = fehlt.length
+    ? (fehlt.length === 1 ? 'Zu der Stelle springen'
+                          : 'Zur ersten von ' + fehlt.length + ' Stellen springen')
+    : '';
 }
 function edBlockAnhaengen(i, art){
   const e = ZUSTAND.editor;
@@ -5255,7 +5300,7 @@ function editorZeichnen(opt){
     .map(a => String(a.gruppe || '').trim()).filter(Boolean))];
   const wiederholt = edGruppenWiederholt(e.abschnitte);
   const abschnitte = e.abschnitte.map((a, i) => `
-    <div class="ed-abschnitt">
+    <div class="ed-abschnitt" id="ed-abschnitt-${i}">
       <div class="ed-kopf">
         <span class="label">Abschnitt ${i + 1}${a.titel
           ? ' · ' + schuetzen(a.titel) : ''}</span>
@@ -5434,7 +5479,8 @@ function editorZeichnen(opt){
       <button class="knopf" data-ed="speichern"
         title="Speichern (Strg+S)">Speichern</button>
       <button class="knopf rahmen" data-ed="vorschau">Ansehen</button>
-      <span class="ed-stand" id="ed-stand"></span>
+      <button type="button" class="ed-stand" id="ed-stand"
+        data-ed="zumfehler" disabled></button>
       <div class="ed-nebenweg" style="margin-left:auto">
         <button class="knopf rahmen ed-mehr-knopf" data-ed="mehr"
           aria-expanded="false">Mehr …</button>
@@ -5456,17 +5502,17 @@ function editorZeichnen(opt){
     const t = $('ed-titel').value;
     $('kopfkontext').textContent = t || 'noch kein Titel';
     if(!ZUSTAND.editor.slugGetippt) $('ed-slug').value = edSlug(t);
-    $('ed-titel').removeAttribute('aria-invalid');
+    edMarkeWeg($('ed-titel'));
     edFelderLesen(); edStandZeigen();
   });
   $('ed-pfad').addEventListener('input', () => {
-    $('ed-pfad').removeAttribute('aria-invalid');
+    edMarkeWeg($('ed-pfad'));
     edFelderLesen(); edStandZeigen();
   });
   e.abschnitte.forEach((a, i) => {
     const ti = $('ed-a-titel-' + i);
     if(ti) ti.addEventListener('input', () => {
-      ti.removeAttribute('aria-invalid');
+      edMarkeWeg(ti);
       edFelderLesen(); edStandZeigen();
     });
   });
@@ -5549,6 +5595,10 @@ function editorZeichnen(opt){
 function edTun(was, i, knopf){
   edFelderLesen();
   const e = ZUSTAND.editor;
+  /* Vor allem anderen: der Sprung an die Fehlerstelle braucht keinen
+     Zustand, nur die Befunde. */
+  if(was === 'zumfehler')
+    return edZumFehler(+((knopf && knopf.dataset.nr) || 0));
   if(was === 'neu'){
     e.abschnitte.push(edAbschnittNeu());
     editorZeichnen();
@@ -5633,63 +5683,148 @@ function edEinsetzen(i, j, text){
   edBlockLesenAusDerSeite(i, j);
   edErgebnisMalen(i, j);
 }
-function edPruefbar(nurNachsehen){
+function edBefunde(nurNachsehen){
   /* Was der Editor selbst schon weiß - bevor der Server es sagt. Die
      Serverprüfung bleibt die Wahrheit, aber für Tippfehler ist der Weg über
      das Netz unnötig lang.
+
+     Jeder Befund nennt SEINE STELLE (`ziel`: die Kennung des Feldes oder der
+     Karte). Ohne die bleibt "Eine Sache fehlt noch" ein Satz, dem man nicht
+     nachgehen kann - genau die Rueckmeldung zu N-35. Und der Text allein
+     reicht nicht: "Im Abschnitt 3 steht noch nichts" sagt nicht, wo
+     Abschnitt 3 auf dem Schirm liegt.
 
      nurNachsehen: fuer die Standzeile. Dann werden die Felder nicht neu
      gelesen (das laeuft beim Zeichnen sowieso) und keine Anker gesetzt. */
   if(!nurNachsehen) edFelderLesen();
   const e = ZUSTAND.editor, m = [];
+  const sag = (text, ziel) => m.push({text, ziel});
   const titel = String(e.titel || '').trim();
-  if(!titel) m.push('Der Seite fehlt der Titel.');
+  if(!titel) sag('Der Seite fehlt der Titel.', 'ed-titel');
   else if(titel.length > 120)
-    m.push('Der Titel ist ' + titel.length + ' Zeichen lang, erlaubt sind 120.');
+    sag('Der Titel ist ' + titel.length + ' Zeichen lang, erlaubt sind 120.',
+        'ed-titel');
   if(String(e.kurz || '').trim().length > 300)
-    m.push('Der Satz unter dem Titel ist zu lang (erlaubt: 300 Zeichen).');
+    sag('Der Satz unter dem Titel ist zu lang (erlaubt: 300 Zeichen).', 'ed-kurz');
   const slug = String(e.slug || '').trim();
   /* Die Adresse entsteht aus dem Titel. Fehlt der Titel, ist "keine Adresse"
      keine zweite Aufgabe, sondern dieselbe - und eine Liste mit vier
      Punkten schreckt ab, wo einer genuegt. */
-  if(!slug && titel) m.push('Der Seite fehlt die Adresse.');
+  if(!slug && titel) sag('Der Seite fehlt die Adresse.', 'ed-slug');
   else if(slug && !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug))
-    m.push('Die Adresse „' + slug + '" ist nicht erlaubt: nur Kleinbuchstaben, ' +
-           'Ziffern und Bindestriche.');
-  if(!edPfadListe(e.pfad).length) m.push('Der Pfad im Themenbaum fehlt.');
+    sag('Die Adresse \u201e' + slug + '" ist nicht erlaubt: nur Kleinbuchstaben, ' +
+        'Ziffern und Bindestriche.', 'ed-slug');
+  if(!edPfadListe(e.pfad).length) sag('Der Pfad im Themenbaum fehlt.', 'ed-pfad');
   const anker = new Set();
   e.abschnitte.forEach((a, i) => {
     const t = String(a.titel || '').trim();
-    if(!t) m.push('Abschnitt ' + (i + 1) + ' hat keinen Titel.');
+    if(!t) sag('Abschnitt ' + (i + 1) + ' hat keinen Titel.', 'ed-a-titel-' + i);
     let k = String(a.anker || '').trim() || edSlug(t);
-    if(!k && t) m.push('Abschnitt ' + (i + 1) + ' hat keinen Anker.');
+    if(!k && t) sag('Abschnitt ' + (i + 1) + ' hat keinen Anker.', 'ed-a-anker-' + i);
     else if(k) {
-      if(anker.has(k)) m.push('Der Anker „' + k + '" kommt zweimal vor.');
+      if(anker.has(k))
+        sag('Der Anker \u201e' + k + '" kommt zweimal vor.', 'ed-a-anker-' + i);
       anker.add(k);
       if(!nurNachsehen) a.anker = k;
     }
     if(!String(a.markup || '').trim())
-      m.push(t ? 'Im Abschnitt „' + t + '" steht noch nichts.'
-                : 'Im Abschnitt ' + (i + 1) + ' steht noch nichts.');
+      sag(t ? 'Im Abschnitt \u201e' + t + '" steht noch nichts.'
+            : 'Im Abschnitt ' + (i + 1) + ' steht noch nichts.',
+          'ed-abschnitt-' + i);
     /* Ein PDF-Baustein ohne Datei baut einen Knopf, der auf einen Anhang
        zeigt, den die Seite nicht mitbringt - ein Klick ins Leere (N-22).
        Lieber hier abfangen als den Leser ratlos lassen. */
     (a.bloecke || []).forEach((b, j) => {
       if(b.art !== 'pdf' && b.art !== 'bild') return;
       if(b.daten64 || b.dateiname) return;
-      const wo = t ? '„' + t + '"' : 'Abschnitt ' + (i + 1);
-      m.push(b.art === 'pdf'
+      const wo = t ? '\u201e' + t + '"' : 'Abschnitt ' + (i + 1);
+      sag(b.art === 'pdf'
         ? 'Im PDF-Baustein ' + (j + 1) + ' in ' + wo +
           ' ist keine Datei ausgewählt — seine Knöpfe würden ins Leere führen.'
         : 'Im Bild-Baustein ' + (j + 1) + ' in ' + wo +
-          ' ist kein Bild ausgewählt — da bliebe eine leere Fläche.');
+          ' ist kein Bild ausgewählt — da bliebe eine leere Fläche.',
+        'ed-block-' + i + '-' + j);
     });
   });
   return m;
 }
+function edPruefbar(nurNachsehen){
+  /* Dieselbe Pruefung, nur die Texte - fuer Zaehler und Meldungen. Eine
+     zweite Pruefung waere eine zweite Wahrheit. */
+  return edBefunde(nurNachsehen).map(b => b.text);
+}
 function edBerichtZeigen(html){
   const z = $('ed-bericht');
-  if(z) z.innerHTML = html;
+  if(!z) return;
+  z.innerHTML = html;
+  /* Der Bericht entsteht NACH dem Zeichnen - die Verdrahtung von dort hat
+     ihn nie gesehen. Ohne diese Zeile waere jeder Punkt der Liste ein
+     Knopf, der nichts tut. */
+  z.querySelectorAll('[data-ed]').forEach(b =>
+    b.onclick = () => edTun(b.dataset.ed, +b.dataset.i, b));
+}
+function edFehlerBericht(befunde){
+  /* Die Liste der Befunde - jeder Punkt fuehrt an seine Stelle. */
+  return '<div class="meldung fehler"><strong>Das fehlt noch</strong>' +
+    '<ul style="margin:6px 0 0 18px;padding:0">' +
+    befunde.map((b, nr) => '<li>' + (b.ziel
+      ? '<button type="button" class="ed-befund" data-ed="zumfehler" ' +
+        'data-nr="' + nr + '">' + schuetzen(b.text) + '</button>'
+      : schuetzen(b.text)) + '</li>').join('') +
+    '</ul></div>';
+}
+function edFehlerMarkieren(befunde){
+  /* Nicht nur eine Liste am Rand: die Stelle selbst wird markiert, die
+     Meldung steht daneben, und der Blick springt hin. Vorher waren nur drei
+     von elf Faellen markiert - fehlte etwas anderes (ein leerer Abschnitt,
+     ein PDF-Baustein ohne Datei), passierte beim Speichern sichtbar nichts
+     (N-35). */
+  const liste = befunde || edBefunde(true);
+  const fl = $('flaeche');
+  if(!fl) return liste;
+  fl.querySelectorAll('.ed-fehlerzeile').forEach(x => x.remove());
+  fl.querySelectorAll('[aria-invalid="true"]').forEach(
+    x => x.removeAttribute('aria-invalid'));
+  fl.querySelectorAll('[data-fehler="1"]').forEach(
+    x => x.removeAttribute('data-fehler'));
+  liste.forEach((b, nr) => {
+    const el = b.ziel && $(b.ziel);
+    if(!el) return;
+    const istFeld = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
+    if(istFeld) el.setAttribute('aria-invalid', 'true');
+    else el.dataset.fehler = '1';
+    const zeile = document.createElement('div');
+    zeile.className = 'ed-fehlerzeile';
+    zeile.id = 'ed-fehlerzeile-' + nr;
+    zeile.textContent = b.text;
+    /* Am Feld DARUNTER, an einer Karte OBEN: an einer Karte waere "darunter"
+       das Ende eines langen Kastens - also weit weg von dem, was gemeint
+       ist. */
+    if(istFeld) el.insertAdjacentElement('afterend', zeile);
+    else el.insertBefore(zeile, el.firstChild);
+  });
+  return liste;
+}
+function edMarkeWeg(el){
+  /* Wird im Feld etwas geaendert, muss die Meldung DANEBEN auch weg - sonst
+     steht dort weiter "fehlt der Titel", waehrend der Titel schon da ist. */
+  if(!el) return;
+  el.removeAttribute('aria-invalid');
+  const nach = el.nextElementSibling;
+  if(nach && nach.classList.contains('ed-fehlerzeile')) nach.remove();
+}
+function edZumFehler(nr){
+  /* Der Weg zur Stelle. Aufgerufen von der Standzeile und von jedem Punkt
+     der Fehlerliste. */
+  edFelderLesen();
+  const liste = edFehlerMarkieren(edBefunde(true));
+  const b = liste[nr] || liste[0];
+  if(!b) return;
+  const el = b.ziel && $(b.ziel);
+  if(!el) return einblenden(b.text);
+  const zeile = $('ed-fehlerzeile-' + liste.indexOf(b));
+  (zeile || el).scrollIntoView({block:'center'});
+  if(typeof el.focus === 'function') el.focus({preventScroll:true});
 }
 async function edSenden(weg){
   const html = edSeiteBauen(ZUSTAND.editor);
@@ -5699,13 +5834,13 @@ async function edSenden(weg){
                     headers:{'Content-Type':'text/html; charset=utf-8'}});
 }
 async function edVorschau(){
-  const m = edPruefbar();
+  const m = edBefunde();
   if(m.length){
-    edFehlerMarkieren();
+    /* Erst der Bericht, dann der Sprung: der Bericht steht unten, der Sprung
+       setzt den Blick auf die Stelle - in dieser Reihenfolge bleibt er da. */
     edStandZeigen();
-    return edBerichtZeigen('<div class="meldung fehler"><strong>' +
-      'Das fehlt noch</strong><ul style="margin:6px 0 0 18px;padding:0">' +
-      m.map(x => '<li>' + schuetzen(x) + '</li>').join('') + '</ul></div>');
+    edBerichtZeigen(edFehlerBericht(m));
+    return edZumFehler(0);
   }
   edBerichtZeigen('<div class="meldung">Wird geprüft …</div>');
   let b;
@@ -5739,33 +5874,14 @@ async function edVorschau(){
     (b.neu ? ' · neue Seite' : ' · ersetzt Fassung ' + (b.fassung - 1));
   $('vorschau-leiste').hidden = false;
 }
-function edFehlerMarkieren(){
-  /* Nicht nur eine Liste am Rand: das leere Feld selbst wird markiert, und
-     der Blick springt dorthin. Sonst sucht man, was gemeint ist. */
-  const e = ZUSTAND.editor;
-  let erstes = null;
-  const merken = (f) => { if(f && !erstes) erstes = f; };
-  if(!String(e.titel || '').trim()){
-    const f = $('ed-titel'); if(f){ f.setAttribute('aria-invalid', 'true'); merken(f); }
-  }
-  if(!edPfadListe(e.pfad).length){
-    const f = $('ed-pfad'); if(f){ f.setAttribute('aria-invalid', 'true'); merken(f); }
-  }
-  (e.abschnitte || []).forEach((a, i) => {
-    if(String(a.titel || '').trim()) return;
-    const f = $('ed-a-titel-' + i);
-    if(f){ f.setAttribute('aria-invalid', 'true'); merken(f); }
-  });
-  if(erstes){ erstes.scrollIntoView({block:'center'}); erstes.focus(); }
-}
 async function edSpeichern(){
-  const m = edPruefbar();
+  const m = edBefunde();
   if(m.length){
-    edFehlerMarkieren();
+    /* Erst der Bericht, dann der Sprung: der Bericht steht unten, der Sprung
+       setzt den Blick auf die Stelle - in dieser Reihenfolge bleibt er da. */
     edStandZeigen();
-    return edBerichtZeigen('<div class="meldung fehler"><strong>' +
-      'Das fehlt noch</strong><ul style="margin:6px 0 0 18px;padding:0">' +
-      m.map(x => '<li>' + schuetzen(x) + '</li>').join('') + '</ul></div>');
+    edBerichtZeigen(edFehlerBericht(m));
+    return edZumFehler(0);
   }
   edBerichtZeigen('<div class="meldung">Wird gespeichert …</div>');
   let a;
@@ -5834,10 +5950,12 @@ function edSlugBekannt(slug){
   return suchen(ZUSTAND.baum);
 }
 function edDatei(){
-  const m = edPruefbar();
-  if(m.length) return edBerichtZeigen('<div class="meldung fehler"><strong>' +
-    'Das fehlt noch</strong><ul style="margin:6px 0 0 18px;padding:0">' +
-    m.map(x => '<li>' + schuetzen(x) + '</li>').join('') + '</ul></div>');
+  const m = edBefunde();
+  if(m.length){
+    edStandZeigen();
+    edBerichtZeigen(edFehlerBericht(m));
+    return edZumFehler(0);
+  }
   const html = edSeiteBauen(ZUSTAND.editor);
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([html], {type:'text/html'}));

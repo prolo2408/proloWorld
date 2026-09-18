@@ -21,6 +21,30 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
   Fehler - aber sie stehen vor dem "Uebernehmen"-Knopf, nicht dahinter
   (B-07).
 
+## Fassung 1.3.1
+
+Zwei Korrekturen aus der Rueckmeldung zu 1.3.0 - beide im Browser
+nachgestellt und gemessen, nicht nur ueberlegt.
+
+- **Ein Fehler beim Speichern fuehrt jetzt an seine Stelle** (`N-35`). Die
+  Zeile „Eine Sache fehlt noch" war ein Satz ohne Weg: anklickbar aussehend,
+  aber nur Text - und markiert wurden drei von elf Faellen. Fehlte etwas
+  anderes (ein leerer Abschnitt, ein PDF-Baustein ohne Datei, ein doppelter
+  Anker), passierte beim Speichern sichtbar nichts. Jetzt nennt jeder Befund
+  seine Stelle: die Standzeile ist ein Knopf, jeder Punkt der Fehlerliste ist
+  ein Knopf, und Speichern springt von selbst an den ersten Befund. Die
+  Meldung steht am Feld, nicht nur unten in einer Liste; Felder werden
+  markiert, Karten bekommen einen warmen Rand, und wer im Feld etwas aendert,
+  verliert Marke und Meldung dazu.
+
+- **Der schwarze Balken unter der Oberflaeche ist weg** (`N-34`). Die Huelle
+  ist ein Rahmen und scrollt nicht mehr als Ganzes: was innen zu hoch ist,
+  scrollt innen. Gab vorher irgendetwas dem Koerper Hoehe - eine
+  Browsererweiterung zum Beispiel -, liess sich das ganze Dokument schieben:
+  der Kopf verschwand nach oben, unten stand ein Balken in der falschen Farbe.
+  Gemessen: 520 Pixel Fremdhoehe genuegten, Huellenunterkante bei 48 % der
+  Fensterhoehe. Danach: 100 %, Kopf sichtbar.
+
 ## Fassung 1.3.0
 
 - **Strg+S speichert** im Editor, und ein Baustein laesst sich **verdoppeln**.

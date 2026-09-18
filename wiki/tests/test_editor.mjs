@@ -59,6 +59,9 @@ const quellen = [
   hol(/function edSeiteBauen\(e\)\{[\s\S]*?\n\}/, 'edSeiteBauen'),
   /* edPruefbar liest im Normalfall die Felder der Seite. Hier laeuft es nur
      mit nurNachsehen=true - dann braucht es kein Dokument, nur ZUSTAND. */
+  /* edPruefbar ist seit N-35 nur die Textsicht auf edBefunde - beide
+     muessen herausgeholt werden, sonst ruft edPruefbar ins Leere. */
+  hol(/function edBefunde\(nurNachsehen\)\{[\s\S]*?\n\}/, 'edBefunde'),
   hol(/function edPruefbar\(nurNachsehen\)\{[\s\S]*?\n\}/, 'edPruefbar'),
   hol(/function edGruppenWiederholt\(abschnitte\)\{[\s\S]*?\n\}/, 'edGruppenWiederholt'),
   hol(/function kiPrompt\(thema\)\{[\s\S]*?\n\}/, 'kiPrompt'),
@@ -73,14 +76,16 @@ const { edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
         ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
         edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
         ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
-        edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, edGruppenWiederholt,
+        edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, edBefunde,
+        edGruppenWiederholt,
         kiPrompt, ED_VORLAGEN, ED_GRUPPEN, edLeer, ZUSTAND } =
   new Function(quellen + `
     return {edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
             ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
             edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
             ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
-            edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, edGruppenWiederholt,
+            edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, edBefunde,
+        edGruppenWiederholt,
             kiPrompt, ED_VORLAGEN, ED_GRUPPEN, edLeer, ZUSTAND};`)();
 
 /* Das Rechenwerk der erzeugten Seite - hier einzeln herausgeholt, damit die
@@ -258,6 +263,23 @@ pruefe('Pflichtangaben der Huelle: lang, viewport, focus-visible', () => {
   assert.ok(/name="viewport"/.test(seite));
   assert.ok(seite.includes('focus-visible'), 'ohne das warnt die Importpruefung');
   assert.ok(seite.includes('prefers-reduced-motion'));
+});
+pruefe('Die Huelle ist ein Rahmen, kein Schriftstueck (N-34)', () => {
+  /* Der Befund aus der Rueckmeldung: unter der Oberflaeche stand ein
+     schwarzer Balken und der Kopf war weg. Gemessen im Browser: 520 Pixel
+     Fremdhoehe im Koerper genuegen, dann laesst sich das ganze Dokument
+     schieben - Huellenunterkante bei 48 % der Fensterhoehe, Kopf nicht mehr
+     sichtbar. Gescrollt wird INNEN; die Wurzel scrollt nie. */
+  const wurzel = quelle.match(/^html,body\{[^}]*\}/m);
+  assert.ok(wurzel, 'keine Regel fuer html,body gefunden');
+  assert.ok(/overflow:\s*hidden/.test(wurzel[0]),
+    'ohne overflow:hidden an der Wurzel schiebt jede Fremdhoehe die Huelle aus dem Bild');
+  assert.ok(/height:\s*100%/.test(wurzel[0]),
+    'ohne height:100% ist die Huelle nicht so hoch wie das Fenster');
+  const koerper = quelle.match(/\nbody\{\n([\s\S]*?)\n\}/);
+  assert.ok(koerper, 'keine body-Regel gefunden');
+  assert.ok(/background:\s*var\(--app\)/.test(koerper[1]),
+    'der Koerper muss die Farbe der Huelle tragen - sonst ist jede Luecke ein Fremdkoerper');
 });
 pruefe('Farben nur in :root und body[data-theme]', () => {
   /* Die Importpruefung sucht Farbwerte ausserhalb des Tokenblocks. Also darf
@@ -1205,6 +1227,74 @@ pruefe('Die Huelle bricht ihren eigenen Skriptblock nicht auf', () => {
   const rest = quelle.slice(ende + ('<' + '/script>').length).trim();
   assert.ok(rest.length < 200,
             'hinter dem Skriptende stehen noch ' + rest.length + ' Zeichen');
+});
+
+/* ---------------------------------------------------------------- N-35
+   "Eine Sache fehlt noch" war ein Satz ohne Weg: die Zeile liess sich
+   anklicken, markierte aber nur den Text, und markiert wurden ohnehin nur
+   drei der Faelle. Fehlte etwas anderes, passierte beim Speichern sichtbar
+   nichts. Also: JEDER Befund nennt seine Stelle, und jede Stelle muss es
+   wirklich geben. */
+pruefe('Jeder Befund nennt seine Stelle (N-35)', () => {
+  ZUSTAND.editor = {
+    titel: 'x'.repeat(121), kurz: 'y'.repeat(301), pfad: '', slug: 'Falsch Slug',
+    abschnitte: [
+      {titel: '',  anker: '',  markup: '',  bloecke: [{art: 'pdf'}]},
+      {titel: 'A', anker: 'a', markup: 't', bloecke: []},
+      {titel: 'B', anker: 'a', markup: '',  bloecke: [{art: 'bild'}]}
+    ]};
+  const liste = edBefunde(true);
+  /* Von Hand ausgezaehlt, in der Reihenfolge, in der die Pruefung laeuft:
+     Titel zu lang, Satz zu lang, Adresse falsch, Pfad fehlt,
+     Abschnitt 1 ohne Titel, Abschnitt 1 leer, PDF ohne Datei,
+     Abschnitt 3 mit doppeltem Anker, Abschnitt 3 leer, Bild ohne Datei. */
+  assert.deepEqual(liste.map(b => b.ziel), [
+    'ed-titel', 'ed-kurz', 'ed-slug', 'ed-pfad',
+    'ed-a-titel-0', 'ed-abschnitt-0', 'ed-block-0-0',
+    'ed-a-anker-2', 'ed-abschnitt-2', 'ed-block-2-0']);
+  liste.forEach(b => assert.ok(b.text && b.text.length > 10,
+    'ein Befund ohne Satz: ' + JSON.stringify(b)));
+});
+pruefe('Jede genannte Stelle gibt es wirklich (N-35)', () => {
+  /* Der eigentliche Zahn: ein Ziel, das kein Feld ist, waere ein Sprung ins
+     Leere - und der sieht genauso aus wie der Fehler aus der Rueckmeldung. */
+  ZUSTAND.editor = {
+    titel: '', kurz: '', pfad: '', slug: '',
+    abschnitte: [{titel: '', anker: '', markup: '', bloecke: [{art: 'pdf'}]}]};
+  const ziele = edBefunde(true).map(b => b.ziel);
+  assert.ok(ziele.length >= 4, 'zu wenige Befunde fuer diese Probe');
+  ziele.forEach(z => {
+    const muster = z.replace(/-\d+-\d+$/, '-${i}-${j}').replace(/-\d+$/, '-${i}');
+    assert.ok(quelle.includes('id="' + muster + '"'),
+      'kein Feld mit id="' + muster + '" in index.html - der Sprung ginge ins Leere');
+  });
+});
+pruefe('Der leere Editor meldet genau vier Sachen (N-35)', () => {
+  /* Die Zahl aus der Rueckmeldung. Von Hand: Titel, Pfad, Abschnittstitel,
+     leerer Abschnitt. Die Adresse zaehlt NICHT mit - sie entsteht aus dem
+     Titel, und zwei Punkte fuer dieselbe Aufgabe schrecken ab. */
+  ZUSTAND.editor = edLeer();
+  const liste = edBefunde(true);
+  assert.equal(liste.length, 4, liste.map(b => b.text).join(' | '));
+  assert.deepEqual(liste.map(b => b.ziel),
+    ['ed-titel', 'ed-pfad', 'ed-a-titel-0', 'ed-abschnitt-0']);
+});
+pruefe('edPruefbar ist genau die Textsicht auf edBefunde (N-35)', () => {
+  /* Zwei Pruefungen waeren zwei Wahrheiten. */
+  ZUSTAND.editor = edLeer();
+  assert.deepEqual(edPruefbar(true), edBefunde(true).map(b => b.text));
+});
+pruefe('Die Standzeile ist ein Knopf, der zur Stelle fuehrt (N-35)', () => {
+  const zeile = quelle.match(/id="ed-stand"[\s\S]{0,120}/);
+  assert.ok(zeile, 'ed-stand nicht gefunden');
+  assert.ok(/<button[^>]*id="ed-stand"|id="ed-stand"[\s\S]{0,60}data-ed="zumfehler"/
+              .test(quelle),
+    'die Standzeile muss ein Knopf mit data-ed="zumfehler" sein - als <span> ' +
+    'markiert ein Klick nur den Text');
+  assert.ok(quelle.includes("if(was === 'zumfehler')"),
+    'ohne Fall im Verteiler tut der Knopf nichts');
+  assert.ok(/z\.disabled = !fehlt\.length/.test(quelle),
+    'solange nichts fehlt, muss die Zeile gesperrt sein');
 });
 
 console.log('');
