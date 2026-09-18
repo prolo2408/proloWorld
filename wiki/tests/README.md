@@ -112,7 +112,7 @@ lesbarer Text (Kontrast 1,23) und ein absichtlich 3000 px breiter Kasten
 wurden gemeldet — ohne diese Gegenprobe hätte „keine Verletzung gefunden"
 auch heißen können, dass der Prüfer nichts ansieht.
 
-Zwei Lehren aus dem Durchgang für den nächsten:
+Lehren aus den Durchgängen für den nächsten:
 
 - Chrome legt den Inhalt eines geschlossenen `<details>` weiter aus
   (`content-visibility` statt `display:none`). `getBoundingClientRect()`
@@ -120,6 +120,16 @@ Zwei Lehren aus dem Durchgang für den nächsten:
 - Ein Überlauf **innerhalb** eines Bereichs mit `overflow-y:auto` erzeugt
   kein waagerechtes Scrollen des Dokuments. Wer nur `scrollWidth` des
   Dokuments prüft, sieht ihn nicht.
+- **Hinter einem CSS-Übergang kann dieser Aufbau nichts messen.** Mit
+  `--virtual-time-budget` läuft ein `transition` nicht weiter: der berechnete
+  Wert bleibt für immer auf dem Anfangswert stehen. Beim Menü am Handy
+  (`#seitenleiste`, `transition:transform .18s`) sah das aus wie ein Fehler —
+  `data-menue="1"` gesetzt, `aria-expanded="true"`, und die Leiste stand
+  weiter bei `translateX(-248px)`. Erst `sl.style.transition='none'` zeigte,
+  dass die Regel gewinnt: `transform` wird `none`, die Leiste steht bei 0.
+  Wer etwas hinter einem Übergang prüfen will, schaltet ihn vorher ab und
+  prüft den Endzustand — sonst meldet der Prüfer einen Fehler, den es nicht
+  gibt.
 
 ## Was hier **nicht** geprüft wird
 

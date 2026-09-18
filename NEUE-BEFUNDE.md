@@ -1997,6 +1997,131 @@ Mutationsproben (§13a), jede einzeln angebracht und zurückgenommen:
 Diesmal lief der Rückweg der Proben über eine Kopie im Kratzblock, nicht über
 `git checkout` — die Lehre aus `N-34`.
 
+## N-36 — „Eine HTML anfügen" führte auf eine schwarze Seite
+
+### Befund
+
+Rückmeldung mit Bild: `wiki.prolo.me/#/neu`, eine HTML-Datei anfügen — und die
+Seite ist **vollständig leer**. Nicht nur ein Balken unten wie bei `N-34`,
+sondern gar nichts: keine Seitenleiste, keine Kopfzeile, kein Inhalt.
+
+### Was wirklich passiert war
+
+Auf dem Startbildschirm führt die Kachel *„Ich habe eine HTML-Datei"* in den
+Editor und klappt die Ablage auf. Damit man sie nicht suchen muss, stand dort:
+
+```js
+karte.open = true;
+karte.scrollIntoView({block:'center'});
+```
+
+`scrollIntoView` scrollt aber nicht *einen* Kasten, sondern **jeden
+scrollbaren Vorfahren** bis zur Wurzel. Der gewollte ist `.flaeche`. Der
+zweite ist der Körper — und der hat seit `N-34` `overflow:hidden`. Das nimmt
+ihm die Bildlaufleiste, macht ihn aber **nicht** unscrollbar: vom Programm
+lässt er sich sehr wohl schieben. `block:'center'` wollte die Karte in die
+Mitte des Fensters rücken und schob dafür den Körper um gut tausend Pixel.
+
+Danach stand die Hülle vollständig außerhalb des Fensters — und weil es keine
+Leiste gibt, gab es **keinen Weg zurück**. Nur die Farbe des Körpers war noch
+zu sehen.
+
+Bitter daran: `N-34` hat diesen Fall verschärft. Vorher scrollte das Dokument
+mit sichtbarer Leiste, und man konnte zurückscrollen. Der Riegel gegen den
+schwarzen Balken hat aus einem Ärgernis eine Sackgasse gemacht.
+
+### Gemessen, nicht überlegt
+
+Kopfloser Browser, 1440 × 900, `#/neu` → Kachel *„Ich habe eine HTML-Datei"* →
+Datei über das Feld eingehängt (`DataTransfer`) → *In den Editor laden*:
+
+| Schritt | `.app` oben..unten | Seitenleiste | Kopfzeile |
+|---|---|---|---|
+| Startbildschirm | 0 .. 900 | sichtbar | sichtbar |
+| **Ablage offen** | **−1022 .. −122** | **nein** | **nein** |
+| Bericht da | −1022 .. −122 | nein | nein |
+| In den Editor geladen | −1022 .. −122 | nein | nein |
+
+Und dabei: `dokScroll 0`, `window.scrollY 0`. Das Dokument war also gar nicht
+gescrollt — der **Körper** war es. Genau darum war nichts mehr zu sehen und
+nichts mehr zu erreichen.
+
+Nach der Korrektur, dieselbe Strecke: `0 .. 900` in allen vier Schritten,
+Seitenleiste und Kopfzeile durchgehend sichtbar, 0 Konsolenfehler, und *In den
+Editor laden* füllt Titel („Netzwerk Grundlagen") und **3** Abschnitte.
+
+### Behoben
+
+**Erster Riegel — nur den eigenen Kasten scrollen.** Neu `hinscrollen(el,
+mitte)` mit `scrollKasten(el)`: es sucht den nächsten Vorfahren, der wirklich
+senkrecht scrollt, und setzt dessen `scrollTop` selbst. Gibt es keinen, ist
+nichts zu tun. Alle sechs Aufrufe der Hülle gehen jetzt darüber.
+
+Die **drei Aufrufe im Pflichtteil der Seite bleiben** `scrollIntoView` — dort
+ist das Dokument der richtige Scrollbereich, weil die Seite in ihrem eigenen
+Rahmen läuft.
+
+**Zweiter Riegel — die Hülle hängt am Fenster.**
+
+```css
+.app{position:fixed;inset:0;display:flex;height:100%;background:var(--app)}
+```
+
+Ein Element mit fixer Lage hängt am Fenster, nicht am Körper. Kein Scrollen
+des Körpers kann die Hülle mehr verschieben — auch keins, das erst morgen
+dazukommt.
+
+**Und das Scrollen tut weiter, was es soll:** Kachel gedrückt →
+`flaeche.scrollTop` 0 → **1351**, Karte offen und im Bild, Hülle unverändert
+bei 0 .. 900. Der Fehlerweg aus `N-35` ebenso: alle vier Punkte der
+Fehlerliste landen bei ihrer Meldung im Bild, mit denselben Werten wie vor der
+Umstellung (0, 0, 321, 187).
+
+### Prüflinie
+
+`tests/test_editor.mjs`: *„Die Huelle scrollt nur ihre eigenen Kaesten
+(N-36)"* — kein `scrollIntoView`-**Aufruf** in der Hülle (der Pflichtteil wird
+herausgerechnet), `hinscrollen` und `scrollKasten` vorhanden, `.app` mit
+`position:fixed` und `inset:0`.
+
+Gesucht wird der Aufruf (`.scrollIntoView(`), nicht das Wort: der Kommentar in
+`hinscrollen` nennt `scrollIntoView` absichtlich, damit der nächste Leser
+weiß, warum es dort nicht steht. Die erste Fassung der Prüfzeile suchte das
+Wort und fiel über genau diesen Kommentar — dieselbe Falle wie `N-33`, nur
+umgekehrt.
+
+Mutationsproben (§13a), Rückweg über eine Kopie im Kratzblock:
+
+| Mutation | Ergebnis |
+|---|---|
+| ein `scrollIntoView` zurück in die Hülle | 1 Fehler |
+| `position:fixed` entfernt | 1 Fehler |
+| `inset:0` entfernt | 1 Fehler |
+| `hinscrollen` umbenannt | 1 Fehler |
+| unverändert | 126 ok, 0 Fehler |
+
+### Was `position:fixed` sonst noch berührt
+
+Nachgemessen, weil eine fixe Lage die Stapelung ändern kann: `#pdf-schau`
+(`z-index:70`) liegt bei 1440 × 900 **und** bei 390 × 780 über der Hülle
+(`elementFromPoint` trifft sie). Nichts geklemmt in fünf Ansichten × drei
+Größen. Klickdurchlauf 79 Klicks (1440 px) und 81 Klicks (390 px), je 0
+Konsolenfehler.
+
+### Ein Fehlalarm, der dabei auffiel
+
+Beim Nachmessen sah das Menü am Handy kaputt aus: `data-menue="1"` gesetzt,
+`aria-expanded="true"` — und die Seitenleiste stand weiter bei
+`translateX(-248px)`. Vor der Umstellung genauso, also kein Rückschritt, aber
+ein Befund?
+
+Nein. Mit `sl.style.transition='none'` wird `transform` zu `none` und die
+Leiste steht bei 0: die Regel `body[data-menue="1"] #seitenleiste` gewinnt
+sehr wohl. **Hinter einem CSS-Übergang kann dieser Aufbau nichts messen** —
+mit `--virtual-time-budget` läuft ein `transition` nicht weiter, der
+berechnete Wert bleibt auf dem Anfangswert stehen. Steht jetzt als dritte
+Lehre in `tests/README.md`.
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
