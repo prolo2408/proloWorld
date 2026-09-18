@@ -106,5 +106,68 @@ class MarkierteAnhaengeWerdenAusgegliedert(unittest.TestCase):
         self.assertEqual(server.genannte_anhaenge(neu), {"anhang-probe.pdf"})
 
 
+class EingebetteteBilderBleibenSichtbar(unittest.TestCase):
+    """N-31: Aus einem grossen Bild wurde eine kaputte Adresse.
+
+    Das Ausgliedern ersetzte nur den DATENTEIL einer data:-Adresse. Heraus
+    kam src="data:image/png;base64,anhaenge/eingebettet.png" - der Browser
+    liest das als Base64, bekommt Unsinn und zeigt nichts. Die Pruefung
+    meldete dabei "eingespielt" und legte die Datei sauber ab.
+    """
+
+    def bauen(self, zeichen):
+        # Ein Datenteil aus lauter 'A' ist gueltiges Base64 und laesst sich
+        # in der Laenge genau einstellen - darum steht die Schwelle hier
+        # nicht zur Debatte.
+        daten = "A" * zeichen
+        return ('<html><body><p><img alt="x" '
+                'src="data:image/png;base64,%s"></p></body></html>' % daten)
+
+    def test_die_adresse_zeigt_auf_die_datei_und_sonst_nichts(self):
+        html, anhaenge = server.anhaenge_ausgliedern(
+            self.bauen(2000), "probe", schwelle=1000)
+        self.assertEqual(len(anhaenge), 1, anhaenge)
+        self.assertIn('src="anhaenge/%s"' % anhaenge[0]["name"], html)
+        self.assertNotIn("data:image", html,
+                         "die alte Adresse steht noch davor")
+
+    def test_unter_der_schwelle_bleibt_alles_stehen(self):
+        # Gegenprobe: ein kleines Bild bleibt eingebettet, sonst waere jede
+        # Seite mit einem Symbol ploetzlich ein Ordner voller Dateien.
+        #
+        # Die Schwelle steht hier ueber 1000, weil das Muster selbst erst ab
+        # 1000 Zeichen greift: mit 500 Zeichen wuerde der Test nur zeigen,
+        # dass das Muster nicht passt, und die Schwelle nie beruehren.
+        html, anhaenge = server.anhaenge_ausgliedern(
+            self.bauen(2000), "probe", schwelle=3000)
+        self.assertEqual(anhaenge, [])
+        self.assertIn("data:image/png;base64,", html)
+
+    def test_die_endung_kommt_aus_dem_inhalt(self):
+        # "AAAA..." ist kein PNG - die Endung darf nicht aus dem Rufnamen
+        # der Adresse geraten werden, sondern muss aus den Daten kommen.
+        _, anhaenge = server.anhaenge_ausgliedern(
+            self.bauen(2000), "probe", schwelle=1000)
+        self.assertTrue(anhaenge[0]["name"].endswith(".bin"),
+                        anhaenge[0]["name"])
+
+    def test_die_datei_traegt_den_inhalt(self):
+        html, anhaenge = server.anhaenge_ausgliedern(
+            self.bauen(2000), "probe", schwelle=1000)
+        import base64
+        self.assertEqual(anhaenge[0]["daten"], base64.b64decode("A" * 2000))
+
+    def test_zwei_bilder_werden_zwei_dateien(self):
+        roh = self.bauen(2000).replace("</body>",
+                                       '<img src="data:image/png;base64,%s">'
+                                       "</body>" % ("A" * 2400))
+        html, anhaenge = server.anhaenge_ausgliedern(roh, "probe", schwelle=1000)
+        self.assertEqual(len(anhaenge), 2, anhaenge)
+        self.assertEqual(len({a["name"] for a in anhaenge}), 2,
+                         "beide Bilder heissen gleich")
+        for a in anhaenge:
+            self.assertIn('src="anhaenge/%s"' % a["name"], html)
+
+
 if __name__ == "__main__":
     unittest.main()

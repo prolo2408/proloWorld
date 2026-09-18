@@ -605,7 +605,7 @@ def anhaenge_ausgliedern(html, slug, schwelle=ANHANG_SCHWELLE_B):
     neu = re.sub(r"(?is)(<script\b[^>]*>)(.*?)</script>", script_ersetzen, html)
 
     def uri_ersetzen(m):
-        praefix, roh = m.group(1), m.group(2)
+        roh = m.group(2)
         if len(roh) < schwelle:
             return m.group(0)
         typ, endung = typ_erkennen(roh[:10])
@@ -615,10 +615,19 @@ def anhaenge_ausgliedern(html, slug, schwelle=ANHANG_SCHWELLE_B):
         except Exception:
             return m.group(0)
         gefunden.append({"name": name, "typ": typ, "daten": daten, "marke": ""})
-        return f'{praefix}anhaenge/{name}'
+        # Der GANZE Ausdruck wird ersetzt, nicht nur der Datenteil. Vorher
+        # blieb das "data:image/png;base64," davor stehen, und heraus kam
+        #     src="data:image/png;base64,anhaenge/eingebettet.png"
+        # Der Browser liest das als Base64, bekommt Unsinn und zeigt nichts
+        # (N-31). Die Pruefung meldete dabei "eingespielt" und legte den
+        # Anhang sauber ab - kaputt war nur das, was der Leser sieht.
+        return f"anhaenge/{name}"
 
+    # Die Schwelle steht EINMAL, in uri_ersetzen. Vorher stand sie auch hier
+    # noch als Bedingung - zwei Riegel fuer dieselbe Sache, von denen keiner
+    # fuer sich pruefbar ist: nimmt man einen weg, faellt es nicht auf.
     neu = re.sub(r"(data:[a-zA-Z0-9/.+-]+;base64,)([A-Za-z0-9+/=]{1000,})",
-                 lambda m: uri_ersetzen(m) if len(m.group(2)) >= schwelle else m.group(0), neu)
+                 uri_ersetzen, neu)
     return neu, gefunden
 
 

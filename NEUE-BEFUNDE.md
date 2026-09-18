@@ -1573,6 +1573,71 @@ beim Einspielen entfernt → rot.
 
 ---
 
+## N-31 — Jedes eingebettete Bild über 200 kB wurde beim Einspielen zerstört
+
+### Befund
+
+Gefunden beim Vorbereiten eines Bild-Bausteins, mit einer Seite, die zwei
+echte PNG enthält: eines mit 74 Byte, eines mit 307 613 Byte. Nach dem
+Einspielen steht in der gespeicherten Seite:
+
+```html
+<img id="klein" src="data:image/png;base64,iVBORw0KGgoAAAAN…">   ← heil
+<img id="gross" src="data:image/png;base64,anhaenge/eingebettet.png">
+```
+
+Die zweite Adresse ist Unsinn: Der Browser liest alles hinter `base64,` als
+Base64, bekommt `anhaenge/eingebettet.png` und zeigt **nichts**.
+
+Die Ursache steht in einer einzigen Zeile von `anhaenge_ausgliedern`:
+
+```python
+return f'{praefix}anhaenge/{name}'
+```
+
+`praefix` ist die Gruppe `(data:image/png;base64,)` aus dem Muster. Ersetzt
+werden sollte die **ganze** Adresse, ersetzt wurde nur der Datenteil — und der
+Präfix blieb davorstehen.
+
+Und wie immer bei dieser Familie: Die Prüfung meldete nichts. `/api/import`
+sagte `"ok": true`, der Anhang lag mit 307 613 Byte korrekt im Ordner, die
+Größenersparnis stand im Bericht. Kaputt war nur das, was der Leser sieht.
+
+### Behoben
+
+Die ganze Adresse wird ersetzt. Danach im Browser nachgemessen, an der
+eingespielten Seite im abgeschotteten Rahmen:
+
+| Bild | Adresse | geladen | Größe |
+|---|---|---|---|
+| klein | `data:image/png;base64,…` | ja | 8 × 8 |
+| groß | `anhaenge/eingebettet.png` | **ja** | 320 × 320 |
+
+Das ist zugleich die Antwort auf eine Frage, die ich nicht raten wollte: Ob
+ein Bild aus dem Anhangsordner in einem Rahmen mit *opakem* Origin überhaupt
+lädt, wo die CSP `img-src 'self'` sagt. Es lädt. Gemessen, nicht geschlossen.
+
+Vier Tests in `wiki/tests/test_anhaenge.py`, drei Mutationsproben: Präfix
+wieder davor → 2 rot, Schwelle ohne Wirkung → 1 rot, gleicher Name für zwei
+Bilder → 1 rot.
+
+Dabei fiel noch etwas auf: Die Schwelle wurde **zweimal** geprüft — einmal im
+Aufruf, einmal in der Funktion. Zwei Riegel für dieselbe Sache, von denen
+keiner für sich prüfbar ist: Nimmt man einen weg, bleibt alles grün. Jetzt
+steht sie einmal, in der Funktion, und die Mutationsprobe greift.
+
+### Eine Warnung zur Prüftechnik
+
+Beim ersten Durchlauf blieben zwei von drei Mutationen unentdeckt — und eine
+davon zu Unrecht: Python hatte den übersetzten Zwischenstand von `server.py`
+im `__pycache__` und las die Mutation gar nicht ein. Aufgefallen ist es, weil
+derselbe Test einzeln aufgerufen sofort rot wurde. Seither wird der Cache vor
+jeder Probe gelöscht. Eine Mutationsprobe, die aus Versehen den alten Code
+prüft, ist schlimmer als keine: Sie bescheinigt einem Test Zähne, die er
+nicht hat.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
