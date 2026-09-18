@@ -1468,8 +1468,6 @@ def fts_ausdruck_aus_teilen(teile, praefix=True, wortverbund="AND"):
     return aus
 
 
-def fts_ausdruck(begriff, praefix=True):
-    return fts_ausdruck_aus_teilen(suchbegriff_lesen(begriff), praefix)
 
 
 def schnipsel(text, begriffe, laenge=170):

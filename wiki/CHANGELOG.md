@@ -23,7 +23,18 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
 
 ## Fassung 1.3.2
 
-Eine Korrektur zu 1.3.1 - im Browser nachgestellt und gemessen.
+Eine Korrektur zu 1.3.1 und ein Aufraeumen - im Browser nachgestellt und
+gemessen.
+
+- **Aufgeraeumt** (`N-37`). Zwei Funktionen sind weg, die nur noch ihr
+  eigener Test gerufen hat: `fts_ausdruck` im Server (ersetzt von
+  `fts_ausdruck_aus_teilen`) und `edPruefbar` in der Huelle (ersetzt von
+  `edBefunde`). Die Tests gehen jetzt den Weg, den der Server geht. Die
+  Abnahmehilfe fuer die Abschottung liegt als
+  `tests/isolierung-probe.html` dort, wo man sie sucht. Und eine
+  `.dockerignore` haelt den Baukontext klein: gemessen 50 -> 15 Dateien
+  (1149,9 -> 510,9 kB); beim Bordbuch war sie unvollstaendig, jetzt
+  41 -> 15 Dateien.
 
 - **Eine HTML-Datei anfuegen fuehrt nicht mehr auf eine schwarze Seite**
   (`N-36`). Die Kachel "Ich habe eine HTML-Datei" klappte die Ablage auf und

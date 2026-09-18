@@ -2122,6 +2122,93 @@ mit `--virtual-time-budget` läuft ein `transition` nicht weiter, der
 berechnete Wert bleibt auf dem Anfangswert stehen. Steht jetzt als dritte
 Lehre in `tests/README.md`.
 
+## N-37 — Was im Repo lag und nicht gebraucht wurde
+
+### Auftrag
+
+„Check mal das ganze Repo und werf alles weg, das nicht gebraucht wird." Also
+120 Dateien einzeln durchgegangen, mechanisch statt nach Gefühl: welche Datei
+wird von keiner anderen erwähnt, welche Klasse steht im Stil und nirgends im
+Markup, welche Funktion ist definiert und wird nie gerufen.
+
+### Was wirklich weg konnte
+
+**Zwei Funktionen, die nur noch ihr eigener Test gerufen hat.** Das ist die
+schlimmere Sorte totes Holz: der Test ist grün, und er prüft nichts am
+laufenden Code.
+
+| Funktion | Aufrufer im Programm |
+|---|---|
+| `fts_ausdruck(begriff)` in `server.py` | **keiner** — vier Prüfzeilen in `test_suche.py` |
+| `edPruefbar(nurNachsehen)` in `index.html` | **keiner** — vier Stellen in `test_editor.mjs` |
+
+Beide waren Einzeiler vor einer echten Funktion, und beide hatten ihre
+Aufrufer im Programm bei früheren Arbeitsschritten verloren: `fts_ausdruck` an
+`fts_ausdruck_aus_teilen` (Suchoperatoren), `edPruefbar` an `edBefunde`
+(`N-35`). Nicht bemerkt, weil die Tests weiterliefen.
+
+Weg damit — und die Tests gehen jetzt den Weg, den der Server geht: in
+`test_suche.py` steht ein Helfer `ausdruck()`, der `suchbegriff_lesen` und
+`fts_ausdruck_aus_teilen` verkettet (genau wie `suchen()`), in
+`test_editor.mjs` einer namens `texte()` über `edBefunde`. Die Prüfzeile, die
+nur die beiden Fassungen verglich, fällt mit weg: es gibt nur noch eine.
+
+**Eine Datei, die von nirgendwo aus zu finden war.**
+`wiki/test-isolierung.html` lag neben `server.py` und wurde von keiner Datei
+erwähnt. Wegwerfen wäre falsch gewesen — es ist die Abnahmehilfe, mit der man
+prüft, ob der abgeschottete Rahmen wirklich hält (vier verbotene Zugriffe, alle
+müssen „blockiert" melden). Sie liegt jetzt als
+`wiki/tests/isolierung-probe.html` dort, wo man sie sucht, und `tests/README.md`
+sagt, was sie ist. In `vorlagen/` kann sie nicht liegen: sie enthält mit
+Absicht zwei Fehler, und `test_seiten.py` würde sie zu Recht beanstanden.
+
+### Was gar nicht erst in den Baukontext gehört
+
+Das Bordbuch hatte eine `.dockerignore`, das Wiki **keine** — und die des
+Bordbuchs war unvollständig (`tests/`, `aktualisierung.conf` fehlten). Docker
+überträgt vor jedem Bau den ganzen Ordner an den Dienst, auch was das
+`Dockerfile` nie kopiert.
+
+Gemessen, mit Docker-Semantik für die Muster (`*` springt nicht über `/`):
+
+| | Dateien vorher | danach | Größe vorher | danach |
+|---|---|---|---|---|
+| `wiki/` | 50 | **15** | 1149,9 kB | **510,9 kB** |
+| `bordbuch/` | 41 | **15** | 1016,0 kB | **661,5 kB** |
+
+Übrig bleiben in beiden genau die fünfzehn, die gebraucht werden: `Dockerfile`,
+`server.py`, `index.html`, die neun Schriftdateien mit ihren Lizenzen,
+`.dockerignore` und `.gitignore`.
+
+Die Ablagen `daten/` und `seiten/` stehen trotzdem in der Liste. Im Betrieb
+liegen sie in benannten Docker-Volumes, nicht im Ordner — aber beim Lauf ohne
+Docker (Tests, Vorführung) entstehen sie dort, und dann gehören eine Datenbank
+und fremde Seiteninhalte erst recht nicht in den Baukontext.
+
+### Was geprüft und ausdrücklich behalten wurde
+
+Wegwerfen ist einfach; das Behalten braucht den Grund.
+
+| Verdacht | Warum es bleibt |
+|---|---|
+| `wiki/.gitignore`, `bordbuch/.gitignore` — die Wurzeldatei deckt alles ab | Betriebsregeln §10 verlangt **zusätzlich eine je Tool**: die Wurzeldatei ist leicht zu übersehen, und ein Tool bringt seine Regel dort mit, wo die Daten entstehen |
+| `traefik/logrotate.conf` — von nirgendwo erwähnt | erklärt sich selbst: der Einrichtungsbefehl steht im Kopf der Datei |
+| `bordbuch/tests/gegenprobe.sh` — läuft nicht in `alle.sh` | Absicht: sie baut echte Fehler in `server.py` ein und prüft die Testsuite selbst. Von Hand, nicht bei jedem Lauf |
+| dieselben neun Schriftdateien in beiden Tools | zwei getrennte Baukontexte — ein gemeinsamer Ordner wäre von keinem `Dockerfile` erreichbar |
+| drei Seiten in `vorlagen/`, die niemand nennt | `test_seiten.py` nimmt den ganzen Ordner per `glob` |
+| `tests/hilfe.py` in beiden Tools | wird als **Modul** importiert (`from hilfe import server`), nicht über den Dateinamen |
+
+### Und was gar nichts hergab
+
+- **Klassen im Stil, die niemand benutzt:** 113 Klassen in der Wiki-Hülle,
+  120 im Bordbuch, **keine einzige** ungenutzt. (`N-25` war der letzte Fall,
+  und der ist behoben.) Im Seitenstil des Editors: 7 Klassen, alle benutzt.
+- **Serverpfade, die die Hülle nie ruft:** keine.
+- **`TODO`, `FIXME`, `XXX`, `HACK`:** kein einziges Vorkommen im ganzen Repo.
+
+Das Ergebnis ist also kurz: fünf Stellen, davon zwei totes Holz im Programm.
+Der Rest des Repositorys trägt sich.
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

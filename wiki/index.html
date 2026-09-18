@@ -5778,11 +5778,6 @@ function edBefunde(nurNachsehen){
   });
   return m;
 }
-function edPruefbar(nurNachsehen){
-  /* Dieselbe Pruefung, nur die Texte - fuer Zaehler und Meldungen. Eine
-     zweite Pruefung waere eine zweite Wahrheit. */
-  return edBefunde(nurNachsehen).map(b => b.text);
-}
 function edBerichtZeigen(html){
   const z = $('ed-bericht');
   if(!z) return;

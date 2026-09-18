@@ -131,6 +131,20 @@ Lehren aus den Durchgängen für den nächsten:
   prüft den Endzustand — sonst meldet der Prüfer einen Fehler, den es nicht
   gibt.
 
+## Die Probe, die von Hand läuft
+
+`isolierung-probe.html` ist keine Testdatei für `alle.sh`, sondern eine
+**Abnahmehilfe**: eine Seite, die absichtlich vier Dinge versucht, die eine
+eingespielte Seite nicht können darf — die Wiki-Schnittstelle aufrufen, die
+Anmeldung lesen, die Hülle manipulieren, im Browser speichern. Wie man sie
+benutzt und was dabei herauskommen muss, steht im Kommentar in der Datei
+selbst.
+
+Sie lag bis dahin als `wiki/test-isolierung.html` neben dem Programm und war
+von nirgendwo aus zu finden (`N-37`). In `vorlagen/` kann sie nicht liegen:
+sie enthält mit Absicht zwei Fehler, und `test_seiten.py` würde sie zu Recht
+beanstanden.
+
 ## Was hier **nicht** geprüft wird
 
 Die Oberfläche im Browser — Ankersprung, Hervorhebung, Themenwechsel, der
