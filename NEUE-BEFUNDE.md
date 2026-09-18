@@ -1471,6 +1471,70 @@ schlimmer als eine Lücke — eine Lücke merkt man.
 
 ---
 
+## N-30 — Löschen meldete einen Serverfehler, obwohl die Seite weg war
+
+### Befund
+
+Gefunden beim Bau der neuen Verwaltung, an einem Bestand von 305 Testseiten.
+Das Sammellöschen meldete:
+
+```
+0 entfernt, 2 nicht: seite-238-drucker: Auf dem Server ist etwas
+schiefgegangen (FileNotFoundError, Kennung 57731).
+```
+
+Nachgestellt mit einer einzelnen Seite, deren Ordner von Hand entfernt wurde:
+
+| | |
+|---|---|
+| Antwort | `HTTP 500` — „Auf dem Server ist etwas schiefgegangen" |
+| Seiten vorher | 5 |
+| Seiten nachher | **4** |
+
+Die Seite war **weg** — aus Datenbank, Themenbaum und Suche. Die Meldung sagte
+das Gegenteil.
+
+Die Ursache steht in der Reihenfolge: Erst `index_leeren`, dann `DELETE FROM
+seite`, dann `db().commit()` — und **danach** `shutil.move` des Ordners. Fehlt
+der Ordner, fliegt an dieser Stelle ein `FileNotFoundError`, den der allgemeine
+Fänger in eine 500 verwandelt. Das Festschreiben ist da längst passiert und
+lässt sich nicht zurücknehmen.
+
+Dieselbe Familie wie `N-12` („Server Fehler beim Einspielen, obwohl die Seite
+gespeichert war") — und schlimmer: Wer die Meldung glaubt, sucht die Seite
+weiter oder drückt noch einmal (dann 404) und hält das Wiki für kaputt.
+
+### Behoben
+
+Nach dem Festschreiben wird nichts mehr geworfen. Fehlt der Ordner, ist nichts
+beiseitezulegen; das ist kein Fehler, sondern eine Auskunft:
+
+> Die Seite ist entfernt. Einen Ordner auf der Platte hatte sie nicht mehr —
+> es war nichts beiseitezulegen.
+
+Jeder andere Ordnerfehler (Rechte, volle Platte) landet im Protokoll des
+Containers und kommt als Hinweis zurück, mit der klaren Aussage, dass die Seite
+entfernt ist und der Ordner noch liegt. Die Oberfläche zeigt einen solchen
+Hinweis neun Sekunden statt der üblichen zweieinhalb.
+
+### Neu dabei: Tests gegen den laufenden Dienst
+
+Alle bisherigen Tests rufen **Funktionen** auf. Die Behandlung der Anfragen
+selbst — Rechte, Rückgabewerte, was nach einem Fehler in der Datenbank steht —
+war damit nicht abgedeckt, und genau dort saß dieser Befund.
+
+`wiki/tests/test_dienst.py` startet `server.py` als eigenen Prozess auf einem
+freien Port und spricht ihn über HTTP an, mit denselben Kopfzeilen, die der
+Anmelde-Stellvertreter im Betrieb setzt. Neun Tests: die drei Löschwege, die
+Rechte an `/api/import`, `/api/verwaltung` und `/api/neuindex`, und die Abwehr
+einer Anfrage von fremder Seite.
+
+Mutationsproben: der Fänger für den fehlenden Ordner entfernt → rot; kein
+Hinweis gesetzt → rot; Hinweis auch im Normalfall → rot; die Editorprüfung
+beim Einspielen entfernt → rot.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

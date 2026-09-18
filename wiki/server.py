@@ -2313,9 +2313,34 @@ class Handler(BaseHTTPRequestHandler):
             db().commit()
             # Dateien bleiben liegen - Datenverlust ist die einzige echte
             # Katastrophe. Aufgeraeumt wird von Hand.
-            shutil.move(seitenordner(slug),
-                        os.path.join(SEITEN, f".geloescht-{slug}-{int(time.time())}"))
-            return self.json_senden({"ok": True})
+            #
+            # Die Datenbank ist an dieser Stelle schon geschrieben UND
+            # festgeschrieben. Scheitert das Verschieben, ist die Seite also
+            # trotzdem weg - eine 500 waere dann eine Luege (N-30). Gemessen:
+            # fehlender Ordner -> "Auf dem Server ist etwas schiefgegangen",
+            # HTTP 500, und die Seite war aus Baum und Suche verschwunden.
+            hinweis = ""
+            try:
+                shutil.move(seitenordner(slug),
+                            os.path.join(SEITEN,
+                                         f".geloescht-{slug}-{int(time.time())}"))
+            except FileNotFoundError:
+                hinweis = ("Die Seite ist entfernt. Einen Ordner auf der "
+                           "Platte hatte sie nicht mehr - es war nichts "
+                           "beiseitezulegen.")
+            except OSError as fehler:
+                # Der zweite Zweig ist ein Fangnetz: er greift bei allem
+                # anderen, was ein Verschieben verhindern kann (Rechte, volle
+                # Platte). In den Tests laesst sich das nicht ausloesen, ohne
+                # das Dateisystem zu manipulieren - darum steht hier, was er
+                # tut, statt so zu tun, als waere er geprueft.
+                sys.stderr.write("FEHLER: Ordner von '%s' nicht verschoben: "
+                                 "%s\n" % (slug, fehler))
+                hinweis = ("Die Seite ist aus Themenbaum und Suche entfernt. "
+                           "Ihr Ordner liess sich nicht beiseitelegen "
+                           f"({fehler.__class__.__name__}) und liegt noch da, "
+                           "wo er war.")
+            return self.json_senden({"ok": True, "hinweis": hinweis})
 
         if rest == ["zuruecksetzen"]:
             n = self.editor()
