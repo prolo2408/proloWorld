@@ -1714,6 +1714,69 @@ entfernt → rot.
 
 ---
 
+## N-33 — Ein Kommentar hat die ganze Oberfläche abgeschaltet
+
+### Befund
+
+Beim Beheben von `N-32` habe ich in den Kommentar daneben geschrieben, worum
+es geht — mit der Zeichenfolge als Beispiel:
+
+```js
+/* … Ohne diesen Schritt bricht ein Titel wie
+   "</script><img src=x onerror=…>" den Meta-Block auf … */
+```
+
+Ein Browser beendet ein `<script>`-Element beim **ersten** Vorkommen dieser
+Folge. In einer Zeichenkette, in einem Kommentar — überall. Der gesamte Rest
+von `index.html` war damit kein Programm mehr, sondern Text.
+
+Was der Browser dazu sagte:
+
+```
+Uncaught SyntaxError: Invalid or unexpected token   (Zeile 3807)
+Uncaught SyntaxError: Unexpected end of input       (Zeile 3810)
+```
+
+Die Oberfläche lud, zeigte ein Gerüst — und konnte nichts. Kein Knopf, keine
+Suche, kein Editor.
+
+### Warum nichts davon aufgefallen ist
+
+| Prüfung | Ergebnis |
+|---|---|
+| 118 Node-Tests | grün |
+| 117 Python-Tests | grün |
+| `js_pruefen.sh` (Syntaxprobe) | „block1.js: lesbar" |
+
+Die Funktionstests schneiden sich ihre Funktionen mit regulären Ausdrücken
+aus der Datei und sehen sie nie als Ganzes. Und die Syntaxprobe schnitt
+**genauso wie der Browser** am ersten Skript-Ende ab — meldete das Bruchstück
+aber als vollständigen Block und damit als lesbar. Sie hat den Fehler also
+gesehen und für richtig erklärt.
+
+Aufgefallen ist es erst im Browser, beim Rundgang durch alle Ansichten.
+Genau dafür steht die Regel in `CLAUDE.md`: *Eine Oberfläche ist erst
+geprüft, wenn sie im Browser geladen wurde.* Es ist das dritte Mal
+(`N-14`, `N-17`, jetzt `N-33`), dass ein Fehler auf oberster Ebene die
+ganze Hülle gekostet hat, während alles grün war.
+
+### Behoben, und diesmal mit einer Bremse
+
+Der Kommentar nennt die Folge nicht mehr — er sagt stattdessen, warum er sie
+nicht nennt.
+
+Neu ist ein Test, der prüft, **was der Browser sieht**: vom ersten
+`<script>` bis zum ersten Skript-Ende schneiden und das Ergebnis übersetzen
+lassen. Ist die Datei dort aufgebrochen, ist das Stück kein gültiges
+Programm und der Test wird rot. Dazu die Gegenprobe, dass hinter diesem Ende
+nur noch der Abspann der Seite steht. Mutationsprobe: ein Kommentar mit der
+Folge irgendwo in der Datei → rot.
+
+`js_pruefen.sh` im Kratzblock trägt jetzt einen Vermerk, dass sein Ergebnis
+genau diesen blinden Fleck hatte.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

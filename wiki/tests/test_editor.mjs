@@ -1172,6 +1172,41 @@ pruefe('Eine ganze Seite mit boesem Text bleibt harmlos', () => {
   assert.equal(gelesen.kurz, boese);
 });
 
+/* ------------------------------------------- Die Huelle als Ganzes */
+pruefe('Die Huelle bricht ihren eigenen Skriptblock nicht auf', () => {
+  /* Ein Browser beendet ein <script> beim ERSTEN Skript-Ende - auch wenn
+     es in einer Zeichenkette oder in einem Kommentar steht. Passiert das,
+     ist der Rest der Datei kein Programm mehr, sondern Text: die Huelle
+     laedt, zeigt aber nichts und kann nichts.
+     Gemessen ist das einmal passiert, an einem Kommentar, der die
+     Zeichenfolge als Beispiel nannte (N-33). Die Funktionstests liefen
+     dabei alle gruen - sie schneiden sich ihre Funktionen mit regulaeren
+     Ausdruecken heraus und sehen die Datei nie als Ganzes.
+
+     Hier wird genau das geprueft, was der Browser tut: von der ersten
+     oeffnenden Marke bis zum ersten Ende schneiden, und das Ergebnis
+     uebersetzen lassen. */
+  const auf = quelle.indexOf('<' + 'script>');
+  assert.ok(auf > 0, 'kein Skriptblock in index.html gefunden');
+  const anfang = auf + ('<' + 'script>').length;
+  const ende = quelle.indexOf('<' + '/script>', anfang);
+  assert.ok(ende > anfang, 'der Skriptblock wird nie geschlossen');
+  const koerper = quelle.slice(anfang, ende);
+  /* new Function wirft bei einem abgeschnittenen Programm - genau das
+     wollen wir wissen. Ausgefuehrt wird nichts. */
+  try {
+    new Function(koerper);
+  } catch(err){
+    assert.fail('was der Browser vom Skript sieht, ist kein Programm: ' +
+                err.message);
+  }
+  /* Und die Gegenprobe: hinter diesem Ende darf nur noch der Abspann der
+     Seite stehen, kein weiterer Code. */
+  const rest = quelle.slice(ende + ('<' + '/script>').length).trim();
+  assert.ok(rest.length < 200,
+            'hinter dem Skriptende stehen noch ' + rest.length + ' Zeichen');
+});
+
 console.log('');
 console.log(`${gut} ok, ${schlecht} Fehler`);
 process.exit(schlecht ? 1 : 0);

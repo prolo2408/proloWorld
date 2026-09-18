@@ -499,9 +499,11 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
   .teile-liste::-webkit-scrollbar{width:0;height:0}
   .teile-gruppe{align-self:center;flex:0 0 auto;padding:0 2px 0 8px}
   .teile-luecke{display:none}
-  #seitenteile button{flex:0 0 auto;width:auto;height:30px;padding:0 11px;
+  /* Regelblatt 9: 44 Pixel am Finger. Diese Marken SIND am Handy die
+     Navigation in der Seite - mit 30 Pixeln traf man daneben. */
+  #seitenteile button{flex:0 0 auto;width:auto;min-height:44px;padding:0 14px;
     border-radius:999px;border:1px solid var(--line);white-space:nowrap;
-    border-left-width:1px;font-size:12.5px}
+    border-left-width:1px;font-size:13px}
   #seitenteile button[aria-current="true"]{border-color:var(--accent)}
 }
 
@@ -539,12 +541,17 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
    und ein Schritt darf man sehen. */
 .ed-start{display:grid;gap:12px;
   grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+/* color ausdruecklich: ein <button> ERBT die Textfarbe nicht, er faellt
+   auf die Vorgabe des Browsers zurueck. Im dunklen Thema war das Zeichen
+   auf dieser Karte damit 1,26:1 - gemessen, und nur deshalb aufgefallen,
+   weil die Probe jedes sichtbare Textstueck einzeln nachrechnet. */
 .ed-weg{display:flex;flex-direction:column;gap:6px;align-items:flex-start;
   text-align:left;padding:18px;border-radius:14px;background:var(--surface);
-  border:1px solid var(--line);cursor:pointer;font:inherit;min-height:44px}
+  border:1px solid var(--line);cursor:pointer;font:inherit;min-height:44px;
+  color:var(--ink)}
 .ed-weg:hover{border-color:var(--accent);background:var(--hover)}
 .ed-weg:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.ed-weg-zeichen{font-size:26px;line-height:1.1}
+.ed-weg-zeichen{font-size:26px;line-height:1.1;color:var(--ink)}
 .ed-weg-name{font-family:'Sora',sans-serif;font-size:15px;font-weight:600;
   color:var(--ink);letter-spacing:-0.01em}
 .ed-weg-satz{font-size:12.5px;color:var(--ink-3);line-height:1.5}
@@ -599,7 +606,7 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
   grid-template-areas:"zeichen name" "zeichen satz";
   gap:0 8px;align-items:start;text-align:left;padding:8px 10px;
   border-radius:10px;border:1px solid var(--line);background:var(--bg);
-  font:inherit;cursor:pointer;min-height:44px}
+  font:inherit;cursor:pointer;min-height:44px;color:var(--ink)}
 .ed-baustein:hover{border-color:var(--accent);background:var(--hover)}
 .ed-baustein:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .ed-baustein-zeichen{grid-area:zeichen;font-size:16px;line-height:1.3;
@@ -3789,11 +3796,15 @@ function edSeiteBauen(e){
     '',
     '<' + 'script type="application/json" id="wiki-meta">',
     /* Jedes < wird zu \u003c. Das ist dasselbe JSON - jeder Leser gibt
-       denselben Text zurueck -, aber die Folge </script> kann darin nicht
-       mehr stehen. Ohne diesen Schritt bricht ein Titel wie
-       "</script><img src=x onerror=...>" den Meta-Block auf, der Rest der
-       Seite wird zu Text, und der Server lehnt die Seite mit einer Meldung
-       ueber JSON ab, die dem Schreiber nichts sagt (N-32). */
+       denselben Text zurueck -, aber ein Skript-Ende kann darin nicht mehr
+       stehen. Ohne diesen Schritt bricht ein Titel, der ein solches Ende
+       enthaelt, den Meta-Block auf: der Rest der Seite wird zu Text, und
+       der Server lehnt sie mit einer Meldung ueber JSON ab, die dem
+       Schreiber nichts sagt (N-32).
+
+       Und warum hier kein Beispiel steht: Die Zeichenfolge beendet auch
+       DIESEN Skriptblock - in einem Kommentar genauso wie im Code. Genau
+       daran ist die Huelle einmal ganz gestorben (N-33). */
     JSON.stringify(meta, null, 2).replace(/</g, '\\u003c'),
     '<' + '/script>',
     '',
