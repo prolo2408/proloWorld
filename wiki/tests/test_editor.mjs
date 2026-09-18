@@ -1074,6 +1074,104 @@ pruefe('Jede Gruppe der Auswahl hat mindestens einen Baustein', () => {
   }
 });
 
+/* ------------------------------------------- Sicherheit: jede Blockart */
+function tagsUndAttribute(html){
+  /* Ein winziger Abtaster: er findet nur ECHTE Marken. Geschuetzter Text
+     traegt &lt; und wird darum gar nicht erst gefunden - genau das ist die
+     Trennung, auf die es ankommt. Ein Test, der stattdessen nach dem Wort
+     "onerror" sucht, faellt auf harmlosen Text herein: &lt;img src=x
+     onerror=... ist Text und keine Marke. */
+  const marken = [];
+  const attribute = [];
+  const re = /<([a-zA-Z][\w-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
+  let m;
+  while((m = re.exec(html))){
+    marken.push(m[1].toLowerCase());
+    const ra = /([a-zA-Z_:][-\w:.]*)\s*(?:=\s*("[^"]*"|'[^']*'|[^\s>]*))?/g;
+    let a;
+    while((a = ra.exec(m[2]))){
+      attribute.push([a[1].toLowerCase(),
+                      (a[2] || '').replace(/^["']|["']$/g, '')]);
+    }
+  }
+  return {marken, attribute};
+}
+pruefe('Kein Baustein laesst getippten Text zu HTML werden', () => {
+  /* Der Reihe nach durch ALLE Bausteine, mit demselben boesartigen Text in
+     Titel und Zeilen. Geprueft wird nicht, wie das Ergebnis aussieht,
+     sondern dass daraus nirgends Auszeichnung wird. Ein neuer Baustein,
+     der das Schuetzen vergisst, faellt hier auf und nicht beim Leser. */
+  const boese = '"><img src=x onerror=alert(1)><script>alert(2)</scr' + 'ipt>';
+  const fuer = new Set();
+  for(const art of Object.keys(ED_FORM)){
+    const spalten = (ED_FORM[art].spalten || ['Inhalt']).map(() => boese);
+    const zeilen = art === 'pdf' || art === 'bild'
+      ? ['datei: ' + boese, spalten.join(' | ')]
+      : art === 'rechner'
+        ? [boese + '=' + boese, '=' + boese, 'Einheit: ' + boese, boese]
+        : [spalten.join(' | ')];
+    const h = edBaustein(art, boese, zeilen);
+    fuer.add(art);
+    const {marken, attribute} = tagsUndAttribute(h);
+    assert.ok(!marken.includes('script'), art + ': ein script-Element');
+    for(const [name, wert] of attribute){
+      assert.ok(!/^on/.test(name),
+                art + ': Attribut "' + name + '" - da haengt Verhalten dran');
+      if(name === 'src' || name === 'href')
+        assert.ok(!/^\s*javascript:/i.test(wert),
+                  art + ': ' + name + '="' + wert + '"');
+    }
+    /* Ein img gibt es nur im Bild-Baustein, und dort ohne Adresse im HTML. */
+    if(marken.includes('img'))
+      assert.equal(art, 'bild', art + ': ein img-Element');
+    /* Gegenprobe, damit der Test nicht nur bestaetigt, dass ueberhaupt
+       nichts drinsteht: der geschuetzte Text muss da sein. */
+    assert.ok(h.includes('&lt;') || h.includes('&quot;') ||
+              /Baustein ohne Datei/.test(h),
+              art + ': vom Text ist gar nichts uebrig - ' + h.slice(0, 120));
+  }
+  assert.equal(fuer.size, Object.keys(ED_FORM).length);
+});
+pruefe('Eine ganze Seite mit boesem Text bleibt harmlos', () => {
+  /* Derselbe Text durch den ganzen Erzeuger - Titel, Satz, Pfad, Gruppen,
+     Anker, Stichworte und Markup. Der Meta-Block ist JSON und muss die
+     Zeichen ebenfalls halten. */
+  const boese = '</scr' + 'ipt><img src=x onerror=alert(1)>';
+  const html = edSeiteBauen({
+    slug: 'probe', titel: boese, kurz: boese, pfad: boese, gruppen: boese,
+    abschnitte: [{anker: 'a', titel: boese, stichworte: boese,
+                  gruppe: boese, markup: boese}]
+  });
+  const koerper = html.slice(html.indexOf('<body'),
+                             html.indexOf('<' + 'script>'));
+  const {marken, attribute} = tagsUndAttribute(koerper);
+  assert.ok(!marken.includes('script'), 'ein script-Element im Koerper');
+  assert.ok(!marken.includes('img'), 'ein img-Element im Koerper');
+  for(const [name, wert] of attribute){
+    assert.ok(!/^on/.test(name), 'Attribut "' + name + '" im Koerper');
+    if(name === 'src' || name === 'href')
+      assert.ok(!/^\s*javascript:/i.test(wert), name + '="' + wert + '"');
+  }
+  /* Der Meta-Block darf sich nicht selbst aufbrechen. Geprueft wird das
+     so, wie ein Browser es sieht: alles bis zum ERSTEN Skript-Ende ist der
+     Block - und das muss lesbares JSON sein, aus dem der Titel Zeichen fuer
+     Zeichen zurueckkommt.
+     (Die erste Fassung dieses Tests suchte nach "</scr"+"ipt>" im Bereich
+     bis zum <style> - darin steht aber auch das richtige Ende des Blocks.
+     Der Test war damit immer rot, auch bei harmlosen Titeln.) */
+  const auf = html.indexOf('id="wiki-meta"');
+  const anfang = html.indexOf('>', auf) + 1;
+  const ende = html.indexOf('</scr' + 'ipt>', anfang);
+  const roh = html.slice(anfang, ende);
+  let gelesen = null;
+  try { gelesen = JSON.parse(roh); } catch(err){
+    assert.fail('der Meta-Block ist kein lesbares JSON: ' + err.message);
+  }
+  assert.equal(gelesen.titel, boese,
+               'der Titel kommt nicht unveraendert zurueck');
+  assert.equal(gelesen.kurz, boese);
+});
+
 console.log('');
 console.log(`${gut} ok, ${schlecht} Fehler`);
 process.exit(schlecht ? 1 : 0);

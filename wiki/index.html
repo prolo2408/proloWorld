@@ -3788,7 +3788,13 @@ function edSeiteBauen(e){
     '<title>' + edEscape(meta.titel) + '</title>',
     '',
     '<' + 'script type="application/json" id="wiki-meta">',
-    JSON.stringify(meta, null, 2),
+    /* Jedes < wird zu \u003c. Das ist dasselbe JSON - jeder Leser gibt
+       denselben Text zurueck -, aber die Folge </script> kann darin nicht
+       mehr stehen. Ohne diesen Schritt bricht ein Titel wie
+       "</script><img src=x onerror=...>" den Meta-Block auf, der Rest der
+       Seite wird zu Text, und der Server lehnt die Seite mit einer Meldung
+       ueber JSON ab, die dem Schreiber nichts sagt (N-32). */
+    JSON.stringify(meta, null, 2).replace(/</g, '\\u003c'),
     '<' + '/script>',
     '',
     '<style>',

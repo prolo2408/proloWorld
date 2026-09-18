@@ -1638,6 +1638,82 @@ nicht hat.
 
 ---
 
+## N-32 — Ein Titel mit `</script>` brach den Meta-Block der eigenen Seite auf
+
+### Befund
+
+Gefunden beim Bau einer Sicherheitsprobe, die jeden Baustein mit bösartigem
+Text füttert. Der Meta-Block entsteht so:
+
+```js
+'<' + 'script type="application/json" id="wiki-meta">',
+JSON.stringify(meta, null, 2),
+'<' + '/script>',
+```
+
+`JSON.stringify` maskiert `<` **nicht** — es besteht kein Grund dazu, solange
+das Ergebnis JSON bleibt. Hier steht es aber in einem `<script>`-Element, und
+dort beendet die Zeichenfolge `</script>` den Block, egal wo sie steht. Ein
+Titel wie
+
+```
+</script><img src=x onerror=alert(1)>
+```
+
+zerlegt damit die eigene Seite: Der Meta-Block endet mitten im JSON, der Rest
+wird Text, und das Bild-Tag ist echtes Markup.
+
+Ausgeführt, mit genau diesem Titel:
+
+```
+POST /api/pruefen
+fehler: ["Der Block wiki-meta ist kein gueltiges JSON:
+          Unterminated string starting at: line 4 column 12 (char 33)"]
+meta lesbar: False
+```
+
+Der Server **lehnt die Seite ab** — das ist die gute Nachricht, und die Grenze
+hält. Aber die Meldung spricht von JSON, wo es um einen Titel geht: Wer das
+liest, sucht den Fehler an der falschen Stelle. Und „Als Datei sichern" erzeugt
+eine Datei, die niemand mehr einspielen kann.
+
+### Behoben
+
+Ein Zeichen: `JSON.stringify(meta, null, 2).replace(/</g, '\\u003c')`. Das ist
+**dasselbe JSON** — jeder Leser gibt denselben Text zurück —, aber die Folge
+`</script>` kann darin nicht mehr vorkommen.
+
+Nachgemessen mit demselben Titel:
+
+```
+JSON lesbar, Titel kommt heil zurueck: true
+POST /api/pruefen   fehler: []   meta lesbar: True
+Titel: </script><img src=x onerror=alert(1)>
+```
+
+### Dazu: eine Probe über alle elf Bausteine
+
+`wiki/tests/test_editor.mjs` fährt jetzt jeden Baustein mit demselben
+bösartigen Text durch — Titel, Zeilen, Formel, Einheit, Dateiname. Geprüft
+wird nicht, wie das Ergebnis aussieht, sondern dass daraus **nirgends
+Auszeichnung wird**: kein `script`-Element, kein Attribut, das mit `on`
+anfängt, kein `javascript:` in `src` oder `href`, und ein `img` nur im
+Bild-Baustein.
+
+Der erste Anlauf dieses Tests suchte nach dem Wort `onerror` im Ergebnis und
+wurde rot — bei harmlosem Text: `&lt;img src=x onerror=…` ist geschützter
+Text und keine Marke. Jetzt tastet ein kleiner Scanner nur **echte** Marken
+ab; geschützter Text trägt `&lt;` und wird gar nicht erst gefunden.
+
+Dieselbe Sorte Fehler steckte in der zweiten Prüfung: Sie suchte `</script>`
+im Bereich bis zum `<style>` — darin steht aber auch das **richtige** Ende
+des Blocks. Der Test wäre immer rot gewesen. Jetzt wird geprüft, was ein
+Browser sieht: alles bis zum ersten Skript-Ende muss lesbares JSON sein, aus
+dem der Titel Zeichen für Zeichen zurückkommt. Mutationsprobe: Maskierung
+entfernt → rot.
+
+---
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
