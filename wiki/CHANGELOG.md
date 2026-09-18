@@ -19,7 +19,60 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
   welches Verhalten im Code steckt: Skriptbloecke, Abrufe nach draussen,
   Zugriffe auf Cookies oder Speicher, iframes. Das sind Hinweise, keine
   Fehler - aber sie stehen vor dem "Uebernehmen"-Knopf, nicht dahinter
-  (B-07).
+  (B-07). Seit 1.3.4 zaehlt der **Pflichtteil** dabei nicht mit: er kommt
+  aus der Huelle, nicht von der Seite, und eine Warnung, die bei jeder
+  Seite angeht, wird nicht gelesen. Weicht er vom Pflichtteil dieser Huelle
+  ab, sagt die Karte genau das - und der Block zaehlt wieder als Code der
+  Seite (N-40).
+
+## Fassung 1.3.4
+
+Zwei Meldungen, die mehr geschadet als geholfen haben.
+
+- **Der Pflichtteil zaehlt nicht mehr als Code der Seite** (`N-40`). Die
+  Karte "Was diese Seite mitbringt" meldete bei **jeder** Seite aus dem
+  Editor "1 Skriptblock(e) mit zusammen 12534 Zeichen" und "parent. - die
+  Seite greift nach der Huelle". Gemessen an allen sechs mitgelieferten
+  Seiten: dieselbe Zahl, Zeichen fuer Zeichen. Es ist der Block, den
+  `edSeiteBauen` in jede Seite legt - Inhaltsverzeichnis, Suche in der
+  Seite, PDF-Bausteine -, und die `parent.`-Stellen sind die einzige
+  Verbindung, die eine Seite zur Huelle hat.
+
+  Wiedererkannt wird er an einem **Fingerabdruck** in `index.html`
+  (`ED_PFLICHTTEIL_KENNUNG`, SHA-256), also Zeichen fuer Zeichen. Weicht er
+  ab - eine aeltere Fassung, ein Zeichen mehr, etwas Hineingeschriebenes -,
+  sagt die Karte das und der ganze Block zaehlt wieder als Code der Seite.
+  Ist der Abdruck nicht lesbar, wird gemeldet wie vorher: keine stille
+  Entwarnung.
+
+  Gemessen danach: fuenf der sechs Seiten melden **gar nichts** mehr,
+  `git-und-github.html` meldet die **600 Zeichen**, die sie wirklich selbst
+  mitbringt - die Information, die vorher unterging.
+
+  `node pflichtteil-nachziehen.mjs --schreiben` haelt den Abdruck auf dem
+  Stand, `tests/test_editor.mjs` verlangt es.
+
+- **Ein Entwurf ist kein Fehler mehr** (`N-41`). Eine Datei, die genau dem
+  Geruest aus "Eine KI schreiben lassen" folgt - Meta-Block mit `markup`,
+  leerer Koerper, kein CSS, kein Skript, so wie der Prompt es woertlich
+  verlangt -, bekam beim Einspielen "Nicht uebernehmbar" mit einem Fehler
+  und vier Warnungen. Alle vier betrafen Dinge, die der Editor selbst baut.
+
+  Jetzt steht dort **eine** neutrale Karte: "Ein Entwurf - noch keine
+  Seite", mit der Zahl der Abschnitte und dem Knopf "In den Editor laden".
+  Uebernehmbar ist der Entwurf weiter nicht (eine leere Seite bleibt eine
+  leere Flaeche, `N-23`), und echte Fehler - ein ungueltiger `slug` etwa -
+  bleiben stehen, unter "Das bleibt auch nach dem Editor stehen".
+
+  Dazu: der Kasten "Eine KI schreiben lassen" sagt jetzt auch, was nach dem
+  Einspielen passiert, und aus "Datei auswaehlen" wird ein Rahmenknopf,
+  sobald ein Bericht steht.
+
+- **Offen und notiert**, nicht still nebenbei geaendert: `N-42` (jeder
+  Seitenaufruf holt sich ein 404 auf `/favicon.ico`) und `N-43` (drei
+  Flaechen in `--accent` auf einem Schirm, zwei davon schon vorher).
+
+Kein Datenumzug, keine Schemaaenderung, nichts an den Gruppen.
 
 ## Fassung 1.3.3
 

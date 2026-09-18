@@ -10,6 +10,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const quelle = readFileSync(join(HIER, '..', 'index.html'), 'utf8');
@@ -62,6 +63,7 @@ const quellen = [
   hol(/function edBefunde\(nurNachsehen\)\{[\s\S]*?\n\}/, 'edBefunde'),
   hol(/function edGruppenWiederholt\(abschnitte\)\{[\s\S]*?\n\}/, 'edGruppenWiederholt'),
   hol(/function kiPrompt\(thema\)\{[\s\S]*?\n\}/, 'kiPrompt'),
+  hol(/function berichtFehler\(b\)\{[\s\S]*?\n\}/, 'berichtFehler'),
   hol(/function edLeer\(\)\{[\s\S]*?\n\}/, 'edLeer'),
   hol(/function edVorlageBauen\(abschnitte\)\{[\s\S]*?\n\}/, 'edVorlageBauen'),
   hol(/const ED_VORLAGEN = \{[\s\S]*?\n\};/, 'ED_VORLAGEN'),
@@ -75,7 +77,7 @@ const { edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
         ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
         edBlockZuZeilen, edBlockHtml, edAusHtml, edBefunde,
         edGruppenWiederholt,
-        kiPrompt, ED_VORLAGEN, ED_GRUPPEN, edLeer, ZUSTAND } =
+        kiPrompt, berichtFehler, ED_VORLAGEN, ED_GRUPPEN, edLeer, ZUSTAND } =
   new Function(quellen + `
     return {edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
             ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
@@ -83,7 +85,7 @@ const { edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
             ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
             edBlockZuZeilen, edBlockHtml, edAusHtml, edBefunde,
         edGruppenWiederholt,
-            kiPrompt, ED_VORLAGEN, ED_GRUPPEN, edLeer, ZUSTAND};`)();
+            kiPrompt, berichtFehler, ED_VORLAGEN, ED_GRUPPEN, edLeer, ZUSTAND};`)();
 
 /* Die Saetze der Befunde. Vorher stand dafuer ein Einzeiler in der Huelle -
    mit genau einem Aufrufer: diesem Test. Eine Funktion, die nur ihr eigener
@@ -1323,6 +1325,73 @@ pruefe('Die Huelle scrollt nur ihre eigenen Kaesten (N-36)', () => {
     'ohne position:fixed haengt die Huelle am Koerper und laesst sich ' +
     'aus dem Fenster schieben');
   assert.ok(/inset:\s*0/.test(app[0]), 'die Huelle muss das ganze Fenster fuellen');
+});
+
+/* ---------------------------------------------------------------- N-40
+   Der Server erkennt den Pflichtteil an einem Fingerabdruck, der in
+   index.html steht. Laeuft der Abdruck dem Pflichtteil hinterher, erkennt
+   der Server ihn in KEINER Seite wieder - und die Hinweiskarte meldet
+   wieder bei jeder harmlosen Seite eigenen Code und "parent.".
+   Das faellt von selbst niemandem auf, also faellt es hier auf. */
+pruefe('Der Fingerabdruck passt zum Pflichtteil (N-40)', () => {
+  const m = quelle.match(/const ED_PFLICHTTEIL_KENNUNG = 'sha256:([0-9a-f]{64})';/);
+  assert.ok(m, 'ED_PFLICHTTEIL_KENNUNG fehlt in index.html');
+  const ist = createHash('sha256').update(ED_PFLICHTTEIL).digest('hex');
+  assert.equal(m[1], ist,
+    'der Fingerabdruck ist nicht auf dem Stand des Pflichtteils - ' +
+    'node pflichtteil-nachziehen.mjs --schreiben');
+});
+
+pruefe('Der Pflichtteil traegt die Marke, an der der Server ihn sucht (N-40)', () => {
+  /* Der Server sucht den Block an genau diesem Kommentar. Faellt er weg
+     oder wird er umformuliert, findet der Server nichts mehr - und der
+     Fingerabdruck oben bliebe trotzdem gruen. */
+  assert.ok(
+    /\/\* Pflichtteil jeder Wiki-Seite: auf die Huelle hoeren\. \*\//
+      .test(ED_PFLICHTTEIL),
+    'die Marke des Pflichtteils fehlt oder lautet anders');
+  /* Und sie steht im Block selbst, nicht nur irgendwo in der Datei. */
+  assert.ok(ED_PFLICHTTEIL.startsWith('<' + 'script>'),
+    'der Pflichtteil faengt nicht mit seinem eigenen Skript-Anfang an');
+  assert.ok(ED_PFLICHTTEIL.trimEnd().endsWith('<' + '/script>'),
+    'der Pflichtteil hoert nicht mit seinem eigenen Skript-Ende auf - ' +
+    'der Server hasht den Block MIT den Marken');
+});
+
+/* ---------------------------------------------------------------- N-41
+   Der Prompt verlangt ausdruecklich eine Datei ohne CSS, ohne Skript und
+   mit leerem Koerper - und die Pruefung lehnte genau die ab. Jetzt erkennt
+   sie den Entwurf. Damit das so bleibt, muss der Prompt weiter genau so
+   eine Datei verlangen: an dem Geruest haengt tests/test_seiten.py. */
+pruefe('Der Prompt verlangt weiter einen Entwurf fuer den Editor (N-41)', () => {
+  const t = kiPrompt('Drucker einrichten');
+  assert.ok(t.includes('"werkzeug": "' + EDITOR_WERKZEUG + '"'),
+    'ohne die Werkzeugmarke erkennt der Server den Entwurf nicht');
+  assert.ok(/"markup":/.test(t),
+    'ohne markup kann der Editor aus dem Entwurf nichts bauen');
+  assert.ok(/<body>\n<\/body>/.test(t),
+    'das Geruest hat keinen leeren Koerper mehr - dann ist es kein Entwurf');
+  assert.ok(/KEIN CSS, KEIN JavaScript/.test(t),
+    'der Prompt verlangt nicht mehr, CSS und Skript wegzulassen');
+  assert.ok(/In den Editor laden/.test(t),
+    'der Prompt sagt nicht mehr, wohin die Antwort geht');
+});
+
+pruefe('Die Entwurfszeile faellt aus der Fehlerliste, sonst nichts (N-41)', () => {
+  const satz = 'Das ist ein Entwurf fuer den Editor, noch keine Seite.';
+  assert.deepEqual(
+    berichtFehler({entwurf: satz, fehler: [satz, 'Der slug ist nicht erlaubt.']}),
+    ['Der slug ist nicht erlaubt.']);
+  /* Ohne Entwurf bleibt die Liste, wie sie ist - auch wenn sie leer ist. */
+  assert.deepEqual(
+    berichtFehler({entwurf: '', fehler: ['Der slug ist nicht erlaubt.']}),
+    ['Der slug ist nicht erlaubt.']);
+  assert.deepEqual(berichtFehler({entwurf: '', fehler: []}), []);
+  /* Und ein Satz, der nur AEHNLICH aussieht, bleibt stehen: verglichen wird
+     der Wert des Servers, nicht ein Wortanfang. */
+  assert.deepEqual(
+    berichtFehler({entwurf: satz, fehler: ['Das ist ein Entwurf fuer etwas anderes.']}),
+    ['Das ist ein Entwurf fuer etwas anderes.']);
 });
 
 console.log('');

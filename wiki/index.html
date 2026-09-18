@@ -2693,14 +2693,45 @@ async function pruefen(d){
   }
   berichtZeichnen(b);
 }
+/* Die Fehler, die auch nach dem Editor noch stehen (N-41).
+
+   Verglichen wird mit dem Satz, den der SERVER geliefert hat (b.entwurf),
+   nicht mit einem erratenen Wortanfang - eine Pruefung, die eine Zeichenfolge
+   sucht, faellt frueher oder spaeter ueber eine Umformulierung (N-36). */
+function berichtFehler(b){
+  const fehler = (b && b.fehler) || [];
+  return b && b.entwurf ? fehler.filter(f => f !== b.entwurf) : fehler;
+}
 function berichtZeichnen(b){
   const ziel = $('bericht');
   const m = b.meta || {};
   const teile = [];
 
-  if(b.fehler.length){
-    teile.push(`<div class="meldung fehler"><strong>Nicht übernehmbar</strong><ul
-      style="margin:6px 0 0 18px;padding:0">${b.fehler.map(f =>
+  /* N-41: Was der Prompt für eine KI liefert, ist kein kaputter Versuch,
+     sondern ein Zwischenschritt - Meta-Block mit Markup, leerer Körper,
+     kein CSS, kein Skript. Genau so verlangt der Prompt es ("Schreibe KEIN
+     CSS, KEIN JavaScript"). Gemessen bekam so eine Datei trotzdem "Nicht
+     übernehmbar" mit einem Fehler und vier Warnungen: das Werkzeug lehnte
+     die Datei ab, um die es selbst gebeten hatte.
+     Jetzt steht der Weg vorn, und die vier Punkte über Kopfangaben, Stil,
+     Pflichtblock und fehlende Anker fallen weg - die baut der Editor. */
+  const uebrig = berichtFehler(b);
+  if(b.entwurf){
+    const n = (m.abschnitte || []).length;
+    teile.push(`<div class="meldung"><strong>Ein Entwurf — noch keine
+      Seite</strong>
+      <div style="margin-top:4px">${schuetzen(m.titel || 'Die Datei')} bringt
+      Titel${n ? ', ' + zahl(n) + (n === 1 ? ' Abschnitt' : ' Abschnitte') : ''}
+      und Text mit, aber weder Gestaltung noch Technik — genau so liefert der
+      Prompt für eine KI sie ab. Beides baut das Wiki selbst, sobald der
+      Entwurf im Editor liegt.</div>
+      <div style="margin-top:12px"><button class="knopf"
+        id="editor-knopf">In den Editor laden</button></div></div>`);
+  }
+  if(uebrig.length){
+    teile.push(`<div class="meldung fehler"><strong>${b.entwurf
+      ? 'Das bleibt auch nach dem Editor stehen' : 'Nicht übernehmbar'}</strong><ul
+      style="margin:6px 0 0 18px;padding:0">${uebrig.map(f =>
       `<li>${schuetzen(f)}</li>`).join('')}</ul></div>`);
     /* Die Datei lässt sich nicht einspielen, WIE SIE IST. Ihr Inhalt ist
        aber lesbar, sobald der Meta-Block steht - und der Editor baut
@@ -2708,7 +2739,7 @@ function berichtZeichnen(b){
        Weg über den Editor da: Er räumt die meisten dieser Fehler auf,
        ohne dass jemand HTML anfassen muss. Vorher endete hier die Strecke,
        und genau das trifft jede Datei, die eine KI geschrieben hat. */
-    if(b.meta){
+    if(b.meta && !b.entwurf){
       teile.push(`<div class="meldung"><strong>Aber der Inhalt ist
         lesbar</strong>
         <div style="margin-top:4px">Titel, Abschnitte und Text stehen in der
@@ -2718,7 +2749,7 @@ function berichtZeichnen(b){
         <div style="margin-top:12px"><button class="knopf"
           id="editor-knopf">In den Editor laden</button></div></div>`);
     }
-  } else {
+  } else if(!b.fehler.length){
     const gespart = b.groesse_vorher_b - b.groesse_nachher_b;
     teile.push(`<div class="meldung gut"><strong>${schuetzen(m.titel||'')}</strong>
       — ${b.neu ? 'neue Seite' : 'ersetzt Fassung ' + (b.fassung-1)},
@@ -2795,6 +2826,13 @@ function berichtZeichnen(b){
         zum Ändern, Ergänzen und erst dann Speichern.</div>`);
   }
   ziel.innerHTML = teile.join('');
+
+  /* Solange keine Datei gewaehlt ist, ist "Datei auswaehlen" die Hauptsache.
+     Sobald ein Bericht steht, ist sie es nicht mehr - dann fuehrt der Weg
+     ueber den Bericht weiter, und zwei blaue Knoepfe nebeneinander sind
+     einer zu viel (CLAUDE.md §5). */
+  const dk = $('datei-knopf');
+  if(dk) dk.className = 'knopf rahmen';
 
   const ek = $('editor-knopf');
   if(ek) ek.onclick = () => edAusDatei();
@@ -3794,6 +3832,25 @@ ED_RECHENWERK,
 '<' + '/script>'
 ].join('\n');
 
+/* Fingerabdruck des Pflichtteils - der Server liest ihn beim Einspielen aus
+   dieser Datei (N-40). Er steht BEWUSST hier und nicht in einer eigenen
+   Datei: hier entsteht der Pflichtteil, hier steht sein Abdruck, und zwei
+   Staende koennen nicht auseinanderlaufen.
+
+   Wozu: Die Hinweiskarte "Was diese Seite mitbringt" meldete bei JEDER Seite
+   aus dem Editor "1 Skriptblock mit 12534 Zeichen" und "parent. - die Seite
+   greift nach der Huelle". Gemessen an allen sechs mitgelieferten Seiten:
+   dieselbe Zahl, Zeichen fuer Zeichen. Das war richtig und trotzdem falsch -
+   eine Warnung, die immer angeht, bringt bei, sie wegzuklicken, und dann
+   rutscht die eine Seite durch, die wirklich etwas Fremdes mitbringt. Der
+   Pflichtteil ist nicht, was der Einspielende sich holt; er ist, was das
+   Wiki dazugibt.
+
+   Erzeugt von  node pflichtteil-nachziehen.mjs --schreiben
+   gehalten von tests/test_editor.mjs ("Der Fingerabdruck ... passt zum
+   Pflichtteil"), damit er nicht stillschweigend veraltet. */
+const ED_PFLICHTTEIL_KENNUNG = 'sha256:c42a270ab735af79b1bb60e8959de33d7eef4fa668f04c7d03d2009f7caa4c0f';
+
 function edListe(s){
   return String(s || '').split(',').map(x => x.trim()).filter(Boolean);
 }
@@ -4110,9 +4167,11 @@ function kiKasten(){
       <summary style="cursor:pointer;font-weight:600">Eine KI schreiben
         lassen</summary>
       <div class="kontext" style="margin-top:8px">Du bekommst einen Prompt
-        zum Kopieren. Gib ihn einer KI, und sie antwortet mit einer Datei,
-        die hier oben unter <em>Ich habe schon eine HTML-Datei</em> hineinpasst.
-        Die Gestaltung macht das Wiki — die KI schreibt nur den Inhalt.</div>
+        zum Kopieren. Gib ihn einer KI, und sie antwortet mit einer Datei.
+        Die lädst du oben unter <em>Ich habe schon eine HTML-Datei</em> hinein:
+        Das Wiki erkennt sie als Entwurf und bringt sie mit einem Klick in den
+        Editor — dort siehst du sie an und speicherst. Die Gestaltung macht das
+        Wiki, die KI schreibt nur den Inhalt.</div>
       <div style="margin-top:12px">
         <label class="label" for="ki-thema">Worum soll es gehen?</label>
         <input type="text" id="ki-thema" maxlength="200"
@@ -5487,7 +5546,8 @@ function editorZeichnen(opt){
           und du änderst sie hier weiter.</div>
         <div class="ablage" id="ablage" style="margin-top:14px">
           <div style="font-size:13px;color:var(--ink-3)">Datei hierher ziehen</div>
-          <label for="datei" class="knopf" style="margin-top:12px">Datei auswählen</label>
+          <label for="datei" class="knopf" id="datei-knopf"
+                 style="margin-top:12px">Datei auswählen</label>
           <input type="file" id="datei" accept=".html,text/html"
                  aria-label="HTML-Datei auswählen"
                  style="position:absolute;left:-9999px">

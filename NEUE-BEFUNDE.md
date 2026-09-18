@@ -2445,6 +2445,228 @@ beschreibt die Bedienung des Bordbuchs im Einzelnen, das andere den
 Seitenaufbau des Wikis, auf den sich Editor, Import und Tests berufen. Beide
 sind jetzt in `CLAUDE.md` genannt, damit man sie findet.
 
+## N-40 — Die Warnung, die bei jeder Seite anging
+
+### Wie es aufgefallen ist
+
+Die fertige Anleitung `prolo-bedienen.html` wurde eingespielt. Über dem
+Knopf „Übernehmen" stand:
+
+> **Was diese Seite mitbringt**
+> · 1 Skriptblock(e) mit zusammen 12534 Zeichen. Die Seite bringt eigenen Code mit.
+> · parent. – die Seite greift nach der Huelle
+
+Die Frage dazu war die richtige: *Warum passiert sowas?*
+
+### Was gemessen wurde
+
+`sicherheit_pruefen()` über alle mitgelieferten Seiten:
+
+| Seite | Hinweise |
+|---|---|
+| `bausteine-im-editor.html` | 12534 Zeichen · `parent.` |
+| `drucker-einrichten.html` | 12534 Zeichen · `parent.` |
+| `git-und-github.html` | **13134** Zeichen · `parent.` |
+| `netzwerk-grundlagen.html` | 12534 Zeichen · `parent.` |
+| `prolo-bedienen.html` | 12534 Zeichen · `parent.` |
+| `stromkosten-verstehen.html` | 12534 Zeichen · `parent.` |
+
+**Jede** Seite, und auf das Zeichen dieselbe Zahl. Die 12534 sind der
+**Pflichtteil** — der Skriptblock, den `edSeiteBauen` in jede Seite legt:
+Inhaltsverzeichnis, Sprung zum Anker, Markieren bei „In dieser Seite suchen",
+die PDF-Bausteine. Die `parent.`-Stellen sind die fünf
+`window.parent.postMessage`-Aufrufe darin, die einzige Verbindung, die eine
+Seite zur Hülle hat: sie läuft in einem **opaken Origin** (Sandbox ohne
+`allow-same-origin`), und die Hülle nimmt eine Nachricht nur an, wenn sie aus
+ihrem eigenen Rahmen kommt.
+
+Die Meldung war also **wahr** und trotzdem **falsch**. Der Pflichtteil ist
+nicht, was der Einspielende sich holt; er ist, was das Wiki dazugibt.
+
+### Warum das mehr ist als Kosmetik
+
+Die Prüfung machte dieselbe Überlegung **eine Zeile weiter oben schon** — der
+JSON-Metablock wird aus der Zählung genommen, mit dieser Begründung im Code:
+
+> „er darf die Zaehlung nicht aufblaehen, sonst meldet die Pruefung bei jeder
+> voellig harmlosen Seite einen Skriptblock und wird nicht gelesen."
+
+Genau das war beim Pflichtteil eingetreten, eine Stufe höher. Eine Warnung,
+die immer angeht, bringt bei, sie wegzuklicken — und dann rutscht die eine
+Seite durch, die wirklich etwas Fremdes mitbringt. In der Tabelle oben steht
+so ein Fall: `git-und-github.html` bringt **600 Zeichen eigenen Code** über
+den Pflichtteil hinaus, und in dieser Darstellung sah man den Unterschied
+nicht.
+
+### Was daraus wurde
+
+Der Pflichtteil wird **wiedererkannt** und aus der Zählung genommen — aber
+nur bei **exakter** Übereinstimmung.
+
+- `index.html` trägt neben dem Pflichtteil seinen **Fingerabdruck**
+  (`ED_PFLICHTTEIL_KENNUNG`, SHA-256). Er steht dort und nicht in einer
+  eigenen Datei, damit die beiden Stände nicht auseinanderlaufen können.
+- `pflichtteil-nachziehen.mjs` hält ihn auf dem Stand, `test_editor.mjs`
+  verlangt es.
+- `server.py` liest ihn aus `index.html` und vergleicht den Block einer
+  eingespielten Seite Zeichen für Zeichen.
+
+Drei Fälle, drei Antworten:
+
+| Fall | Was gemeldet wird |
+|---|---|
+| Pflichtteil stimmt | **nichts** — und der Zusatz „(Der Pflichtteil des Wikis ist dabei nicht mitgezählt.)", falls die Seite eigenen Code hat |
+| Pflichtteil weicht ab | „nicht der dieser Hülle … sieh ihn dir an; oder speichere die Seite einmal durch den Editor" — **und** der ganze Block zählt wieder als Code der Seite |
+| Fingerabdruck nicht lesbar | alles wie vor `N-40` — keine stille Entwarnung |
+
+Gemessen danach: fünf Seiten melden **gar nichts** mehr, `git-und-github.html`
+meldet seine **600 Zeichen** — die Information, die vorher unterging.
+
+### Die Probe
+
+| Mutation | Ergebnis |
+|---|---|
+| ein **Leerzeichen** im Pflichtteil | „nicht der dieser Hülle" + 12535 Zeichen als eigener Code |
+| `fetch('//fremd.tld/x')` in den Pflichtteil geschmuggelt | Abweichung **und** `fetch(` gemeldet |
+| eigener Block daneben | nur dessen 27 Zeichen, `localStorage` gemeldet |
+| Fingerabdruck auf `None` | Meldung wie vor `N-40` |
+| Fingerabdruck um ein Zeichen verdreht | 1 Fehler (Node) |
+| das `continue` entfernt, das den Pflichtteil herausnimmt | 9 Fehler (Python) |
+| Hashvergleich immer wahr | 2 Fehler (Python) |
+| Marke umformuliert, Fingerabdruck nachgezogen | 1 Fehler (Node) |
+| unverändert | 0 Fehler |
+
+### Und ein eigener Fehler dabei
+
+Die letzte Probe hat mehr angefasst, als ich gesichert hatte. Im Kratzblock
+lagen `index.html` und `server.py` — aber die Probe rief
+`pflichtteil-nachziehen.mjs --schreiben`, und das schreibt **alle sieben
+Seiten** mit. Nach dem Zurückrollen waren 17 Prüflinien rot.
+
+Die Lehre schärft die Regel aus `N-34`: gesichert wird nicht, was die Probe
+verändert, sondern **alles, was sie schreiben kann** — bei einem Erzeuger
+also seine Ausgaben, nicht seine Eingaben. Die sieben Seiten ließen sich
+hier gefahrlos aus git zurückholen, weil ihr Unterschied nachweislich aus
+genau einer Zeile bestand (der Mutation selbst) und keine eigene Arbeit
+darin lag; nachgesehen wurde das **vor** dem Zurückholen, nicht danach.
+
+## N-41 — Das Werkzeug lehnte die Datei ab, um die es selbst gebeten hatte
+
+### Wie es aufgefallen ist
+
+Im selben Zug wie `N-40`: *„Wenn ich den Prompt ausführe und die HTML
+einfüge kommt auch der Fehler."*
+
+### Was gemessen wurde
+
+Eine Datei, die **genau** dem Gerüst aus dem Prompt „Eine KI schreiben
+lassen" folgt — Meta-Block mit `markup`, leerer `<body>`, kein CSS, kein
+Skript —, durch dieselbe Prüfung geschickt, die beim Einspielen läuft:
+
+```
+FEHLER:    Im <body> steht fast kein sichtbarer Text (0 Zeichen). …
+WARNUNGEN: Zum Anker 'vorbereitung' gibt es im HTML kein Element mit id=…
+           Zum Anker 'einrichten'   gibt es im HTML kein Element mit id=…
+           Es fehlt die viewport-Angabe. …
+           Der Pflichtblock aus CLAUDE.md §8.1 fehlt …
+```
+
+**Ein Fehler, vier Warnungen** — unter der roten Überschrift „Nicht
+übernehmbar". Der Prompt sagt wörtlich „Schreibe deshalb KEIN CSS, KEIN
+JavaScript und keine eigene Gestaltung", und das Wiki wies die Datei
+dann dafür ab. Alle vier Warnungen betrafen Dinge, die der Editor selbst
+baut: Kopfangaben, Pflichtblock, `lang`, die Abschnitte samt ihrer `id`.
+
+Einen Weg gab es: den Kasten „Aber der Inhalt ist lesbar" mit dem Knopf
+„In den Editor laden". Er stand aber **unter** der roten Liste — nach fünf
+Punkten, die aussahen, als sei etwas kaputt.
+
+### Was daraus wurde
+
+Ein **Entwurf** ist ein eigener Zustand, kein misslungener Versuch.
+`ist_entwurf()` erkennt ihn an drei Dingen zusammen: die Werkzeugmarke
+`editor-1`, `markup` in **jedem** Abschnitt und ein leerer Körper.
+
+| | vorher | jetzt |
+|---|---|---|
+| Überschrift | „Nicht übernehmbar" (rot) | „Ein Entwurf — noch keine Seite" (neutral) |
+| Punkte | 1 Fehler + 4 Warnungen | **einer**, und der ist der nächste Schritt |
+| Knopf | unter der Liste | **in** der Karte, als Hauptsache |
+
+Übernehmbar ist ein Entwurf weiter **nicht** — sonst stünde eine leere
+Fläche im Themenbaum (`N-23`). Echte Fehler bleiben stehen: ein ungültiger
+`slug` erscheint weiter, unter der Überschrift „Das bleibt auch nach dem
+Editor stehen".
+
+Dazu zwei Kleinigkeiten am selben Weg:
+
+- Der Kasten „Eine KI schreiben lassen" sagte, die Antwort „passt hier oben
+  unter *Ich habe schon eine HTML-Datei* hinein". Jetzt sagt er auch, was
+  dann passiert: das Wiki erkennt sie als Entwurf und bringt sie in den
+  Editor.
+- Steht ein Bericht, wird aus „Datei auswählen" ein Rahmenknopf — zwei blaue
+  Knöpfe nebeneinander sind einer zu viel (`CLAUDE.md §5`).
+
+### Im Browser gefahren
+
+Mit einem echten Chromium gegen den laufenden Dienst, drei Breiten (360,
+768, 1920) und **beide** Themen:
+
+| Fall | Was auf dem Schirm steht |
+|---|---|
+| Entwurf aus dem Prompt | **eine** neutrale Karte, „Ein Entwurf — noch keine Seite … 2 Abschnitte", Knopf „In den Editor laden" |
+| `prolo-bedienen.html` | nur die grüne Zeile — die Karte „Was diese Seite mitbringt" ist weg (`N-40`) |
+| Seite mit verbogenem Pflichtteil | Karte mit **vier** Zeilen: Abweichung, 12560 Zeichen, `fetch(`, `parent.` |
+
+Gemessen dabei: Knopf 44 px hoch am Handy / 38 px am Schirm, **kein**
+seitliches Scrollen bei 360 px, 0 Skriptfehler.
+
+Kontrast, mit einem Messwerkzeug, das vorher selbst gegengeprobt wurde
+(grau auf grau 1,24:1, schwarz auf weiß 21,00:1 — es kann also messen):
+
+| | dunkel | hell |
+|---|---|---|
+| Kartentitel auf Karte | 11,33:1 | 13,66:1 |
+| Kartentext auf Karte | 11,33:1 | 13,66:1 |
+| Knopftext auf `--accent` | 5,23:1 | 5,52:1 |
+
+### Die Probe
+
+| Mutation | Ergebnis |
+|---|---|
+| die Hüllen-Warnungen immer anhängen | 1 Fehler |
+| `ist_entwurf` immer `False` | 2 Fehler |
+| `ist_entwurf` immer `True` | 1 Fehler |
+| `markup` nicht mehr verlangt | 1 Fehler |
+| leerer Körper nicht mehr verlangt | 6 Fehler |
+| Entwurf wird kein Fehler mehr (wäre einspielbar) | 2 Fehler |
+| `berichtFehler` filtert nicht mehr | 1 Fehler (Node) |
+| Gerüst im Prompt bekommt Inhalt in den Körper | 1 Fehler (Node) |
+| unverändert | 0 Fehler |
+
+## N-42 — *(offen)* Jeder Seitenaufruf holt sich ein 404
+
+Beim Browserlauf zu `N-41` aufgefallen: `GET /favicon.ico` → **404**, bei
+jedem Laden der Hülle. Sichtbar ist es im Tab (Standardsymbol statt Marke)
+und im Protokoll, wo es zwischen den echten Zeilen steht. Keine Wirkung auf
+die Bedienung, darum hier notiert statt still nebenbei behoben.
+
+## N-43 — *(offen)* Drei blaue Knöpfe auf einem Schirm
+
+Im selben Lauf gemessen, mit einem Messwerkzeug, das die Fläche gegen den
+berechneten Wert von `--accent` vergleicht (nicht gegen eine Klasse):
+
+```
+nach dem Einspielen sichtbar in --accent:
+  "In den Editor laden" · "Prompt kopieren" · "Speichern"
+```
+
+`CLAUDE.md §5` erlaubt **einen** Primärbutton je Screen. Zwei der drei gab
+es schon vorher; einen vierten („Datei auswählen") hat `N-41` entfernt.
+Die Frage, welcher der drei der Primärbutton der Seite ist — die
+Speicherleiste unten oder der Knopf im Bericht —, gehört in einen eigenen
+Arbeitsschritt, nicht in diesen.
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

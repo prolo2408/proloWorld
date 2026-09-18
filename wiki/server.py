@@ -12,6 +12,7 @@ Keine eigene Nutzerverwaltung, kein Gastzugang.
 """
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -34,7 +35,7 @@ from urllib.parse import unquote, urlparse, parse_qs
 # hatte VERSION, --version und /api/version, das Wiki gar nichts. Gelesen von
 # --version, /api/version und der image:-Zeile im docker-compose.yml; die
 # drei muessen zusammenpassen.
-VERSION = "1.3.3"
+VERSION = "1.3.4"
 
 DATEN = os.environ.get("WIKI_DATEN", "/daten")
 SEITEN = os.environ.get("WIKI_SEITEN", "/seiten")
@@ -441,6 +442,55 @@ GRENZE_STICHWORT = 60
 # bekommt der Leser nichts, egal wie voll der Meta-Block ist.
 GRENZE_SICHTBAR = 40
 
+# Die Marke, an der der Editor erkennt, dass er das Markup einer Seite lesen
+# darf. Sie steht auch in index.html (EDITOR_WERKZEUG) und im Prompt fuer eine
+# KI; tests/test_seiten.py haelt die beiden Stellen zusammen.
+EDITOR_WERKZEUG = "editor-1"
+# Die Meldung zu einem Entwurf steht genau einmal, weil die Oberflaeche sie
+# wiedererkennen muss: sie zeigt dem Entwurf eine eigene Karte und blendet
+# DIESE eine Zeile aus der Fehlerliste aus - verglichen wird der Wert, den
+# der Server selbst geliefert hat, nicht ein erratener Wortanfang (N-36).
+ENTWURF_MELDUNG = (
+    "Das ist ein Entwurf fuer den Editor, noch keine Seite: der Meta-Block "
+    "steht, der Koerper ist leer. Genau so liefert der Prompt fuer eine KI "
+    "ihn ab. Lade ihn in den Editor - der baut Gestaltung, Technik und "
+    "Abschnitte daraus.")
+
+# Der Pflichtteil ist der Skriptblock, den die Huelle in JEDE Seite legt:
+# Inhaltsverzeichnis, Suche in der Seite, PDF-Bausteine. Er ist NICHT das, was
+# der Einspielende sich holt - er ist das, was das Wiki dazugibt (N-40).
+#
+# Die Marke steht in der ersten Zeile des Blocks und ist eindeutig; "Shell"
+# steht noch in den zwei aeltesten Seiten, beide Schreibweisen muessen
+# treffen. Dasselbe Muster benutzt pflichtteil-nachziehen.mjs.
+PFLICHTTEIL_MARKE = re.compile(
+    r"/\* Pflichtteil jeder Wiki-Seite: auf die (?:Huelle|Shell) hoeren\. \*/")
+# Der Fingerabdruck steht in index.html, direkt neben dem Code, der den
+# Pflichtteil baut. Gehalten wird er von pflichtteil-nachziehen.mjs und
+# tests/test_editor.mjs.
+PFLICHTTEIL_KENNUNG_MUSTER = re.compile(
+    r"const ED_PFLICHTTEIL_KENNUNG = 'sha256:([0-9a-f]{64})';")
+_pflichtteil_kennung = []
+
+
+def pflichtteil_kennung():
+    """Der Fingerabdruck des Pflichtteils, den diese Huelle baut - oder None.
+
+    None heisst: nicht feststellbar. Dann wird der Pflichtteil NICHT erkannt
+    und alles gemeldet wie vor N-40. Lieber ein Hinweis zu viel als eine
+    stille Ausnahme - und vor allem keine falsche Entwarnung, denn "erkannt"
+    heisst hier "Zeichen fuer Zeichen der Block dieser Huelle".
+    """
+    if not _pflichtteil_kennung:
+        try:
+            with open(os.path.join(EIGENER_ORDNER, "index.html"),
+                      encoding="utf-8") as f:
+                m = PFLICHTTEIL_KENNUNG_MUSTER.search(f.read())
+            _pflichtteil_kennung.append(m.group(1) if m else None)
+        except OSError:
+            _pflichtteil_kennung.append(None)
+    return _pflichtteil_kennung[0]
+
 SKRIPT_TEXT_GRENZE = 60000
 # Wie viel Text eine Seite von sich selbst melden darf. 200 000 Zeichen sind
 # rund 30 000 Woerter - mehr hat keine Wiki-Seite, und die Grenze verhindert,
@@ -652,9 +702,48 @@ ERLAUBT_FARBE_IM_TOKENBLOCK = re.compile(r"(?s):root\s*\{.*?\}|\[data-theme[^\]]
                                          r"|body\[data-theme[^\]]*\]\s*\{.*?\}")
 
 
+def sichtbarer_text(html):
+    """Was im Koerper an Text uebrig bleibt, ohne Skript, Stil und Marken."""
+    t = re.sub(r"(?is)<(script|style|template)\b[^>]*>.*?</\1\s*>", " ",
+               koerper_von(html))
+    t = re.sub(r"(?s)<!--.*?-->", " ", t)
+    t = re.sub(r"(?s)<[^>]*>", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def ist_entwurf(html, meta):
+    """Ist das noch keine Seite, sondern der Rohstoff fuer den Editor? (N-41)
+
+    Genau so eine Datei liefert der Prompt fuer eine KI: Meta-Block mit
+    Markup, leerer Koerper, kein CSS, kein Skript - so ist er ausdruecklich
+    formuliert ("Schreibe KEIN CSS, KEIN JavaScript"). Gemessen hat die
+    Pruefung sie mit einem Fehler und vier Warnungen abgelehnt, also genau
+    die Datei, um die das Werkzeug selbst gebeten hatte.
+
+    Uebernehmbar ist sie damit trotzdem nicht - eine Seite ohne Inhalt bleibt
+    eine leere Flaeche (N-23). Aber sie ist kein Fehler, sondern ein
+    Zwischenschritt, und der Weg dahin ist der Editor.
+    """
+    if not isinstance(meta, dict) or meta.get("werkzeug") != EDITOR_WERKZEUG:
+        return False
+    abschnitte = meta.get("abschnitte")
+    if not isinstance(abschnitte, list) or not abschnitte:
+        return False
+    if not all(isinstance(a, dict) and str(a.get("markup") or "").strip()
+               for a in abschnitte):
+        return False
+    return len(sichtbarer_text(html)) < GRENZE_SICHTBAR
+
+
 def regeln_pruefen(html, meta):
     """Gibt (fehler, warnungen) zurueck. Fehler verhindern die Uebernahme."""
     fehler, warnungen = [], []
+    # Warnungen ueber Dinge, die der Editor selbst baut: Kopfangaben, Stil,
+    # Pflichtblock, die Abschnitte samt ihrer id. Bei einem Entwurf (N-41)
+    # sind sie kein Befund, sondern die Beschreibung des Zwischenschritts -
+    # sie stehen ueber etwas, das es erst nach dem Editor gibt.
+    huelle = []
+    entwurf = ist_entwurf(html, meta)
 
     slug = (meta.get("slug") or "").strip()
     if not slug:
@@ -733,7 +822,7 @@ def regeln_pruefen(html, meta):
         if not (a.get("titel") or "").strip():
             fehler.append(f"Abschnitt mit Anker '{anker}' hat keinen Titel.")
         if not re.search(r'\bid=["\']' + re.escape(anker) + r'["\']', html):
-            warnungen.append(f"Zum Anker '{anker}' gibt es im HTML kein Element mit "
+            huelle.append(f"Zum Anker '{anker}' gibt es im HTML kein Element mit "
                              f'id="{anker}". Der Sprung aus der Suche landet dann oben '
                              "auf der Seite.")
         if not (a.get("text") or "").strip() and not (a.get("stichworte") or []):
@@ -741,10 +830,10 @@ def regeln_pruefen(html, meta):
                              "Er ist dann kaum auffindbar.")
 
     if not re.search(r"(?i)<html[^>]*\slang=", html):
-        warnungen.append('Dem <html>-Tag fehlt lang="de".')
+        huelle.append('Dem <html>-Tag fehlt lang="de".')
     if not re.search(r"(?i)<meta[^>]+viewport", html):
-        warnungen.append("Es fehlt die viewport-Angabe. Am Handy wird die Seite "
-                         "dann winzig dargestellt.")
+        huelle.append("Es fehlt die viewport-Angabe. Am Handy wird die Seite "
+                      "dann winzig dargestellt.")
 
     # Schemalose Verweise (//fremd.tld/x.js) und javascript:-Ziele wurden
     # bisher nicht erkannt (B-07 Nebenbefund, B-48). Die CSP faengt sie zwar
@@ -770,12 +859,12 @@ def regeln_pruefen(html, meta):
     ohne_token = re.sub(r"(?is)<script\b.*?</script>", " ", ohne_token)
     treffer = FARB_MUSTER.findall(ohne_token)
     if treffer:
-        warnungen.append(f"{len(treffer)} Farbwerte ausserhalb des Tokenblocks "
-                         "gefunden. Die Regeln verlangen Tokens aus CLAUDE.md \u00a72.")
+        huelle.append(f"{len(treffer)} Farbwerte ausserhalb des Tokenblocks "
+                      "gefunden. Die Regeln verlangen Tokens aus CLAUDE.md \u00a72.")
 
     if not re.search(r"focus-visible", html):
-        warnungen.append("Der Pflichtblock aus CLAUDE.md §8.1 fehlt "
-                         "(focus-visible, prefers-reduced-motion).")
+        huelle.append("Der Pflichtblock aus CLAUDE.md §8.1 fehlt "
+                      "(focus-visible, prefers-reduced-motion).")
 
     # Steht im Koerper ueberhaupt etwas? Ein voller Meta-Block mit leerem
     # <body> ging vorher fehlerfrei durch (N-23): die Seite landete im
@@ -786,22 +875,29 @@ def regeln_pruefen(html, meta):
     # bauen, sind ausdruecklich erlaubt (siehe N-11). Traegt die Seite also
     # einen ausfuehrbaren Skriptblock, wird nichts beanstandet - lieber keine
     # Beanstandung als eine falsche.
-    sichtbar = re.sub(r"(?is)<(script|style|template)\b[^>]*>.*?</\1\s*>", " ", koerper_von(html))
-    sichtbar = re.sub(r"(?s)<!--.*?-->", " ", sichtbar)
-    sichtbar = re.sub(r"(?s)<[^>]*>", " ", sichtbar)
-    sichtbar = re.sub(r"\s+", " ", sichtbar).strip()
+    sichtbar = sichtbarer_text(html)
     baut_selbst = any(
         inhalt.strip() and not re.search(
             r'(?i)type\s*=\s*["\']?(?:application/(?:ld\+)?json|text/plain)', attr)
         for attr, inhalt in re.findall(r"(?is)<script\b([^>]*)>(.*?)</script\s*>", html))
     if len(sichtbar) < GRENZE_SICHTBAR and not baut_selbst:
-        fehler.append(
-            f"Im <body> steht fast kein sichtbarer Text ({len(sichtbar)} Zeichen). "
-            "Der Meta-Block allein ist keine Seite: Themenbaum und Suche haetten "
-            "Eintraege, der Leser eine leere Flaeche. Wenn die Datei nur als "
-            "Entwurf gedacht war, lade sie in den Editor - er baut die Seite "
-            "aus dem Meta-Block.")
+        if entwurf:
+            # Derselbe Sachverhalt, andere Lage: hier fehlt nichts, hier ist
+            # nur noch ein Schritt offen. Die Oberflaeche zeigt das an
+            # bericht["entwurf"] und stellt den Editor nach vorn (N-41).
+            # Ein Fehler bleibt es trotzdem - sonst liesse sich der Entwurf
+            # einspielen und der Leser bekaeme eine leere Flaeche (N-23).
+            fehler.append(ENTWURF_MELDUNG)
+        else:
+            fehler.append(
+                f"Im <body> steht fast kein sichtbarer Text ({len(sichtbar)} Zeichen). "
+                "Der Meta-Block allein ist keine Seite: Themenbaum und Suche haetten "
+                "Eintraege, der Leser eine leere Flaeche. Wenn die Datei nur als "
+                "Entwurf gedacht war, lade sie in den Editor - er baut die Seite "
+                "aus dem Meta-Block.")
 
+    if not entwurf:
+        warnungen += huelle
     return fehler, warnungen
 
 
@@ -834,18 +930,49 @@ def sicherheit_pruefen(html):
     """
     hinweise = []
 
-    # Der Meta-Block ist type="application/json" und kein ausfuehrbarer Code -
-    # er darf die Zaehlung nicht aufblaehen, sonst meldet die Pruefung bei
-    # jeder voellig harmlosen Seite einen Skriptblock und wird nicht gelesen.
-    skripte = [(attr, inhalt) for attr, inhalt in
-               re.findall(r"(?is)<script\b([^>]*)>(.*?)</script>", html)]
-    code = [inhalt for attr, inhalt in skripte
-            if inhalt.strip()
-            and not re.search(r'(?i)type\s*=\s*["\']?application/(?:ld\+)?json', attr)]
+    # Zwei Bloecke zaehlen NICHT als Code, den die Seite mitbringt:
+    #
+    # 1. Der Meta-Block ist type="application/json" und gar nicht ausfuehrbar.
+    # 2. Der Pflichtteil kommt aus der Huelle selbst (N-40).
+    #
+    # Beide Male aus demselben Grund: eine Warnung, die bei JEDER harmlosen
+    # Seite angeht, wird nicht gelesen. Gemessen vor N-40 an allen sechs
+    # mitgelieferten Seiten: jede meldete "1 Skriptblock mit 12534 Zeichen"
+    # und "parent. - die Seite greift nach der Huelle", Zeichen fuer Zeichen
+    # dieselbe Zahl. Danach rutscht die eine Seite durch, die wirklich etwas
+    # Fremdes mitbringt.
+    #
+    # Erkannt wird der Pflichtteil nur bei EXAKTER Uebereinstimmung mit dem
+    # Fingerabdruck dieser Huelle. Alles andere - eine aeltere Fassung, ein
+    # Zeichen mehr, etwas Hineingeschriebenes - bleibt Code der Seite und
+    # bekommt zusaetzlich seinen eigenen Hinweis.
+    erwartet = pflichtteil_kennung()
+    code, pflicht_gleich, pflicht_anders = [], False, False
+    for m in re.finditer(r"(?is)<script\b([^>]*)>(.*?)</script>", html):
+        attr, inhalt = m.group(1), m.group(2)
+        if not inhalt.strip():
+            continue
+        if re.search(r'(?i)type\s*=\s*["\']?application/(?:ld\+)?json', attr):
+            continue
+        if erwartet and PFLICHTTEIL_MARKE.search(inhalt):
+            block = m.group(0).replace("\r\n", "\n")
+            if hashlib.sha256(block.encode("utf-8")).hexdigest() == erwartet:
+                pflicht_gleich = True
+                continue
+            pflicht_anders = True
+        code.append(inhalt)
+    if pflicht_anders:
+        hinweise.append(
+            "Der Pflichtteil dieser Seite ist nicht der dieser Huelle. Das kann "
+            "eine aeltere Fassung sein - oder etwas, das jemand hineingeschrieben "
+            "hat. Sieh ihn dir an; oder speichere die Seite einmal durch den "
+            "Editor, der legt ihn neu an.")
     if code:
         zeichen = sum(len(k) for k in code)
         hinweise.append(f"{len(code)} Skriptblock(e) mit zusammen {zeichen} "
-                        "Zeichen. Die Seite bringt eigenen Code mit.")
+                        "Zeichen. Die Seite bringt eigenen Code mit."
+                        + (" (Der Pflichtteil des Wikis ist dabei nicht "
+                           "mitgezaehlt.)" if pflicht_gleich else ""))
 
     ganz = "\n".join(code)
     for muster, was in (
@@ -1014,6 +1141,10 @@ def pruefen(rohbytes, nutzer):
                # die Oberflaeche zeigt ihn als eigenen Abschnitt vor dem
                # Uebernehmen-Knopf.
                "sicherheit": [],
+               # Entwurf: Meta-Block mit Markup, leerer Koerper - die Datei,
+               # um die der Prompt fuer eine KI bittet (N-41). Leer, wenn es
+               # keiner ist; sonst genau der Satz, der auch in "fehler" steht.
+               "entwurf": "",
                "meta": None, "groesse_vorher_b": len(rohbytes), "groesse_nachher_b": 0,
                "neu": True, "fassung": 1}
     try:
@@ -1037,6 +1168,7 @@ def pruefen(rohbytes, nutzer):
         return bericht, None, None
 
     bericht["meta"] = meta
+    bericht["entwurf"] = ENTWURF_MELDUNG if ist_entwurf(html, meta) else ""
     fehler, warnungen = regeln_pruefen(html, meta)
     bericht["fehler"] += fehler
     bericht["warnungen"] += warnungen

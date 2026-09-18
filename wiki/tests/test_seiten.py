@@ -259,5 +259,193 @@ class EineSeiteMussSichtbarenInhaltHaben(unittest.TestCase):
         self.assertTrue(any("sichtbarer Text" in f for f in fehler), fehler)
 
 
+class PflichtteilWirdErkannt(unittest.TestCase):
+    """N-40: Der Pflichtteil ist kein Code, den die Seite mitbringt.
+
+    Vor N-40 meldete die Hinweiskarte bei JEDER Seite aus dem Editor
+    "1 Skriptblock mit 12534 Zeichen" und "parent. - die Seite greift nach
+    der Huelle" - gemessen an allen sechs mitgelieferten Seiten dieselbe Zahl,
+    Zeichen fuer Zeichen. Eine Warnung, die immer angeht, wird nicht gelesen.
+
+    Die Erkennung darf aber nicht zur Entwarnung werden: sie gilt nur bei
+    EXAKTER Uebereinstimmung. Darum steht hier zu jedem "erkannt" auch ein
+    Fall, in dem etwas nicht stimmt.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.html = lies(os.path.join(WIKI, "vorlagen", "drucker-einrichten.html"))
+
+    def test_der_fingerabdruck_ist_lesbar(self):
+        # Ohne ihn ist jeder weitere Test dieser Klasse gruen aus dem
+        # falschen Grund: dann wird eben nichts erkannt.
+        self.assertIsNotNone(server.pflichtteil_kennung(),
+                             "ED_PFLICHTTEIL_KENNUNG fehlt in index.html")
+
+    def test_eine_seite_aus_dem_editor_meldet_nichts(self):
+        self.assertEqual(server.sicherheit_pruefen(self.html), [])
+
+    def test_alle_mitgelieferten_seiten_melden_keinen_pflichtteil(self):
+        # "parent." darf in KEINER mitgelieferten Seite mehr auftauchen -
+        # sonst ist der Pflichtteil dort nicht nachgezogen.
+        for pfad in seiten():
+            with self.subTest(seite=os.path.basename(pfad)):
+                hinweise = server.sicherheit_pruefen(lies(pfad))
+                self.assertFalse([h for h in hinweise if "parent." in h],
+                                 "Pflichtteil nicht erkannt: %s" % hinweise)
+
+    def test_ein_einziges_zeichen_mehr_faellt_auf(self):
+        # Die Probe mit den Zaehnen (CLAUDE.md §13a): ein Leerzeichen.
+        anders = self.html.replace("if(window.parent !== window)",
+                                   "if(window.parent !== window) ", 1)
+        self.assertNotEqual(anders, self.html, "Mutation griff nicht")
+        hinweise = server.sicherheit_pruefen(anders)
+        self.assertTrue(any("nicht der dieser Huelle" in h for h in hinweise),
+                        hinweise)
+        self.assertTrue(any("Skriptblock" in h for h in hinweise), hinweise)
+
+    def test_etwas_im_pflichtteil_versteckt_wird_gemeldet(self):
+        # Das Loch, das eine Erkennung nach blossem Kommentar haette: 12 kB
+        # fremder Code unter der Marke des Pflichtteils.
+        anders = self.html.replace("(function(){",
+                                   "(function(){\n  fetch('//fremd.tld/x');", 1)
+        self.assertNotEqual(anders, self.html, "Mutation griff nicht")
+        hinweise = server.sicherheit_pruefen(anders)
+        self.assertTrue(any("nicht der dieser Huelle" in h for h in hinweise),
+                        hinweise)
+        self.assertTrue(any("fetch(" in h for h in hinweise), hinweise)
+
+    def test_eigener_block_neben_dem_pflichtteil_wird_gemeldet(self):
+        anders = self.html.replace(
+            "</body>",
+            "<script>localStorage.setItem('x',1)</script>\n</body>", 1)
+        self.assertNotEqual(anders, self.html, "Mutation griff nicht")
+        hinweise = server.sicherheit_pruefen(anders)
+        # Von Hand gezaehlt: localStorage.setItem('x',1) sind 27 Zeichen -
+        # der Block ist genau sein Inhalt, ohne die Tags.
+        self.assertTrue(any("1 Skriptblock(e) mit zusammen 27 Zeichen" in h
+                            for h in hinweise), hinweise)
+        self.assertTrue(any("localStorage" in h for h in hinweise), hinweise)
+
+    def test_ohne_fingerabdruck_wird_gemeldet_wie_vorher(self):
+        # Keine stille Entwarnung (CLAUDE.md §11): ist der Abdruck nicht
+        # feststellbar, gilt der Pflichtteil wieder als Code der Seite.
+        vorher = list(server._pflichtteil_kennung)
+        try:
+            server._pflichtteil_kennung[:] = [None]
+            hinweise = server.sicherheit_pruefen(self.html)
+            self.assertTrue(any("Skriptblock" in h for h in hinweise), hinweise)
+            self.assertTrue(any("parent." in h for h in hinweise), hinweise)
+        finally:
+            server._pflichtteil_kennung[:] = vorher
+
+
+class EntwurfWirdErkannt(unittest.TestCase):
+    """N-41: Das Werkzeug lehnte die Datei ab, um die es selbst gebeten hat.
+
+    Der Prompt fuer eine KI verlangt ausdruecklich "KEIN CSS, KEIN
+    JavaScript" und gibt ein Geruest mit leerem <body> vor. Gemessen bekam
+    genau so eine Datei beim Einspielen "Nicht uebernehmbar" mit einem Fehler
+    und vier Warnungen - und alle vier betrafen Dinge, die der Editor selbst
+    baut: viewport, Pflichtblock, lang, die Anker.
+
+    GERUEST unten ist das Geruest aus dem Prompt. test_editor.mjs haelt es
+    daneben: aendert sich der Prompt, faellt es dort auf.
+    """
+
+    GERUEST = {
+        "slug": "drucker-einrichten",
+        "titel": "Drucker einrichten",
+        "kurz": "Wie ein Netzwerkdrucker in zehn Minuten laeuft.",
+        "pfad": ["Technik", "Geraete"],
+        "gruppen": [],
+        "stand": "2026-09-18",
+        "werkzeug": "editor-1",
+        "abschnitte": [
+            {"anker": "vorbereitung", "titel": "Was du vorher brauchst",
+             "gruppe": "Grundlagen",
+             "stichworte": ["drucker", "netzwerk", "treiber"],
+             "text": "Derselbe Inhalt ohne Auszeichnung, nur fuer die Suche.",
+             "markup": "Erster Absatz.\n\n- Punkt eins\n- Punkt zwei"},
+        ],
+    }
+
+    def datei(self, meta=None):
+        return ('<!DOCTYPE html>\n<html lang="de">\n<head>\n'
+                '<meta charset="utf-8">\n<title>Drucker einrichten</title>\n'
+                '<script type="application/json" id="wiki-meta">\n'
+                + json.dumps(meta if meta is not None else self.GERUEST)
+                + '\n</script>\n</head>\n<body>\n</body>\n</html>\n')
+
+    def test_die_marke_steht_in_beiden_dateien_gleich(self):
+        # server.py und index.html muessen dasselbe Wort meinen, sonst
+        # erkennt der Server keinen einzigen Entwurf.
+        huelle = lies(os.path.join(WIKI, "index.html"))
+        m = re.search(r"const EDITOR_WERKZEUG = '([^']+)'", huelle)
+        self.assertIsNotNone(m, "EDITOR_WERKZEUG nicht in index.html gefunden")
+        self.assertEqual(server.EDITOR_WERKZEUG, m.group(1))
+
+    def test_das_geruest_aus_dem_prompt_ist_ein_entwurf(self):
+        html = self.datei()
+        meta, _ = server.meta_block_lesen(html)
+        self.assertTrue(server.ist_entwurf(html, meta))
+
+    def test_ein_entwurf_meldet_genau_eine_sache(self):
+        bericht, _, _ = server.pruefen(self.datei().encode("utf-8"), None)
+        self.assertEqual(bericht["entwurf"], server.ENTWURF_MELDUNG)
+        # Eine Zeile, nicht fuenf: von Hand nachgezaehlt - der Entwurf selbst,
+        # und keine Warnung ueber etwas, das der Editor erst baut.
+        self.assertEqual(bericht["fehler"], [server.ENTWURF_MELDUNG])
+        self.assertEqual(bericht["warnungen"], [])
+
+    def test_ein_entwurf_bleibt_trotzdem_nicht_uebernehmbar(self):
+        # Sonst landet eine leere Flaeche im Themenbaum (N-23).
+        bericht, teile, meta = server.pruefen(self.datei().encode("utf-8"), None)
+        self.assertTrue(bericht["fehler"])
+        self.assertIsNone(teile)
+
+    def test_echte_fehler_bleiben_auch_im_entwurf_stehen(self):
+        meta = json.loads(json.dumps(self.GERUEST))
+        meta["slug"] = "Drucker Einrichten"     # Grossbuchstaben, Leerzeichen
+        bericht, _, _ = server.pruefen(self.datei(meta).encode("utf-8"), None)
+        uebrig = [f for f in bericht["fehler"] if f != bericht["entwurf"]]
+        self.assertTrue(any("slug" in f for f in uebrig), bericht["fehler"])
+
+    def test_ohne_werkzeugmarke_bleibt_es_die_alte_meldung(self):
+        # Eine fremde Datei mit leerem Koerper bekommt keinen Freifahrtschein.
+        meta = json.loads(json.dumps(self.GERUEST))
+        meta["werkzeug"] = "irgendwas"
+        bericht, _, _ = server.pruefen(self.datei(meta).encode("utf-8"), None)
+        self.assertEqual(bericht["entwurf"], "")
+        self.assertTrue(any("sichtbarer Text" in f for f in bericht["fehler"]),
+                        bericht["fehler"])
+        self.assertTrue(bericht["warnungen"], "die Warnungen fehlen ganz")
+
+    def test_ohne_markup_ist_es_kein_entwurf(self):
+        # Ohne markup kann der Editor nichts bauen - dann ist die leere Seite
+        # wirklich nur eine leere Seite.
+        meta = json.loads(json.dumps(self.GERUEST))
+        del meta["abschnitte"][0]["markup"]
+        html = self.datei(meta)
+        self.assertFalse(server.ist_entwurf(html, server.meta_block_lesen(html)[0]))
+
+    def test_eine_fertige_seite_ist_kein_entwurf(self):
+        for pfad in seiten():
+            with self.subTest(seite=os.path.basename(pfad)):
+                html = lies(pfad)
+                meta, _ = server.meta_block_lesen(html)
+                self.assertFalse(server.ist_entwurf(html, meta))
+
+    def test_eine_fertige_seite_wird_weiter_voll_geprueft(self):
+        # Die Warnungen ueber Kopfangaben und Pflichtblock duerfen nur beim
+        # Entwurf wegfallen. Probe: eine echte Seite ohne viewport.
+        html = lies(os.path.join(WIKI, "vorlagen", "drucker-einrichten.html"))
+        ohne = re.sub(r"(?i)<meta[^>]+viewport[^>]*>", "", html, count=1)
+        self.assertNotEqual(ohne, html, "Mutation griff nicht")
+        meta, _ = server.meta_block_lesen(ohne)
+        _, warnungen = server.regeln_pruefen(ohne, meta)
+        self.assertTrue(any("viewport" in w for w in warnungen), warnungen)
+
+
 if __name__ == "__main__":
     unittest.main()
