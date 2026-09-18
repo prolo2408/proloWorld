@@ -1,7 +1,7 @@
 /* Geldrechnung der Oberflaeche (B-04).
  *
  * Die Helfer werden aus index.html herausgeschnitten und hier gegen VON HAND
- * gerechnete Erwartungswerte geprueft (Regelblatt 13). Kein Wert unten ist aus
+ * gerechnete Erwartungswerte geprueft (CLAUDE.md §13). Kein Wert unten ist aus
  * der Ausgabe des Codes uebernommen.
  *
  * Aufruf:  node tests/test_geld_oberflaeche.mjs

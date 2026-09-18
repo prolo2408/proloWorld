@@ -14,7 +14,7 @@ Server zum Ratespiel.
 
 Geprueft wurde das bisher nur im Kopf. Diese Datei fuehrt es aus.
 
-Erwartungswerte von Hand (Regelblatt 13).
+Erwartungswerte von Hand (CLAUDE.md §13).
 
 Aufruf:  python3 -m unittest discover -s tests -t tests
 """

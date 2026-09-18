@@ -1,7 +1,7 @@
 /* Der Seiten-Editor: Auszeichnung, Suchtext und die erzeugte Seite.
  *
  * Die Funktionen werden aus index.html herausgeschnitten und hier gegen VON
- * HAND geschriebene Erwartungen geprueft (Regelblatt 13). Kein Wert unten ist
+ * HAND geschriebene Erwartungen geprueft (CLAUDE.md §13). Kein Wert unten ist
  * aus der Ausgabe des Codes uebernommen.
  *
  * Aufruf:  node tests/test_editor.mjs
@@ -57,12 +57,9 @@ const quellen = [
   hol(/function edListe\(s\)\{[\s\S]*?\n\}/, 'edListe'),
   hol(/function edPfadListe\(s\)\{[\s\S]*?\n\}/, 'edPfadListe'),
   hol(/function edSeiteBauen\(e\)\{[\s\S]*?\n\}/, 'edSeiteBauen'),
-  /* edPruefbar liest im Normalfall die Felder der Seite. Hier laeuft es nur
+  /* edBefunde liest im Normalfall die Felder der Seite. Hier laeuft es nur
      mit nurNachsehen=true - dann braucht es kein Dokument, nur ZUSTAND. */
-  /* edPruefbar ist seit N-35 nur die Textsicht auf edBefunde - beide
-     muessen herausgeholt werden, sonst ruft edPruefbar ins Leere. */
   hol(/function edBefunde\(nurNachsehen\)\{[\s\S]*?\n\}/, 'edBefunde'),
-  hol(/function edPruefbar\(nurNachsehen\)\{[\s\S]*?\n\}/, 'edPruefbar'),
   hol(/function edGruppenWiederholt\(abschnitte\)\{[\s\S]*?\n\}/, 'edGruppenWiederholt'),
   hol(/function kiPrompt\(thema\)\{[\s\S]*?\n\}/, 'kiPrompt'),
   hol(/function edLeer\(\)\{[\s\S]*?\n\}/, 'edLeer'),
@@ -76,7 +73,7 @@ const { edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
         ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
         edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
         ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
-        edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, edBefunde,
+        edBlockZuZeilen, edBlockHtml, edAusHtml, edBefunde,
         edGruppenWiederholt,
         kiPrompt, ED_VORLAGEN, ED_GRUPPEN, edLeer, ZUSTAND } =
   new Function(quellen + `
@@ -84,9 +81,14 @@ const { edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
             ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
             edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
             ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
-            edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, edBefunde,
+            edBlockZuZeilen, edBlockHtml, edAusHtml, edBefunde,
         edGruppenWiederholt,
             kiPrompt, ED_VORLAGEN, ED_GRUPPEN, edLeer, ZUSTAND};`)();
+
+/* Die Saetze der Befunde. Vorher stand dafuer ein Einzeiler in der Huelle -
+   mit genau einem Aufrufer: diesem Test. Eine Funktion, die nur ihr eigener
+   Test ruft, prueft nichts am laufenden Code (N-37). */
+const texte = (nurNachsehen) => edBefunde(nurNachsehen).map(b => b.text);
 
 /* Das Rechenwerk der erzeugten Seite - hier einzeln herausgeholt, damit die
    Formelauswertung geprueft werden kann, ohne einen Browser zu starten. */
@@ -739,7 +741,7 @@ function nurPdfSeite(zusatz){
 }
 pruefe('Ein PDF-Baustein ohne Datei wird nicht gespeichert', () => {
   ZUSTAND.editor = nurPdfSeite(null);
-  const m = edPruefbar(true);
+  const m = texte(true);
   /* Genau ein Mangel, und der nennt den Baustein - nicht "Abschnitt leer". */
   assert.equal(m.length, 1, 'erwartet genau einen Mangel, bekommen: ' + m.join(' / '));
   assert.ok(/PDF-Baustein 1 in „A"/.test(m[0]), 'Mangel benennt den Baustein nicht: ' + m[0]);
@@ -747,9 +749,9 @@ pruefe('Ein PDF-Baustein ohne Datei wird nicht gespeichert', () => {
 });
 pruefe('Ein PDF-Baustein mit Datei auf dem Server ist in Ordnung', () => {
   ZUSTAND.editor = nurPdfSeite({dateiname:'handbuch.pdf'});
-  assert.deepEqual(edPruefbar(true), [], 'ein beiliegendes PDF wird beanstandet');
+  assert.deepEqual(texte(true), [], 'ein beiliegendes PDF wird beanstandet');
   ZUSTAND.editor = nurPdfSeite({daten64:'JVBERi0x'});
-  assert.deepEqual(edPruefbar(true), [], 'ein neu gewaehltes PDF wird beanstandet');
+  assert.deepEqual(texte(true), [], 'ein neu gewaehltes PDF wird beanstandet');
 });
 pruefe('Die fertige Seite sagt, wenn zu einem PDF-Knopf nichts beiliegt', () => {
   /* Gebaut wird eine Seite, deren PDF-Knopf auf eine Kennung zeigt, zu der
@@ -1082,7 +1084,7 @@ pruefe('Ein Bild ohne Datei kommt nicht durch die Pruefung', () => {
     pfad:'Technik', gruppen:'', abschnitte:[{anker:'a', titel:'A',
     stichworte:'', gruppe:'', markup:markup,
     bloecke:edMarkupZuBloecken(markup)}]};
-  const m = edPruefbar(true);
+  const m = texte(true);
   assert.equal(m.length, 1, m.join(' / '));
   assert.ok(/Bild-Baustein 1/.test(m[0]), m[0]);
 });
@@ -1278,11 +1280,6 @@ pruefe('Der leere Editor meldet genau vier Sachen (N-35)', () => {
   assert.equal(liste.length, 4, liste.map(b => b.text).join(' | '));
   assert.deepEqual(liste.map(b => b.ziel),
     ['ed-titel', 'ed-pfad', 'ed-a-titel-0', 'ed-abschnitt-0']);
-});
-pruefe('edPruefbar ist genau die Textsicht auf edBefunde (N-35)', () => {
-  /* Zwei Pruefungen waeren zwei Wahrheiten. */
-  ZUSTAND.editor = edLeer();
-  assert.deepEqual(edPruefbar(true), edBefunde(true).map(b => b.text));
 });
 pruefe('Die Standzeile ist ein Knopf, der zur Stelle fuehrt (N-35)', () => {
   const zeile = quelle.match(/id="ed-stand"[\s\S]{0,120}/);

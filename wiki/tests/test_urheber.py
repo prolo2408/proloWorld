@@ -5,7 +5,7 @@ Schreibrecht gelesen heisst das: sobald ein Verwalter eine fremde Seite
 anfasst, steht er selbst drin - und der Urheber kommt an seine eigene Seite
 nicht mehr heran (im Versuch: HTTP 403 auf die eigenen Fassungen).
 
-Erwartungswerte von Hand, wie Regelblatt 13 es verlangt.
+Erwartungswerte von Hand, wie CLAUDE.md §13 es verlangt.
 
 Aufruf:  python3 -m unittest discover -s tests -t tests
 """

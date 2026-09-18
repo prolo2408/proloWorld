@@ -136,7 +136,7 @@ Meta-Block mit leerem Koerper (N-23).</p></section></body></html>"""
         self.assertTrue(any("mehrfach" in f for f in fehler))
 
     def test_zu_langer_titel_ist_ein_fehler(self):
-        """N-20, Regelblatt 11: Text auf sinnvolle Laenge begrenzt.
+        """N-20, CLAUDE.md §11: Text auf sinnvolle Laenge begrenzt.
 
         Gemessen: ein Titel von 376 Zeichen liess den Kopf der Anwendung am
         Handy auf 523 Pixel wachsen - zwei Drittel des Schirms.

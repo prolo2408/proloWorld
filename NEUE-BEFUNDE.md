@@ -18,7 +18,7 @@ mit den `B`-Nummern gibt.
 **Datei:** `wiki/index.html`, Tokenblock
 **Gefunden bei:** B-30 Teil 2
 
-Mit B-30 sind die drei Token ins Regelblatt aufgenommen worden, weil das
+Mit B-30 sind die drei Token in die Regeldatei aufgenommen worden, weil das
 Bordbuch sie sinnvoll ergänzt hatte. Das Wiki definiert sie nicht — geprüft:
 alle drei fehlen im Tokenblock.
 
@@ -26,8 +26,8 @@ Das ist kein rein theoretischer Punkt:
 
 - Das Wiki hat **zerstörende Aktionen** (Seite löschen, Fassung
   zurücksetzen). Ohne `--danger` sehen sie aus wie gewöhnliche Knöpfe oder
-  wie eine Warnung — Regelblatt §2 unterscheidet beides bewusst.
-- Es stehen **vier hartkodierte `#fff`** in der Datei. Regelblatt §1 erlaubt
+  wie eine Warnung — CLAUDE.md §2 unterscheidet beides bewusst.
+- Es stehen **vier hartkodierte `#fff`** in der Datei. CLAUDE.md §1 erlaubt
   `#fff` ausdrücklich nur als Text auf `--accent`. Ob alle vier dort stehen,
   ist nachzusehen; wenn ja, gehören sie auf `--on-accent`.
 
@@ -42,15 +42,15 @@ in beiden Tools gleich aussehen.
 zum Bordbuch (nachgemessen, alle sechs Werte identisch). Die beiden harten
 `#fff` standen tatsächlich beide auf `--accent` und laufen jetzt über
 `--on-accent`; übrig bleibt `--surface:#fff`, und das ist die Definition aus
-dem Regelblatt selbst. Löschen und Zurücksetzen tragen `gefahr` und färben sich
+der Regeldatei selbst. Löschen und Zurücksetzen tragen `gefahr` und färben sich
 im Hover auf `--danger` — dieselbe Kette wie `.danger` im Bordbuch.
 
 Eine Abweichung von der ursprünglichen Notiz: `--overlay` hat im Wiki **keine
 Fundstelle**. Es gibt dort keinen eigenen Dialog, gefragt wird über `confirm()`.
-Das Token ist trotzdem definiert, weil genau das sein im Regelblatt genannter
+Das Token ist trotzdem definiert, weil genau das sein in der Regeldatei genannter
 Zweck ist — damit der nächste Dialog nicht sein eigenes `rgba(0,0,0,.5)`
 erfindet. `--danger-soft` und `--on-overlay` sind **nicht** übernommen worden:
-die sind Ergänzungen des Bordbuchs, stehen nicht im Regelblatt und hätten hier
+die sind Ergänzungen des Bordbuchs, stehen nicht in der Regeldatei und hätten hier
 keine Verwendung.
 
 ---
@@ -68,7 +68,7 @@ laufenden Server.
 Der Grund ist die Vorbelegung in `car_save()`:
 `name = (data.get("name") or "").strip()[:60] or "Auto"`. Für das Anlegen aus
 dem Formular heraus ist diese Vorbelegung sinnvoll; für eine Anfrage ganz ohne
-Inhalt ist sie eine stille Vorgabe im Sinne von Regelblatt §11 — nur an einer
+Inhalt ist sie eine stille Vorgabe im Sinne von CLAUDE.md §11 — nur an einer
 Stelle, die B-05 nicht erfasst hat, weil dort Zahlen geprüft wurden und nicht
 Text.
 
@@ -110,7 +110,7 @@ Namen, Ändern), Wiederherstellung mit namenlosem Auto geht weiter durch,
 ## N-03 — Der Vorab-Test im Bericht selbst funktioniert nicht
 
 **Stufe:** mittel (betrifft das Regelwerk, nicht den Stack)
-**Datei:** Prüfbericht, B-49, und `prolo-betriebsregeln.md` §11
+**Datei:** Prüfbericht, B-49, und `CLAUDE.md` §21
 **Gefunden bei:** B-49 — **bereits behoben**, hier nur zur Kenntnis
 
 Der im Bericht vorgeschlagene `pre-commit`-Haken benutzt `grep -PE`. Diese
@@ -147,7 +147,7 @@ weiteren Commits stillschweigend mitgelaufen, weil sie sich bei jedem Serverlauf
 
 Der entscheidende Punkt: `__pycache__/` steht inzwischen in **allen drei**
 `.gitignore`-Dateien. Das hat nichts geholfen — **`.gitignore` wirkt nicht auf
-bereits verfolgte Dateien.** Eine vollständige Pflichtliste nach Betriebsregeln
+bereits verfolgte Dateien.** Eine vollständige Pflichtliste nach CLAUDE.md
 §10 ist also keine Garantie für das, was schon im Git liegt.
 
 Der Vorab-Test aus B-49 greift hier ebenfalls nicht: er prüft Namensmuster für
@@ -230,7 +230,7 @@ Dienst tut, was er soll". Bei Traefik ist das derselbe Unterschied wie
 zwischen einem laufenden Motor und einem Auto, das fährt. Ein Tool ohne
 `PRUEF_URL` (Traefik hat keine, siehe `traefik/aktualisierung.conf`) ist
 damit nur oberflächlich geprüft. Offen und in Abschnitt 20 der
-Betriebsregeln als Grenze benannt.
+CLAUDE.md als Grenze benannt.
 
 ---
 
@@ -570,7 +570,7 @@ Betrag. An einer wirklich verdorbenen Datenbank ausgeführt: 11 sichere Zeilen
 standen alle Preise wieder im plausiblen Bereich (0,296–0,445 €/kWh,
 1,73–1,77 €/l) und die Nachprüfung meldete nichts Offenes.
 
-**Vor dem Berichtigen sichern** (Regelblatt 15) — der Schalter sagt es selbst
+**Vor dem Berichtigen sichern** (CLAUDE.md §15) — der Schalter sagt es selbst
 und nennt den Weg.
 
 ### Was daraus folgt
@@ -785,7 +785,7 @@ geprüft werden kann.
 Bestehende Datenbanken bekommen die Spalte beim Start nachgetragen und aus
 der Fassungsgeschichte gefüllt: Die erste archivierte Fassung trägt die
 Kennung dessen, der sie geschrieben hat. Es wird nur hinzugefügt, nichts
-überschrieben, und das Protokoll sagt es (Regelblatt §15).
+überschrieben, und das Protokoll sagt es (CLAUDE.md §15).
 
 **Was daraus folgt:** Ein Rechtemodell ist erst geprüft, wenn die *Reihenfolge*
 der Handlungen mitgeprüft wird. Jede einzelne Prüfung war richtig — anlegen,
@@ -994,10 +994,10 @@ finden — nur damit, dass jemand es benutzt und sagt, was er erwartet hat.
 **Stufe:** mittel — kein Datenverlust, aber die Oberfläche wird am Handy
 unbenutzbar, und es lässt sich von außen auslösen
 **Datei:** `wiki/server.py` (`regeln_pruefen`), `wiki/index.html`
-**Gefunden bei:** dem Bedienungsdurchgang, Punkt 12 aus Regelblatt §14b
+**Gefunden bei:** dem Bedienungsdurchgang, Punkt 12 aus CLAUDE.md §14b
 („ganz falsche Eingabe")
 
-Regelblatt §11 fragt ausdrücklich: *„Text auf sinnvolle Länge begrenzt?"* Für
+CLAUDE.md §11 fragt ausdrücklich: *„Text auf sinnvolle Länge begrenzt?"* Für
 den Titel einer Seite war die Antwort nein. Geprüft wurde nur, **ob** er da
 ist. Eine Seite mit einem Titel von 376 Zeichen und einem „Satz" von 669
 Zeichen ging ohne eine einzige Warnung durch.
@@ -1399,7 +1399,7 @@ Das ist die richtige Aussage — mit der zurückgedrehten Zeile. Die Namen im
 Funktionskopf heißen jetzt `gesucht` und `getippt`, damit die Verwechslung
 nicht noch einmal passiert.
 
-**Was daraus folgt:** Regelblatt §14 („tatsächlich ausprobiert, nicht nur
+**Was daraus folgt:** CLAUDE.md §14 („tatsächlich ausprobiert, nicht nur
 gedanklich") gilt auch für das Lesen von Code, nicht nur für das Prüfen von
 Funktionen. Zwei Variablennamen, die das Gegenteil von dem bedeuten, was sie
 sagen, haben mich in eine Änderung geführt, die alle Tests bestanden hätte —
@@ -1931,7 +1931,7 @@ bekommen `aria-invalid`, Karten `data-fehler="1"` mit warmem Rand. Und wer im
 Feld etwas ändert, verliert Marke **und** Meldung dazu (`edMarkeWeg`) — sonst
 stünde dort weiter „fehlt der Titel", während der Titel schon da ist.
 
-### Im Browser gefahren (Regelblatt 14, CLAUDE.md)
+### Im Browser gefahren (CLAUDE.md §14, CLAUDE.md)
 
 Leere Vorlage geöffnet, *Speichern* gedrückt, nichts ausgefüllt — 1440 × 900:
 
@@ -2121,6 +2121,329 @@ sehr wohl. **Hinter einem CSS-Übergang kann dieser Aufbau nichts messen** —
 mit `--virtual-time-budget` läuft ein `transition` nicht weiter, der
 berechnete Wert bleibt auf dem Anfangswert stehen. Steht jetzt als dritte
 Lehre in `tests/README.md`.
+
+## N-37 — Was im Repo lag und nicht gebraucht wurde
+
+### Auftrag
+
+„Check mal das ganze Repo und werf alles weg, das nicht gebraucht wird." Also
+120 Dateien einzeln durchgegangen, mechanisch statt nach Gefühl: welche Datei
+wird von keiner anderen erwähnt, welche Klasse steht im Stil und nirgends im
+Markup, welche Funktion ist definiert und wird nie gerufen.
+
+### Was wirklich weg konnte
+
+**Zwei Funktionen, die nur noch ihr eigener Test gerufen hat.** Das ist die
+schlimmere Sorte totes Holz: der Test ist grün, und er prüft nichts am
+laufenden Code.
+
+| Funktion | Aufrufer im Programm |
+|---|---|
+| `fts_ausdruck(begriff)` in `server.py` | **keiner** — vier Prüfzeilen in `test_suche.py` |
+| `edPruefbar(nurNachsehen)` in `index.html` | **keiner** — vier Stellen in `test_editor.mjs` |
+
+Beide waren Einzeiler vor einer echten Funktion, und beide hatten ihre
+Aufrufer im Programm bei früheren Arbeitsschritten verloren: `fts_ausdruck` an
+`fts_ausdruck_aus_teilen` (Suchoperatoren), `edPruefbar` an `edBefunde`
+(`N-35`). Nicht bemerkt, weil die Tests weiterliefen.
+
+Weg damit — und die Tests gehen jetzt den Weg, den der Server geht: in
+`test_suche.py` steht ein Helfer `ausdruck()`, der `suchbegriff_lesen` und
+`fts_ausdruck_aus_teilen` verkettet (genau wie `suchen()`), in
+`test_editor.mjs` einer namens `texte()` über `edBefunde`. Die Prüfzeile, die
+nur die beiden Fassungen verglich, fällt mit weg: es gibt nur noch eine.
+
+**Eine Datei, die von nirgendwo aus zu finden war.**
+`wiki/test-isolierung.html` lag neben `server.py` und wurde von keiner Datei
+erwähnt. Wegwerfen wäre falsch gewesen — es ist die Abnahmehilfe, mit der man
+prüft, ob der abgeschottete Rahmen wirklich hält (vier verbotene Zugriffe, alle
+müssen „blockiert" melden). Sie liegt jetzt als
+`wiki/tests/isolierung-probe.html` dort, wo man sie sucht, und `tests/README.md`
+sagt, was sie ist. In `vorlagen/` kann sie nicht liegen: sie enthält mit
+Absicht zwei Fehler, und `test_seiten.py` würde sie zu Recht beanstanden.
+
+### Was gar nicht erst in den Baukontext gehört
+
+Das Bordbuch hatte eine `.dockerignore`, das Wiki **keine** — und die des
+Bordbuchs war unvollständig (`tests/`, `aktualisierung.conf` fehlten). Docker
+überträgt vor jedem Bau den ganzen Ordner an den Dienst, auch was das
+`Dockerfile` nie kopiert.
+
+Gemessen, mit Docker-Semantik für die Muster (`*` springt nicht über `/`):
+
+| | Dateien vorher | danach | Größe vorher | danach |
+|---|---|---|---|---|
+| `wiki/` | 50 | **15** | 1149,9 kB | **510,9 kB** |
+| `bordbuch/` | 41 | **15** | 1016,0 kB | **661,5 kB** |
+
+Übrig bleiben in beiden genau die fünfzehn, die gebraucht werden: `Dockerfile`,
+`server.py`, `index.html`, die neun Schriftdateien mit ihren Lizenzen,
+`.dockerignore` und `.gitignore`.
+
+Die Ablagen `daten/` und `seiten/` stehen trotzdem in der Liste. Im Betrieb
+liegen sie in benannten Docker-Volumes, nicht im Ordner — aber beim Lauf ohne
+Docker (Tests, Vorführung) entstehen sie dort, und dann gehören eine Datenbank
+und fremde Seiteninhalte erst recht nicht in den Baukontext.
+
+### Was geprüft und ausdrücklich behalten wurde
+
+Wegwerfen ist einfach; das Behalten braucht den Grund.
+
+| Verdacht | Warum es bleibt |
+|---|---|
+| `wiki/.gitignore`, `bordbuch/.gitignore` — die Wurzeldatei deckt alles ab | CLAUDE.md §21 verlangt **zusätzlich eine je Tool**: die Wurzeldatei ist leicht zu übersehen, und ein Tool bringt seine Regel dort mit, wo die Daten entstehen |
+| `traefik/logrotate.conf` — von nirgendwo erwähnt | erklärt sich selbst: der Einrichtungsbefehl steht im Kopf der Datei |
+| `bordbuch/tests/gegenprobe.sh` — läuft nicht in `alle.sh` | Absicht: sie baut echte Fehler in `server.py` ein und prüft die Testsuite selbst. Von Hand, nicht bei jedem Lauf |
+| dieselben neun Schriftdateien in beiden Tools | zwei getrennte Baukontexte — ein gemeinsamer Ordner wäre von keinem `Dockerfile` erreichbar |
+| drei Seiten in `vorlagen/`, die niemand nennt | `test_seiten.py` nimmt den ganzen Ordner per `glob` |
+| `tests/hilfe.py` in beiden Tools | wird als **Modul** importiert (`from hilfe import server`), nicht über den Dateinamen |
+
+### Und was gar nichts hergab
+
+- **Klassen im Stil, die niemand benutzt:** 113 Klassen in der Wiki-Hülle,
+  120 im Bordbuch, **keine einzige** ungenutzt. (`N-25` war der letzte Fall,
+  und der ist behoben.) Im Seitenstil des Editors: 7 Klassen, alle benutzt.
+- **Serverpfade, die die Hülle nie ruft:** keine.
+- **`TODO`, `FIXME`, `XXX`, `HACK`:** kein einziges Vorkommen im ganzen Repo.
+
+Das Ergebnis ist also kurz: fünf Stellen, davon zwei totes Holz im Programm.
+Der Rest des Repositorys trägt sich.
+
+## N-38 — `prolo` wusste vom neuen Stand und holte ihn nicht
+
+### Befund
+
+Auftrag: *„Erweitere das Tool prolo, dass es beim Update selbst die Repo auf
+Aktualisierungen prüft."*
+
+Geprüft hat es schon — seit `#11` steckt in `aktualisieren.sh` eine
+Quellstand-Prüfung, die `git fetch` macht und bei Rückstand abbricht. Drei
+Dinge fehlten trotzdem:
+
+1. **Geholt hat sie nie.** Der Lauf meldete „1 Commit(s) HINTER origin" und
+   brach ab; `git pull` musste der Mensch von Hand tippen. Genau derselbe
+   Griff, jedes Mal — und genau solche Griffe vergisst man.
+2. **Sie lief nur beim Aktualisieren.** `prolo status` zeigte Tools, Namen,
+   Zertifikate, Sicherung und Archiv — aber nicht, ob der Stand auf der Platte
+   überhaupt der neueste ist. Dabei ist „ich habe vergessen zu ziehen" die
+   häufigste Ursache dafür, dass eine Änderung nicht ankommt. `prolo pruefen`
+   (Trockenlauf) sah sie ebenfalls nicht: die Prüfung saß hinter
+   `if [ "$TROCKEN" -eq 0 ]`.
+3. **Sie stand mitten im Skript**, also an genau einer Stelle benutzbar.
+
+### Behoben
+
+**Eine Stelle, drei Aufrufer.** Neu `werkzeuge/quellstand.sh`:
+
+| Aufruf | Was es tut |
+|---|---|
+| `--pruefen` | nachsehen, berichten, die bereitliegenden Commits auflisten |
+| `--holen` | nachsehen und, wenn nötig, vorspulen |
+| `--kurz` | eine Zeile, für `prolo status` |
+
+Rückgabewerte statt Text-Auswertung: `0` aktuell, `10` hinterher, `11` nicht
+prüfbar, `20` geholt, `1` Holen ging nicht.
+
+Benutzt von `aktualisieren.sh` (in der Vorprüfung und zum Holen), von
+`prolo status` (eine Zeile) und vom neuen Befehl **`prolo quelle [--holen]`**.
+
+**`prolo aktualisieren` holt jetzt selbst** — vor der Sicherung, vor dem Bau.
+`--ohne-holen` behält das alte Verhalten (den Stand auf der Platte bauen),
+`--trocken` fasst nichts an.
+
+**Und startet danach neu.** Der Pull kann `aktualisieren.sh` *selbst* ersetzt
+haben, und Bash liest ein Skript häppchenweise von der Platte —
+weiterzulaufen hieße, halb die alte und halb die neue Fassung auszuführen.
+Also `exec` mit denselben Argumenten, einmal, gesichert über eine Marke in der
+Umgebung.
+
+**Zwei Fälle, in denen ausdrücklich NICHT geholt wird**, beide mit dem Weg
+heraus statt mit einem stillen Fehlschlag (CLAUDE.md §15):
+
+- **eigene Änderungen an verfolgten Dateien** → Abbruch, der Stand bleibt
+  stehen, die Dateien werden aufgelistet;
+- **auseinandergelaufene Stände** (voraus *und* zurück) → Vorspulen geht
+  nicht, und zusammenführen soll dieses Skript nicht.
+
+Unverfolgte Dateien blockieren dagegen **nicht**: git bricht von sich aus ab,
+falls eine geholte Datei eine von ihnen überschreiben würde, und diese Meldung
+wird weitergegeben. Sie mitzuzählen hieße, dass ein vergessenes Notizblatt im
+Ordner jede Aktualisierung blockiert.
+
+Dazu der Fall, der auf dem Server wirklich vorkommt: gehört `/opt/stack` einem
+anderen Nutzer, verweigert git jede Auskunft („dubious ownership") — und das
+sieht aus wie „kein Netz". Jetzt steht die Abhilfe dabei.
+
+### Zwei eigene Fehler, beide vom Ausführen gefunden
+
+**`set -e` hat den Lauf stumm beendet.** `aktualisieren.sh` und `prolo` laufen
+mit `set -euo pipefail`. `quellstand.sh` meldet seine Lage über den
+Rückgabewert — und ein Rückgabewert ≠ 0 ist unter `set -e` ein Abbruch. Der
+erste Testlauf zeigte es sofort:
+
+```
+=== Quellstand ===
+  Quellstand         1 Commit(s) HINTER origin/haupt
+  Holen ... (git pull --ff-only origin haupt)
+  Geholt: 1 Commit(s), Stand jetzt 48bd721.
+```
+
+…und dann nichts mehr. Kein Neustart, kein Bau, keine Meldung. Behoben mit
+`|| ERGEBNIS=$?` an allen vier Aufrufstellen — und der Grund steht als
+Kommentar daneben, weil das beim Lesen niemand sieht.
+
+**Eine Prüfzeile ohne Zähne.** Der Test für den Neustart suchte die *Meldung*
+„Neustart mit dem geholten Stand". Als ich zur Probe das `exec` durch ein `:`
+ersetzte, blieb er grün — die Ankündigung stand ja noch da. Eine Meldung ist
+kein Beweis. Jetzt zählt er, wie oft der Lauf **beginnt**: nach einem Neustart
+steht die Kopfzeile zweimal da.
+
+**Und fast ein dritter:** `URSPRUNG="$*"` gab es in `aktualisieren.sh` schon —
+für die Meldungen „`sudo $0 --ohne-sicherung <dieselben Tools>`". Mein Feld für
+den Neustart hätte es überschrieben, und `"$URSPRUNG"` wäre auf sein erstes
+Wort zusammengeschrumpft. Beim Durchlesen des eigenen Diffs aufgefallen, vor
+dem ersten Lauf. Heißt jetzt `AUFRUF`.
+
+### Ausgeführt
+
+`werkzeuge/aktualisieren-pruefen.sh`, 25 neue Prüfzeilen gegen einen echten
+Git-Aufbau (ein „fernes" Repo mit einem Commit mehr):
+
+| | |
+|---|---|
+| hinterher | Rückgabe 10, Zahl in der Meldung, der bereitliegende Commit wird benannt, der Weg zum Holen steht dabei |
+| `--kurz` | genau **eine** Zeile |
+| holen | Rückgabe 20, der Stand bewegt sich wirklich, die geholte Fassung liegt da, danach „aktuell" |
+| eigene Änderung | Rückgabe 1, Stand bleibt, **Datei bleibt, wie sie war** |
+| unverfolgte Datei | blockiert nicht, und bleibt liegen |
+| auseinandergelaufen | Rückgabe 1, Stand bleibt, Grund wird benannt |
+| ohne Git | Rückgabe 11, „nicht prüfbar" statt einer Behauptung |
+| über `aktualisieren.sh` | holt selbst, **beginnt zweimal**, holt dabei genau einmal, baut danach wirklich |
+| `--ohne-holen` | baut den Stand auf der Platte, holt wirklich nicht |
+| `--trocken` | holt nicht |
+
+`werkzeuge/prolo-pruefen.sh`, 6 weitere: `prolo quelle` gibt **0** zurück,
+obwohl der Stand zurückhängt (eine Auskunft ist kein Fehlschlag), nennt die
+Zahl; `prolo status` zeigt sie in einer Zeile; `--kurz` geht dafür
+ausdrücklich **nicht** ins Netz, sagt aber, dass es übersprungen wurde; die
+Hilfe nennt den Befehl.
+
+Mutationsproben (§13a), Rückweg über Kopien im Kratzblock:
+
+| Mutation | Ergebnis |
+|---|---|
+| `\|\| HOL_ERGEBNIS=$?` entfernt (also `set -e` zuschlagen lassen) | 4 Fehler |
+| `exec` entfernt | 1 Fehler *(erst nach der Verschärfung der Prüfzeile — vorher 0)* |
+| eigene Änderungen werden ignoriert | 1 Fehler |
+| unverfolgte Dateien blockieren doch | 11 Fehler |
+| `--trocken` holt doch | 1 Fehler |
+| `prolo quelle` gibt 10 durch | 1 Fehler |
+| Quellstand aus `status` entfernt | 1 Fehler |
+| Quellstand auch bei `--kurz` | 1 Fehler |
+| unverändert | 0 Fehler |
+
+Dazu alle vorhandenen Gegenproben unverändert grün:
+`aktualisieren-pruefen.sh`, `prolo-pruefen.sh`, `dockerfile-pruefen.sh`,
+`schriften-pruefen.sh`.
+
+## N-39 — Zwei Regeldateien, 148 Verweise, und keiner davon geprüft
+
+### Auftrag
+
+„Die alten `anleitungen.md` können weg und in die `CLAUDE.md` umgezogen
+werden."
+
+Es gab drei Dateien mit Regeln: `CLAUDE.md` (57 Zeilen, eine Kurzfassung),
+`prolo-regelblatt.md` (562 Zeilen, Oberfläche und Codequalität) und
+`prolo-betriebsregeln.md` (1104 Zeilen, Betrieb). Die Kurzfassung sagte
+selbst, die beiden anderen seien „im Zweifel maßgeblich" — also musste man
+immer alle drei lesen.
+
+### Was daraus wurde
+
+**Eine Regeldatei.** `CLAUDE.md`, 821 Zeilen, in vier Teilen: wie hier
+gearbeitet wird, Oberfläche, Robustheit, Betrieb, dazu die Checkliste. Die
+Nummerierung des Regelblatts (§1–§15) bleibt erhalten, weil hunderte Verweise
+darauf stehen; die Betriebsregeln schließen ab §16 an.
+
+**Was dabei nicht mitgewandert ist**, und warum:
+
+| Was | Wohin |
+|---|---|
+| die **Handgriffe** (neuer Server, Tool einhängen, Alltag, Sichern, Wiederherstellen, Fehlersuche) | in die Wiki-Seite „Prolo bedienen und verstehen" — sie sind Bedienung, keine Regel |
+| die abgedruckten **Skripte** (`backup.sh`, `backup-sync.sh`, der Wachhund für die Sicherung) | sie liegen als echte Dateien im Repository und erklären sich dort selbst |
+| die **Entstehungsgeschichte** jeder Regel | steht hier in `NEUE-BEFUNDE.md`, wo sie hingehört |
+
+**Drei Token sind endlich eingetragen.** Das Regelblatt sagte „gibt es kein
+passendes Token, wird eines ergänzt — ergänzt werden muss es dann aber hier"
+und führte `--danger`, `--on-accent` und `--overlay` in einer Fußnote, ohne
+Werte. Die Werte stehen im Wiki und im Bordbuch längst; jetzt stehen sie im
+Tokenblock.
+
+### Der eigentliche Aufwand: die Verweise
+
+Quer durch den Stack standen **148 Verweise** auf die beiden Dateien — in
+Kommentaren, Tests, Meldungen, `.conf`-Dateien, sogar in `.gitignore`. Die
+Regelblatt-Nummern stimmen weiter; die Betriebsregeln-Nummern haben sich alle
+verschoben (`Betriebsregeln 5` → `§19`, `10` → `§21`, `12` → `§22`,
+`13`–`17` → `§23`, `19a` → `§24a`, `23` → `§25` …).
+
+Ein Verweis auf einen Abschnitt, den es nicht mehr gibt, fällt beim Lesen
+**nicht** auf: er sieht aus wie eine Begründung und ist eine Sackgasse. Also
+mechanisch umgeschrieben, in 46 Dateien, und danach 22 Nennungen ohne Nummer
+von Hand nachgezogen.
+
+### Die Prüflinie, die das festhält
+
+Neu: `werkzeuge/regeln-pruefen.sh`. Es prüft drei Dinge:
+
+1. **Jeder Verweis `CLAUDE.md §N` trifft einen Abschnitt, den es gibt.**
+   Gemessen: 29 verschiedene Abschnitte werden zitiert, alle vorhanden.
+2. **Niemand nennt die beiden abgeschafften Dateien mehr.**
+3. **`CLAUDE.md` bringt die Blöcke mit, auf die sich die Werkzeuge berufen:**
+   Farbtoken, Pflichtblock für Fokus, `[hidden]`, Checkliste.
+
+Mutationsproben (§13a), Rückweg über Kopien im Kratzblock:
+
+| Mutation | Ergebnis |
+|---|---|
+| ein Verweis zeigt ins Leere (`§11` → `§99`) | 1 Fehler |
+| jemand nennt wieder eine der alten Dateien | 1 Fehler |
+| der Farbtokenblock fällt aus `CLAUDE.md` | Fehler |
+| die Checkliste fällt weg | Fehler |
+| unverändert | 0 Fehler |
+
+### Zum dritten Mal dieselbe Falle
+
+Der erste Lauf des neuen Prüfskripts meldete zwei Fehler — **über sich
+selbst**: sein eigener Kommentar erklärte, warum es die alten Dateinamen
+sucht, und nannte sie dabei. Dasselbe Muster wie `N-33` (ein Kommentar mit
+`</script>` schaltete die Oberfläche ab) und `N-36` (eine Prüfzeile suchte das
+Wort `scrollIntoView` und fiel über den Kommentar, der es erklärt).
+
+Gelöst wie dort: die Namen werden zusammengesetzt statt ausgeschrieben
+(`"prolo-" + "regelblatt.md"`).
+
+Und ein viertes Mal, im selben Arbeitsschritt: der Eintrag in
+`wiki/CHANGELOG.md`, der das Zusammenziehen beschreibt, nannte die beiden
+Dateien beim Namen — das Prüfskript schlug an, und ich hatte den Fehlschlag
+zunächst übersehen, weil `bash … | tail -2` den Rückgabewert von `tail`
+liefert, nicht den des Skripts. Also gepusht mit rotem Prüflauf. Die Lehre
+steht in den Regeln: eine Prüfung wird nicht durch eine Pipe gelesen.
+
+Eine Ausnahme gibt es trotzdem, und die ist ausdrücklich: **diese Datei
+hier.** Ein Archiv nennt, was es nicht mehr gibt — das ist sein Zweck. Damit
+die Ausnahme kein Versteck wird, zählt das Prüfskript die Nennungen und
+schreibt sie hin:
+`(im Archiv NEUE-BEFUNDE.md genannt: prolo-betriebsregeln.md 1x, prolo-regelblatt.md 1x)`.
+
+### Was ausdrücklich geblieben ist
+
+`bordbuch/ANLEITUNG.md` und `wiki/EINRICHTUNG.md` sind **keine** „alten
+Anleitungen", sondern die Handbücher der beiden Werkzeuge: das eine
+beschreibt die Bedienung des Bordbuchs im Einzelnen, das andere den
+Seitenaufbau des Wikis, auf den sich Editor, Import und Tests berufen. Beide
+sind jetzt in `CLAUDE.md` genannt, damit man sie findet.
 
 ## Was daraus für die Abnahme folgt
 

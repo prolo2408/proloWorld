@@ -10,7 +10,7 @@ api:
   # Router anlegt. Dann liegt die vollstaendige Routeruebersicht offen.
   #
   # Wer es braucht: Router mit authentik@file UND Bindung an eine eigene
-  # Gruppe (Betriebsregeln 24), nicht nur "angemeldet".
+  # Gruppe (CLAUDE.md §17), nicht nur "angemeldet".
   dashboard: false
 
 entryPoints:
@@ -60,7 +60,7 @@ accessLog:
   format: json
   fields:
     headers:
-      # drop als Vorgabe ist wesentlich: Betriebsregeln 12 verlangt, dass
+      # drop als Vorgabe ist wesentlich: CLAUDE.md §22 verlangt, dass
       # X-Authentik-Jwt und Cookie nicht ins Protokoll geraten. Mit drop als
       # Vorgabe gilt das auch fuer Kopfzeilen, die spaeter dazukommen - eine
       # Ausschlussliste waere irgendwann unvollstaendig.

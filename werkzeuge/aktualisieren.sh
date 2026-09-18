@@ -1,7 +1,7 @@
 #!/bin/bash
 # werkzeuge/aktualisieren.sh
 #
-# Zentrales Aktualisierungsskript (Betriebsregeln 20).
+# Zentrales Aktualisierungsskript (CLAUDE.md §24).
 #
 # Aufruf:
 #   aktualisieren.sh <tool> [<tool> ...]   ein oder mehrere Tools
@@ -16,7 +16,7 @@
 # Dateisystem erkannt, alles Tool-eigene steht in der jeweiligen
 # aktualisierung.conf. Ein neues Tool braucht damit keine Zeile hier.
 #
-# Abweichungen vom Entwurf in Betriebsregeln 20, jede aus einem konkreten
+# Abweichungen vom Entwurf in CLAUDE.md §24, jede aus einem konkreten
 # Fehler heraus:
 #
 #   1. Container werden ueber "docker compose ps -q" gefunden, nicht ueber
@@ -33,7 +33,7 @@
 #
 #   3. Geprueft wird zuerst ueber die Gesundheitspruefung des Containers und
 #      nur ersatzweise ueber PRUEF_URL. Der Entwurf holte dafuer
-#      curlimages/curl:latest - ein latest-Abbild, was Betriebsregeln 5
+#      curlimages/curl:latest - ein latest-Abbild, was CLAUDE.md §19
 #      gerade verbietet, bei jedem Lauf neu geladen und im internen Netz von
 #      socket-proxy gar nicht erreichbar. Bordbuch, Wiki und Authentik haben
 #      eine eigene Gesundheitspruefung; die ist naeher an der Wahrheit.
@@ -141,7 +141,7 @@ ein_tool() {
     # shellcheck disable=SC1090
     . "$ORDNER/aktualisierung.conf"
   else
-    melde "HINWEIS: keine aktualisierung.conf - Betriebsregeln 1 verlangt sie."
+    melde "HINWEIS: keine aktualisierung.conf - CLAUDE.md §16 verlangt sie."
     melde "         Es gilt: TYP=image, keine URL-Pruefung, ${PRUEF_WARTEN}s Grenze."
   fi
 
@@ -160,7 +160,7 @@ ein_tool() {
              | tr -d '"' || true)
   if [ -z "$ABBILDER" ]; then
     melde "ABBRUCH: in $ORDNER/docker-compose.yml fehlt eine image:-Zeile."
-    melde "         Ohne sie gibt es keinen Rueckweg (Betriebsregeln 5, B-23)."
+    melde "         Ohne sie gibt es keinen Rueckweg (CLAUDE.md §19, B-23)."
     melde "         Auch bei eigenem Dockerfile gehoert sie dazu -"
     melde "         'build: .' UND 'image: <tool>:<fassung>'."
     return 1
@@ -369,7 +369,7 @@ zurueckrollen() {
   melde ""
   melde "ACHTUNG: hat die neue Fassung die Datenbank schon migriert, reicht"
   melde "das Zurueckrollen nicht. Dann die Sicherung einspielen -"
-  melde "Betriebsregeln 17 und 22. Bordbuch legt zusaetzlich eine Kopie"
+  melde "CLAUDE.md §23 und 22. Bordbuch legt zusaetzlich eine Kopie"
   melde "neben die Datenbank (.vor-stand-<n>), siehe B-13."
 }
 
@@ -397,6 +397,12 @@ verwendung() {
 URSPRUNG="$*"
 
 ZIELE=()
+# Dieselben Argumente noch einmal, aber als Feld: nach einem Holen startet das
+# Skript neu (exec), und dafuer muss jedes Argument einzeln erhalten bleiben.
+# NICHT in URSPRUNG hineinschreiben - das ist oben eine Zeichenkette fuer
+# Meldungen, und ein Feld darin haette sie auf ihr erstes Wort verkuerzt.
+AUFRUF=("$@")
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --alle)    mapfile -t ZIELE < <(tools_finden) ;;
@@ -490,13 +496,13 @@ vorpruefung() {
   fi
 
   # Der Schluessel laesst sich NICHT selbst erzeugen: der private Teil
-  # gehoert auf den Arbeitsrechner, nicht hierher (Betriebsregeln 15).
+  # gehoert auf den Arbeitsrechner, nicht hierher (CLAUDE.md §23).
   # Ein Skript, das ihn hier anlegt, macht die Verschluesselung wertlos.
   local SCHL="$STACK/.backup-schluessel.pub"
   if [ ! -f "$SCHL" ]; then
     melde "  FEHLER: $SCHL fehlt."
     melde "          Er kann hier NICHT erzeugt werden - der private Teil"
-    melde "          gehoert auf den Arbeitsrechner (Betriebsregeln 15)."
+    melde "          gehoert auf den Arbeitsrechner (CLAUDE.md §23)."
     melde "          Dort:  age-keygen -o ~/.age/prolo.key"
     melde "          Dann:  den age1...-Teil hierher in $SCHL"
     FEHLT=1
@@ -512,48 +518,60 @@ vorpruefung() {
     melde "  Sicherungsschluessel  vorhanden"
   fi
 
-  # Ist der Quellstand ueberhaupt aktuell?
-  #
-  # Der Anlass: bei TYP=build baut das Skript aus dem, was auf der Platte
-  # liegt. Wer vergisst zu ziehen, baut die alte Fassung neu - docker meldet
-  # dann brav "CACHED" und "Image gebaut", und am Ende steht FERTIG, obwohl
-  # sich nichts geaendert hat. Am 15.09.2026 genau so passiert: eine
-  # umgebaute Oberflaeche kam nicht an, und in der Ausgabe stand als
-  # einziger Hinweis "CACHED [3/5] COPY server.py index.html".
-  if [ -d "$STACK/.git" ] && command -v git >/dev/null 2>&1; then
-    local ZWEIG HINTER
-    ZWEIG=$(git -C "$STACK" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-    if [ -n "$ZWEIG" ] && [ "$ZWEIG" != "HEAD" ]; then
-      # Holen darf fehlschlagen (kein Netz, kein Schluessel) - das ist kein
-      # Grund abzubrechen, nur einer, nichts zu behaupten.
-      if timeout 20 git -C "$STACK" fetch --quiet origin "$ZWEIG" 2>/dev/null; then
-        HINTER=$(git -C "$STACK" rev-list --count "HEAD..origin/$ZWEIG" 2>/dev/null || echo 0)
-        if [ "${HINTER:-0}" -gt 0 ]; then
-          melde "  Quellstand         $HINTER Commit(s) HINTER origin/$ZWEIG"
-          melde ""
-          melde "  ACHTUNG: es liegt eine neuere Fassung bereit, die hier noch"
-          melde "           nicht ausgecheckt ist. Bei eigenem Code (TYP=build)"
-          melde "           wuerde jetzt die ALTE Fassung neu gebaut - docker"
-          melde "           meldet dabei CACHED, und am Ende staende FERTIG,"
-          melde "           obwohl sich nichts geaendert hat."
-          melde ""
-          melde "           Erst holen:  cd $STACK && git pull origin $ZWEIG"
-          melde ""
-          melde "           Wer bewusst den jetzigen Stand bauen will, ruft mit"
-          melde "           --ohne-holen auf."
-          [ "$OHNE_HOLEN" -eq 1 ] || FEHLT=1
-        else
-          melde "  Quellstand         aktuell (origin/$ZWEIG)"
-        fi
-      else
-        melde "  Quellstand         nicht pruefbar (kein Zugriff auf origin)"
-      fi
-    fi
+  # Ist der Quellstand ueberhaupt aktuell? Die Pruefung stand bis N-38 hier
+  # mitten im Skript - sie lief damit nur beim Aktualisieren, nicht bei
+  # "prolo status" und nicht bei "prolo pruefen". Jetzt steht sie einmal in
+  # werkzeuge/quellstand.sh, und drei Stellen rufen dieselbe.
+  if [ -x "$HIER/quellstand.sh" ]; then
+    # Das "|| QS=$?" ist nicht Zierde: dieses Skript laeuft mit set -e, und
+    # quellstand.sh meldet seine Lage ueber den Rueckgabewert (10 = hinterher,
+    # 11 = nicht pruefbar). Ohne das || waere schon die Auskunft ein Abbruch -
+    # gemessen genau so passiert, der Lauf endete stumm nach dem Holen.
+    local QS=0
+    "$HIER/quellstand.sh" --pruefen || QS=$?
+    [ "$QS" -ne 10 ] || [ "$OHNE_HOLEN" -eq 1 ] || FEHLT=1
   fi
 
   [ "$FEHLT" -eq 0 ] || return 1
   return 0
 }
+
+# ----------------------------------------------------------------------
+# Den neuen Stand selbst holen, BEVOR gebaut wird (N-38).
+#
+# Vorher meldete das Skript nur "N Commit(s) HINTER origin" und brach ab -
+# holen musste der Mensch von Hand. Das war jedes Mal derselbe Griff, und
+# genau solche Griffe vergisst man.
+#
+# Nicht geholt wird bei --trocken (der darf nichts anfassen) und bei
+# --ohne-holen (wer bewusst den Stand auf der Platte baut).
+# ----------------------------------------------------------------------
+if [ "$TROCKEN" -eq 0 ] && [ "$OHNE_HOLEN" -eq 0 ] && [ -x "$HIER/quellstand.sh" ]; then
+  abschnitt "Quellstand"
+  # Siehe vorpruefung: set -e wuerde den Lauf hier beenden, weil "geholt"
+  # als Rueckgabewert 20 kommt.
+  HOL_ERGEBNIS=0
+  "$HIER/quellstand.sh" --holen || HOL_ERGEBNIS=$?
+  if [ "$HOL_ERGEBNIS" -eq 20 ]; then
+    # Der Pull kann DIESES Skript ersetzt haben. Bash liest ein Skript
+    # haeppchenweise von der Platte - weiterlaufen hiesse, halb die alte und
+    # halb die neue Fassung auszufuehren. Also neu starten, und zwar genau
+    # einmal: die Marke verhindert eine Schleife, falls origin waehrend des
+    # Laufs weiterwandert.
+    if [ "${PROLO_NACH_HOLEN:-0}" -eq 0 ]; then
+      melde "  Neustart mit dem geholten Stand ..."
+      export PROLO_NACH_HOLEN=1
+      exec "$0" "${AUFRUF[@]}"
+    fi
+    melde "  (schon einmal geholt - es wird nicht wieder neu gestartet)"
+  elif [ "$HOL_ERGEBNIS" -eq 1 ]; then
+    melde ""
+    melde "ABBRUCH: der neuere Stand liess sich nicht holen. Nichts wurde"
+    melde "         angefasst. Wer den Stand auf der Platte bewusst bauen"
+    melde "         will, ruft mit --ohne-holen auf."
+    exit 1
+  fi
+fi
 
 if [ "$TROCKEN" -eq 0 ] && [ "$OHNE_SICHERUNG" -eq 0 ]; then
   if ! vorpruefung; then

@@ -3,7 +3,7 @@ services:
     image: traefik:v3.6.13
     container_name: traefik
     restart: unless-stopped
-    # Grenzen nach Betriebsregeln 5 (B-29). Traefik steht als einziger
+    # Grenzen nach CLAUDE.md §19 (B-29). Traefik steht als einziger
     # Dienst direkt am offenen Netz und verdient sie am meisten.
     mem_limit: 256m
     pids_limit: 256
@@ -46,7 +46,7 @@ services:
       # Zugriffsprotokolle (B-26). Ordner vorher anlegen:
       #   sudo mkdir -p /opt/stack/traefik/log
       # Dazu gehoert eine logrotate-Regel - sonst laeuft der Datentraeger
-      # voll. Siehe Betriebsregeln 12.
+      # voll. Siehe CLAUDE.md §22.
       - ./log:/var/log/traefik
     networks:
       - proxy

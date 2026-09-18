@@ -38,11 +38,11 @@ war bei N-06 und N-07 der Fall.
 
 ## Die zwei Regeln, die hier gelten
 
-**1. Erwartungswerte werden von Hand geschrieben.** Regelblatt §13: Nicht die
+**1. Erwartungswerte werden von Hand geschrieben.** CLAUDE.md §13: Nicht die
 Ausgabe des Codes als Erwartung übernehmen — das testet nur, dass sich nichts
 geändert hat, nicht dass es richtig ist.
 
-**2. Die Tests müssen Zähne haben.** Regelblatt §13a. Nachgewiesen wird das
+**2. Die Tests müssen Zähne haben.** CLAUDE.md §13a. Nachgewiesen wird das
 mit einer Mutationsprobe: eine Zeile im Editor absichtlich kaputt machen und
 zeigen, dass ein Test rot wird. Geprüft wurde so:
 
@@ -101,7 +101,7 @@ drin.
 
 ## Der Durchgang durch die Oberfläche
 
-Regelblatt §14a verlangt, jede Ansicht in beiden Themen bei drei Breiten
+CLAUDE.md §14a verlangt, jede Ansicht in beiden Themen bei drei Breiten
 anzusehen. Das lief mit Chromium über einen Stellvertreter, der die
 Authentik-Kopfzeilen setzt, und ist in den Commits belegt: sechs Ansichten ×
 zwei Themen × drei Breiten = 36 Messungen auf Überlauf, waagerechtes Scrollen
@@ -130,6 +130,20 @@ Lehren aus den Durchgängen für den nächsten:
   Wer etwas hinter einem Übergang prüfen will, schaltet ihn vorher ab und
   prüft den Endzustand — sonst meldet der Prüfer einen Fehler, den es nicht
   gibt.
+
+## Die Probe, die von Hand läuft
+
+`isolierung-probe.html` ist keine Testdatei für `alle.sh`, sondern eine
+**Abnahmehilfe**: eine Seite, die absichtlich vier Dinge versucht, die eine
+eingespielte Seite nicht können darf — die Wiki-Schnittstelle aufrufen, die
+Anmeldung lesen, die Hülle manipulieren, im Browser speichern. Wie man sie
+benutzt und was dabei herauskommen muss, steht im Kommentar in der Datei
+selbst.
+
+Sie lag bis dahin als `wiki/test-isolierung.html` neben dem Programm und war
+von nirgendwo aus zu finden (`N-37`). In `vorlagen/` kann sie nicht liegen:
+sie enthält mit Absicht zwei Fehler, und `test_seiten.py` würde sie zu Recht
+beanstanden.
 
 ## Was hier **nicht** geprüft wird
 

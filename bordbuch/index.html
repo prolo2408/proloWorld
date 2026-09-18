@@ -6,7 +6,7 @@
 <!-- "light dark" statt fest "dark" (B-11). Mit einem festen Wert bleiben die
      nativen Bedienelemente - Auswahllisten, Datumswaehler, Bildlaufleisten,
      Autovervollstaendigung - im Hellmodus DUNKEL. Das sieht aus wie ein halb
-     geladenes Theme und verletzt Regelblatt 1: "Hellmodus muss gleichwertig
+     geladenes Theme und verletzt CLAUDE.md §1: "Hellmodus muss gleichwertig
      funktionieren." -->
 <meta name="color-scheme" content="light dark">
 <title>Bordbuch</title>
@@ -19,7 +19,7 @@
      Instrument Sans oder JetBrains Mono installiert - das Bordbuch lief also
      fuer alle Nutzer in der Systemschrift, und damit griffen wesentliche
      Teile des Designsystems nicht. Die Unterscheidung zwischen Anzeige-,
-     Fliess- und Monospace-Schrift ist der Kern von Regelblatt 3, und
+     Fliess- und Monospace-Schrift ist der Kern von CLAUDE.md §3, und
      letter-spacing:-0.02em auf Ueberschriften ist auf Sora abgestimmt.
 
      Die Absicht, keine fremden Quellen einzubinden, war richtig und deckt
@@ -71,7 +71,7 @@
     unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
   }
   /* ---------------------------------------------------------------
-     Prolo-Designsystem, Regelblatt Teil I, Abschnitt 2.
+     Prolo-Designsystem, CLAUDE.md §2.
      Hell steht in :root, Dunkel ueberschreibt. Dunkel ist der Standard -
      darum traegt <body> von Haus aus data-theme="dark".
      Nie Farbwerte direkt in Komponenten schreiben.
@@ -109,7 +109,7 @@
     --track:oklch(0.94 0.004 250);     /* Fortschritts-, Segmentspur    */
     --shadow:0 24px 60px -20px oklch(0.4 0.03 250 / 0.22);
 
-    /* Ergaenzungen: das Regelblatt kennt weder eine Warnfarbe noch einen
+    /* Ergaenzungen: CLAUDE.md kannte weder eine Warnfarbe noch einen
        Wert fuer Text auf dem Akzent. Neue Bedeutung = neues Token (Abs. 8).
        Fuer Warnungen steht laut Zusatzregel nie Farbe allein - im Tool
        kommt immer ein Wort dazu ("faellig", "geloescht"). */
@@ -119,10 +119,10 @@
     --overlay:oklch(0.28 0.02 258);    /* Hinweisfenster, Meldung       */
     --on-overlay:oklch(0.98 0.002 250);/* Text darauf - in beiden Themen hell */
 
-    /* Form (Regelblatt 4) */
+    /* Form (CLAUDE.md §4) */
     --r:14px;
 
-    /* Schrift (Regelblatt 3). Die drei Schriften werden nicht von einer
+    /* Schrift (CLAUDE.md §3). Die drei Schriften werden nicht von einer
        fremden Seite geladen - das Tool bleibt ohne Fremdquellen. Sind sie
        auf dem Geraet vorhanden, greifen sie; sonst die Systemschrift. */
     --display:"Sora","Instrument Sans",ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -167,10 +167,10 @@
   html,body{margin:0;padding:0;height:100%}
   body{background:var(--bg);
     color:var(--text);font-family:var(--sans);font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
-  /* Regelblatt 3: Ueberschriften, Kennzahlen und Betraege in der
+  /* CLAUDE.md §3: Ueberschriften, Kennzahlen und Betraege in der
      Anzeige-Schrift, mit engerer Laufweite. */
   h1,h2,h3,.kpi b,.kpi .v,.amt,.sumrow{font-family:var(--display);letter-spacing:-0.02em}
-  /* 1280px nach Regelblatt 6 (B-18). Bei 1120px wurden die vier Spalten der
+  /* 1280px nach CLAUDE.md §6 (B-18). Bei 1120px wurden die vier Spalten der
      KPI-Reihe so schmal, dass grosse Betraege (1.284.500,55 EUR) umbrachen -
      und zwei Tools nebeneinander hatten sichtbar verschiedene Satzspiegel.
      Das Wiki hielt den Wert bereits ein. */
@@ -178,7 +178,7 @@
      Seitenleiste links, Kopf rechts daneben - dasselbe Geruest wie im Wiki.
      Vorher hatte das Bordbuch eine Kopfzeile mit seitlich scrollender
      Reiterleiste, das Wiki eine Seitenleiste. Zwei Tools derselben Werkstatt
-     sahen damit verschieden aus, und Regelblatt 5 nennt als Zweck der
+     sahen damit verschieden aus, und CLAUDE.md §5 nennt als Zweck der
      Vorgaben ausdruecklich, "damit die Tools als Familie erkennbar sind".
 
      Die Reiter sind dabei zu Eintraegen der Seitenleiste geworden. Das loest
@@ -196,7 +196,7 @@
     text-decoration:none;color:inherit;border-radius:0}
   .marke:hover{background:transparent;border-color:transparent}
   .marke:hover .wortmarke{color:var(--accent)}
-  /* Kachel nach Regelblatt 5: 30 px, Radius 8, --accent als Flaeche, ein
+  /* Kachel nach CLAUDE.md §5: 30 px, Radius 8, --accent als Flaeche, ein
      Grossbuchstabe. Text auf --accent laeuft ueber --on-accent statt ueber
      ein hartes #fff - wie im Wiki seit N-01. */
   .marke .kachel{width:30px;height:30px;border-radius:8px;background:var(--accent);
@@ -255,7 +255,7 @@
     display:inline-flex;align-items:center;gap:7px}
   button:hover{border-color:var(--ink-3);background:var(--panel2)}
   button:active{transform:translateY(1px)}
-  /* Pflichtblock aus Regelblatt 8.1 (B-15). */
+  /* Pflichtblock aus CLAUDE.md §8.1 (B-15). */
   button:focus-visible, a:focus-visible, input:focus-visible,
   select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible{
     outline:2px solid var(--volt); outline-offset:2px;
@@ -567,7 +567,7 @@ label>.hlp{margin-left:4px}
       <div style="min-width:0;text-align:left">
         <div class="wortmarke">Bordbuch<span id="testmarke" hidden>TEST</span></div>
         <!-- Die Unterzeile beschreibt das TOOL, nicht den Zustand
-             (Regelblatt 5). -->
+             (CLAUDE.md §5). -->
         <div class="unterzeile">Fahrtenbuch</div>
       </div>
     </a>
@@ -593,7 +593,7 @@ label>.hlp{margin-left:4px}
         <div class="carpick hidden" id="profilWrap"><span class="lab">Profil</span><select id="profilPick" aria-label="Profil wählen"></select></div>
         <div class="zustand" id="zustand"></div>
         <!-- Ganz rechts der Anzeigename als Verweis auf die Einstellungen -
-             die Reihenfolge gibt Regelblatt 6 vor (B-16). -->
+             die Reihenfolge gibt CLAUDE.md §6 vor (B-16). -->
         <a class="who" id="who" href="/einstellungen"></a>
       </div>
     </header>
@@ -659,7 +659,7 @@ const DEFAULTS={kwhPer100:18,fuelPer100:7,fuelPrice:1.75,homePrice:0.32,useHomeP
   /* Darstellung (B-11): 'system', 'hell' oder 'dunkel'. System ist die
      Voreinstellung und folgt prefers-color-scheme. Der Wert liegt PRO NUTZER
      in der Datenbank des Tools, nicht nur im Browser - sonst ist die Wahl auf
-     dem Handy wieder weg, und genau diesen Fall nennt Regelblatt 6a beim
+     dem Handy wieder weg, und genau diesen Fall nennt CLAUDE.md §6a beim
      Namen. localStorage ist nur der Zwischenspeicher fuer den ersten
      Bildaufbau, damit nicht kurz das falsche Theme aufblitzt. */
   thema:'system'};
@@ -4141,7 +4141,7 @@ function vCars(){
 /* Fuenf Unterpunkte statt sieben, benannt nach dem, was man sucht - nicht
    nach dem, wie es intern heisst. „Tarife" und „Warnungen" verstand niemand;
    „Daten", „Profil" und „Verwaltung" waren drei Orte fuer eine Sache. */
-/* Die Reihenfolge ist von Regelblatt 6a vorgeschrieben: Darstellung, dann
+/* Die Reihenfolge ist von CLAUDE.md §6a vorgeschrieben: Darstellung, dann
    die Tool-Einstellungen, dann Freigaben, dann Konto. Freigaben und Konto
    stehen unter "Daten & Profil" (B-11, B-16). */
 const SETTABS=[['darstellung','Darstellung'],['cars','Autos'],['prices','Preise'],
@@ -4647,7 +4647,7 @@ function personZeile(){
   const eigen=ich&&me&&me.id===ich.id;
   return esc(me?me.name:'')+((eigen&&ich.email)?' · '+esc(ich.email):'');
 }
-/* Abschnitt 1 der Einstellungsseite nach Regelblatt 6a (B-11). */
+/* Abschnitt 1 der Einstellungsseite nach CLAUDE.md §6a (B-11). */
 function paneDarstellung(){
   const w=settings.thema||'system';
   const systemIst=(!SYSTEM_DUNKEL||SYSTEM_DUNKEL.matches)?'dunkel':'hell';
@@ -4679,14 +4679,14 @@ function paneProfile(){
         '</p></div>' : '')+
     (eigen
       ? '<div class="formbar" style="margin:0">'+
-        /* Beschriftung woertlich nach Regelblatt 6a (B-16). Die doppelte
-           Beschriftung ist Absicht - Betriebsregeln 3: "Es ist eine
+        /* Beschriftung woertlich nach CLAUDE.md §6a (B-16). Die doppelte
+           Beschriftung ist Absicht - CLAUDE.md §6a: "Es ist eine
            Weiterleitung, die Seite lädt dabei neu." */
         (ich&&ich.abmelden
           ? '<a class="ghost" href="'+esc(ich.abmelden)+'">Abmelden / neu laden</a>' : '')+
         '<button class="ghost danger" data-act="profilReset">Profil zurücksetzen</button>'+
         (DEMO?'<button class="ghost danger" data-act="demoReset">Beispieldaten zurücksetzen</button>':'')+'</div>'+
-        /* Der erste Satz ist von Regelblatt 6a woertlich vorgeschrieben. */
+        /* Der erste Satz ist von CLAUDE.md §6a woertlich vorgeschrieben. */
         '<p class="hint">Beendet die Anmeldung und lädt die Seite neu. Danach kann ein '+
         'anderes Konto verwendet werden.<br>Name, E-Mail und Passwort werden bei der '+
         'Anmeldung gepflegt, die vor Bordbuch sitzt — nicht hier.<br>'+
@@ -4759,7 +4759,7 @@ const VIEWS={overview:vOverview,about:vAbout,charges:vCharges,fuel:vFuel,checks:
    jedem Neuladen verloren.
 
    Folgen im Alltag, alle vier behoben:
-     - /einstellungen gab es nicht, obwohl Regelblatt 6a und Betriebsregeln 3
+     - /einstellungen gab es nicht, obwohl CLAUDE.md §6a und CLAUDE.md §6a
        es beide verlangen.
      - Die Zurueck-Taste verliess das Tool, statt einen Schritt zurueckzugehen.
        Auf dem Handy ist das die meistbenutzte Geste ueberhaupt.
@@ -4768,7 +4768,7 @@ const VIEWS={overview:vOverview,about:vAbout,charges:vCharges,fuel:vFuel,checks:
        einer Eingabe.
 
    Die Wege sind deutsch, weil sie in der Adresszeile sichtbar sind
-   (Betriebsregeln 6); die Reiternamen im Code bleiben, wie sie sind. */
+   (CLAUDE.md §20); die Reiternamen im Code bleiben, wie sie sind. */
 /* Die Wege entsprechen genau den Reitern aus tabsFor() und heissen wie deren
    Beschriftung - wer "Verlauf" sieht, findet /verlauf in der Adresse.
    Der Bericht schlug 'zeitraum' und 'pruefungen' vor; das waren die
@@ -5340,8 +5340,8 @@ function render(){
      Profil steht zusaetzlich, wessen Daten man sieht. */
   const fremd=ich&&me.id!==ich.id;
   /* Die Unterzeile unter dem Namen beschreibt das TOOL, nicht den Zustand
-     (Regelblatt 5, B-17) - "FAHRTENBUCH" steht fest im Markup. Der
-     Anzeigename ist ein Verweis auf die Einstellungen, wie Regelblatt 6a es
+     (CLAUDE.md §5, B-17) - "FAHRTENBUCH" steht fest im Markup. Der
+     Anzeigename ist ein Verweis auf die Einstellungen, wie CLAUDE.md §6a es
      verlangt. */
   const wh=document.getElementById('who');
   if(wh){
@@ -5350,7 +5350,7 @@ function render(){
     wh.setAttribute('title','Einstellungen und Konto');
   }
   /* Die Zustandsangabe gehoert in den Kopfbereich rechts, neben die
-     Kontext-Auswahl - dorthin, wo Regelblatt 6 die Kontextangaben verortet. */
+     Kontext-Auswahl - dorthin, wo CLAUDE.md §6 die Kontextangaben verortet. */
   const zu=document.getElementById('zustand');
   if(zu){
     zu.textContent=fremd
@@ -6978,12 +6978,12 @@ async function demoApi(path,body){
 }
 
 /* ---------- Darstellung (B-11) ----------
-   Drei Zustaende nach Regelblatt 6a: System / Hell / Dunkel. System ist die
+   Drei Zustaende nach CLAUDE.md §6a: System / Hell / Dunkel. System ist die
    Voreinstellung und folgt prefers-color-scheme.
 
    Vorher waren es zwei Zustaende, System fehlte, prefers-color-scheme wurde
    nie abgefragt, und die Wahl lag ausschliesslich im localStorage - auf dem
-   Handy war sie damit weg. Das ist genau der Fall, den das Regelblatt beim
+   Handy war sie damit weg. Das ist genau der Fall, den CLAUDE.md beim
    Namen nennt. Die Umsetzung folgt dem Wiki, das alle drei Punkte richtig
    macht; neu erfunden wird hier nichts.
 

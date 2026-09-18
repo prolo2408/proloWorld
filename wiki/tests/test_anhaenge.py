@@ -8,7 +8,7 @@ lieferte application/octet-stream statt application/pdf, die Seite meldete
 keine Anhaenge mehr, und der PDF-Text fiel aus der Suche.
 
 Die Entscheidung "nennt die Seite den Anhang noch?" trifft
-genannte_anhaenge(). Erwartungswerte von Hand (Regelblatt 13).
+genannte_anhaenge(). Erwartungswerte von Hand (CLAUDE.md §13).
 """
 import unittest
 

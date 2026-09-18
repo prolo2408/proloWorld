@@ -28,7 +28,7 @@ Oder beides zusammen:
 
 ## Die zwei Regeln, die hier gelten
 
-**1. Erwartungswerte werden von Hand gerechnet.** Regelblatt §13: „Nicht die
+**1. Erwartungswerte werden von Hand gerechnet.** CLAUDE.md §13: „Nicht die
 Ausgabe des Codes als Erwartung übernehmen — das testet nur, dass sich nichts
 ändert, nicht dass es stimmt." Jeder Erwartungswert in diesen Dateien steht mit
 der Rechnung im Kommentar darüber. Wer einen Wert ändert, rechnet ihn neu —

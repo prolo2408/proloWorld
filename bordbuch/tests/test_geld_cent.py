@@ -8,7 +8,7 @@ einmal durch die Euro-nach-Cent-Umrechnung geschickt. Aus 14,21 EUR wurden
   las es mit cent() (Euro erwartet).
 - /api/restore: die Sicherung enthaelt cost_ct (Cent), dieselbe Verwechslung.
 
-Erwartungswerte von Hand, wie Regelblatt 13 es verlangt.
+Erwartungswerte von Hand, wie CLAUDE.md §13 es verlangt.
 """
 import sqlite3
 import unittest
@@ -44,7 +44,7 @@ class CentBleibtCent(unittest.TestCase):
         self.assertEqual(ct_lesen(1421.4), 1421)
 
     def test_unlesbar_gibt_None_nicht_null(self):
-        # Regelblatt 11: eine stille Null in der Kostenrechnung ist schlimmer
+        # CLAUDE.md §11: eine stille Null in der Kostenrechnung ist schlimmer
         # als eine Fehlermeldung. None laesst den Aufrufer ausweichen.
         self.assertIsNone(ct_lesen("keine Zahl"))
         self.assertIsNone(ct_lesen("abc"))
@@ -73,7 +73,7 @@ class SicherungLiestDieCentSpalte(unittest.TestCase):
 
     def test_beides_fehlt_gibt_null(self):
         # Hier ist 0 richtig: die Zeile soll nicht verloren gehen
-        # (Regelblatt 15), und einen Betrag gibt es nicht.
+        # (CLAUDE.md §15), und einen Betrag gibt es nicht.
         self.assertEqual(cent_aus_sicherung({}, "cost_ct", "cost"), 0)
 
 

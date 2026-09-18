@@ -14,7 +14,7 @@
      Wiki fuer alle Nutzer in der Systemschrift, denn auf praktisch keinem
      Geraet sind Sora, Instrument Sans oder JetBrains Mono installiert. Die
      Unterscheidung zwischen Anzeige-, Fliess- und Monospace-Schrift ist der
-     Kern von Regelblatt 3, und letter-spacing:-0.02em auf Ueberschriften ist
+     Kern von CLAUDE.md §3, und letter-spacing:-0.02em auf Ueberschriften ist
      auf Sora abgestimmt.
 
      Die Absicht, keine fremden Quellen einzubinden, war richtig und deckt
@@ -65,7 +65,7 @@
     unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
   }
 /* ---------------------------------------------------------------
-   Farbtoken - Regelblatt Abschnitt 2. Keine Farbe ausserhalb.
+   Farbtoken - CLAUDE.md §2. Keine Farbe ausserhalb.
    --------------------------------------------------------------- */
 :root{
   --bg:oklch(0.96 0.004 250);
@@ -100,11 +100,11 @@
   --track:oklch(0.94 0.004 250);
   --shadow:0 24px 60px -20px oklch(0.4 0.03 250 / 0.22);
 
-  /* Die drei Token aus Regelblatt 2, die hier fehlten (N-01). Werte
+  /* Die drei Token aus CLAUDE.md §2, die hier fehlten (N-01). Werte
      identisch zum Bordbuch - ein Loeschknopf muss in beiden Tools gleich
      aussehen. --overlay hat im Wiki heute keine Fundstelle: es gibt keinen
      eigenen Dialog, gefragt wird ueber confirm(). Es steht trotzdem hier,
-     weil genau das sein Zweck laut Regelblatt ist - damit der naechste
+     weil genau das sein Zweck laut CLAUDE.md ist - damit der naechste
      Dialog nicht sein eigenes rgba(0,0,0,.5) erfindet. */
   --danger:oklch(0.52 0.18 25);      /* Loeschen, Zuruecksetzen       */
   --on-accent:oklch(0.99 0.002 250); /* Text auf --accent             */
@@ -154,7 +154,7 @@ body{
 .label{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;
   letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-3)}
 
-/* Pflichtblock Regelblatt 8.1 */
+/* Pflichtblock CLAUDE.md §8.1 */
 button:focus-visible, a:focus-visible, input:focus-visible,
 select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible{
   outline:2px solid var(--accent); outline-offset:2px;
@@ -178,7 +178,7 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible{
   border:0;background:transparent;font:inherit;cursor:pointer;text-align:left}
 .marke:hover .wortmarke{color:var(--accent)}
 /* Text auf --accent laeuft ueber --on-accent, nicht ueber ein hartes #fff
-   (N-01). Regelblatt 1 erlaubt #fff dort zwar, aber als Token ist es an
+   (N-01). CLAUDE.md §1 erlaubt #fff dort zwar, aber als Token ist es an
    einer Stelle aenderbar, falls --accent einmal heller wird. */
 .marke .kachel{width:30px;height:30px;border-radius:8px;background:var(--accent);
   display:grid;place-items:center;color:var(--on-accent);font-family:'Sora',sans-serif;
@@ -293,7 +293,7 @@ header{height:76px;flex:0 0 76px;background:var(--chrome);
 .verw-tabelle td.rechts, .verw-tabelle th.rechts{text-align:right}
 .verw-klein{font-size:12px;color:var(--ink-3)}
 .verw-wahl{width:44px;padding:0 !important}
-/* Regelblatt 9 verlangt 44 Pixel am Finger - nicht, dass das Kaestchen
+/* CLAUDE.md §9 verlangt 44 Pixel am Finger - nicht, dass das Kaestchen
    selbst so gross aussieht. Darum traegt die Beschriftung die Flaeche. */
 .verw-wahl label{display:flex;align-items:center;justify-content:center;
   width:36px;height:36px;margin:0 auto;cursor:pointer;border-radius:8px}
@@ -312,7 +312,7 @@ header{height:76px;flex:0 0 76px;background:var(--chrome);
 .verw-hinweis ul{margin:4px 0 0 18px;padding:0;font-size:12px;
   color:var(--ink-3)}
 @media (max-width:860px){
-  /* Regelblatt 9: am Finger 44 Pixel - auch die Reiter und die Kaestchen. */
+  /* CLAUDE.md §9: am Finger 44 Pixel - auch die Reiter und die Kaestchen. */
   .verw-reiter button{min-height:44px}
   .verw-tabelle{max-height:none}
   .verw-tabelle thead th button{min-height:44px}
@@ -333,7 +333,7 @@ header{height:76px;flex:0 0 76px;background:var(--chrome);
    Gemessen bei 360 Pixeln: vorher 113 Pixel Leiste, jetzt 90 - und der
    Rahmen fuer die Seite gewinnt genau diese 23 zurueck. */
 @media (max-width:860px){
-  /* Regelblatt 9: am Finger 44 Pixel. */
+  /* CLAUDE.md §9: am Finger 44 Pixel. */
   .treffer-eingrenzung button{min-height:44px;padding:8px 12px}
   #finden{padding:8px 16px;gap:8px}
   #finden .label{position:absolute;left:-9999px;width:1px;height:1px;
@@ -400,7 +400,7 @@ textarea{height:auto;padding:10px 12px;min-height:76px;line-height:1.5}
   color:var(--ink-3)}
 .treffer-zeile .aus{font-size:12.5px;color:var(--ink-3);margin-top:3px;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-/* Regelblatt 9: Klickflaeche mindestens 44 px. In der Verwaltung waren der
+/* CLAUDE.md §9: Klickflaeche mindestens 44 px. In der Verwaltung waren der
    Seitentitel und die Freigabe 20 px hoch - am Handy mit dem Daumen nicht zu
    treffen. Sie behalten ihr Aussehen, bekommen aber die Hoehe. */
 .verw-zeile{height:auto;min-height:44px;padding:2px 0;justify-content:flex-start;
@@ -430,7 +430,7 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
 
 /* ------------------------------------------------ Startseite und Verwaltung */
 .flaeche{flex:1 1 auto;min-height:0;overflow-y:auto;padding:28px 32px 60px}
-/* Regelblatt 6: sonst zieht sich auf breiten Schirmen alles auseinander. */
+/* CLAUDE.md §6: sonst zieht sich auf breiten Schirmen alles auseinander. */
 .mitte{max-width:1280px;margin:0 auto}
 .raster{display:grid;gap:16px}
 .hero{border-radius:14px;padding:22px;background:var(--feature);color:var(--feature-ink)}
@@ -512,7 +512,7 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
   .teile-liste::-webkit-scrollbar{width:0;height:0}
   .teile-gruppe{align-self:center;flex:0 0 auto;padding:0 2px 0 8px}
   .teile-luecke{display:none}
-  /* Regelblatt 9: 44 Pixel am Finger. Diese Marken SIND am Handy die
+  /* CLAUDE.md §9: 44 Pixel am Finger. Diese Marken SIND am Handy die
      Navigation in der Seite - mit 30 Pixeln traf man daneben. */
   #seitenteile button{flex:0 0 auto;width:auto;min-height:44px;padding:0 14px;
     border-radius:999px;border:1px solid var(--line);white-space:nowrap;
@@ -1660,7 +1660,7 @@ function zaehlen(k){
 }
 
 /* ---------------------------------------------------- Einstellungen
-   Aufbau nach Regelblatt 6a: Darstellung, Tool-Einstellungen, Konto. */
+   Aufbau nach CLAUDE.md §6a: Darstellung, Tool-Einstellungen, Konto. */
 async function einstellungen(){
   bearbeitenKnopf(null);
   merkenKnopf(null);
@@ -5500,7 +5500,7 @@ function editorZeichnen(opt){
       <div id="ed-bericht"></div>
     </div>`;
 
-  /* Regelblatt 9 und 10: Der Weg heraus muss immer sichtbar sein. Die Leiste
+  /* CLAUDE.md §9 und 10: Der Weg heraus muss immer sichtbar sein. Die Leiste
      steht ausserhalb des Scrollbereichs (siehe Geruest) - damit bleibt sie
      unten, egal wie lang die Seite wird. */
   $('ed-leiste').innerHTML = `
@@ -5778,11 +5778,6 @@ function edBefunde(nurNachsehen){
   });
   return m;
 }
-function edPruefbar(nurNachsehen){
-  /* Dieselbe Pruefung, nur die Texte - fuer Zaehler und Meldungen. Eine
-     zweite Pruefung waere eine zweite Wahrheit. */
-  return edBefunde(nurNachsehen).map(b => b.text);
-}
 function edBerichtZeigen(html){
   const z = $('ed-bericht');
   if(!z) return;
@@ -5999,7 +5994,7 @@ function edDatei(){
 async function baumLaden(){
   const d = await hole('/api/baum');
   ZUSTAND.baum = d.baum || [];
-  // Die Anzahl gehoert in den Inhalt, nicht unter das Logo (Regelblatt 5).
+  // Die Anzahl gehoert in den Inhalt, nicht unter das Logo (CLAUDE.md §5).
   ZUSTAND.anzahl = d.anzahl || 0;
   /* Die Merkzettel kommen aus derselben Antwort - der Knopf im Kopf muss
      wissen, ob die offene Seite schon gemerkt ist. */

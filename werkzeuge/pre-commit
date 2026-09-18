@@ -1,7 +1,7 @@
 #!/bin/bash
 # Netz gegen versehentliche Commits schuetzenswerter Dateien.
 #
-# Betriebsregeln 10 und 11. Die .gitignore ist die erste Sicherung, dieser
+# CLAUDE.md §21 und 11. Die .gitignore ist die erste Sicherung, dieser
 # Haken die zweite - denn ignoriert wird nur, was nicht bereits verfolgt
 # wird, und "git add -f" umgeht die .gitignore ohnehin.
 #
@@ -23,7 +23,7 @@ if [ -n "$TREFFER" ]; then
   echo "ABBRUCH: schuetzenswerte Datei im Commit:" >&2
   echo "$TREFFER" | sed 's/^/  /' >&2
   echo >&2
-  echo "Erst die .gitignore korrigieren - Betriebsregeln Abschnitt 10 und 11." >&2
+  echo "Erst die .gitignore korrigieren - CLAUDE.md §21 und 11." >&2
   echo "Wenn die Datei wirklich hinein soll, ist das eine bewusste Entscheidung:" >&2
   echo "  git commit --no-verify" >&2
   exit 1

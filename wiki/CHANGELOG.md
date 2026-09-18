@@ -21,6 +21,42 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
   Fehler - aber sie stehen vor dem "Uebernehmen"-Knopf, nicht dahinter
   (B-07).
 
+## Fassung 1.3.3
+
+Aufgeraeumt, eine neue Seite und eine Regeldatei statt drei.
+
+- **Neue Seite: "Prolo bedienen und verstehen"** (`vorlagen/prolo-bedienen.html`).
+  Der ganze Stack auf einer Seite, in zehn Abschnitten und sechs Gruppen: was
+  die vier Schichten sind, wie der Aufbau auf der Platte aussieht, ein neuer
+  Server von null, ein Werkzeug einhaengen, der Alltag mit `prolo`, Sichern,
+  eine Sicherung wieder einspielen, den Agenten umziehen, Fehlersuche nach
+  Symptom. Erzeugt mit dem Erzeuger der Huelle selbst (`edSeiteBauen`), also
+  mit demselben Pflichtteil und denselben Farbtoken wie jede Seite aus dem
+  Editor. Im Browser gefahren: Verzeichnis mit allen sechs Gruppen, Strg+F
+  findet 31 Stellen zu "Sicherung", 0 Konsolenfehler.
+
+- **Aufgeraeumt** (`N-37`). Zwei Funktionen sind weg, die nur noch ihr
+  eigener Test gerufen hat: `fts_ausdruck` im Server (ersetzt von
+  `fts_ausdruck_aus_teilen`) und `edPruefbar` in der Huelle (ersetzt von
+  `edBefunde`). Die Tests gehen jetzt den Weg, den der Server geht. Die
+  Abnahmehilfe fuer die Abschottung liegt als
+  `tests/isolierung-probe.html` dort, wo man sie sucht. Und eine
+  `.dockerignore` haelt den Baukontext klein: gemessen 50 -> 15 Dateien
+  (1149,9 -> 510,9 kB); beim Bordbuch war sie unvollstaendig, jetzt
+  41 -> 15 Dateien.
+
+- **Eine Regeldatei** (`N-39`). Das frühere Regelblatt und die
+  Betriebsregeln sind in `CLAUDE.md` zusammengezogen; die
+  Handgriffe stehen in der neuen Wiki-Seite. Die 148 Verweise quer durch den
+  Stack sind auf die neue Nummerierung umgeschrieben, und
+  `werkzeuge/regeln-pruefen.sh` haelt fest, dass jeder von ihnen einen
+  Abschnitt trifft, den es wirklich gibt.
+
+- **`prolo` holt den neuen Stand selbst** (`N-38`). Beim Aktualisieren wird
+  der Quellstand nicht nur geprueft, sondern geholt - und der Lauf mit dem
+  geholten Stand neu gestartet. Neuer Befehl `prolo quelle [--holen]`, und
+  `prolo status` zeigt den Stand in einer Zeile.
+
 ## Fassung 1.3.2
 
 Eine Korrektur zu 1.3.1 - im Browser nachgestellt und gemessen.
@@ -429,7 +465,7 @@ Erstes Grundgeruest.
 - Freigabe je Seite und je Themenzweig, wirkt auch auf Baum und Suchtreffer
 - Suche: FTS5 mit Praefix- und Teilwortindex, Wortvorschlag bei Tippfehlern,
   Treffer auf Abschnittsebene mit Sprung zum Anker
-- Import prueft die Datei gegen Regelblatt und Betriebsregeln, legt eine
+- Import prueft die Datei gegen die Regeln aus CLAUDE.md, legt eine
   Vorschau an und schreibt erst nach Bestaetigung
 - Eingebettete Base64-Bloecke ueber 200 kB werden zu Anhaengen; PDF-Anhaenge
   werden seitenweise durchsuchbar

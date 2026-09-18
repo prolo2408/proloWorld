@@ -10,7 +10,7 @@ services:
     build: .
     image: bordbuch:2.5.3          # feste Fassung, nie latest
     container_name: bordbuch
-    # Grenzen nach Betriebsregeln 5 (B-29). Vorher hatte KEIN Container
+    # Grenzen nach CLAUDE.md §19 (B-29). Vorher hatte KEIN Container
     # mem_limit, pids_limit, cap_drop oder security_opt. Folgen: ein
     # Speicherleck in einem Tool brachte den GANZEN Server in den OOM-Killer,
     # nicht nur sich selbst; die Container liefen mit dem vollen

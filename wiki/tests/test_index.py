@@ -11,7 +11,7 @@ der naechste Indexaufbau lief in die verwaiste Zeile:
 Danach baute sich der Index nie wieder auf, auch nicht ueber "Index neu" -
 die Suche fand gar nichts mehr.
 
-Erwartungswerte von Hand (Regelblatt 13).
+Erwartungswerte von Hand (CLAUDE.md §13).
 
 Aufruf:  python3 -m unittest discover -s tests -t tests
 """

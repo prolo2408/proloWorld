@@ -19,7 +19,7 @@
 
 services:
   socket-proxy:
-    image: ghcr.io/tecnativa/docker-socket-proxy:0.3.0   # feste Fassung, Betriebsregeln 5
+    image: ghcr.io/tecnativa/docker-socket-proxy:0.3.0   # feste Fassung, CLAUDE.md §19
     container_name: socket-proxy
     restart: unless-stopped
     environment:

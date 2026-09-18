@@ -34,7 +34,7 @@ from urllib.parse import unquote, urlparse, parse_qs
 # hatte VERSION, --version und /api/version, das Wiki gar nichts. Gelesen von
 # --version, /api/version und der image:-Zeile im docker-compose.yml; die
 # drei muessen zusammenpassen.
-VERSION = "1.3.2"
+VERSION = "1.3.3"
 
 DATEN = os.environ.get("WIKI_DATEN", "/daten")
 SEITEN = os.environ.get("WIKI_SEITEN", "/seiten")
@@ -428,7 +428,7 @@ SKRIPT_MUELL = {
     "div", "span", "button", "true", "false", "null", "undefined", "px",
     "class", "style", "data", "text", "html", "json", "get", "post",
 }
-# Regelblatt 11: Text auf sinnvolle Laenge begrenzt. Die Zahlen kommen aus der
+# CLAUDE.md §11: Text auf sinnvolle Laenge begrenzt. Die Zahlen kommen aus der
 # Messung (N-20): ein Titel von 376 Zeichen machte den Kopf der Anwendung am
 # Handy 523 Pixel hoch. 120 Zeichen sind zwei Zeilen und passen ueberall hin,
 # wo ein Titel auftaucht - Kopf, Themenbaum, Inhaltsverzeichnis, Suchtreffer.
@@ -666,7 +666,7 @@ def regeln_pruefen(html, meta):
     if not titel:
         fehler.append("Im Block wiki-meta fehlt das Feld 'titel'.")
     elif len(titel) > GRENZE_TITEL:
-        # Regelblatt 11: "Text auf sinnvolle Laenge begrenzt?" Ein Titel von
+        # CLAUDE.md §11: "Text auf sinnvolle Laenge begrenzt?" Ein Titel von
         # 376 Zeichen liess am Handy den Kopf der Anwendung auf 523 Pixel
         # wachsen - zwei Drittel des Schirms fuer eine Zeile (N-20).
         fehler.append(f"Der Titel ist {len(titel)} Zeichen lang, erlaubt sind "
@@ -771,10 +771,10 @@ def regeln_pruefen(html, meta):
     treffer = FARB_MUSTER.findall(ohne_token)
     if treffer:
         warnungen.append(f"{len(treffer)} Farbwerte ausserhalb des Tokenblocks "
-                         "gefunden. Das Regelblatt verlangt Tokens aus Abschnitt 2.")
+                         "gefunden. Die Regeln verlangen Tokens aus CLAUDE.md \u00a72.")
 
     if not re.search(r"focus-visible", html):
-        warnungen.append("Der Pflichtblock aus Regelblatt 8.1 fehlt "
+        warnungen.append("Der Pflichtblock aus CLAUDE.md §8.1 fehlt "
                          "(focus-visible, prefers-reduced-motion).")
 
     # Steht im Koerper ueberhaupt etwas? Ein voller Meta-Block mit leerem
@@ -1468,8 +1468,6 @@ def fts_ausdruck_aus_teilen(teile, praefix=True, wortverbund="AND"):
     return aus
 
 
-def fts_ausdruck(begriff, praefix=True):
-    return fts_ausdruck_aus_teilen(suchbegriff_lesen(begriff), praefix)
 
 
 def schnipsel(text, begriffe, laenge=170):
@@ -1768,7 +1766,7 @@ class Handler(BaseHTTPRequestHandler):
     timeout = 60
 
     def log_message(self, format, *args):
-        # Keine Kopfzeilen ins Protokoll, siehe Betriebsregeln Abschnitt 12.
+        # Keine Kopfzeilen ins Protokoll, siehe CLAUDE.md §22.
         sys.stderr.write("%s - %s\n" % (self.log_date_time_string(), format % args))
 
     # -------------------------------------------------- Hilfen
@@ -1937,7 +1935,7 @@ class Handler(BaseHTTPRequestHandler):
                              f"{type(e).__name__}: {e}\n")
             traceback.print_exc(file=sys.stderr)
             # Kein interner Pfad, kein Datenbankfehler im Original
-            # (Betriebsregeln 12) - die Kennung fuehrt zur Protokollzeile.
+            # (CLAUDE.md §22) - die Kennung fuehrt zur Protokollzeile.
             self.fehler(500, f"Auf dem Server ist etwas schiefgegangen "
                              f"({type(e).__name__}, Kennung {kennung}). Die "
                              f"Einzelheiten stehen im Protokoll des Containers.")
@@ -1963,7 +1961,7 @@ class Handler(BaseHTTPRequestHandler):
                              f"{type(e).__name__}: {e}\n")
             traceback.print_exc(file=sys.stderr)
             # Kein interner Pfad, kein Datenbankfehler im Original
-            # (Betriebsregeln 12) - die Kennung fuehrt zur Protokollzeile.
+            # (CLAUDE.md §22) - die Kennung fuehrt zur Protokollzeile.
             self.fehler(500, f"Auf dem Server ist etwas schiefgegangen "
                              f"({type(e).__name__}, Kennung {kennung}). Die "
                              f"Einzelheiten stehen im Protokoll des Containers.")

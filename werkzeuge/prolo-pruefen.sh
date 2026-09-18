@@ -73,7 +73,7 @@ pruefe "und die aktualisierung.conf" "ja" "$E"
 grep -q 'authentik@file' "$T/stack/pdfeditor/docker-compose.yml" && E=ja || E=nein
 pruefe "das Geruest haengt Authentik davor" "ja" "$E"
 grep -q 'cap_drop' "$T/stack/pdfeditor/docker-compose.yml" && E=ja || E=nein
-pruefe "und setzt die Grenzen aus Betriebsregeln 5" "ja" "$E"
+pruefe "und setzt die Grenzen aus CLAUDE.md §19" "ja" "$E"
 grep -qE '^\s+ports:' "$T/stack/pdfeditor/docker-compose.yml" && E=ja || E=nein
 pruefe "und oeffnet KEINEN Port am Host" "nein" "$E"
 python3 -c "import yaml,sys; yaml.safe_load(open('$T/stack/pdfeditor/docker-compose.yml'))" 2>/dev/null \
@@ -220,6 +220,46 @@ pruefe "mit einer verstaendlichen Meldung" "ja" "$E"
 A=$(PATH="$T/bin:$PATH" "$T/anderswo/prolo" status --kurz 2>&1 || true)
 echo "$A" | grep -q "TOOL" && E=ja || E=nein
 pruefe "status --kurz laeuft durch" "ja" "$E"
+
+# 15. Der Quellstand (N-38): "prolo quelle" ist eine Auskunft, kein
+#     Fehlschlag - auch dann, wenn der Stand hinterherhaengt. Unter set -e
+#     waere der Rueckgabewert 10 sonst ein Abbruch.
+if command -v git >/dev/null 2>&1 && [ -f "$HIER/quellstand.sh" ]; then
+  GS="$T/gitstack"
+  rm -rf "$GS" "$T/gitfern"
+  mkdir -p "$T/gitfern" && git -C "$T/gitfern" init -q -b haupt
+  git -C "$T/gitfern" config user.email t@t; git -C "$T/gitfern" config user.name t
+  echo eins > "$T/gitfern/datei"; git -C "$T/gitfern" add -A
+  git -C "$T/gitfern" commit -q -m eins
+  git clone -q "$T/gitfern" "$GS"
+  echo zwei > "$T/gitfern/datei"; git -C "$T/gitfern" add -A
+  git -C "$T/gitfern" commit -q -m "zwei - die neue Fassung"
+  mkdir -p "$GS/werkzeuge" "$GS/probe"
+  cp "$HIER/prolo" "$HIER/quellstand.sh" "$GS/werkzeuge/"
+  printf 'services:\n  probe:\n    image: probe:1\n' > "$GS/probe/docker-compose.yml"
+
+  A=$(PATH="$T/bin:$PATH" "$GS/werkzeuge/prolo" quelle 2>&1); R=$?
+  pruefe "prolo quelle: Rueckgabe 0 trotz Rueckstand" "0" "$R"
+  echo "$A" | grep -q "1 Commit(s) HINTER" && E=ja || E=nein
+  pruefe "prolo quelle: sagt, wie weit es zurueck ist" "ja" "$E"
+
+  A=$(PATH="$T/bin:$PATH" "$GS/werkzeuge/prolo" status 2>&1 || true)
+  echo "$A" | grep -q "1 Commit(s) hinter origin/haupt" && E=ja || E=nein
+  pruefe "prolo status nennt den Quellstand mit Zahl, in einer Zeile" "ja" "$E"
+
+  # --kurz verspricht: nichts, was das Netz braucht. Ein git fetch braucht es.
+  A=$(PATH="$T/bin:$PATH" "$GS/werkzeuge/prolo" status --kurz 2>&1 || true)
+  echo "$A" | grep -q "hinter origin/haupt" && E=ja || E=nein
+  pruefe "und --kurz geht dafuer ausdruecklich NICHT ins Netz" "nein" "$E"
+  echo "$A" | grep -q "Quellstand" && E=ja || E=nein
+  pruefe "sagt aber, dass es uebersprungen wurde" "ja" "$E"
+
+  A=$(PATH="$T/bin:$PATH" "$GS/werkzeuge/prolo" hilfe 2>&1 || true)
+  echo "$A" | grep -q "quelle \[--holen\]" && E=ja || E=nein
+  pruefe "und die Hilfe nennt den Befehl" "ja" "$E"
+else
+  echo "uebersprungen  Quellstand (git oder quellstand.sh fehlt)"
+fi
 
 echo
 if [ "$FEHLER" -eq 0 ]; then echo "Alles gruen."; else echo "GEGENPROBE FEHLGESCHLAGEN." >&2; fi

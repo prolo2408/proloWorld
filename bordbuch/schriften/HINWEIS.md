@@ -1,6 +1,6 @@
 # Schriften
 
-Die drei Schriften aus Regelblatt 3 liegen hier als woff2 — **seit B-19
+Die drei Schriften aus CLAUDE.md §3 liegen hier als woff2 — **seit B-19
 tatsaechlich**, vorher standen hier nur diese Zeilen und die `@font-face`-Regeln
 zeigten auf Dateien, die es nie gab.
 
@@ -34,7 +34,7 @@ bleiben, prueft:
 
     ./werkzeuge/schriften-pruefen.sh
 
-Das ist Absicht und keine Nachlaessigkeit: Regelblatt 5 will, dass die Tools
+Das ist Absicht und keine Nachlaessigkeit: CLAUDE.md §5 will, dass die Tools
 als Familie erkennbar sind, und verschiedene Schriftfassungen faellt niemandem
 auf, bis zwei Fenster nebeneinander stehen. Der Bericht schlug einen gemeinsamen
 Ordner `/opt/stack/schriften/` vor; das haette den Docker-Baukontext beider

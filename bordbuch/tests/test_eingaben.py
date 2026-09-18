@@ -1,11 +1,11 @@
 """Eingabepruefung ohne stille Vorgabewerte (B-05).
 
-Regelblatt 11, woertlich: "Keine stillen Vorgabewerte. Fehlt ein Wert, wird das
+CLAUDE.md §11, woertlich: "Keine stillen Vorgabewerte. Fehlt ein Wert, wird das
 gemeldet - nicht durch eine Null ersetzt. Eine Null in der Verbrauchsrechnung
 ist schlimmer als eine Fehlermeldung, weil sie falsche Ergebnisse erzeugt, die
 niemandem auffallen."
 
-Erwartungswerte von Hand, wie Regelblatt 13 es verlangt.
+Erwartungswerte von Hand, wie CLAUDE.md §13 es verlangt.
 """
 import datetime
 import unittest
@@ -51,7 +51,7 @@ class ZahlOhneVorgabe(unittest.TestCase):
 
 class Grenzen(unittest.TestCase):
     def test_kilometerstand_neun_millionen(self):
-        # Das Beispiel aus dem Regelblatt selbst: "Ein Kilometerstand von 9
+        # Das Beispiel aus CLAUDE.md selbst: "Ein Kilometerstand von 9
         # Millionen ist ein Tippfehler, kein Datensatz."
         w, fehler = pflicht_zahl({"odo": 9000000}, "odo", "odo_km")
         self.assertIsNone(w)
@@ -92,7 +92,7 @@ class Grenzen(unittest.TestCase):
         self.assertIn("fehlt", fehler)
 
     def test_meldung_sagt_was_zu_tun_ist(self):
-        # Regelblatt 7: die Meldung sagt, was zu tun ist - nicht nur, was
+        # CLAUDE.md §7: die Meldung sagt, was zu tun ist - nicht nur, was
         # kaputt ist. "ungueltiger Wert" waere zu wenig.
         _, fehler = pflicht_zahl({"odo": 9000000}, "odo", "odo_km")
         self.assertIn("Bitte", fehler)

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Prueft die Testsuite selbst (Regelblatt 13, B-12).
+# Prueft die Testsuite selbst (CLAUDE.md §13, B-12).
 #
 # Es werden nacheinander echte Fehler in server.py eingebaut. Jeder MUSS von
 # einem Test gefunden werden - sonst ist der Test Beschaeftigung. Am Ende wird

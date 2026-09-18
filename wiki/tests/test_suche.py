@@ -7,7 +7,7 @@ und "Adressierung" (nur als Gruppe im Inhaltsverzeichnis). Genau die Woerter,
 mit denen ein Mensch anfaengt, wenn er den Titel nicht mehr weiss.
 
 Hier laeuft der echte Indexaufbau gegen eine kleine Datenbank, und danach die
-echte Suche. Erwartungen von Hand (Regelblatt 13).
+echte Suche. Erwartungen von Hand (CLAUDE.md §13).
 """
 import json
 import os
@@ -16,6 +16,19 @@ import tempfile
 import unittest
 
 from hilfe import server
+
+
+def ausdruck(begriff, praefix=True):
+    """Denselben Weg gehen, den suchen() geht.
+
+    Vorher stand dafuer ein Einzeiler `fts_ausdruck` im Server - mit genau
+    einem Aufrufer: diesem Test. Eine Funktion, die nur ihr eigener Test
+    ruft, prueft nichts am laufenden Code (N-37). Also steht die Verkettung
+    jetzt hier, und geprueft werden die zwei Funktionen, die der Server
+    wirklich benutzt.
+    """
+    return server.fts_ausdruck_aus_teilen(server.suchbegriff_lesen(begriff),
+                                          praefix)
 
 
 class SucheMitSeitenkopf(unittest.TestCase):
@@ -278,18 +291,18 @@ class MaechtigereSuche(unittest.TestCase):
     def test_klammern_und_sterne_werden_zu_woertern(self):
         # FTS5 liest ( ) * NOT als Operatoren. Kommt so etwas ungefiltert
         # durch, wirft die Abfrage einen Fehler und die Suche liefert nichts.
-        self.assertEqual(server.fts_ausdruck("kabel*"), '"kabel"*')
-        self.assertEqual(server.fts_ausdruck("(kabel OR schild)"),
+        self.assertEqual(ausdruck("kabel*"), '"kabel"*')
+        self.assertEqual(ausdruck("(kabel OR schild)"),
                          '"kabel"* AND "OR"* AND "schild"*')
 
     def test_der_ausdruck_setzt_not_zweistellig(self):
-        self.assertEqual(server.fts_ausdruck("kabel -schild"),
+        self.assertEqual(ausdruck("kabel -schild"),
                          '("kabel"*) NOT ("schild"*)')
 
     def test_nur_ausschluss_ergibt_keinen_ausdruck(self):
         # "alles ausser X" kann FTS5 nicht, und etwas anderes still zu tun
         # waere schlimmer als nichts zu finden.
-        self.assertIsNone(server.fts_ausdruck("-schild"))
+        self.assertIsNone(ausdruck("-schild"))
 
     # ------------------------------------------------ und die Wirkung
     def test_eine_phrase_findet_nur_die_folge(self):
