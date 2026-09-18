@@ -397,6 +397,12 @@ verwendung() {
 URSPRUNG="$*"
 
 ZIELE=()
+# Dieselben Argumente noch einmal, aber als Feld: nach einem Holen startet das
+# Skript neu (exec), und dafuer muss jedes Argument einzeln erhalten bleiben.
+# NICHT in URSPRUNG hineinschreiben - das ist oben eine Zeichenkette fuer
+# Meldungen, und ein Feld darin haette sie auf ihr erstes Wort verkuerzt.
+AUFRUF=("$@")
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --alle)    mapfile -t ZIELE < <(tools_finden) ;;
@@ -512,48 +518,60 @@ vorpruefung() {
     melde "  Sicherungsschluessel  vorhanden"
   fi
 
-  # Ist der Quellstand ueberhaupt aktuell?
-  #
-  # Der Anlass: bei TYP=build baut das Skript aus dem, was auf der Platte
-  # liegt. Wer vergisst zu ziehen, baut die alte Fassung neu - docker meldet
-  # dann brav "CACHED" und "Image gebaut", und am Ende steht FERTIG, obwohl
-  # sich nichts geaendert hat. Am 15.09.2026 genau so passiert: eine
-  # umgebaute Oberflaeche kam nicht an, und in der Ausgabe stand als
-  # einziger Hinweis "CACHED [3/5] COPY server.py index.html".
-  if [ -d "$STACK/.git" ] && command -v git >/dev/null 2>&1; then
-    local ZWEIG HINTER
-    ZWEIG=$(git -C "$STACK" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-    if [ -n "$ZWEIG" ] && [ "$ZWEIG" != "HEAD" ]; then
-      # Holen darf fehlschlagen (kein Netz, kein Schluessel) - das ist kein
-      # Grund abzubrechen, nur einer, nichts zu behaupten.
-      if timeout 20 git -C "$STACK" fetch --quiet origin "$ZWEIG" 2>/dev/null; then
-        HINTER=$(git -C "$STACK" rev-list --count "HEAD..origin/$ZWEIG" 2>/dev/null || echo 0)
-        if [ "${HINTER:-0}" -gt 0 ]; then
-          melde "  Quellstand         $HINTER Commit(s) HINTER origin/$ZWEIG"
-          melde ""
-          melde "  ACHTUNG: es liegt eine neuere Fassung bereit, die hier noch"
-          melde "           nicht ausgecheckt ist. Bei eigenem Code (TYP=build)"
-          melde "           wuerde jetzt die ALTE Fassung neu gebaut - docker"
-          melde "           meldet dabei CACHED, und am Ende staende FERTIG,"
-          melde "           obwohl sich nichts geaendert hat."
-          melde ""
-          melde "           Erst holen:  cd $STACK && git pull origin $ZWEIG"
-          melde ""
-          melde "           Wer bewusst den jetzigen Stand bauen will, ruft mit"
-          melde "           --ohne-holen auf."
-          [ "$OHNE_HOLEN" -eq 1 ] || FEHLT=1
-        else
-          melde "  Quellstand         aktuell (origin/$ZWEIG)"
-        fi
-      else
-        melde "  Quellstand         nicht pruefbar (kein Zugriff auf origin)"
-      fi
-    fi
+  # Ist der Quellstand ueberhaupt aktuell? Die Pruefung stand bis N-38 hier
+  # mitten im Skript - sie lief damit nur beim Aktualisieren, nicht bei
+  # "prolo status" und nicht bei "prolo pruefen". Jetzt steht sie einmal in
+  # werkzeuge/quellstand.sh, und drei Stellen rufen dieselbe.
+  if [ -x "$HIER/quellstand.sh" ]; then
+    # Das "|| QS=$?" ist nicht Zierde: dieses Skript laeuft mit set -e, und
+    # quellstand.sh meldet seine Lage ueber den Rueckgabewert (10 = hinterher,
+    # 11 = nicht pruefbar). Ohne das || waere schon die Auskunft ein Abbruch -
+    # gemessen genau so passiert, der Lauf endete stumm nach dem Holen.
+    local QS=0
+    "$HIER/quellstand.sh" --pruefen || QS=$?
+    [ "$QS" -ne 10 ] || [ "$OHNE_HOLEN" -eq 1 ] || FEHLT=1
   fi
 
   [ "$FEHLT" -eq 0 ] || return 1
   return 0
 }
+
+# ----------------------------------------------------------------------
+# Den neuen Stand selbst holen, BEVOR gebaut wird (N-38).
+#
+# Vorher meldete das Skript nur "N Commit(s) HINTER origin" und brach ab -
+# holen musste der Mensch von Hand. Das war jedes Mal derselbe Griff, und
+# genau solche Griffe vergisst man.
+#
+# Nicht geholt wird bei --trocken (der darf nichts anfassen) und bei
+# --ohne-holen (wer bewusst den Stand auf der Platte baut).
+# ----------------------------------------------------------------------
+if [ "$TROCKEN" -eq 0 ] && [ "$OHNE_HOLEN" -eq 0 ] && [ -x "$HIER/quellstand.sh" ]; then
+  abschnitt "Quellstand"
+  # Siehe vorpruefung: set -e wuerde den Lauf hier beenden, weil "geholt"
+  # als Rueckgabewert 20 kommt.
+  HOL_ERGEBNIS=0
+  "$HIER/quellstand.sh" --holen || HOL_ERGEBNIS=$?
+  if [ "$HOL_ERGEBNIS" -eq 20 ]; then
+    # Der Pull kann DIESES Skript ersetzt haben. Bash liest ein Skript
+    # haeppchenweise von der Platte - weiterlaufen hiesse, halb die alte und
+    # halb die neue Fassung auszufuehren. Also neu starten, und zwar genau
+    # einmal: die Marke verhindert eine Schleife, falls origin waehrend des
+    # Laufs weiterwandert.
+    if [ "${PROLO_NACH_HOLEN:-0}" -eq 0 ]; then
+      melde "  Neustart mit dem geholten Stand ..."
+      export PROLO_NACH_HOLEN=1
+      exec "$0" "${AUFRUF[@]}"
+    fi
+    melde "  (schon einmal geholt - es wird nicht wieder neu gestartet)"
+  elif [ "$HOL_ERGEBNIS" -eq 1 ]; then
+    melde ""
+    melde "ABBRUCH: der neuere Stand liess sich nicht holen. Nichts wurde"
+    melde "         angefasst. Wer den Stand auf der Platte bewusst bauen"
+    melde "         will, ruft mit --ohne-holen auf."
+    exit 1
+  fi
+fi
 
 if [ "$TROCKEN" -eq 0 ] && [ "$OHNE_SICHERUNG" -eq 0 ]; then
   if ! vorpruefung; then

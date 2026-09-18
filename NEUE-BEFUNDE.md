@@ -2209,6 +2209,143 @@ Wegwerfen ist einfach; das Behalten braucht den Grund.
 Das Ergebnis ist also kurz: fünf Stellen, davon zwei totes Holz im Programm.
 Der Rest des Repositorys trägt sich.
 
+## N-38 — `prolo` wusste vom neuen Stand und holte ihn nicht
+
+### Befund
+
+Auftrag: *„Erweitere das Tool prolo, dass es beim Update selbst die Repo auf
+Aktualisierungen prüft."*
+
+Geprüft hat es schon — seit `#11` steckt in `aktualisieren.sh` eine
+Quellstand-Prüfung, die `git fetch` macht und bei Rückstand abbricht. Drei
+Dinge fehlten trotzdem:
+
+1. **Geholt hat sie nie.** Der Lauf meldete „1 Commit(s) HINTER origin" und
+   brach ab; `git pull` musste der Mensch von Hand tippen. Genau derselbe
+   Griff, jedes Mal — und genau solche Griffe vergisst man.
+2. **Sie lief nur beim Aktualisieren.** `prolo status` zeigte Tools, Namen,
+   Zertifikate, Sicherung und Archiv — aber nicht, ob der Stand auf der Platte
+   überhaupt der neueste ist. Dabei ist „ich habe vergessen zu ziehen" die
+   häufigste Ursache dafür, dass eine Änderung nicht ankommt. `prolo pruefen`
+   (Trockenlauf) sah sie ebenfalls nicht: die Prüfung saß hinter
+   `if [ "$TROCKEN" -eq 0 ]`.
+3. **Sie stand mitten im Skript**, also an genau einer Stelle benutzbar.
+
+### Behoben
+
+**Eine Stelle, drei Aufrufer.** Neu `werkzeuge/quellstand.sh`:
+
+| Aufruf | Was es tut |
+|---|---|
+| `--pruefen` | nachsehen, berichten, die bereitliegenden Commits auflisten |
+| `--holen` | nachsehen und, wenn nötig, vorspulen |
+| `--kurz` | eine Zeile, für `prolo status` |
+
+Rückgabewerte statt Text-Auswertung: `0` aktuell, `10` hinterher, `11` nicht
+prüfbar, `20` geholt, `1` Holen ging nicht.
+
+Benutzt von `aktualisieren.sh` (in der Vorprüfung und zum Holen), von
+`prolo status` (eine Zeile) und vom neuen Befehl **`prolo quelle [--holen]`**.
+
+**`prolo aktualisieren` holt jetzt selbst** — vor der Sicherung, vor dem Bau.
+`--ohne-holen` behält das alte Verhalten (den Stand auf der Platte bauen),
+`--trocken` fasst nichts an.
+
+**Und startet danach neu.** Der Pull kann `aktualisieren.sh` *selbst* ersetzt
+haben, und Bash liest ein Skript häppchenweise von der Platte —
+weiterzulaufen hieße, halb die alte und halb die neue Fassung auszuführen.
+Also `exec` mit denselben Argumenten, einmal, gesichert über eine Marke in der
+Umgebung.
+
+**Zwei Fälle, in denen ausdrücklich NICHT geholt wird**, beide mit dem Weg
+heraus statt mit einem stillen Fehlschlag (Regelblatt §15):
+
+- **eigene Änderungen an verfolgten Dateien** → Abbruch, der Stand bleibt
+  stehen, die Dateien werden aufgelistet;
+- **auseinandergelaufene Stände** (voraus *und* zurück) → Vorspulen geht
+  nicht, und zusammenführen soll dieses Skript nicht.
+
+Unverfolgte Dateien blockieren dagegen **nicht**: git bricht von sich aus ab,
+falls eine geholte Datei eine von ihnen überschreiben würde, und diese Meldung
+wird weitergegeben. Sie mitzuzählen hieße, dass ein vergessenes Notizblatt im
+Ordner jede Aktualisierung blockiert.
+
+Dazu der Fall, der auf dem Server wirklich vorkommt: gehört `/opt/stack` einem
+anderen Nutzer, verweigert git jede Auskunft („dubious ownership") — und das
+sieht aus wie „kein Netz". Jetzt steht die Abhilfe dabei.
+
+### Zwei eigene Fehler, beide vom Ausführen gefunden
+
+**`set -e` hat den Lauf stumm beendet.** `aktualisieren.sh` und `prolo` laufen
+mit `set -euo pipefail`. `quellstand.sh` meldet seine Lage über den
+Rückgabewert — und ein Rückgabewert ≠ 0 ist unter `set -e` ein Abbruch. Der
+erste Testlauf zeigte es sofort:
+
+```
+=== Quellstand ===
+  Quellstand         1 Commit(s) HINTER origin/haupt
+  Holen ... (git pull --ff-only origin haupt)
+  Geholt: 1 Commit(s), Stand jetzt 48bd721.
+```
+
+…und dann nichts mehr. Kein Neustart, kein Bau, keine Meldung. Behoben mit
+`|| ERGEBNIS=$?` an allen vier Aufrufstellen — und der Grund steht als
+Kommentar daneben, weil das beim Lesen niemand sieht.
+
+**Eine Prüfzeile ohne Zähne.** Der Test für den Neustart suchte die *Meldung*
+„Neustart mit dem geholten Stand". Als ich zur Probe das `exec` durch ein `:`
+ersetzte, blieb er grün — die Ankündigung stand ja noch da. Eine Meldung ist
+kein Beweis. Jetzt zählt er, wie oft der Lauf **beginnt**: nach einem Neustart
+steht die Kopfzeile zweimal da.
+
+**Und fast ein dritter:** `URSPRUNG="$*"` gab es in `aktualisieren.sh` schon —
+für die Meldungen „`sudo $0 --ohne-sicherung <dieselben Tools>`". Mein Feld für
+den Neustart hätte es überschrieben, und `"$URSPRUNG"` wäre auf sein erstes
+Wort zusammengeschrumpft. Beim Durchlesen des eigenen Diffs aufgefallen, vor
+dem ersten Lauf. Heißt jetzt `AUFRUF`.
+
+### Ausgeführt
+
+`werkzeuge/aktualisieren-pruefen.sh`, 25 neue Prüfzeilen gegen einen echten
+Git-Aufbau (ein „fernes" Repo mit einem Commit mehr):
+
+| | |
+|---|---|
+| hinterher | Rückgabe 10, Zahl in der Meldung, der bereitliegende Commit wird benannt, der Weg zum Holen steht dabei |
+| `--kurz` | genau **eine** Zeile |
+| holen | Rückgabe 20, der Stand bewegt sich wirklich, die geholte Fassung liegt da, danach „aktuell" |
+| eigene Änderung | Rückgabe 1, Stand bleibt, **Datei bleibt, wie sie war** |
+| unverfolgte Datei | blockiert nicht, und bleibt liegen |
+| auseinandergelaufen | Rückgabe 1, Stand bleibt, Grund wird benannt |
+| ohne Git | Rückgabe 11, „nicht prüfbar" statt einer Behauptung |
+| über `aktualisieren.sh` | holt selbst, **beginnt zweimal**, holt dabei genau einmal, baut danach wirklich |
+| `--ohne-holen` | baut den Stand auf der Platte, holt wirklich nicht |
+| `--trocken` | holt nicht |
+
+`werkzeuge/prolo-pruefen.sh`, 6 weitere: `prolo quelle` gibt **0** zurück,
+obwohl der Stand zurückhängt (eine Auskunft ist kein Fehlschlag), nennt die
+Zahl; `prolo status` zeigt sie in einer Zeile; `--kurz` geht dafür
+ausdrücklich **nicht** ins Netz, sagt aber, dass es übersprungen wurde; die
+Hilfe nennt den Befehl.
+
+Mutationsproben (§13a), Rückweg über Kopien im Kratzblock:
+
+| Mutation | Ergebnis |
+|---|---|
+| `\|\| HOL_ERGEBNIS=$?` entfernt (also `set -e` zuschlagen lassen) | 4 Fehler |
+| `exec` entfernt | 1 Fehler *(erst nach der Verschärfung der Prüfzeile — vorher 0)* |
+| eigene Änderungen werden ignoriert | 1 Fehler |
+| unverfolgte Dateien blockieren doch | 11 Fehler |
+| `--trocken` holt doch | 1 Fehler |
+| `prolo quelle` gibt 10 durch | 1 Fehler |
+| Quellstand aus `status` entfernt | 1 Fehler |
+| Quellstand auch bei `--kurz` | 1 Fehler |
+| unverändert | 0 Fehler |
+
+Dazu alle vorhandenen Gegenproben unverändert grün:
+`aktualisieren-pruefen.sh`, `prolo-pruefen.sh`, `dockerfile-pruefen.sh`,
+`schriften-pruefen.sh`.
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

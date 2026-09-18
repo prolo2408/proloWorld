@@ -162,7 +162,8 @@ befehl_status() {
 
   if [ "$KURZ" -eq 1 ]; then
     melde ""
-    melde "  (--kurz: Namen, Zertifikate und Sicherung uebersprungen)"
+    melde "  (--kurz: Namen, Zertifikate, Sicherung und Quellstand"
+    melde "   uebersprungen - alles davon braucht das Netz)"
     return 0
   fi
 
@@ -215,6 +216,19 @@ befehl_status() {
     melde "           $(cat "$M")"
   else
     melde "  letzte erfolgreiche: $(cat "$M")"
+  fi
+
+  abschnitt "Quellstand"
+  # Eine Zeile aus derselben Pruefung, die auch aktualisieren.sh benutzt
+  # (N-38). "Haengt der Stand hinterher?" ist die haeufigste Ursache dafuer,
+  # dass eine Aenderung nicht ankommt - das gehoert in den Status, nicht
+  # nur in den Aktualisierungslauf.
+  if [ -x "$HIER/quellstand.sh" ]; then
+    local QZEILE=""
+    QZEILE=$("$HIER/quellstand.sh" --kurz) || true
+    melde "  $QZEILE"
+  else
+    melde "  werkzeuge/quellstand.sh fehlt"
   fi
 
   abschnitt "Archiv"
@@ -606,6 +620,31 @@ befehl_protokoll() {
 }
 
 # ----------------------------------------------------------------------
+befehl_quelle() {
+  # Nur nachsehen, oder gleich holen. Beides dieselbe Pruefung wie im
+  # Aktualisierungslauf - eine Stelle, drei Aufrufer (N-38).
+  [ -x "$HIER/quellstand.sh" ] || fehler "werkzeuge/quellstand.sh fehlt"
+  local r
+  abschnitt "Quellstand"
+  case "${1:-}" in
+    --holen|holen)
+      root_noetig quelle --holen
+      # set -e: ohne das || waere schon "geholt" (20) ein Abbruch.
+      r=0; "$HIER/quellstand.sh" --holen || r=$?
+      # 20 heisst "geholt" - fuer einen Menschen ist das ein Erfolg, kein
+      # Fehlerkode. 1 heisst "ging nicht" und bleibt einer.
+      [ "$r" -eq 20 ] && return 0
+      return "$r" ;;
+    ""|--pruefen)
+      r=0; "$HIER/quellstand.sh" --pruefen || r=$?
+      # 10 heisst "hinterher" - eine Auskunft, kein Fehlschlag des Befehls.
+      [ "$r" -eq 10 ] && return 0
+      return "$r" ;;
+    *) fehler "quelle: --pruefen (Vorgabe) oder --holen" ;;
+  esac
+}
+
+# ----------------------------------------------------------------------
 hilfe() {
   cat <<HILFE
 prolo - ein Einstiegspunkt fuer den Stack unter $STACK
@@ -614,7 +653,10 @@ prolo - ein Einstiegspunkt fuer den Stack unter $STACK
                               --kurz laesst alles weg, was ins Netz muss
   pruefen [tool]              Gesundheit (auch: healthcheck)
   dns                         Zeigen die Namen noch hierher?
-  aktualisieren [tool|--alle] auch: update
+  aktualisieren [tool|--alle] auch: update. Holt den neuen Quellstand
+                              selbst (--ohne-holen laesst das weg)
+  quelle [--holen]            Haengt der Stand hinter dem Git zurueck?
+                              ohne Zusatz nur nachsehen (auch: source)
   start|stop|neustart <tool>
   protokoll <tool> [-f]       auch: logs
   sichern                     auch: backup
@@ -636,6 +678,7 @@ case "$BEFEHL" in
   aktualisieren|update)       exec "$HIER/aktualisieren.sh" "${@:---alle}" ;;
   sichern|backup)             root_noetig sichern; exec "$STACK/backup.sh" ;;
   dns)                        befehl_dns ;;
+  quelle|source)              befehl_quelle "$@" ;;
   start|stop|neustart)        root_noetig "$BEFEHL" "$@"; befehl_compose "$BEFEHL" "$@" ;;
   protokoll|logs)             root_noetig protokoll "$@"; befehl_protokoll "$@" ;;
   neu|new)                    befehl_neu "$@" ;;

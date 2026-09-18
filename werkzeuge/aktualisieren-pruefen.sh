@@ -272,46 +272,139 @@ pruefe "aber ein kranker Container faellt trotzdem auf" "ja" "$E"
 echo "$A" | grep -q 'ist aktuell' && E=ja || E=nein
 pruefe "und wird NICHT als aktuell gemeldet" "nein" "$E"
 
-# 15. Ein Quellstand hinter origin muss auffallen, BEVOR gebaut wird.
-#     Sonst baut man die alte Fassung neu, docker meldet CACHED, und am Ende
-#     steht FERTIG - obwohl sich nichts geaendert hat.
+# 15. Der Quellstand: erkennen, holen, und die Faelle, in denen NICHT geholt
+#     werden darf. Geprueft wird werkzeuge/quellstand.sh direkt und ueber
+#     aktualisieren.sh (N-38).
 GIT_T="$T/gitstack"
-if command -v git >/dev/null 2>&1; then
-  rm -rf "$GIT_T" "$T/fern"
+QUELLSTAND="$HIER/quellstand.sh"
+if command -v git >/dev/null 2>&1 && [ -x "$QUELLSTAND" ]; then
+
   # Ein "fernes" Repo mit einem Commit mehr als der Arbeitsstand.
-  mkdir -p "$T/fern" && git -C "$T/fern" init -q
-  git -C "$T/fern" config user.email t@t; git -C "$T/fern" config user.name t
-  echo eins > "$T/fern/datei"; git -C "$T/fern" add -A
-  git -C "$T/fern" commit -q -m eins
-  git clone -q "$T/fern" "$GIT_T"
-  echo zwei > "$T/fern/datei"; git -C "$T/fern" add -A
-  git -C "$T/fern" commit -q -m zwei
+  gitstack_bauen() {
+    rm -rf "$GIT_T" "$T/fern"
+    mkdir -p "$T/fern" && git -C "$T/fern" init -q -b haupt
+    git -C "$T/fern" config user.email t@t; git -C "$T/fern" config user.name t
+    echo eins > "$T/fern/datei"; git -C "$T/fern" add -A
+    git -C "$T/fern" commit -q -m eins
+    git clone -q "$T/fern" "$GIT_T"
+    git -C "$GIT_T" config user.email t@t; git -C "$GIT_T" config user.name t
+    echo zwei > "$T/fern/datei"; git -C "$T/fern" add -A
+    git -C "$T/fern" commit -q -m "zwei - die neue Fassung"
 
-  mkdir -p "$GIT_T/werkzeuge" "$GIT_T/probe"
-  cp "$SKRIPT_UNTER_TEST" "$GIT_T/werkzeuge/"
-  printf '#!/bin/bash\nexit 0\n' > "$GIT_T/backup.sh"; chmod +x "$GIT_T/backup.sh"
-  printf 'services:\n  probe:\n    image: probe:1.0.0\n' > "$GIT_T/probe/docker-compose.yml"
-  printf 'TYP="build"\nPRUEF_URL=""\nPRUEF_WARTEN=4\n' > "$GIT_T/probe/aktualisierung.conf"
-  echo "age1beispiel" > "$GIT_T/.backup-schluessel.pub"
+    mkdir -p "$GIT_T/werkzeuge" "$GIT_T/probe"
+    cp "$SKRIPT_UNTER_TEST" "$QUELLSTAND" "$GIT_T/werkzeuge/"
+    printf '#!/bin/bash\nexit 0\n' > "$GIT_T/backup.sh"; chmod +x "$GIT_T/backup.sh"
+    printf 'services:\n  probe:\n    image: probe:1.0.0\n' > "$GIT_T/probe/docker-compose.yml"
+    printf 'TYP="build"\nPRUEF_URL=""\nPRUEF_WARTEN=4\n' > "$GIT_T/probe/aktualisierung.conf"
+    echo "age1beispiel" > "$GIT_T/.backup-schluessel.pub"
+  }
+  stand() { git -C "$GIT_T" rev-parse --short HEAD; }
 
+  # --- quellstand.sh allein -------------------------------------------
+  gitstack_bauen
+  A=$("$GIT_T/werkzeuge/quellstand.sh" --pruefen 2>&1); R=$?
+  pruefe "hinterher: Rueckgabe 10" "10" "$R"
+  echo "$A" | grep -q "1 Commit(s) HINTER origin/haupt" && E=ja || E=nein
+  pruefe "hinterher: die Zahl steht in der Meldung" "ja" "$E"
+  echo "$A" | grep -q "zwei - die neue Fassung" && E=ja || E=nein
+  pruefe "hinterher: was bereitliegt, wird benannt" "ja" "$E"
+  echo "$A" | grep -q "prolo quelle --holen" && E=ja || E=nein
+  pruefe "hinterher: der Weg zum Holen steht dabei" "ja" "$E"
+
+  Z=$("$GIT_T/werkzeuge/quellstand.sh" --kurz 2>&1); R=$?
+  pruefe "--kurz: genau eine Zeile" "1" "$(printf '%s\n' "$Z" | wc -l)"
+  pruefe "--kurz: Rueckgabe 10" "10" "$R"
+
+  VORHER=$(stand)
+  A=$("$GIT_T/werkzeuge/quellstand.sh" --holen 2>&1); R=$?
+  pruefe "holen: Rueckgabe 20 (geholt, Neustart noetig)" "20" "$R"
+  [ "$(stand)" != "$VORHER" ] && E=ja || E=nein
+  pruefe "holen: der Stand hat sich wirklich bewegt" "ja" "$E"
+  pruefe "holen: die geholte Fassung liegt da" "zwei" "$(cat "$GIT_T/datei")"
+  A=$("$GIT_T/werkzeuge/quellstand.sh" --pruefen 2>&1); R=$?
+  pruefe "danach: Rueckgabe 0" "0" "$R"
+  echo "$A" | grep -q "aktuell" && E=ja || E=nein
+  pruefe "danach: gilt als aktuell" "ja" "$E"
+
+  # Eigene Aenderung an einer VERFOLGTEN Datei: nicht anfassen.
+  gitstack_bauen
+  echo "meine Arbeit" > "$GIT_T/datei"
+  VORHER=$(stand)
+  A=$("$GIT_T/werkzeuge/quellstand.sh" --holen 2>&1); R=$?
+  pruefe "eigene Aenderung: Rueckgabe 1" "1" "$R"
+  pruefe "eigene Aenderung: der Stand bleibt stehen" "$VORHER" "$(stand)"
+  pruefe "eigene Aenderung: die Datei bleibt, wie sie war" "meine Arbeit" "$(cat "$GIT_T/datei")"
+  echo "$A" | grep -q "NICHT geholt" && E=ja || E=nein
+  pruefe "eigene Aenderung: es wird gesagt, dass nichts geholt wurde" "ja" "$E"
+
+  # Eine unverfolgte Datei darf ein Vorspulen NICHT blockieren.
+  gitstack_bauen
+  echo notiz > "$GIT_T/mein-zettel.txt"
+  A=$("$GIT_T/werkzeuge/quellstand.sh" --holen 2>&1); R=$?
+  pruefe "unverfolgte Datei blockiert nicht" "20" "$R"
+  pruefe "und bleibt liegen" "notiz" "$(cat "$GIT_T/mein-zettel.txt")"
+
+  # Auseinandergelaufen: voraus UND zurueck. Da entscheidet der Mensch.
+  gitstack_bauen
+  echo drei > "$GIT_T/eigenes"; git -C "$GIT_T" add -A
+  git -C "$GIT_T" commit -q -m "eigener Commit"
+  VORHER=$(stand)
+  A=$("$GIT_T/werkzeuge/quellstand.sh" --holen 2>&1); R=$?
+  pruefe "auseinandergelaufen: Rueckgabe 1" "1" "$R"
+  pruefe "auseinandergelaufen: der Stand bleibt stehen" "$VORHER" "$(stand)"
+  echo "$A" | grep -q "auseinandergelaufen" && E=ja || E=nein
+  pruefe "auseinandergelaufen: der Grund wird benannt" "ja" "$E"
+
+  # Kein Git-Arbeitsstand: nicht pruefbar, aber kein Fehlschlag.
+  mkdir -p "$T/ohnegit/werkzeuge"
+  cp "$QUELLSTAND" "$T/ohnegit/werkzeuge/"
+  A=$("$T/ohnegit/werkzeuge/quellstand.sh" --kurz 2>&1); R=$?
+  pruefe "ohne Git: Rueckgabe 11" "11" "$R"
+  echo "$A" | grep -q "nicht pruefbar" && E=ja || E=nein
+  pruefe "ohne Git: sagt 'nicht pruefbar' statt etwas zu behaupten" "ja" "$E"
+
+  # --- und ueber aktualisieren.sh --------------------------------------
+  # Vorher brach der Lauf hier ab und der Mensch musste "git pull" tippen.
+  # Jetzt holt das Skript selbst, startet mit dem geholten Stand neu und
+  # baut dann.
+  gitstack_bauen
   A=$(PATH="$T/bin:$PATH" LAGE=gesund "$GIT_T/werkzeuge/aktualisieren.sh" probe 2>&1 || true)
-  echo "$A" | grep -q "HINTER origin/" && E=ja || E=nein
-  pruefe "veralteter Quellstand wird erkannt" "ja" "$E"
-  echo "$A" | grep -q "git pull origin" && E=ja || E=nein
-  pruefe "und der Befehl zum Holen steht dabei" "ja" "$E"
+  echo "$A" | grep -q "Geholt: 1 Commit" && E=ja || E=nein
+  pruefe "aktualisieren holt den neuen Stand selbst" "ja" "$E"
+  # Nicht die ANKUENDIGUNG pruefen, sondern die TAT: ein Neustart heisst,
+  # dass der Lauf von vorn beginnt - die Kopfzeile steht dann zweimal da.
+  # (Die erste Fassung dieser Zeile suchte die Meldung "Neustart ..." - und
+  # blieb gruen, als ich das exec zur Probe durch ein ":" ersetzte. Eine
+  # Meldung ist kein Beweis.)
+  pruefe "und startet wirklich neu (der Lauf beginnt zweimal)" "2" \
+         "$(echo "$A" | grep -c "Tools in dieser Reihenfolge")"
+  pruefe "und holt dabei genau einmal" "1" "$(echo "$A" | grep -c "Geholt: ")"
+  echo "$A" | grep -q "Quellstand         aktuell" && E=ja || E=nein
+  pruefe "der zweite Lauf sieht den Stand als aktuell" "ja" "$E"
   echo "$A" | grep -q "\[1/4\]" && E=ja || E=nein
-  pruefe "es wird NICHT gebaut, bevor geholt wurde" "nein" "$E"
+  pruefe "und baut danach wirklich" "ja" "$E"
+  pruefe "der geholte Inhalt liegt da" "zwei" "$(cat "$GIT_T/datei")"
 
+  gitstack_bauen
   A=$(PATH="$T/bin:$PATH" LAGE=gesund "$GIT_T/werkzeuge/aktualisieren.sh" --ohne-holen probe 2>&1 || true)
   echo "$A" | grep -q "\[1/4\]" && E=ja || E=nein
   pruefe "--ohne-holen baut den Stand auf der Platte trotzdem" "ja" "$E"
+  pruefe "--ohne-holen holt wirklich nicht" "eins" "$(cat "$GIT_T/datei")"
 
-  git -C "$GIT_T" pull -q origin master 2>/dev/null || git -C "$GIT_T" pull -q origin main 2>/dev/null || true
+  gitstack_bauen
+  A=$(PATH="$T/bin:$PATH" LAGE=gesund "$GIT_T/werkzeuge/aktualisieren.sh" --trocken probe 2>&1 || true)
+  pruefe "--trocken holt nicht" "eins" "$(cat "$GIT_T/datei")"
+
+  # Und der Fall, der bleiben muss: eigene Aenderung -> Abbruch, nichts gebaut.
+  gitstack_bauen
+  echo "meine Arbeit" > "$GIT_T/datei"
   A=$(PATH="$T/bin:$PATH" LAGE=gesund "$GIT_T/werkzeuge/aktualisieren.sh" probe 2>&1 || true)
-  echo "$A" | grep -q "Quellstand         aktuell" && E=ja || E=nein
-  pruefe "nach dem Holen gilt der Stand als aktuell" "ja" "$E"
+  echo "$A" | grep -q "ABBRUCH" && E=ja || E=nein
+  pruefe "eigene Aenderung: der Lauf bricht ab" "ja" "$E"
+  echo "$A" | grep -q "\[1/4\]" && E=ja || E=nein
+  pruefe "eigene Aenderung: und es wird nichts gebaut" "nein" "$E"
 else
-  echo "uebersprungen  Quellstand-Pruefung (git fehlt)"
+  echo "uebersprungen  Quellstand-Pruefung (git oder quellstand.sh fehlt)"
 fi
 
 echo
