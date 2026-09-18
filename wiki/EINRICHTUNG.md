@@ -556,6 +556,37 @@ Verwaltung → Datei hineinziehen. Was dann passiert:
 Gleiche `slug` noch einmal einspielen heißt: Seite ersetzen. Neue `slug`
 heißt: neue Seite. Mehr Regeln gibt es nicht.
 
+## Womit eine neue Seite anfängt
+
+*Neue Seite* führt nicht mehr direkt in ein leeres Formular, sondern stellt
+eine Frage. Sieben Wege:
+
+| Weg | Was dabei entsteht |
+|---|---|
+| Leere Seite | ein Abschnitt, ein Textfeld |
+| Anleitung | „Was du brauchst / So geht es / Wenn es klemmt", mit Schrittebaustein, Warnkasten und Klapptext |
+| Übersicht und Vergleich | Gegenüberstellung und Kennzahlen |
+| Zum Nachschlagen | Begriffsliste und eine Tabelle |
+| Rechnen und Zahlen | ein Rechner mit Feldern, Formel und Einheit |
+| Ich habe eine HTML-Datei | öffnet die Dateiablage |
+| Eine KI schreiben lassen | öffnet den Prompt (siehe unten) |
+
+Die Vorlagen sind ein **Gerüst**, kein Beispieltext: Abschnitte mit Titel und
+Gruppe, die passenden Bausteine, und in jedem Feld ein Platzhalter, der sagt,
+was dort hingehört. Titel und Pfad bringt keine Vorlage mit — das ist die
+Aussage des Menschen.
+
+Der Grund für den Umbau: Die beiden anderen Wege — HTML-Datei und KI-Prompt —
+standen vorher als zugeklappte Kästen **unter** dem Formular. Wer sie nicht
+kannte, fand sie nicht.
+
+**Entwürfe gehen nicht mehr verloren.** Was im Editor steht, merkt sich der
+Browser (nur dort, nichts davon geht an den Server). Kommt man später wieder
+auf *Neue Seite*, steht der Entwurf oben mit Titel, Alter und Anzahl der
+Abschnitte und lässt sich weiterschreiben oder verwerfen. Nach dem Speichern
+und nach einem ausdrücklichen *Abbrechen* wird er gelöscht; nach zwei Wochen
+vergisst der Browser ihn von selbst.
+
 ## Eine Seite von einer KI schreiben lassen
 
 Im Editor unter **Eine KI schreiben lassen** steht ein Prompt zum Kopieren.

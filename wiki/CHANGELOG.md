@@ -23,6 +23,18 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
 
 ## Noch nicht veroeffentlicht
 
+- **Eine neue Seite faengt mit einer Frage an, nicht mit einem leeren
+  Formular.** Sieben Wege: leere Seite, vier Vorlagen (Anleitung, Uebersicht
+  und Vergleich, Zum Nachschlagen, Rechnen und Zahlen), HTML-Datei, KI-Prompt.
+  Die Vorlagen bringen Abschnitte mit Titel und Gruppe, die passenden
+  Bausteine und Platzhalter mit - aber keinen Titel und keinen Pfad.
+- **Entwuerfe gehen nicht mehr verloren.** Was im Editor steht, merkt sich der
+  Browser und bietet es beim naechsten Mal an. Nach dem Speichern und nach
+  einem ausdruecklichen Abbrechen wird er geloescht.
+- **Am Handy nimmt die Speicherleiste ein Drittel weniger Platz**: die selten
+  gebrauchten Knoepfe stehen hinter "Mehr" (gemessen 206 -> 123 Pixel bei
+  einem 640 Pixel hohen Bild).
+
 - **Die Verwaltung ist auf hunderte Seiten ausgelegt.** Vier Bereiche
   (Seiten, Bereiche, Gruppen, Wartung) statt einer einzigen langen Tabelle.
   In der Liste: Suche, Filter nach Bereich, Freigabe und Pruefung, Sortierung

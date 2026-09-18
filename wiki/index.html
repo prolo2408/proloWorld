@@ -534,6 +534,21 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
   #pdf-schau{width:100%;min-width:0;max-width:none;left:0}
 }
 
+/* ---------- Editor: womit anfangen ----------
+   Sechs Wege als Karten, nicht als Liste: die Wahl ist der erste Schritt,
+   und ein Schritt darf man sehen. */
+.ed-start{display:grid;gap:12px;
+  grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.ed-weg{display:flex;flex-direction:column;gap:6px;align-items:flex-start;
+  text-align:left;padding:18px;border-radius:14px;background:var(--surface);
+  border:1px solid var(--line);cursor:pointer;font:inherit;min-height:44px}
+.ed-weg:hover{border-color:var(--accent);background:var(--hover)}
+.ed-weg:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ed-weg-zeichen{font-size:26px;line-height:1.1}
+.ed-weg-name{font-family:'Sora',sans-serif;font-size:15px;font-weight:600;
+  color:var(--ink);letter-spacing:-0.01em}
+.ed-weg-satz{font-size:12.5px;color:var(--ink-3);line-height:1.5}
+
 /* ---------- Editor: drei sichtbare Schritte ----------
    Vorher standen alle Felder gleichzeitig da - fuenf davon, bevor man ein
    Wort geschrieben hatte. Jetzt: erst worum es geht, dann der Inhalt, und
@@ -552,6 +567,19 @@ mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:3px;pad
   border-top:1px solid var(--line);
   padding:12px 32px calc(12px + env(safe-area-inset-bottom))}
 #ed-leiste[hidden]{display:none}
+/* Die Nebenwege der Leiste. Auf breiten Schirmen stehen sie einfach da;
+   am Handy sind sie hinter "Mehr" - sonst waere die Leiste hoeher als das
+   halbe Bild. */
+.ed-nebenweg{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.ed-nebeninhalt{display:flex;gap:10px;flex-wrap:wrap}
+.ed-mehr-knopf{display:none}
+@media (max-width:860px){
+  .ed-mehr-knopf{display:inline-flex}
+  .ed-nebenweg{flex:0 0 auto}
+  .ed-nebenweg:not([data-offen="1"]) .ed-nebeninhalt{display:none}
+  .ed-nebenweg[data-offen="1"]{flex:1 1 100%}
+  .ed-nebenweg[data-offen="1"] .ed-nebeninhalt{flex:1 1 100%;margin-top:4px}
+}
 .ed-stand{font-size:12.5px;color:var(--ink-3)}
 .ed-stand[data-fehlt="1"]{color:var(--warm-ink)}
 @media (max-width:432px){
@@ -4526,6 +4554,263 @@ function bearbeitenKnopf(slug, urheber){
     editor(slug);
   } : null;
 }
+/* ---------------------------------------------------- Entwurf im Browser
+   Ein Entwurf geht nicht mehr verloren, wenn der Browser zufaellt, der
+   Rechner neu startet oder jemand versehentlich auf "Abbrechen" kommt.
+   Gemerkt wird NUR im Browser dieses Menschen - nichts davon geht an den
+   Server, und gespeichert ist eine Seite erst, wenn sie gespeichert wurde.
+   Genau das steht auch dabei, damit niemand den Entwurf fuer eine Seite
+   haelt.
+
+   localStorage kann fehlschlagen: privates Fenster, gesperrte Website-Daten,
+   voller Speicher. Jeder Zugriff steht darum in einem try - ein Editor, der
+   am Merken scheitert, waere schlimmer als einer, der nicht merkt. */
+const ED_ENTWURF_SCHLUESSEL = 'wiki-entwurf-1';
+
+function edEntwurfSichern(){
+  const e = ZUSTAND.editor;
+  if(!e || !e.neu) return;
+  /* Nur, wenn wirklich etwas dasteht - sonst merkt sich der Browser eine
+     leere Seite und fragt beim naechsten Mal danach. */
+  const inhalt = String(e.titel || '').trim() +
+    (e.abschnitte || []).map(a => String(a.markup || '')).join('');
+  if(inhalt.trim().length < 3) return;
+  try {
+    localStorage.setItem(ED_ENTWURF_SCHLUESSEL, JSON.stringify({
+      wann: new Date().toISOString(),
+      stand: {titel:e.titel, kurz:e.kurz, pfad:e.pfad, slug:e.slug,
+              gruppen:e.gruppen, neu:true, slugGetippt:e.slugGetippt,
+              abschnitte: (e.abschnitte || []).map(a => ({
+                anker:a.anker, titel:a.titel, stichworte:a.stichworte,
+                gruppe:a.gruppe, markup:a.markup}))}
+    }));
+  } catch(err){ /* kein Platz, kein Zugriff - dann eben nicht */ }
+}
+function edEntwurfRoh(){
+  try {
+    const roh = localStorage.getItem(ED_ENTWURF_SCHLUESSEL);
+    return roh ? JSON.parse(roh) : null;
+  } catch(err){ return null; }
+}
+function edEntwurfLesen(){
+  /* Was der Startbildschirm darueber sagen soll - ohne ihn zu laden. */
+  const d = edEntwurfRoh();
+  if(!d || !d.stand) return null;
+  const alter = Date.now() - new Date(d.wann).getTime();
+  /* Aelter als zwei Wochen: dann ist es kein Entwurf mehr, sondern ein
+     Rest. Er wird still vergessen, statt jedes Mal zu fragen. */
+  if(!(alter >= 0) || alter > 14 * 24 * 3600 * 1000){
+    edEntwurfLoeschen();
+    return null;
+  }
+  const min = Math.round(alter / 60000);
+  const wann = min < 2 ? 'gerade eben'
+    : min < 60 ? 'vor ' + zahl(min) + ' Minuten'
+    : min < 60 * 24 ? 'vor ' + zahl(Math.round(min / 60)) + ' Stunden'
+    : 'vor ' + zahl(Math.round(min / 60 / 24)) + ' Tagen';
+  return {titel: d.stand.titel || '', wann: wann,
+          abschnitte: (d.stand.abschnitte || []).length};
+}
+function edEntwurfHolen(){
+  const d = edEntwurfRoh();
+  if(!d || !d.stand) return null;
+  const e = d.stand;
+  e.abschnitte = (e.abschnitte || []).map(a => {
+    a.bloecke = edMarkupZuBloecken(a.markup);
+    return a;
+  });
+  if(!e.abschnitte.length) e.abschnitte = [edAbschnittNeu()];
+  return e;
+}
+function edEntwurfLoeschen(){
+  try { localStorage.removeItem(ED_ENTWURF_SCHLUESSEL); } catch(err){}
+}
+
+/* ---------------------------------------------------- Womit anfangen?
+   Vor dem Editor steht seit dem Neubau eine Frage statt eines leeren
+   Formulars. Grund: Die beiden anderen Wege - eine fertige HTML-Datei und
+   der KI-Prompt - standen vorher als zugeklappte Kasten UNTER dem Formular.
+   Wer sie nicht kannte, fand sie nicht; wer sie suchte, musste erst an allen
+   Feldern vorbeiscrollen.
+
+   Die Vorlagen sind keine Beispieltexte zum Ueberschreiben, sondern ein
+   Geruest: Abschnitte mit Titel und Gruppe, die passenden Bausteine, und in
+   jedem Feld ein Platzhalter, der sagt, was dort hingehoert. Wer eine
+   Anleitung schreibt, faengt mit "Was du brauchst / So geht es / Wenn es
+   klemmt" an und nicht mit einer weissen Flaeche. */
+
+const ED_VORLAGEN = {
+  leer: {
+    name: 'Leere Seite',
+    zeichen: '📄',
+    satz: 'Ein Abschnitt, ein Textfeld. Alles Weitere kommt beim Schreiben.',
+    bauen: () => edLeer()
+  },
+  anleitung: {
+    name: 'Anleitung',
+    zeichen: '🧭',
+    satz: 'Schritt für Schritt. Was man braucht, wie es geht, was schiefgehen kann.',
+    bauen: () => edVorlageBauen([
+      ['Was du brauchst', 'Grundlagen',
+       'Bevor du anfängst: was bereitliegen muss.\n\n' +
+       '- Erstes Ding\n- Zweites Ding'],
+      ['So geht es', 'Anleitung',
+       ':::schritte In vier Schritten\n' +
+       'Erster Schritt | Was dabei zu beachten ist.\n' +
+       'Zweiter Schritt | \n' +
+       'Dritter Schritt | \n' +
+       'Fertig | Woran du merkst, dass es geklappt hat.\n:::'],
+      ['Wenn es klemmt', 'Wenn es klemmt',
+       '!> **Das geht oft schief** Und so kommst du weiter.\n\n' +
+       ':::klapp Warum ist das so?\nDer Hintergrund, der nicht stören soll.\n:::']
+    ])
+  },
+  vergleich: {
+    name: 'Übersicht und Vergleich',
+    zeichen: '⚖️',
+    satz: 'Zwei oder drei Möglichkeiten nebeneinander, mit Zahlen dazu.',
+    bauen: () => edVorlageBauen([
+      ['Worum es geht', 'Grundlagen',
+       'Ein Satz zur Lage, und warum man sich entscheiden muss.'],
+      ['Die Möglichkeiten', 'Vergleich',
+       ':::gegenueber Zwei Wege\n' +
+       'Der eine Weg | Wofür er gut ist.\n' +
+       'Der andere Weg | Wofür der gut ist.\n:::'],
+      ['Die Zahlen dazu', 'Vergleich',
+       ':::kennzahlen Auf einen Blick\n' +
+       'Aufwand |  | einmalig\n' +
+       'Kosten |  | im Jahr\n:::\n\n' +
+       '> **Merke** Was am Ende den Ausschlag gibt.']
+    ])
+  },
+  nachschlagen: {
+    name: 'Zum Nachschlagen',
+    zeichen: '📚',
+    satz: 'Begriffe und Kurzbefehle, die man sucht und nicht liest.',
+    bauen: () => edVorlageBauen([
+      ['Wofür diese Seite da ist', 'Grundlagen',
+       'Ein Satz: was hier steht und wonach man hier sucht.'],
+      ['Die Begriffe', 'Nachschlagen',
+       ':::begriffe Wörter, die hier vorkommen\n' +
+       'Erster Begriff | Was er bedeutet.\n' +
+       'Zweiter Begriff | Was er bedeutet.\n:::'],
+      ['Kurzreferenz', 'Nachschlagen',
+       '| Was | Wie |\n| --- | --- |\n|  |  |\n|  |  |']
+    ])
+  },
+  rechnen: {
+    name: 'Rechnen und Zahlen',
+    zeichen: '🧮',
+    satz: 'Ein Rechner, den der Leser selbst ausfüllt, und die Zahlen dahinter.',
+    bauen: () => edVorlageBauen([
+      ['Worum es geht', 'Grundlagen',
+       'Was hier gerechnet wird, und woher die Zahlen kommen.'],
+      ['Selbst nachrechnen', 'Rechnen',
+       ':::rechner Was es kostet\n' +
+       'Menge pro Monat=100\n' +
+       'Preis je Stück=0.50\n' +
+       '=Menge * Preis\n' +
+       'Einheit: Euro\n' +
+       'Woher die Preise kommen und was nicht drin ist.\n:::'],
+      ['Woher die Zahlen kommen', 'Rechnen',
+       '?> **Gut zu wissen** Welche Quelle gilt und wie alt sie ist.']
+    ])
+  }
+};
+
+function edVorlageBauen(abschnitte){
+  /* Aus [Titel, Gruppe, Markup] den Zustand des Editors bauen - denselben,
+     den auch eine geladene Seite ergibt. */
+  const e = edLeer();
+  e.abschnitte = abschnitte.map(([titel, gruppe, markup]) => ({
+    anker: edSlug(titel), titel: titel, stichworte: '', gruppe: gruppe,
+    markup: markup, bloecke: edMarkupZuBloecken(markup)
+  }));
+  return e;
+}
+
+function edStartZeichnen(){
+  /* Die Frage vor dem Formular. Sie steht in derselben Flaeche wie der
+     Editor, damit der Weg zurueck nicht verlorengeht. */
+  ZUSTAND.ansicht = 'editor';
+  ZUSTAND.slug = null;
+  ZUSTAND.editor = null;
+  bearbeitenKnopf(null);
+  merkenKnopf(null);
+  abschnittsleiste(null);
+  $('vorschau-leiste').hidden = true; $('ed-leiste').hidden = true; findenVerbergen();
+  $('rahmen').hidden = true; $('rahmen').removeAttribute('src');
+  $('flaeche').hidden = false;
+  menueZu(); markieren();
+  $('kopftitel').textContent = 'Neue Seite';
+  $('kopfkontext').textContent = 'Womit möchtest du anfangen?';
+  const entwurf = edEntwurfLesen();
+  $('flaeche').innerHTML = `
+    <div class="raster mitte">
+      ${entwurf ? `
+        <div class="meldung warn">
+          <strong>Da liegt noch ein Entwurf</strong>
+          <div style="margin-top:4px">„${schuetzen(entwurf.titel || 'ohne Titel')}"
+            — ${schuetzen(entwurf.wann)}, ${zahl(entwurf.abschnitte)}
+            ${entwurf.abschnitte === 1 ? 'Abschnitt' : 'Abschnitte'}. Er wurde
+            nicht gespeichert; das Wiki hat ihn nur im Browser gemerkt.</div>
+          <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+            <button class="knopf" id="ed-entwurf-weiter">Weiterschreiben</button>
+            <button class="knopf still" id="ed-entwurf-weg">Verwerfen</button>
+          </div>
+        </div>` : ''}
+
+      <div class="ed-start">
+        ${Object.entries(ED_VORLAGEN).map(([k, v]) => `
+          <button type="button" class="ed-weg" data-vorlage="${k}">
+            <span class="ed-weg-zeichen" aria-hidden="true">${v.zeichen}</span>
+            <span class="ed-weg-name">${schuetzen(v.name)}</span>
+            <span class="ed-weg-satz">${schuetzen(v.satz)}</span>
+          </button>`).join('')}
+        <button type="button" class="ed-weg" data-weg="datei">
+          <span class="ed-weg-zeichen" aria-hidden="true">📥</span>
+          <span class="ed-weg-name">Ich habe eine HTML-Datei</span>
+          <span class="ed-weg-satz">Wird geprüft und in den Editor geladen —
+            zum Ändern, bevor sie ins Wiki geht.</span>
+        </button>
+        <button type="button" class="ed-weg" data-weg="ki">
+          <span class="ed-weg-zeichen" aria-hidden="true">✨</span>
+          <span class="ed-weg-name">Eine KI schreiben lassen</span>
+          <span class="ed-weg-satz">Ein Prompt zum Kopieren. Sie antwortet mit
+            einer Datei, die hier hineinpasst.</span>
+        </button>
+      </div>
+
+      <div class="kontext" style="text-align:center">Jede Wahl lässt sich
+        danach ändern — Abschnitte, Bausteine und Text sind frei.</div>
+    </div>`;
+
+  $('flaeche').querySelectorAll('[data-vorlage]').forEach(b =>
+    b.onclick = () => {
+      ZUSTAND.editor = ED_VORLAGEN[b.dataset.vorlage].bauen();
+      ZUSTAND.editor.vorlage = b.dataset.vorlage;
+      editorZeichnen({fokus: 'ed-titel'});
+    });
+  $('flaeche').querySelectorAll('[data-weg]').forEach(b =>
+    b.onclick = () => {
+      ZUSTAND.editor = edLeer();
+      editorZeichnen({aufklappen: b.dataset.weg});
+    });
+  if($('ed-entwurf-weiter')) $('ed-entwurf-weiter').onclick = () => {
+    const e = edEntwurfHolen();
+    if(!e) return einblenden('Der Entwurf ließ sich nicht mehr lesen.');
+    ZUSTAND.editor = e;
+    editorZeichnen();
+    einblenden('Entwurf weitergeführt. Gespeichert ist er erst, wenn du ' +
+               'speicherst.');
+  };
+  if($('ed-entwurf-weg')) $('ed-entwurf-weg').onclick = () => {
+    edEntwurfLoeschen();
+    einblenden('Entwurf verworfen.');
+    edStartZeichnen();
+  };
+}
+
 async function editor(slug){
   ZUSTAND.ansicht = 'editor'; ZUSTAND.slug = slug || null;
   bearbeitenKnopf(null);
@@ -4535,10 +4820,7 @@ async function editor(slug){
   $('rahmen').hidden = true; $('rahmen').removeAttribute('src');
   $('flaeche').hidden = false;
   menueZu(); markieren();
-  if(!slug){
-    ZUSTAND.editor = edLeer();
-    return editorZeichnen();
-  }
+  if(!slug) return edStartZeichnen();
   $('flaeche').innerHTML = '<div class="meldung">Seite wird geladen …</div>';
   let roh;
   try {
@@ -4778,7 +5060,7 @@ function editorZeichnen(opt){
         <button class="knopf rahmen" data-ed="neu">Abschnitt hinzufügen</button>
       </div>
 
-      <details class="karte">
+      <details class="karte" id="datei-karte">
         <summary style="cursor:pointer;font-weight:600">Ich habe schon eine
           HTML-Datei</summary>
         <div class="kontext" style="margin-top:8px">Eine fertige Seite mit
@@ -4810,9 +5092,16 @@ function editorZeichnen(opt){
       <button class="knopf" data-ed="speichern">Speichern</button>
       <button class="knopf rahmen" data-ed="vorschau">Ansehen</button>
       <span class="ed-stand" id="ed-stand"></span>
-      <div style="margin-left:auto;display:flex;gap:10px;flex-wrap:wrap">
-        <button class="knopf still" data-ed="datei">Als Datei sichern</button>
-        <button class="knopf still" data-ed="abbrechen">Abbrechen</button>
+      <div class="ed-nebenweg" style="margin-left:auto">
+        <button class="knopf rahmen ed-mehr-knopf" data-ed="mehr"
+          aria-expanded="false">Mehr …</button>
+        <div class="ed-nebeninhalt">
+          ${e.neu ? `<button class="knopf still" data-ed="zurueck"
+            title="Zurück zur Auswahl — der Text bleibt als Entwurf erhalten"
+            >‹ Andere Vorlage</button>` : ''}
+          <button class="knopf still" data-ed="datei">Als Datei sichern</button>
+          <button class="knopf still" data-ed="abbrechen">Abbrechen</button>
+        </div>
       </div>
     </div>`;
   $('ed-leiste').hidden = false;
@@ -4855,6 +5144,16 @@ function editorZeichnen(opt){
 
   edStandZeigen();
   edStilSicherstellen();
+  /* Mitschreiben, was entsteht - gedrosselt: jeder Tastendruck in den
+     Speicher zu schreiben waere Verschwendung, und eine Sekunde Verlust
+     ist keiner. */
+  $('flaeche').addEventListener('input', () => {
+    clearTimeout(ZUSTAND.entwurfFrist);
+    ZUSTAND.entwurfFrist = setTimeout(() => {
+      edFelderLesen();
+      edEntwurfSichern();
+    }, 1200);
+  });
   /* Die Blockkarten: Knoepfe verdrahten, Ergebnis malen, und bei jeder
      Eingabe nur DIESES eine Ergebnis neu malen - kein Neuzeichnen, sonst
      springt die Schreibmarke. */
@@ -4881,8 +5180,20 @@ function editorZeichnen(opt){
     const z = $(opt.fokus);
     if(z){
       z.scrollIntoView({block:'nearest'});
-      const f = z.querySelector('textarea, input');
+      const f = z.querySelector('textarea, input') ||
+                (z.tagName === 'INPUT' ? z : null);
       if(f) f.focus();
+    }
+  }
+  /* Vom Startbildschirm direkt in einen der beiden anderen Wege: die Karte
+     aufklappen und hinscrollen, statt den Nutzer suchen zu lassen. */
+  if(opt.aufklappen){
+    const karte = $(opt.aufklappen === 'ki' ? 'ki-karte' : 'datei-karte');
+    if(karte){
+      karte.open = true;
+      karte.scrollIntoView({block:'center'});
+      const erst = karte.querySelector('input, button');
+      if(erst) erst.focus();
     }
   }
   /* Die Dateiablage steht jetzt im Editor - dieselbe Strecke wie vorher in
@@ -4917,8 +5228,29 @@ function edTun(was, i, knopf){
     e.abschnitte.splice(i + 1, 0, e.abschnitte.splice(i, 1)[0]);
     return editorZeichnen();
   }
+  if(was === 'mehr'){
+    /* Am Handy nimmt die Leiste sonst ein Drittel des Schirms: gemessen 206
+       von 640 Pixeln, weil fuenf Knoepfe in vier Reihen umbrechen. Jetzt
+       stehen die zwei wichtigen da und der Rest auf Abruf. */
+    const w = knopf && knopf.closest('.ed-nebenweg');
+    if(!w) return;
+    const offen = w.dataset.offen === '1';
+    w.dataset.offen = offen ? '0' : '1';
+    knopf.setAttribute('aria-expanded', String(!offen));
+    return;
+  }
+  if(was === 'zurueck'){
+    /* Zurueck zur Auswahl. Ohne Rueckfrage, denn nichts geht verloren:
+       der Entwurf liegt im Browser und wird dort angeboten. */
+    edEntwurfSichern();
+    return edStartZeichnen();
+  }
   if(was === 'abbrechen'){
     if(!confirm('Bearbeiten abbrechen? Was hier steht, ist dann weg.')) return;
+    /* Wer ausdruecklich abbricht, will auch den Entwurf nicht mehr -
+       sonst fragt der Startbildschirm beim naechsten Mal nach etwas,
+       das gerade weggeworfen wurde. */
+    if(e.neu) edEntwurfLoeschen();
     ZUSTAND.editor = null;
     history.pushState(null, '', '#/verwaltung');
     return verwaltung();
@@ -5096,6 +5428,10 @@ async function edSpeichern(){
       schuetzen(err.message) + '</div><div style="margin-top:6px;font-size:12.5px">' +
       'Alles, was du geschrieben hast, steht noch in den Feldern.</div></div>');
   }
+  /* Gespeichert heisst: der Entwurf hat seinen Zweck erfuellt. Bliebe er
+     liegen, boete der Startbildschirm beim naechsten Mal eine Seite an, die
+     es laengst gibt. */
+  if(ZUSTAND.editor && ZUSTAND.editor.neu) edEntwurfLoeschen();
   ZUSTAND.editor = null;
   await baumLaden();
   einblenden('Gespeichert als Fassung ' + a.fassung + '.');

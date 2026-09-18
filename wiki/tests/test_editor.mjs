@@ -62,6 +62,9 @@ const quellen = [
   hol(/function edPruefbar\(nurNachsehen\)\{[\s\S]*?\n\}/, 'edPruefbar'),
   hol(/function edGruppenWiederholt\(abschnitte\)\{[\s\S]*?\n\}/, 'edGruppenWiederholt'),
   hol(/function kiPrompt\(thema\)\{[\s\S]*?\n\}/, 'kiPrompt'),
+  hol(/function edLeer\(\)\{[\s\S]*?\n\}/, 'edLeer'),
+  hol(/function edVorlageBauen\(abschnitte\)\{[\s\S]*?\n\}/, 'edVorlageBauen'),
+  hol(/const ED_VORLAGEN = \{[\s\S]*?\n\};/, 'ED_VORLAGEN'),
   'var ZUSTAND = {editor:null};',
 ].join('\n');
 
@@ -70,14 +73,14 @@ const { edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
         edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
         ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
         edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, edGruppenWiederholt,
-        kiPrompt, ZUSTAND } =
+        kiPrompt, ED_VORLAGEN, edLeer, ZUSTAND } =
   new Function(quellen + `
     return {edEscape, edInline, edBloecke, edNurText, edSlug, edSeiteBauen,
             ED_STIL, ED_PFLICHTTEIL, EDITOR_WERKZEUG, ED_BAUSTEINE,
             edBaustein, ED_RECHENWERK, ED_STIL_BAUSTEINE,
             ED_FORM, edBlockNeu, edMarkupZuBloecken, edBloeckeZuMarkup,
             edBlockZuZeilen, edBlockHtml, edAusHtml, edPruefbar, edGruppenWiederholt,
-            kiPrompt, ZUSTAND};`)();
+            kiPrompt, ED_VORLAGEN, edLeer, ZUSTAND};`)();
 
 /* Das Rechenwerk der erzeugten Seite - hier einzeln herausgeholt, damit die
    Formelauswertung geprueft werden kann, ohne einen Browser zu starten. */
@@ -897,6 +900,78 @@ pruefe('Eine Fundstelle in einem zugeklappten Klapptext wird aufgeklappt', () =>
             'die Seite sucht keinen zugeklappten Klapptext um die Fundstelle');
   assert.ok(ED_PFLICHTTEIL.includes('d.open = true;'),
             'die Seite klappt den Klapptext nicht auf');
+});
+
+/* ------------------------------------------------ Die Vorlagen */
+pruefe('Jede Vorlage baut einen Zustand, den der Editor kennt', () => {
+  for(const [name, v] of Object.entries(ED_VORLAGEN)){
+    const e = v.bauen();
+    assert.ok(e && Array.isArray(e.abschnitte) && e.abschnitte.length,
+              name + ': keine Abschnitte');
+    assert.equal(e.neu, true, name + ': die Vorlage gilt nicht als neue Seite');
+    for(const a of e.abschnitte){
+      assert.ok(Array.isArray(a.bloecke) && a.bloecke.length,
+                name + ': ein Abschnitt ohne Bloecke');
+      /* Die leere Vorlage ist genau das: ein leerer Abschnitt, den der
+         Mensch benennt. Alle anderen bringen ihr Geruest mit. */
+      if(name === 'leer') continue;
+      assert.ok(String(a.titel || '').trim(), name + ': ein Abschnitt ohne Titel');
+      assert.ok(String(a.anker || '').trim(), name + ': ein Abschnitt ohne Anker');
+      assert.ok(/^[a-z0-9]+(-[a-z0-9]+)*$/.test(a.anker),
+                name + ': Anker "' + a.anker + '" ist nicht erlaubt');
+      assert.ok(String(a.markup || '').trim(),
+                name + ': ein Abschnitt ohne Inhalt');
+    }
+  }
+});
+pruefe('Jede Vorlage bringt genau die Bausteine mit, die sie meint', () => {
+  /* Von Hand aufgeschrieben, aus dem Markup der Vorlagen gelesen. Nicht
+     "irgendein bekannter Baustein": ein Tippfehler wie ":::schritt" statt
+     ":::schritte" wird vom Editor stillschweigend zu einem TEXTBLOCK - die
+     Zeilen bleiben stehen, der Baustein ist weg, und niemand merkt es,
+     bevor die Seite beim Leser liegt. */
+  const ERWARTET = {
+    leer:         ['text'],
+    anleitung:    ['text', 'schritte', 'text', 'klapp'],
+    vergleich:    ['text', 'gegenueber', 'kennzahlen', 'text'],
+    nachschlagen: ['text', 'begriffe', 'text'],
+    rechnen:      ['text', 'rechner', 'text']
+  };
+  assert.deepEqual(Object.keys(ED_VORLAGEN).sort(), Object.keys(ERWARTET).sort(),
+                   'es gibt eine Vorlage, die hier nicht aufgeschrieben ist');
+  for(const [name, v] of Object.entries(ED_VORLAGEN)){
+    const arten = v.bauen().abschnitte.flatMap(a => a.bloecke.map(b => b.art));
+    assert.deepEqual(arten, ERWARTET[name], name);
+    for(const art of arten) assert.ok(ED_FORM[art], name + ': "' + art + '" gibt es nicht');
+  }
+});
+pruefe('Das Markup einer Vorlage uebersteht den Rundlauf', () => {
+  /* Bloecke -> Markup -> Bloecke muss dasselbe ergeben. Sonst veraendert
+     sich die Seite beim ersten Speichern, ohne dass jemand etwas getan
+     hat. */
+  for(const [name, v] of Object.entries(ED_VORLAGEN)){
+    for(const a of v.bauen().abschnitte){
+      const zurueck = edMarkupZuBloecken(edBloeckeZuMarkup(a.bloecke));
+      assert.equal(zurueck.length, a.bloecke.length,
+                   name + ' / ' + a.titel + ': andere Anzahl Bloecke');
+      zurueck.forEach((b, i) => assert.equal(b.art, a.bloecke[i].art,
+        name + ' / ' + a.titel + ': Baustein ' + (i + 1) + ' wurde zu ' + b.art));
+    }
+  }
+});
+pruefe('Eine Vorlage bringt Titel und Pfad NICHT mit', () => {
+  /* Der Titel ist die Aussage des Menschen. Stuende dort ein Vorschlag,
+     hiesse die erste Seite "Neue Seite" - und keiner merkt es. */
+  for(const [name, v] of Object.entries(ED_VORLAGEN)){
+    const e = v.bauen();
+    assert.equal(String(e.titel || ''), '', name + ': die Vorlage setzt einen Titel');
+    assert.equal(String(e.pfad || ''), '', name + ': die Vorlage setzt einen Pfad');
+  }
+});
+pruefe('Die leere Vorlage ist wirklich leer', () => {
+  const e = ED_VORLAGEN.leer.bauen();
+  assert.equal(e.abschnitte.length, 1);
+  assert.equal(String(e.abschnitte[0].markup || '').trim(), '');
 });
 
 console.log('');
