@@ -44,10 +44,10 @@ services:
       - wiki_daten:/daten
       - wiki_seiten:/seiten
     networks:
-      - proxy
+      - netz-wiki
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=proxy"
+      - "traefik.docker.network=netz-wiki"
       - "traefik.http.services.wiki.loadbalancer.server.port=8080"
       - "traefik.http.routers.wiki.rule=Host(`wiki.prolo.me`)"
       - "traefik.http.routers.wiki.entrypoints=websecure"
@@ -60,5 +60,13 @@ volumes:
   wiki_seiten:
 
 networks:
-  proxy:
+# Eigenes Netz je Werkzeug (N-45). Vorher hingen Wiki, Bordbuch, n8n und
+# Authentik im selben Netz "proxy" - und in einem Docker-Netz erreicht jeder
+# Container jeden anderen direkt, ohne Traefik und ohne Anmeldung. Damit war
+# der Weg von n8n (fuehrt angeklickte Ablaeufe mit einem HTTP-Baustein aus,
+# hat Webhook-Pfade ohne Anmeldung) zum Wiki offen. Jetzt gibt es ihn nicht
+# mehr: nur Traefik haengt in allen Netzen, die Werkzeuge in je ihrem.
+#
+# Anlegen, einmalig je Server:  docker network create netz-wiki
+  netz-wiki:
     external: true

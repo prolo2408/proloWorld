@@ -2803,6 +2803,76 @@ ohne Marke anklopft. Danach findet die Mutation auch die Testsuite.
 kommen als eigene Schritte. Die Grenze hier hält auch ohne sie: ein Container
 im selben Netz kennt das Geheimnis nicht.
 
+## N-45 — Ein Netz für alle heißt: jeder erreicht jeden
+
+### Was war
+
+Wiki, Bordbuch, n8n und Authentik hingen im selben Docker-Netz `proxy`. In
+einem Docker-Netz erreicht jeder Container jeden anderen unter seinem Namen —
+ohne Traefik, ohne Anmeldung, ohne Protokollzeile im Zugriffsprotokoll.
+
+`N-44` hat diesen Weg bereits verriegelt: wer die Einlassmarke nicht kennt,
+kommt an keinem Werkzeug vorbei. Aber eine Verriegelung ist kein Ersatz für
+eine Wand. Solange der Weg *existiert*, hängt alles an einem einzigen
+Geheimnis und an der Sorgfalt, mit der jedes künftige Werkzeug es prüft.
+
+### Was daraus wurde
+
+| Werkzeug | Netz |
+|---|---|
+| Wiki | `netz-wiki` |
+| Bordbuch | `netz-bordbuch` |
+| n8n | `netz-n8n` |
+| Authentik (Server) | `netz-authentik` + `internal` wie bisher |
+| **Traefik** | **alle vier** + `socket` |
+
+Traefik ist der einzige Dienst in mehr als einem. Genau das ist der Punkt:
+die Werkzeuge erreichen einander nicht mehr, nur Traefik erreicht sie.
+
+Dazu fällt die Vorgabe `network: proxy` im Docker-Anbieter weg. Sie zeigte
+auf ein Netz, das es nicht mehr gibt — und eine Vorgabe auf etwas, das nicht
+existiert, ist schlimmer als keine. Jedes Werkzeug nennt sein Netz jetzt
+selbst im Label, und `prolo` legt neue Werkzeuge gleich so an.
+
+### Was daran nicht geprüft ist
+
+**Die Wirkung ist hier nicht gemessen.** In der Arbeitsumgebung läuft kein
+Docker-Daemon; ich konnte die Netze nicht anlegen und keinen Container gegen
+einen anderen laufen lassen. Geprüft ist die **Beschaffenheit** — dass die
+sechs `docker-compose.yml` zusammen die Trennung beschreiben —, und das ist
+eine Eigenschaft, die man beim Lesen einer einzelnen Datei nicht sieht.
+Darum `werkzeuge/netze-pruefen.sh` mit 29 Prüflinien.
+
+Auf dem Server ist die Wirkung ein Befehl:
+
+```
+docker run --rm --network netz-n8n curlimages/curl -s -o /dev/null \
+  -w '%{http_code}\n' --max-time 5 http://wiki:8080/gesundheit
+```
+
+Vorher `200`. Jetzt darf dort **kein** Ergebnis mehr kommen — der Name `wiki`
+ist in `netz-n8n` nicht mehr auflösbar.
+
+### Die Probe
+
+| Mutation | Ergebnis |
+|---|---|
+| Bordbuch ins Wiki-Netz gehängt | 2 Fehler |
+| Traefik aus dem Wiki-Netz entfernt | 1 Fehler |
+| Label beim Wiki entfernt | 1 Fehler |
+| Label zeigt auf ein fremdes Netz | 1 Fehler |
+| Vorgabe `network: proxy` wieder eingetragen | 1 Fehler |
+| `prolo`-Vorlage fällt auf `proxy` zurück | 1 Fehler |
+| unverändert | 0 Fehler |
+
+### Und wieder ein Prüfer, der über ein Wort stolperte
+
+Die Prüflinie „hängt nicht mehr im gemeinsamen Netz" suchte die Zeichenfolge
+`proxy` — und meldete `socket-proxy` als Verstoß. Der Dienst **heißt** so und
+hängt in keinem Netz dieses Namens. Gesucht wird jetzt die Netzreferenz
+(`- proxy` in einer Netzliste, `proxy:` im Block unten, das Label), nicht das
+Wort. Das ist dieselbe Falle wie in `N-36` und `N-44`, zum sechsten Mal.
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

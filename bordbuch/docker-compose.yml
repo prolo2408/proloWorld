@@ -57,11 +57,11 @@ services:
       - bordbuch_belege:/belege
 
     networks:
-      - proxy
+      - netz-bordbuch
 
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=proxy"
+      - "traefik.docker.network=netz-bordbuch"
       - "traefik.http.services.bordbuch.loadbalancer.server.port=8080"
       - "traefik.http.routers.bordbuch.rule=Host(`bordbuch.prolo.me`)"
       - "traefik.http.routers.bordbuch.entrypoints=websecure"
@@ -74,5 +74,13 @@ volumes:
   bordbuch_belege:                  # von aussen: bordbuch_bordbuch_belege
 
 networks:
-  proxy:
+# Eigenes Netz je Werkzeug (N-45). Vorher hingen Wiki, Bordbuch, n8n und
+# Authentik im selben Netz "proxy" - und in einem Docker-Netz erreicht jeder
+# Container jeden anderen direkt, ohne Traefik und ohne Anmeldung. Damit war
+# der Weg von n8n (fuehrt angeklickte Ablaeufe mit einem HTTP-Baustein aus,
+# hat Webhook-Pfade ohne Anmeldung) zum Wiki offen. Jetzt gibt es ihn nicht
+# mehr: nur Traefik haengt in allen Netzen, die Werkzeuge in je ihrem.
+#
+# Anlegen, einmalig je Server:  docker network create netz-bordbuch
+  netz-bordbuch:
     external: true

@@ -614,8 +614,23 @@ Verbindlich in jeder `docker-compose.yml`:
 - **Keine `ports:`-Zeile.** Das ist der eigentliche Schutz: der Dienst ist nur
   über Traefik erreichbar. Eine `ports:`-Zeile hebelt Firewall und Anmeldung
   gleichzeitig aus.
-- Netzwerk `proxy` (extern), zusätzlich `internal` für Datenbanken.
-  Datenbanken und Hilfsdienste hängen **nur** in `internal`.
+- **Ein eigenes Netz je Werkzeug** (`netz-<werkzeug>`, extern), zusätzlich
+  `internal` für Datenbanken. Datenbanken und Hilfsdienste hängen **nur** in
+  `internal`.
+
+  **Nur Traefik hängt in allen Werkzeugnetzen** (`N-45`). In einem
+  gemeinsamen Netz erreicht jeder Container jeden anderen direkt — ohne
+  Traefik, ohne Anmeldung. Vorher lagen Wiki, Bordbuch, n8n und Authentik in
+  einem einzigen `proxy`, und damit stand der Weg von n8n (führt angeklickte
+  Abläufe mit einem HTTP-Baustein aus, hat Webhook-Pfade ohne Anmeldung) zum
+  Wiki offen.
+
+  Jedes Werkzeug nennt sein Netz **selbst** im Label
+  `traefik.docker.network` — seit `N-45` gibt es keine Vorgabe mehr, auf die
+  Traefik zurückfallen könnte. Beim Anlegen eines Werkzeugs gehört sein Netz
+  in **drei** Dateien: seine eigene, die von Traefik (Dienst **und** Block
+  unten) — und einmal `docker network create netz-<werkzeug>` auf dem
+  Server. `werkzeuge/netze-pruefen.sh` hält das zusammen.
 - `restart: unless-stopped`
 - **Grenzen sind Pflicht:**
 

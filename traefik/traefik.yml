@@ -36,10 +36,16 @@ entryPoints:
       #      ein Geheimnis enthaelt - siehe dynamic/einlass.yml.beispiel.
       #   3. sicherheitskopf setzt HSTS und den Rest (B-26).
       #
+      # Davor stehen ratenbremse und gleichzeitig (N-46): wer zu schnell
+      # oder zu oft gleichzeitig anklopft, soll gar nicht erst bis zur
+      # Anmeldung kommen. Beide gemessen je Quelladresse.
+      #
       # Eingangs-Middlewares laufen VOR denen eines Routers. Die Anmeldung
       # setzt die geleerten Felder danach mit den echten Werten neu - mit
       # Traefik 3.6.13 gegen einen Echo-Dienst nachgemessen.
       middlewares:
+        - ratenbremse@file
+        - gleichzeitig@file
         - vertrauensgrenze@file
         - einlass@file
         - sicherheitskopf@file
@@ -52,7 +58,10 @@ providers:
     # ausschliesslich lesende Aufrufe durchlaesst.
     endpoint: "tcp://socket-proxy:2375"
     exposedByDefault: false
-    network: proxy
+    # KEINE Vorgabe mehr (N-45): seit jedes Werkzeug sein eigenes Netz hat,
+    # gaebe es kein gemeinsames, auf das eine Vorgabe zeigen koennte. Jeder
+    # Dienst nennt sein Netz selbst ueber das Label
+    # "traefik.docker.network" - netze-pruefen.sh verlangt es von jedem.
   file:
     directory: /etc/traefik/dynamic
     watch: true

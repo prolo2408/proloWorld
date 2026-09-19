@@ -355,11 +355,11 @@ services:
       - ${NAME}_daten:/daten
 
     networks:
-      - proxy
+      - netz-$NAME
 
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=proxy"
+      - "traefik.docker.network=netz-$NAME"
       - "traefik.http.services.$NAME.loadbalancer.server.port=$PORT"
       - "traefik.http.routers.$NAME.rule=Host(\`$NAME.$DOMAENE\`)"
       - "traefik.http.routers.$NAME.entrypoints=websecure"
@@ -372,7 +372,14 @@ volumes:
   ${NAME}_daten:                    # von aussen: ${NAME}_${NAME}_daten
 
 networks:
-  proxy:
+  # Eigenes Netz je Werkzeug (N-45): in einem gemeinsamen Netz erreicht
+  # jeder Container jeden anderen direkt, ohne Traefik und ohne Anmeldung.
+  # Vor dem ersten Start anlegen und Traefik hineinhaengen:
+  #   docker network create netz-$NAME
+  #   dann netz-$NAME in /opt/stack/traefik/docker-compose.yml eintragen
+  #   (bei den networks des Dienstes UND im Block ganz unten)
+  #   sudo prolo compose traefik up -d
+  netz-$NAME:
     external: true
 YML
 

@@ -48,12 +48,30 @@ services:
       # Dazu gehoert eine logrotate-Regel - sonst laeuft der Datentraeger
       # voll. Siehe CLAUDE.md §22.
       - ./log:/var/log/traefik
+    # Traefik ist der EINZIGE Dienst, der in allen Werkzeugnetzen haengt
+    # (N-45). Genau das ist der Punkt: die Werkzeuge erreichen einander
+    # nicht mehr, nur Traefik erreicht sie.
+    #
+    # Kommt ein Werkzeug dazu, gehoert sein Netz hier UND unten hinein -
+    # sonst findet Traefik es nicht und der Router bleibt tot.
+    # werkzeuge/netze-pruefen.sh haelt die Listen zusammen.
     networks:
-      - proxy
+      - netz-wiki
+      - netz-bordbuch
+      - netz-n8n
+      - netz-authentik
       - socket
 
 networks:
-  proxy:
+  # Je Werkzeug eines, alle von Hand angelegt (wie "proxy" vorher):
+  #   docker network create netz-wiki netz-bordbuch netz-n8n netz-authentik
+  netz-wiki:
+    external: true
+  netz-bordbuch:
+    external: true
+  netz-n8n:
+    external: true
+  netz-authentik:
     external: true
   # Wird von /opt/stack/socket-proxy angelegt (internes Netz, kein Weg nach
   # draussen). Darum dort zuerst "docker compose up -d" laufen lassen.

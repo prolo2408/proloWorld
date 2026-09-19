@@ -76,10 +76,10 @@ services:
         condition: service_healthy
     networks:
       - internal
-      - proxy
+      - netz-authentik
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=proxy"
+      - "traefik.docker.network=netz-authentik"
       - "traefik.http.services.authentik.loadbalancer.server.port=9000"
 
       # Router 1: die Authentik-Oberfläche selbst
@@ -156,5 +156,13 @@ volumes:
 
 networks:
   internal:
-  proxy:
+# Eigenes Netz je Werkzeug (N-45). Vorher hingen Wiki, Bordbuch, n8n und
+# Authentik im selben Netz "proxy" - und in einem Docker-Netz erreicht jeder
+# Container jeden anderen direkt, ohne Traefik und ohne Anmeldung. Damit war
+# der Weg von n8n (fuehrt angeklickte Ablaeufe mit einem HTTP-Baustein aus,
+# hat Webhook-Pfade ohne Anmeldung) zum Wiki offen. Jetzt gibt es ihn nicht
+# mehr: nur Traefik haengt in allen Netzen, die Werkzeuge in je ihrem.
+#
+# Anlegen, einmalig je Server:  docker network create netz-authentik
+  netz-authentik:
     external: true
