@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # werkzeuge/grenze-pruefen.sh
 #
-# Steht die Vertrauensgrenze noch? (N-44)
+# Steht der Eingang noch? (N-44 Vertrauensgrenze, N-46 Ratenbremse)
 #
 # Der Anlass, gemessen: eine Anfrage mit "X-Authentik-Groups: wiki-admin"
 # bekam vom Wiki 200 und die Verwaltungsdaten, dieselbe ohne Gruppe 403. Die
@@ -70,6 +70,30 @@ if "vertrauensgrenze@file" in kette and "einlass@file" in kette:
     sag(kette.index("vertrauensgrenze@file") < kette.index("einlass@file"),
         "traefik.yml: erst loeschen, dann setzen",
         "andersherum loescht die Grenze die eigene Marke wieder")
+
+# --- 1b. Die Ratenbremse (N-46) -----------------------------------------
+sag("ratenbremse@file" in kette, "traefik.yml: die Ratenbremse haengt am Eingang",
+    "ohne sie kann eine einzelne Quelle in Schleife anklopfen")
+sag("gleichzeitig@file" in kette,
+    "traefik.yml: die Grenze fuer gleichzeitige Anfragen haengt am Eingang")
+if "ratenbremse@file" in kette and "vertrauensgrenze@file" in kette:
+    sag(kette.index("ratenbremse@file") < kette.index("vertrauensgrenze@file"),
+        "traefik.yml: erst bremsen, dann alles andere",
+        "wer zu schnell klopft, soll gar nicht erst bis zur Anmeldung kommen")
+sicher_roh = lies("traefik", "dynamic", "sicherheit.yml") or ""
+werte = dict(re.findall(r"^\s*(average|burst|amount):\s*(\d+)\s*$",
+                        sicher_roh, re.M))
+# Von Hand gerechnet: ein Seitenaufruf des Wikis sind etwa 15 Anfragen mit
+# Schriften und Schnittstelle. Unter 20 je Sekunde wuerde die Bremse einen
+# Menschen treffen - gemessen wurden bei 24/s null Abweisungen.
+sag(int(werte.get("average", 0)) >= 20,
+    "die Bremse trifft keinen Menschen (average=%s)" % werte.get("average"),
+    "ein Seitenaufruf sind rund 15 Anfragen")
+sag(0 < int(werte.get("average", 0)) <= 200,
+    "die Bremse bremst ueberhaupt (average=%s)" % werte.get("average"),
+    "ein zu hoher Wert ist dasselbe wie keine Bremse")
+sag(int(werte.get("amount", 0)) > 0,
+    "gleichzeitige Anfragen sind begrenzt (amount=%s)" % werte.get("amount"))
 
 # --- 2. Jede Kopfzeile, die Authentik setzen darf, wird vorher geleert ---
 auth = lies("traefik", "dynamic", "authentik.yml") or ""

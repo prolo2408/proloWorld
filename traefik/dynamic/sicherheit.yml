@@ -72,6 +72,38 @@ http:
           # leer statt vom Client bestimmt.
           X-Prolo-Einlass: ""
 
+# ------------------------------------------------------------------------
+# Die Ratenbremse (N-46)
+#
+# Es gab keine. Weder vor der Anmeldung noch vor den Werkzeugen konnte
+# jemand ausgebremst werden, der in Schleife anklopft - Anmeldenamen raten,
+# Pfade absuchen, oder einfach einen kleinen Server mit Anfragen zudecken.
+#
+# Was sie leistet und was nicht, damit niemand sich auf das Falsche
+# verlaesst:
+#
+#   SIE BREMST   eine einzelne Quelle. 50 Anfragen je Sekunde sind fuer
+#                einen Menschen mehr als genug (ein Seitenaufruf des Wikis
+#                sind etwa 15 mit Schriften und Schnittstelle), fuer ein
+#                Skript in Schleife aber eine Grenze.
+#   SIE BREMST   gleichzeitige Verbindungen: 40 je Quelle. Ein Browser
+#                oeffnet sechs. Das haelt einen kleinen Server davon ab,
+#                an offenen Verbindungen zu ersticken.
+#   SIE BREMST NICHT ein verteiltes Raten von vielen Adressen aus. Dagegen
+#                hilft nur, dass es nichts zu raten gibt: die Anmeldung
+#                macht Authentik, und Zugangslinks sind 192 Bit lang.
+#
+# Gemessen wird je Quelladresse. Traefik steht am aeusseren Rand, also ist
+# die Quelle der echte Aufrufer und nicht ein vorgelagerter Proxy.
+    ratenbremse:
+      rateLimit:
+        average: 50
+        burst: 150
+        period: 1s
+    gleichzeitig:
+      inFlightReq:
+        amount: 40
+
 tls:
   options:
     streng:

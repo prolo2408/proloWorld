@@ -2873,6 +2873,66 @@ hängt in keinem Netz dieses Namens. Gesucht wird jetzt die Netzreferenz
 (`- proxy` in einer Netzliste, `proxy:` im Block unten, das Label), nicht das
 Wort. Das ist dieselbe Falle wie in `N-36` und `N-44`, zum sechsten Mal.
 
+## N-46 — Es gab keine Bremse
+
+### Was war
+
+Weder vor der Anmeldung noch vor den Werkzeugen konnte jemand ausgebremst
+werden, der in Schleife anklopft. Gemessen durch Nachsehen: in `traefik/`
+kam weder `rateLimit` noch `inFlightReq` vor.
+
+### Was daraus wurde
+
+Zwei Middlewares am Eingang, **vor** allem anderen — wer zu schnell klopft,
+soll gar nicht erst bis zur Anmeldung kommen:
+
+| | Wert | wogegen |
+|---|---|---|
+| `rateLimit` | 50/s, Spitze 150 | Anfragen in Schleife |
+| `inFlightReq` | 40 gleichzeitig | offene Verbindungen, an denen ein kleiner Server erstickt |
+
+Gemessen mit der echten Traefik-Fassung gegen den echten Dienst — und das
+Messwerkzeug vorher gegengeprobt (ein einzelner Aufruf muss 200 geben, sonst
+misst es nichts):
+
+| Last | Ergebnis |
+|---|---|
+| ein einzelner Aufruf | 200 — *das Messwerkzeug kann messen* |
+| **wie ein Mensch:** 15 Anfragen, 24/s | **15 × 200, keine Abweisung** |
+| **wie ein Skript:** 800 Anfragen, 302/s | **558 × 429** (70 %), 242 durch |
+
+Beim ersten Versuch war das Messwerkzeug kaputt: `c.getresponse` ohne
+Klammern, Antwort nie gelesen — die nächste Anfrage auf derselben Verbindung
+lief in `ResponseNotReady`. Die Zahlen sahen aus wie ein Ergebnis und waren
+Müll. Erst die Gegenprobe hat es aufgedeckt.
+
+### Was sie nicht leistet
+
+Sie bremst eine **einzelne Quelle**. Gegen verteiltes Raten von vielen
+Adressen hilft sie nicht. Dagegen hilft nur, dass es nichts zu raten gibt:
+die Anmeldung macht Authentik, und die Zugangslinks, die noch kommen, sind
+192 Bit lang. Das steht so auch im Kommentar in `sicherheit.yml` — damit sich
+niemand auf das Falsche verlässt.
+
+### Die Probe
+
+| Mutation | Ergebnis |
+|---|---|
+| Bremse aus der Kette | 1 Fehler |
+| Bremse hinter die Vertrauensgrenze geschoben | 1 Fehler |
+| `average` auf 5 (träfe einen Menschen) | 1 Fehler |
+| `average` auf 100000 (bremst nichts mehr) | 1 Fehler |
+| Gleichzeitigkeitsgrenze auf 0 | 1 Fehler |
+| unverändert | 0 Fehler |
+
+### Ein Fehler in meiner Arbeitsweise
+
+Der Eintrag in die Middleware-Kette steckt bereits im Commit zu `N-45`: ich
+hatte `traefik.yml` für diesen Befund schon angefasst, bevor der
+vorhergehende Schritt eingecheckt war. Das verstößt gegen „ein Befund, ein
+Commit". Aufgeräumt wird es **nicht** durch Umschreiben der Geschichte — der
+Zweig ist gepusht und hängt an einem Pull Request. Es steht stattdessen hier.
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

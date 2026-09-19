@@ -664,6 +664,13 @@ Verbindlich in jeder `docker-compose.yml`:
   „ok" und eine Fassungsnummer, mehr nicht.
 - **Ausnahme Webhooks:** ein zweiter Router **ohne** `authentik@file` und mit
   höherer `priority` — und ein Vermerk unter `HINWEIS=`.
+- **Eine Ratenbremse am Eingang** (`N-46`), vor allem anderen: wer zu schnell
+  oder zu oft gleichzeitig anklopft, kommt gar nicht erst bis zur Anmeldung.
+  Gemessen je Quelladresse. Der Wert muss **beides** können — einen Menschen
+  durchlassen (ein Seitenaufruf des Wikis sind rund 15 Anfragen; bei 24/s
+  null Abweisungen) und ein Skript bremsen (bei 302/s wurden 558 von 800
+  abgewiesen). Sie hilft **nicht** gegen verteiltes Raten von vielen
+  Adressen; dagegen hilft nur, dass es nichts zu raten gibt.
 
 ## 20. Benennung
 
