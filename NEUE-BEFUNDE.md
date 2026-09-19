@@ -2933,6 +2933,19 @@ vorhergehende Schritt eingecheckt war. Das verstößt gegen „ein Befund, ein
 Commit". Aufgeräumt wird es **nicht** durch Umschreiben der Geschichte — der
 Zweig ist gepusht und hängt an einem Pull Request. Es steht stattdessen hier.
 
+## N-47 — *(offen)* Ein Warnkasten, der mit einem Wort beginnt
+
+Beim Browserlauf zur nachgezogenen Anleitung gesehen: ein `!>`-Kasten, dessen
+Text mit `**Vor**` anfängt, macht aus diesem einen Wort seine Überschrift —
+der Kasten heißt dann „Vor" und der Satz fängt darunter mit „dem ersten Start
+eintragen" an. Dieselbe Ursache wie die drei Bausteinzeilen aus dem Schritt zu
+`prolo-bedienen.html`: die erste fette Stelle wird als Titel gelesen. Bei
+einem Kasten ist es auffälliger als bei einer Zeile.
+
+Bestand schon vor der Änderung; darum notiert und nicht nebenbei behoben.
+Die Korrektur gehört in `edBloecke` (nur dann Titel, wenn die fette Stelle
+die **ganze** erste Zeile ist) und braucht ihre eigene Probe.
+
 ## Sicherheitsaufnahme — der Stand nach `N-44` bis `N-46`
 
 Der Auftrag war: „Maximale Sicherheit für meine Tools und keine Fehlzugriffe
