@@ -539,6 +539,7 @@ Alles unter `/opt/stack/`. Ein Werkzeug ist ein Ordner mit einer
 ├── docker-compose.yml      Pflicht
 ├── sicherung.conf          Pflicht — was gesichert wird
 ├── aktualisierung.conf     Pflicht — wie aktualisiert wird
+├── geheimnisse.conf        nur wenn das Werkzeug Geheimnisse hat
 ├── Dockerfile              nur bei eigenem Code
 ├── .dockerignore           nur bei eigenem Code — hält den Baukontext klein
 ├── CHANGELOG.md            nur bei eigenem Code
@@ -552,8 +553,8 @@ Der Ordnername ist kleingeschrieben, ohne Leerzeichen und Umlaute, und
 
 Daneben liegt, was **allen** gemeinsam ist — und das ist kein Werkzeug, also
 ohne `sicherung.conf` und `aktualisierung.conf`: `backup.sh`, `werkzeuge/`
-(`prolo`, `aktualisieren.sh`, `quellstand.sh`, `pre-commit` und die
-Gegenproben), diese Datei und `NEUE-BEFUNDE.md`.
+(`prolo`, `aktualisieren.sh`, `quellstand.sh`, `geheimnisse.py`,
+`pre-commit` und die Gegenproben), diese Datei und `NEUE-BEFUNDE.md`.
 
 **Die Fassungsnummer steht an drei Stellen** und muss überall dieselbe sein:
 `server.py` (`VERSION`), `docker-compose.yml` (`image:`), `CHANGELOG.md` (als
@@ -712,7 +713,8 @@ Datenbanken, Sicherungen, Archive entfernter Werkzeuge.
 Ausnahme `!**/.env.beispiel`, `**/acme.json`, `**/*.key`, `**/*.pem`,
 `**/*.db*`, `**/*.sqlite`, `**/*.sql`, `**/*.dump`, `**/daten/`,
 `**/seiten/`, `**/backups/`, `**/.vorschau/`, `**/*.vor-stand-*`,
-`.archiv/`, `authentik/data/`, `authentik/certs/`.
+`.archiv/`, `authentik/data/`, `authentik/certs/`, `merkzettel/`,
+`*.txt.age`, `.geheimnis-stand`.
 
 **Zusätzlich eine `.gitignore` je Werkzeug.** Die Wurzeldatei allein trägt
 nicht: sie ist leicht zu übersehen, und ein Werkzeug bringt seine Regel dort
@@ -748,7 +750,7 @@ eine Kopie außer Haus.
 | Was | Wohin |
 |---|---|
 | Konfiguration | Git, privates Repository |
-| Geheimnisse | Passwortmanager **und** verschlüsselte Sicherung |
+| Geheimnisse | Passwortmanager **und** verschlüsselte Sicherung — `prolo geheimnisse --merkzettel` schreibt den Zettel dafür |
 | Daten | `prolo sichern`, danach weg vom Server |
 
 Jedes Werkzeug bringt seine `sicherung.conf` mit (`VOLUMES`, `DB_CONTAINER`,
@@ -763,6 +765,34 @@ Verschlüsselt wird mit `age` gegen den **öffentlichen** Schlüssel in
 `/opt/stack/.backup-schluessel.pub`; der geheime Teil liegt auf dem
 Arbeitsrechner. Ohne diese Datei fängt die Sicherung nicht an: eine
 unverschlüsselte Sicherung mit `.env` darin wäre schlimmer als keine.
+
+### 23a. Die Geheimnisse selbst
+
+Was ein Werkzeug an Geheimnissen hält, sagt es in seiner `geheimnisse.conf`
+— wie bei der Sicherung ist zentral nichts zu ändern, wenn ein Werkzeug
+dazukommt. Eine Zeile je Wert: `NAME|DATEI|FORM|WECHSEL|Erklaerung`, und
+**nie ein Wert darin**. `prolo geheimnisse` liest sie und zeigt Namen, Orte
+und Alter — Werte stehen dort nicht, auch nicht „nur zum Nachsehen" (§22).
+
+`WECHSEL` sagt, was ein neuer Wert kostet, und ist die einzige Bremse des
+Werkzeugs:
+
+| Wert | Bedeutung |
+|---|---|
+| `harmlos` | darf neu gewürfelt werden, niemand merkt etwas |
+| `sitzungen` | darf auch, aber alle müssen sich neu anmelden |
+| `haende` | **nur von Hand** — das Werkzeug zeigt ihn und rührt ihn nicht an |
+
+**Steht ein Wert auch außerhalb seiner Datei, ist er `haende`.** `PG_PASS`
+steht zusätzlich in PostgreSQL selbst: wer nur die Datei ändert, sperrt
+Authentik aus seiner eigenen Datenbank aus — und damit den ganzen Stack aus
+der Anmeldung. Ein Werkzeug, das das nicht weiß, macht aus einem gepflegten
+Wechsel einen Ausfall.
+
+Gewechselt wird **erst Traefik, dann die Werkzeuge**: andersherum stünden die
+Werkzeuge mit dem neuen Wert da, während Traefik noch den alten anhängt, und
+jede Anfrage bekäme 401. Der Merkzettel enthält **alten und neuen** Wert und
+ist mit demselben `age`-Schlüssel verschlüsselt wie die Sicherung.
 
 **Die Wiederherstellung wird geübt**, solange nur Testdaten drin sind. Das
 ist der Schritt, den fast alle überspringen, und der einzige, der zählt.
@@ -868,6 +898,7 @@ Sicherung.
 **Betrieb**
 - [ ] Keine `ports:`-Zeile, Grenzen gesetzt, feste Abbildfassung
 - [ ] `sicherung.conf` und `aktualisierung.conf` vorhanden und gefüllt
+- [ ] `geheimnisse.conf`, falls das Werkzeug Geheimnisse hat — ohne Werte
 - [ ] `.gitignore` je Werkzeug ergänzt, `pre-commit` verlinkt
 - [ ] Fassungsnummer an allen drei Stellen gleich
 - [ ] Sicherung und Aktualisierung je einmal durchgelaufen

@@ -47,3 +47,13 @@ traefik/log/*.log.*
 # gehoert auf den Server und in den Passwortmanager, nicht ins Git. Die
 # Beispieldatei daneben steht ausdruecklich drin.
 traefik/dynamic/einlass.yml
+
+# Merkzettel aus "prolo geheimnisse". Verschluesselt - aber eine Datei,
+# die JEDES Geheimnis des Stacks an einer Stelle versammelt, gehoert
+# trotzdem nie ins Git. Sie wandert in den Passwortmanager und wird dann
+# geloescht.
+merkzettel/
+*.txt.age
+# Wann ein Geheimnis zuletzt gewechselt wurde. Nur Namen und Daten, keine
+# Werte - aber Serverzustand, kein Quellcode.
+.geheimnis-stand

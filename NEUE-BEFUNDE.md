@@ -2987,6 +2987,57 @@ Die Lehre ist unspektakulär und teuer: **jede schreibende Anweisung braucht
 ihr `commit()`**, auch wenn sie nur aufräumt. Und eine Testsuite, die
 plötzlich langsam wird, ist ein Befund und keine Laune.
 
+## N-50 — Niemand wusste, wo die Geheimnisse überall stehen
+
+Der Anlass war keine Panne, sondern eine Frage beim Aufsetzen: „Bei Schritt
+drei komme ich nicht weiter." Schritt drei hieß, die Einlassmarke in jede
+`.env` einzutragen — und nirgends stand, **in welche**. Gemessen: `PROLO_EINLASS`
+steht an **vier** Stellen (`traefik/dynamic/einlass.yml`, `wiki/.env`,
+`bordbuch/.env`, `www/.env`), `AUTHENTIK_SECRET_KEY` und `PG_PASS` an je
+einer. Sechs Stellen, keine Liste, kein Datum, kein Weg sie zu wechseln.
+
+Das ist die stille Sorte Lücke. Nichts ist kaputt, alles läuft — bis jemand
+einen Wert an drei von vier Stellen ändert. Dann antwortet ein Werkzeug auf
+jede Anfrage mit `401`, und die Ursache steht in einer Datei, an die niemand
+denkt.
+
+**Die Korrektur besteht aus drei Teilen.** Jedes Werkzeug sagt in seiner
+`geheimnisse.conf` selbst, welche Werte es hält — wie bei `sicherung.conf`
+ist zentral nichts zu ändern, wenn ein Werkzeug dazukommt. `prolo
+geheimnisse` liest sie ein und zeigt **Namen, Orte, Alter, Risiko — und
+keinen einzigen Wert** (§22). `--neu` fragt je Geheimnis einzeln nach und
+würfelt neu; `--merkzettel` schreibt den verschlüsselten Zettel für den
+Passwortmanager.
+
+### Der Fallstrick, der dabei auffiel
+
+Ein Wechselwerkzeug, das alles wechselt, was es findet, wäre gefährlicher
+als gar keines. `PG_PASS` steht **nicht nur** in `authentik/.env`, sondern
+auch in PostgreSQL selbst. Wer nur die Datei ändert, sperrt Authentik aus
+seiner eigenen Datenbank aus — und damit den ganzen Stack aus der Anmeldung.
+Darum kennt die `geheimnisse.conf` drei Wechselarten (`harmlos`,
+`sitzungen`, `haende`), und `haende` heißt: **das Werkzeug zeigt den Wert
+und rührt ihn nicht an**, sondern sagt, in welcher Reihenfolge es von Hand
+geht. Die Reihenfolge beim Wechseln ist aus demselben Grund fest: erst
+Traefik, dann die Werkzeuge — andersherum wäre jede Anfrage so lange `401`,
+wie Traefik noch den alten Wert anhängt.
+
+### Was gemessen ist
+
+`werkzeuge/geheimnisse-pruefen.sh`: **81 Prüflinien**, davon 17 gegen einen
+im Kratzblock nachgebauten Mini-Stack, gegen den das Werkzeug wirklich
+läuft. Dass ein `haende`-Geheimnis in Ruhe bleibt, glaubt man erst, wenn man
+mit lauter „ja" dagegengelaufen ist. `--gegenprobe` baut **25 Fehler** ein,
+einen nach dem anderen — vom vertippten Namen bis zu „das Werkzeug wechselt
+`haende` doch" — und verlangt, dass jeder auffällt. Gemessen: 25 von 25
+gefunden.
+
+Zwei kleinere Sachen fielen dabei ab und sind mit repariert: `prolo
+geheimnisse | head` brach mit einem Stapelabzug ab (`SIGPIPE` stand auf
+`SIG_IGN`), und auf einer Maschine ohne Docker wäre der Neustart nach dem
+Wechsel mit `FileNotFoundError` abgestürzt statt zu sagen, dass die Dateien
+den neuen Wert tragen und die Dienste noch den alten.
+
 ## Sicherheitsaufnahme — der Stand nach `N-44` bis `N-46`
 
 Der Auftrag war: „Maximale Sicherheit für meine Tools und keine Fehlzugriffe
