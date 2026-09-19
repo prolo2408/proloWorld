@@ -2667,6 +2667,142 @@ Die Frage, welcher der drei der Primärbutton der Seite ist — die
 Speicherleiste unten oder der Knopf im Bericht —, gehört in einen eigenen
 Arbeitsschritt, nicht in diesen.
 
+## N-44 — Die Identität war eine Behauptung, keine Tatsache
+
+### Der Auftrag
+
+„Maximale Sicherheit für meine Tools und keine Fehlzugriffe von Leuten, die
+das nicht dürfen. Wenn ich jemandem `wiki-nutzer` gebe, darf dieser in keinem
+Fall auf die Verwaltungsseite kommen, auch nicht, wenn er mit JSON versucht,
+da was vorzugaukeln."
+
+### Was gemessen wurde
+
+Erst die gute Nachricht. Jede Route des Wikis wurde ihrer Wache zugeordnet:
+
+| Route | Wache |
+|---|---|
+| `/api/verwaltung`, `/api/rechte`, `/api/zweig`, `/api/neuindex` | `admin` |
+| `/api/import`, `/api/loeschen`, `/api/zuruecksetzen` | `editor` + `darf_schreiben` |
+| Lesen einer Seite, Suche, Themenbaum | `darf_sehen` |
+
+Die Rechteprüfung ist **serverseitig** und in Ordnung. Drei Aufrufe gegen
+einen laufenden Server:
+
+```
+ohne Kopfzeile                                 → 401
+X-Authentik-Username: gast                     → 403
+X-Authentik-Username: x + Groups: wiki-admin   → 200 + Verwaltungsdaten
+```
+
+Der dritte ist der Befund. Nicht die Prüfung war falsch — das **Vertrauen in
+die Kopfzeile** war es. Wer sie setzen kann, ist, wen er will.
+
+Von außen ist das kein Weg. Mit der echten Traefik-Fassung 3.6.13 gegen einen
+Echo-Dienst nachgemessen: die ForwardAuth-Middleware löscht jede Kopfzeile
+aus `authResponseHeaders` und setzt sie aus der Antwort von Authentik neu.
+
+**Aus dem Docker-Netz heraus sehr wohl.** Wiki, Bordbuch, n8n und Authentik
+hängen im selben Netz `proxy`, und dort erreicht jeder Container Port 8080
+eines anderen — ohne Traefik, ohne Anmeldung. n8n ist der wunde Punkt: es
+führt angeklickte Abläufe aus, hat einen HTTP-Request-Baustein und
+Webhook-Pfade ohne Anmeldung. Kein Exploit nötig, das ist die normale
+Funktion.
+
+> Den Container-zu-Container-Teil konnte ich in der Arbeitsumgebung **nicht
+> ausführen** — dort läuft kein Docker-Daemon. Auf dem Server beweist ihn:
+> ```
+> docker run --rm --network proxy curlimages/curl -s -o /dev/null -w '%{http_code}\n' \
+>   -H 'X-Authentik-Groups: wiki-admin' http://wiki:8080/api/verwaltung
+> ```
+
+### Was daraus wurde
+
+Zwei Schichten, unabhängig voneinander.
+
+**Am Eingang** (`traefik.yml`, `entryPoints.websecure`, also für **jeden**
+Router — auch für die ohne Anmeldung wie die Webhook-Route von n8n):
+
+| Middleware | Wirkung |
+|---|---|
+| `vertrauensgrenze` | leert alle 11 `X-Authentik-*` und `X-Prolo-Einlass` |
+| `einlass` | setzt `X-Prolo-Einlass` auf das Geheimnis des Servers |
+| `sicherheitskopf` | wie bisher (B-26) |
+
+Die Reihenfolge ist gemessen, nicht angenommen: Eingangs-Middlewares laufen
+**vor** denen eines Routers, die Anmeldung setzt die geleerten Felder danach
+mit den echten Werten neu.
+
+**Im Werkzeug**: `einlass_pruefen()` läuft in `do_GET` **und** `do_POST`, vor
+jeder Frage nach der Identität, mit `hmac.compare_digest` auf Bytes. Fehlt
+`PROLO_EINLASS` in der `.env`, **startet das Werkzeug nicht** — mit einer
+Meldung, die den Weg nennt.
+
+Frei bleiben zwei Pfade, beide ohne Schützenswertes und beide absichtlich am
+Zugang vorbei erreichbar (§19): `/gesundheit` und `/api/version`. Deshalb
+zieht dieser Schritt die `PRUEF_URL` des Bordbuchs von `/` auf
+`/api/version` — sonst hätte `aktualisieren.sh` jeden Lauf zurückgerollt.
+
+### Der Durchstich
+
+Echte Traefik-Fassung, die **echten** Konfigurationsdateien aus dem
+Repository, echter Wiki-Server dahinter, gespielter Authentik als
+`wiki-nutzer`:
+
+| | |
+|---|---|
+| angemeldet, Verwaltung aufgerufen | **403** |
+| dabei `wiki-admin` mitgefälscht | **403** — `/api/ich` sagt weiter `wiki-nutzer`, `ist_admin: false` |
+| dabei auch die Einlassmarke geraten | **403** |
+| die Hülle, angemeldet | 200 |
+| **am Traefik vorbei, mit `wiki-admin`** | **401** *(vorher: 200)* |
+
+### Die Probe
+
+| Mutation | Ergebnis |
+|---|---|
+| `vertrauensgrenze` aus der Kette | 1 Fehler |
+| Reihenfolge vertauscht (erst setzen, dann löschen) | 1 Fehler |
+| eine Kopfzeile aus der Leerliste entfernt | 1 Fehler |
+| `:?` aus der compose-Datei entfernt | 1 Fehler |
+| Grenze nur noch in `do_GET` | 1 Fehler (Prüfer) + je 1 Fehler in beiden Testsuiten |
+| Vergleich immer wahr | 4 Fehler |
+| Wurzel auf die Freiliste gesetzt | 1 Fehler (Prüfer) + 1 Fehler (Wiki) |
+| Grenze im Bordbuch ganz entfernt | 1 Fehler (Prüfer) + 4 Fehler (Bordbuch) |
+| `PRUEF_URL` zurück auf `/` | 1 Fehler |
+| unverändert | 0 Fehler |
+
+### Zwei eigene Fehler dabei
+
+**Der Extraktor im Probelauf hat gelogen.** Er sollte die Middleware-Kette
+aus der echten `traefik.yml` ziehen und lieferte nur den ersten von drei
+Einträgen: `gsub` ändert in awk `$0`, damit traf die nächste Regel zu und
+brach ab. Der Durchstich lief also gegen eine halbe Kette — und meldete
+überall 401, was *aussah* wie ein Erfolg. Erst die Gegenprobe („findet der
+Extraktor wirklich drei?") hat es aufgedeckt.
+
+**Der Prüfer ist über sich selbst gestolpert.** `grenze-pruefen.sh` sucht den
+Platzhalter aus der Beispieldatei — und fand sich selbst. Zum fünften Mal in
+dieser Reihe nach `N-33`, `N-36`, `N-39` und dem Prüfskript aus `N-39`. Der
+gesuchte Text wird jetzt zusammengesetzt, nicht ausgeschrieben. Dazu ein
+zweiter Fehlschlag aus derselben Quelle: die beiden Werkzeuge schreiben ihre
+Freiliste verschieden (`["api", "version"]` im Wiki, `"/api/version"` im
+Bordbuch), und ein Prüfer, der nur eine Form kennt, meldet einen Fehler, den
+es nicht gibt. Er liest jetzt beide.
+
+### Eine Testlücke, die eine Probe gefunden hat
+
+Mutation „Grenze nur noch in `do_GET`": der Prüfer schlug an, **beide
+Testsuiten blieben grün**. Alle Tests, die die Grenze berührten, lasen nur.
+Eine halb offene Tür ist nicht halb sicher — also je ein Test, der schreibend
+ohne Marke anklopft. Danach findet die Mutation auch die Testsuite.
+
+### Was das für die nächsten Schritte heißt
+
+`N-45` (ein Netz je Werkzeug) und `N-46` (Ratenbremse) bleiben offen und
+kommen als eigene Schritte. Die Grenze hier hält auch ohne sie: ein Container
+im selben Netz kennt das Geheimnis nicht.
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen

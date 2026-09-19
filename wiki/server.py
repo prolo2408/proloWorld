@@ -13,6 +13,7 @@ Keine eigene Nutzerverwaltung, kein Gastzugang.
 
 import base64
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -35,7 +36,7 @@ from urllib.parse import unquote, urlparse, parse_qs
 # hatte VERSION, --version und /api/version, das Wiki gar nichts. Gelesen von
 # --version, /api/version und der image:-Zeile im docker-compose.yml; die
 # drei muessen zusammenpassen.
-VERSION = "1.3.4"
+VERSION = "1.4.0"
 
 DATEN = os.environ.get("WIKI_DATEN", "/daten")
 SEITEN = os.environ.get("WIKI_SEITEN", "/seiten")
@@ -441,6 +442,34 @@ GRENZE_STICHWORT = 60
 # als Seite gilt (N-23). Vierzig Zeichen sind eine halbe Zeile - darunter
 # bekommt der Leser nichts, egal wie voll der Meta-Block ist.
 GRENZE_SICHTBAR = 40
+
+# --------------------------------------------------- Die Vertrauensgrenze
+#
+# Die Identitaet kommt als Kopfzeile von Traefik (CLAUDE.md §17). Wer die
+# Kopfzeile setzen kann, IST damit, wen er will - gemessen: eine Anfrage mit
+# "X-Authentik-Groups: wiki-admin" bekam 200 und die Verwaltungsdaten,
+# waehrend dieselbe Anfrage ohne Gruppe 403 bekam (N-44). Die Rechtepruefung
+# ist also in Ordnung; das Vertrauen in die Kopfzeile war es nicht.
+#
+# Von AUSSEN ist das kein Weg: die Vertrauensgrenze am Traefik-Eingang
+# loescht jede mitgeschickte X-Authentik-* und setzt X-Prolo-Einlass selbst.
+# Gemessen mit Traefik 3.6.13 - auch ein mitgeschicktes X-Prolo-Einlass wird
+# ueberschrieben, und die Grenze greift VOR der Anmeldung, nicht danach.
+#
+# Von INNEN sehr wohl: im Docker-Netz erreicht jeder Container Port 8080
+# direkt, ohne Traefik. n8n fuehrt angeklickte Ablaeufe mit einem
+# HTTP-Baustein aus - das genuegt.
+#
+# Darum diese zweite Schicht. Ohne den Wert, den nur der Zugang kennt, wird
+# gar nicht erst nach der Identitaet gefragt.
+EINLASS_KOPF = "X-Prolo-Einlass"
+EINLASS = os.environ.get("PROLO_EINLASS", "")
+EINLASS_B = EINLASS.encode("utf-8")
+# Diese zwei Pfade bleiben frei - beide ohne Schuetzenswertes und beide
+# absichtlich am Zugang vorbei erreichbar (§19): die Gesundheitspruefung von
+# Docker laeuft im Container gegen 127.0.0.1, und aktualisieren.sh fragt die
+# Fassung ueber das interne Netz ab.
+EINLASS_FREI = (["gesundheit"], ["api", "version"])
 
 # Die Marke, an der der Editor erkennt, dass er das Markup einer Seite lesen
 # darf. Sie steht auch in index.html (EDITOR_WERKZEUG) und im Prompt fuer eine
@@ -1942,6 +1971,24 @@ class Handler(BaseHTTPRequestHandler):
             rest -= len(block)
         return b"".join(teile)
 
+    def einlass_pruefen(self):
+        """Kam die Anfrage ueber den Zugang dieses Servers? (N-44)
+
+        Laeuft vor allem anderen, auch vor der Identitaet: ein Container im
+        selben Netz soll nicht einmal die Frage nach dem Nutzer stellen
+        koennen. Die Begruendung steht bei EINLASS_KOPF.
+        """
+        if pfadteile(urlparse(self.path).path) in EINLASS_FREI:
+            return
+        # compare_digest auf Bytes, nicht auf Text: ein Umlaut in der
+        # Kopfzeile wuerde sonst einen TypeError werfen statt eine 401.
+        mit = (self.headers.get(EINLASS_KOPF) or "").encode("utf-8", "replace")
+        if hmac.compare_digest(mit, EINLASS_B):
+            return
+        raise Antwort(401, "Diese Anfrage kam nicht ueber den Zugang dieses "
+                           "Servers. Das Wiki ist unter "
+                           "https://wiki.prolo.me erreichbar.")
+
     def nutzer(self):
         n = nutzer_aus_kopf(self.headers)
         if n is None:
@@ -2054,6 +2101,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         schiefgegangen = False
         try:
+            self.einlass_pruefen()
             self.verteilen_get()
         except Antwort as a:
             self.fehler(a.code, a.text)
@@ -2080,6 +2128,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         schiefgegangen = False
         try:
+            self.einlass_pruefen()
             self.verteilen_post()
         except Antwort as a:
             self.fehler(a.code, a.text)
@@ -2659,6 +2708,24 @@ def main():
     if "--version" in sys.argv:
         print(VERSION)
         return
+    # Fehlt das Geheimnis, startet das Wiki NICHT (N-44). Ein stilles
+    # Weiterlaufen waere der schlechtere Fall: die Sicherung waere dann aus,
+    # ohne dass es jemandem auffaellt (CLAUDE.md §11). So faellt es sofort
+    # auf - die Gesundheitspruefung schlaegt fehl und aktualisieren.sh rollt
+    # auf den letzten guten Stand zurueck.
+    if not EINLASS:
+        sys.stderr.write(
+            "FEHLER: PROLO_EINLASS ist nicht gesetzt.\n\n"
+            "Ohne diesen Wert kann das Wiki nicht unterscheiden, ob eine\n"
+            "Anfrage vom Zugang dieses Servers kommt oder von einem anderen\n"
+            "Container im selben Netz. Es startet darum nicht.\n\n"
+            "So geht es weiter:\n"
+            "  1. Den Wert aus /opt/stack/traefik/dynamic/einlass.yml nehmen.\n"
+            "  2. In /opt/stack/wiki/.env eintragen:  PROLO_EINLASS=<Wert>\n"
+            "  3. sudo prolo compose wiki up -d\n\n"
+            "Der Wert ist ein Geheimnis wie ein Passwort: nicht in Git und\n"
+            "nicht in einen Chat (CLAUDE.md §21, §22).\n")
+        sys.exit(2)
     datenbank_anlegen()
     os.makedirs(VORSCHAU_ORDNER, exist_ok=True)
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)

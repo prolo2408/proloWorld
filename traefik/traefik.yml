@@ -26,7 +26,22 @@ entryPoints:
     http:
       # Gilt damit fuer ALLE Router - kein Tool kann die
       # Sicherheitskopfzeilen versehentlich auslassen (B-26).
+      #
+      # Die Reihenfolge ist Absicht und gemessen (N-44):
+      #   1. vertrauensgrenze loescht, was der Client an Identitaet
+      #      mitschickt. Am EINGANG, nicht je Router - sonst faellt genau
+      #      der Router durch, den jemand ohne Anmeldung anlegt.
+      #   2. einlass setzt die Marke, an der ein Werkzeug erkennt, dass die
+      #      Anfrage wirklich hier durchgekommen ist. Eigene Datei, weil sie
+      #      ein Geheimnis enthaelt - siehe dynamic/einlass.yml.beispiel.
+      #   3. sicherheitskopf setzt HSTS und den Rest (B-26).
+      #
+      # Eingangs-Middlewares laufen VOR denen eines Routers. Die Anmeldung
+      # setzt die geleerten Felder danach mit den echten Werten neu - mit
+      # Traefik 3.6.13 gegen einen Echo-Dienst nachgemessen.
       middlewares:
+        - vertrauensgrenze@file
+        - einlass@file
         - sicherheitskopf@file
       tls:
         options: streng@file

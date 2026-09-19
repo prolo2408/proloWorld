@@ -28,6 +28,50 @@ http:
           Server: ""
           X-Powered-By: ""
 
+# ------------------------------------------------------------------------
+# Die Vertrauensgrenze (N-44)
+#
+# Alles, was ein Werkzeug ueber seinen Aufrufer weiss, steht in
+# X-Authentik-* (CLAUDE.md §17). Wer diese Kopfzeilen setzen kann, IST
+# damit, wen er will - gemessen am Wiki: dieselbe Anfrage bekam mit
+# "X-Authentik-Groups: wiki-admin" die Verwaltungsdaten und ohne Gruppe
+# eine 403. Die Rechtepruefung war also in Ordnung, das Vertrauen in die
+# Kopfzeile nicht.
+#
+# Diese Middleware haengt am EINGANG (traefik.yml, entryPoints.websecure)
+# und gilt damit fuer JEDEN Router - auch fuer die ohne Anmeldung, wie die
+# Webhook-Route von n8n. Genau dort waere sonst die Luecke: ein Router ohne
+# authentik@file reicht durch, was der Client schickt.
+#
+# Ein leerer Wert LOESCHT die Kopfzeile. Gemessen mit Traefik 3.6.13 gegen
+# einen Echo-Dienst:
+#   Client schickt "X-Authentik-Groups: wiki-admin"  -> Backend sieht nichts
+#   danach setzt authentik@file die echten Werte     -> Backend sieht die echten
+# Die Reihenfolge stimmt also: Eingangs-Middlewares laufen VOR denen des
+# Routers, die Anmeldung ueberschreibt die geleerten Felder wieder.
+#
+# Die Liste muss zu authResponseHeaders in authentik.yml passen: jede
+# Kopfzeile, die Authentik setzen darf, gehoert hier vorher geleert.
+# werkzeuge/grenze-pruefen.sh haelt die beiden Listen zusammen.
+    vertrauensgrenze:
+      headers:
+        customRequestHeaders:
+          X-Authentik-Username: ""
+          X-Authentik-Groups: ""
+          X-Authentik-Email: ""
+          X-Authentik-Name: ""
+          X-Authentik-Uid: ""
+          X-Authentik-Jwt: ""
+          X-Authentik-Meta-Jwks: ""
+          X-Authentik-Meta-Outpost: ""
+          X-Authentik-Meta-Provider: ""
+          X-Authentik-Meta-App: ""
+          X-Authentik-Meta-Version: ""
+          # Auch die eigene Marke: sie wird gleich danach von einlass@file
+          # gesetzt. Fehlt diese Datei einmal, ist die Kopfzeile wenigstens
+          # leer statt vom Client bestimmt.
+          X-Prolo-Einlass: ""
+
 tls:
   options:
     streng:

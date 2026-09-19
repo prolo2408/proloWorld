@@ -25,6 +25,39 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
   ab, sagt die Karte genau das - und der Block zaehlt wieder als Code der
   Seite (N-40).
 
+## Fassung 1.4.0
+
+Die Vertrauensgrenze.
+
+Alles, was hier steht, ist **einmalig einzurichten** und danach nie wieder:
+
+> **Vor dem Einspielen dieser Fassung:** ein Geheimnis wuerfeln, in
+> `traefik/dynamic/einlass.yml` und in die `.env` JEDES Werkzeugs eintragen,
+> **erst Traefik** neu starten, dann die Werkzeuge. Die Anleitung steht
+> vollstaendig in `traefik/dynamic/einlass.yml.beispiel`. Ohne den Wert
+> startet das Werkzeug nicht und sagt im Protokoll, was fehlt.
+
+**Warum** (`N-44`): Die Identitaet eines Aufrufers kommt als Kopfzeile von
+Traefik. Ein Werkzeug sieht aber nicht, WOHER eine Anfrage kam - nur, was
+drinsteht. Im Docker-Netz erreicht jeder Container Port 8080 eines anderen
+direkt, ohne Traefik und ohne Anmeldung. Gemessen: eine Anfrage mit
+"X-Authentik-Groups: wiki-admin" bekam 200 und die Verwaltungsdaten,
+dieselbe ohne Gruppe 403. Die Rechtepruefung war also richtig - das
+Vertrauen in die Kopfzeile nicht.
+
+Jetzt gibt es zwei Schichten:
+
+1. **Traefik loescht am Eingang** jede mitgeschickte `X-Authentik-*` und
+   setzt eine eigene Marke. Am Eingang, nicht je Router - sonst faellt
+   genau der Router durch, den jemand ohne Anmeldung anlegt.
+2. **Das Werkzeug prueft die Marke**, bevor es nach der Identitaet fragt.
+   Fehlt sie, antwortet es gar nicht erst.
+
+Von aussen war das nie ein Weg. Von innen jetzt auch nicht mehr:
+derselbe Aufruf am Traefik vorbei bekommt **401** statt 200.
+
+Kein Datenumzug, keine Schemaaenderung, nichts an den Gruppen.
+
 ## Fassung 1.3.4
 
 Zwei Meldungen, die mehr geschadet als geholfen haben.

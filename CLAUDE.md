@@ -570,6 +570,25 @@ Die Identität kommt als HTTP-Kopf von Traefik:
 
 - Fehlt `X-Authentik-Username`, wird die Anfrage **abgewiesen**. Kein
   Vorgabenutzer, kein Gastzugang, kein stilles Weiterlaufen.
+- **Eine Kopfzeile ist nur so viel wert wie die Gewissheit, dass sie von
+  Traefik kommt** (`N-44`). Diese Gewissheit gibt es nicht von selbst: im
+  Docker-Netz erreicht jeder Container Port 8080 eines anderen direkt, ohne
+  Traefik und ohne Anmeldung. Gemessen: eine Anfrage mit
+  `X-Authentik-Groups: wiki-admin` bekam die Verwaltungsdaten.
+
+  Darum zwei Schichten, beide Pflicht:
+
+  1. **Traefik löscht am Eingang** jede mitgeschickte `X-Authentik-*` und
+     setzt `X-Prolo-Einlass` selbst — am **Eingang**, nicht je Router, sonst
+     fällt genau der Router durch, den jemand ohne Anmeldung anlegt.
+  2. **Jedes Werkzeug prüft `X-Prolo-Einlass`, bevor es nach der Identität
+     fragt.** Fehlt der Wert in seiner `.env`, **startet es nicht** — eine
+     Sicherung, deren Ausfall niemandem auffällt, ist keine.
+
+  Frei bleiben nur Pfade ohne Schützenswertes, die absichtlich am Zugang
+  vorbei aufgerufen werden: die Gesundheitsprüfung und die Fassung (§19).
+  `PRUEF_URL` in der `aktualisierung.conf` muss auf einem davon liegen.
+  `werkzeuge/grenze-pruefen.sh` hält die fünf Stellen zusammen.
 - Unbekannter Anmeldename legt automatisch einen Nutzer-Datensatz an.
 - Wiedererkennung über den **Anmeldenamen**, nicht über die E-Mail — die
   ändert sich.

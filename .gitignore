@@ -42,3 +42,8 @@ authentik/certs/
 # Traefik-Zugriffsprotokolle - Zugriffsdaten, gehoeren nicht ins Git (B-26)
 traefik/log/*.log
 traefik/log/*.log.*
+
+# Die Marke der Vertrauensgrenze (N-44). Ein Geheimnis wie eine .env: sie
+# gehoert auf den Server und in den Passwortmanager, nicht ins Git. Die
+# Beispieldatei daneben steht ausdruecklich drin.
+traefik/dynamic/einlass.yml

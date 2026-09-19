@@ -15,6 +15,7 @@ import binascii
 import contextlib
 import datetime
 import decimal
+import hmac
 import json
 import mimetypes
 import os
@@ -425,7 +426,27 @@ ADD_INDEXES = [
 SCHEMA_VERSION = "6"
 # Fassungsnummer der Anwendung, getrennt vom Datenstand oben. Wird von
 # --version und /api/version gelesen.
-VERSION = "2.5.3"
+VERSION = "2.6.0"
+
+# --------------------------------------------------- Die Vertrauensgrenze
+#
+# Die Identitaet kommt als Kopfzeile von Traefik (CLAUDE.md §17), und oben
+# steht schon der richtige Satz dazu: der Kopf ist nur so viel wert wie die
+# Gewissheit, dass ausschliesslich der Proxy den Server erreicht. Diese
+# Gewissheit gab es nicht - im Docker-Netz erreicht jeder Container Port
+# 8080 eines anderen direkt (N-44). Am Wiki gemessen: eine Anfrage mit
+# "X-Authentik-Groups: wiki-admin" bekam die Verwaltungsdaten.
+#
+# Traefik setzt am Eingang eine Marke, die nur er und die Werkzeuge kennen.
+# Ohne sie wird gar nicht erst nach der Identitaet gefragt.
+EINLASS_KOPF = "X-Prolo-Einlass"
+EINLASS = os.environ.get("PROLO_EINLASS", "")
+EINLASS_B = EINLASS.encode("utf-8")
+# Frei bleibt nur die Fassungsabfrage: die Gesundheitspruefung von Docker
+# laeuft im Container gegen 127.0.0.1, und aktualisieren.sh fragt sie ueber
+# das interne Netz ab - beides am Zugang vorbei, beides ohne
+# Schuetzenswertes (§19).
+EINLASS_FREI = ("/api/version",)
 
 SESSION_FIELDS = ["tx", "start", "finish", "sec", "kwh", "cost", "net", "vat", "station", "city", "zip",
                   "street", "rate", "partner", "entity", "invoice_no", "invoice_date", "invoice_gross",
@@ -1366,8 +1387,28 @@ class App(BaseHTTPRequestHandler):
         return urlparse(herkunft).netloc != (self.headers.get("Host") or "")
 
     # ---------------- GET ----------------
+    def einlass_pruefen(self, path):
+        """Kam die Anfrage ueber den Zugang dieses Servers? (N-44)
+
+        Laeuft vor allem anderen, auch vor der Identitaet. Begruendung
+        oben bei EINLASS_KOPF.
+        """
+        if path in EINLASS_FREI:
+            return True
+        # Auf Bytes vergleichen: ein Umlaut in der Kopfzeile wuerde sonst
+        # einen TypeError werfen statt eine 401.
+        mit = (self.headers.get(EINLASS_KOPF) or "").encode("utf-8", "replace")
+        if hmac.compare_digest(mit, EINLASS_B):
+            return True
+        self.send_json({"error": "Diese Anfrage kam nicht ueber den Zugang "
+                                 "dieses Servers. Das Bordbuch ist unter "
+                                 "https://bordbuch.prolo.me erreichbar."}, 401)
+        return False
+
     def do_GET(self):
         path = urlparse(self.path).path
+        if not self.einlass_pruefen(path):
+            return
         if path == "/api/version":
             return self.send_json({"version": VERSION, "schema": SCHEMA_VERSION})
         if path == "/api/state":
@@ -1988,6 +2029,8 @@ class App(BaseHTTPRequestHandler):
     # ---------------- POST ----------------
     def do_POST(self):
         path = urlparse(self.path).path
+        if not self.einlass_pruefen(path):
+            return
         # Der eigentliche Riegel gegen Formularangriffe (B-03): application/json
         # ist KEINE CORS-simple-request. Der Browser erzwingt dafuer einen
         # Preflight, und der scheitert, weil Bordbuch keine CORS-Kopfzeilen
@@ -2832,6 +2875,22 @@ def main():
               "Lass den Server auf 127.0.0.1 lauschen und stelle den Reverse-Proxy davor.\n"
               "Ist der Zugang anders abgesichert, starte mit --header-vertrauen." % CFG.host)
         return
+    # Fehlt die Marke, startet das Bordbuch NICHT (N-44). Ein stilles
+    # Weiterlaufen waere der schlechtere Fall: die Sicherung waere dann aus,
+    # ohne dass es jemandem auffaellt (CLAUDE.md §11). So schlaegt die
+    # Gesundheitspruefung fehl und aktualisieren.sh rollt zurueck.
+    if not EINLASS:
+        print("FEHLER: PROLO_EINLASS ist nicht gesetzt.\n\n"
+              "Ohne diesen Wert kann das Bordbuch nicht unterscheiden, ob eine\n"
+              "Anfrage vom Zugang dieses Servers kommt oder von einem anderen\n"
+              "Container im selben Netz. Es startet darum nicht.\n\n"
+              "So geht es weiter:\n"
+              "  1. Den Wert aus /opt/stack/traefik/dynamic/einlass.yml nehmen.\n"
+              "  2. In /opt/stack/bordbuch/.env eintragen:  PROLO_EINLASS=<Wert>\n"
+              "  3. sudo prolo compose bordbuch up -d\n\n"
+              "Der Wert ist ein Geheimnis wie ein Passwort: nicht in Git und\n"
+              "nicht in einen Chat (CLAUDE.md §21, §22).", file=sys.stderr)
+        sys.exit(2)
     print("Bordbuch (Stand %s) laeuft auf http://%s:%d\nAnmeldung: Kopf X-Authentik-Username"
           " · Verwaltungsgruppe: %s\nAbmelden: %s\nDatenbank: %s"
           % (SCHEMA_VERSION, CFG.host, CFG.port, CFG.admin_gruppe,

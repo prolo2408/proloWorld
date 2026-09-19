@@ -8,7 +8,7 @@
 services:
   bordbuch:
     build: .
-    image: bordbuch:2.5.3          # feste Fassung, nie latest
+    image: bordbuch:2.6.0          # feste Fassung, nie latest
     container_name: bordbuch
     # Grenzen nach CLAUDE.md §19 (B-29). Vorher hatte KEIN Container
     # mem_limit, pids_limit, cap_drop oder security_opt. Folgen: ein
@@ -32,6 +32,12 @@ services:
     restart: unless-stopped
 
     environment:
+      # Die Marke der Vertrauensgrenze (N-44). Mit ":?" bricht schon
+      # "docker compose up" ab und sagt, was fehlt - besser als ein
+      # Container, der startet und dann jede Anfrage mit 401 abweist.
+      # Der Wert steht in /opt/stack/bordbuch/.env und muss derselbe sein
+      # wie in /opt/stack/traefik/dynamic/einlass.yml.
+      PROLO_EINLASS: "${PROLO_EINLASS:?PROLO_EINLASS fehlt in bordbuch/.env - siehe traefik/dynamic/einlass.yml.beispiel}"
       # Datenbank und Belege liegen in getrennten Volumes - Belege werden
       # gross, und beim Wiederherstellen will man sie einzeln behandeln koennen.
       BORDBUCH_DB: /daten/bordbuch.db
