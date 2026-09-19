@@ -295,6 +295,21 @@ def wechseln():
     print(fett("Geheimnisse wechseln") + "\n")
     print("  Gefragt wird je Geheimnis. Nichts passiert ungefragt.\n")
 
+    # Der Merkzettel wird VORHER geprueft, nicht hinterher. Er entsteht am
+    # Ende des Laufs; fehlt dann der Schluessel, waeren die Werte schon
+    # gewechselt, die Dienste schon neu gestartet - und der einzige Zettel
+    # mit dem alten und dem neuen Wert ginge verloren. Ein Hinweis nach der
+    # ersten Aenderung ist wertlos (§15, §24a).
+    if not os.path.exists(SCHLUESSEL) or shutil.which("age") is None:
+        print(rot("  Der Merkzettel liesse sich am Ende nicht schreiben."))
+        print("  Es fehlt %s"
+              % ("das Programm 'age'" if shutil.which("age") is None
+                 else SCHLUESSEL))
+        print("  Ohne ihn stuenden die neuen Werte nur in den Dateien, und")
+        print("  der alte Wert waere weg. Erst das in Ordnung bringen -")
+        print("  denselben Schluessel benutzt auch 'prolo sichern'.\n")
+        return 1
+
     # Vor der ersten Aenderung: eine Sicherung. Danach ist der alte Wert
     # nur noch im Merkzettel - und wenn der schiefgeht, gar nicht mehr.
     if not fragen("Liegt eine frische Sicherung vor (prolo sichern)?"):

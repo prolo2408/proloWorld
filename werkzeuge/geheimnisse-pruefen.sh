@@ -241,41 +241,18 @@ with tempfile.TemporaryDirectory(prefix="geheimnis-probe-") as tmp:
     open(os.path.join(tmp, "zwei", ".env"), "w").write(
         "VORHER=bleibt\nGEMEINSAM=ALTERWERT-EINS\nNACHHER=bleibt\n")
 
-    # Ohne Sicherung wird nichts gewechselt.
+    # Der Merkzettel wird VORHER geprueft. Ohne Schluessel darf ueberhaupt
+    # nichts passieren - sonst stuenden am Ende die neuen Werte in den
+    # Dateien und der alte Wert waere weg.
     vorher = env("eins")
-    rc, aus = lauf(prog, ["--neu"], eingabe="n\n")
+    rc, aus = lauf(prog, ["--neu"], eingabe="j\nj\nj\nj\n")
     sag(rc == 1 and env("eins") == vorher,
-        "--neu ohne frische Sicherung aendert nichts (rc=%d)" % rc,
-        "ein Wechsel ohne Rueckweg ist keiner")
-
-    # Alles mit "ja" beantworten - und trotzdem bleibt das Haende-Geheimnis.
-    rc, aus = lauf(prog, ["--neu"], eingabe="j\n" + "j\n" * 10)
-    neu_eins, neu_zwei = env("eins"), env("zwei")
-    sag("UNBERUEHRBAR=FINGER-WEG" in env("drei"),
-        "--neu laesst ein 'haende'-Geheimnis in Ruhe, auch bei lauter Ja",
-        "es steht an einer zweiten Stelle, die das Werkzeug nicht kennt")
-    # "NICHT angefasst" allein waere zu wenig: eine Ankuendigung ist kein
-    # Beweis (N-38), und eine Warnung ohne Weg ist ein Raetsel (§7). Der
-    # Text muss den naechsten Handgriff nennen.
-    sag("wechselt das Werkzeug NICHT" in aus and "prolo sichern" in aus
-        and "ZWEITEN Stelle" in aus,
-        "--neu sagt beim Haende-Geheimnis, was von Hand zu tun ist",
-        "sonst steht da nur 'geht nicht' und niemand weiss weiter")
-    sag("GEMEINSAM=ALTERWERT-EINS" not in neu_eins,
-        "--neu hat das harmlose Geheimnis wirklich gewechselt")
-    w1 = re.search(r"^GEMEINSAM=(.*)$", neu_eins, re.M)
-    w2 = re.search(r"^GEMEINSAM=(.*)$", neu_zwei, re.M)
-    sag(w1 and w2 and w1.group(1) == w2.group(1),
-        "--neu schreibt an BEIDE Stellen denselben Wert",
-        "zwei verschiedene neue Werte waeren schlimmer als der alte")
-    sag(w1 is not None and len(w1.group(1)) >= 40,
-        "--neu wuerfelt lang genug (%d Zeichen)"
-        % (len(w1.group(1)) if w1 else 0))
-    sag(neu_eins.startswith("VORHER=bleibt\n") and neu_eins.endswith("NACHHER=bleibt\n"),
-        "--neu ruehrt den Rest der Datei nicht an",
-        "eine .env haelt mehr als Geheimnisse")
-    sag("ALTERWERT-EINS" not in aus and w1.group(1) not in aus,
-        "--neu schreibt auch den neuen Wert nicht auf den Bildschirm")
+        "--neu ohne Sicherungsschluessel aendert nichts (rc=%d)" % rc,
+        "der Merkzettel entsteht am ENDE - fehlt der Schluessel erst dann, "
+        "ist der alte Wert weg")
+    sag("Liegt eine frische Sicherung" not in aus,
+        "--neu bricht ab, BEVOR es die erste Frage stellt",
+        "ein Hinweis nach der ersten Aenderung ist wertlos (§15)")
 
     # Der Merkzettel ohne oeffentlichen Schluessel: gar nichts.
     rc, aus = lauf(prog, ["--merkzettel"])
@@ -285,14 +262,67 @@ with tempfile.TemporaryDirectory(prefix="geheimnis-probe-") as tmp:
     sag(not os.path.exists(os.path.join(tmp, "merkzettel")),
         "--merkzettel hat bei Abbruch nichts angelegt")
 
-    # Und mit Schluessel: verschluesselt, 600, Wert nicht im Klartext.
-    if shutil.which("age") and shutil.which("age-keygen"):
+    if not (shutil.which("age") and shutil.which("age-keygen")):
+        sag(False, "age und age-keygen sind da",
+            "ohne sie bleibt die Haelfte dieser Pruefung ungemessen - "
+            "ein uebersprungener Test ist kein gruener Test")
+    else:
         k = subprocess.run(["age-keygen"], capture_output=True, text=True)
         geheim = os.path.join(tmp, "probe.key")
         open(geheim, "w").write(k.stdout)
         oeff = [z.split(": ")[1].strip() for z in k.stdout.splitlines()
                 if z.startswith("# public key:")][0]
         open(os.path.join(tmp, ".backup-schluessel.pub"), "w").write(oeff + "\n")
+
+        # Ohne Sicherung wird nichts gewechselt.
+        vorher = env("eins")
+        rc, aus = lauf(prog, ["--neu"], eingabe="n\n")
+        sag(rc == 1 and env("eins") == vorher,
+            "--neu ohne frische Sicherung aendert nichts (rc=%d)" % rc,
+            "ein Wechsel ohne Rueckweg ist keiner")
+
+        # Alles mit "ja" beantworten - und trotzdem bleibt das Haende-Geheimnis.
+        rc, aus = lauf(prog, ["--neu"], eingabe="j\n" + "j\n" * 10)
+        neu_eins, neu_zwei = env("eins"), env("zwei")
+        sag("UNBERUEHRBAR=FINGER-WEG" in env("drei"),
+            "--neu laesst ein 'haende'-Geheimnis in Ruhe, auch bei lauter Ja",
+            "es steht an einer zweiten Stelle, die das Werkzeug nicht kennt")
+        # "NICHT angefasst" allein waere zu wenig: eine Ankuendigung ist kein
+        # Beweis (N-38), und eine Warnung ohne Weg ist ein Raetsel (§7). Der
+        # Text muss den naechsten Handgriff nennen.
+        sag("wechselt das Werkzeug NICHT" in aus and "prolo sichern" in aus
+            and "ZWEITEN Stelle" in aus,
+            "--neu sagt beim Haende-Geheimnis, was von Hand zu tun ist",
+            "sonst steht da nur 'geht nicht' und niemand weiss weiter")
+        sag("GEMEINSAM=ALTERWERT-EINS" not in neu_eins,
+            "--neu hat das harmlose Geheimnis wirklich gewechselt")
+        w1 = re.search(r"^GEMEINSAM=(.*)$", neu_eins, re.M)
+        w2 = re.search(r"^GEMEINSAM=(.*)$", neu_zwei, re.M)
+        sag(w1 and w2 and w1.group(1) == w2.group(1),
+            "--neu schreibt an BEIDE Stellen denselben Wert",
+            "zwei verschiedene neue Werte waeren schlimmer als der alte")
+        sag(w1 is not None and len(w1.group(1)) >= 40,
+            "--neu wuerfelt lang genug (%d Zeichen)"
+            % (len(w1.group(1)) if w1 else 0))
+        sag(neu_eins.startswith("VORHER=bleibt\n")
+            and neu_eins.endswith("NACHHER=bleibt\n"),
+            "--neu ruehrt den Rest der Datei nicht an",
+            "eine .env haelt mehr als Geheimnisse")
+        sag("ALTERWERT-EINS" not in aus and w1.group(1) not in aus,
+            "--neu schreibt auch den neuen Wert nicht auf den Bildschirm")
+
+        # Der Zettel aus dem Wechsel selbst: er muss BEIDE Werte tragen.
+        zettel = sorted(os.listdir(os.path.join(tmp, "merkzettel")))
+        sag(len(zettel) == 1, "--neu hat genau einen Merkzettel geschrieben")
+        if zettel:
+            pf = os.path.join(tmp, "merkzettel", zettel[0])
+            klar = subprocess.run(["age", "-d", "-i", geheim, pf],
+                                  capture_output=True, text=True).stdout
+            sag("ALTERWERT-EINS" in klar and w1.group(1) in klar,
+                "--neu: der Zettel traegt den alten UND den neuen Wert",
+                "nur mit beiden kommt man aus einem halben Wechsel wieder raus")
+
+        # Und der Zettel auf Zuruf: verschluesselt, 600, Wert nicht im Klartext.
         rc, aus = lauf(prog, ["--merkzettel"])
         pfad = [w for w in aus.split() if w.endswith(".age")]
         sag(rc == 0 and pfad, "--merkzettel schreibt mit Schluessel (rc=%d)" % rc)
@@ -310,10 +340,6 @@ with tempfile.TemporaryDirectory(prefix="geheimnis-probe-") as tmp:
                 "ein Zettel, den man nicht lesen kann, hilft niemandem")
             sag("UNBERUEHRBAR" in klar.stdout and "eins/.env" in klar.stdout,
                 "--merkzettel: Name und Ort stehen dabei")
-    else:
-        sag(False, "age und age-keygen sind da",
-            "ohne sie bleibt die Haelfte dieser Pruefung ungemessen - "
-            "ein uebersprungener Test ist kein gruener Test")
 
 print("")
 print("Alles gruen." if not fehler else "%d Fehler." % fehler)

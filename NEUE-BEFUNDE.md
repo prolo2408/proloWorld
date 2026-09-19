@@ -3038,6 +3038,22 @@ geheimnisse | head` brach mit einem Stapelabzug ab (`SIGPIPE` stand auf
 Wechsel mit `FileNotFoundError` abgestürzt statt zu sagen, dass die Dateien
 den neuen Wert tragen und die Dienste noch den alten.
 
+### Nachtrag: der Zettel wurde zu spät geprüft
+
+Beim Aufschreiben der Schritte für den Server fiel ein Fehler in der eigenen
+Arbeit auf. Der Merkzettel entsteht am **Ende** des Wechsels — fehlte der
+Sicherungsschlüssel erst dort, waren die neuen Werte bereits in den Dateien,
+die Dienste bereits neu gestartet, und der einzige Zettel mit **altem und
+neuem** Wert ging verloren. Genau der Fall, gegen den `§24a` den Dreischritt
+vorschreibt: der Hinweis gehört **vor** die erste Änderung, nicht dahinter.
+
+`--neu` prüft jetzt als Allererstes, ob `age` und
+`/opt/stack/.backup-schluessel.pub` da sind, und bricht ab, **bevor** es die
+Frage nach der Sicherung stellt. Zwei neue Prüflinien, zwei neue Mutationen —
+der Prüfstand steht damit bei **85 Linien** und **27 von 27** gefundenen
+Mutationen. Es ist kein eigener Befund geworden, weil es ein Mangel an `N-50`
+selbst ist: eigener Arbeitsschritt, eigener Commit, gleiche Nummer.
+
 ## Sicherheitsaufnahme — der Stand nach `N-44` bis `N-46`
 
 Der Auftrag war: „Maximale Sicherheit für meine Tools und keine Fehlzugriffe
