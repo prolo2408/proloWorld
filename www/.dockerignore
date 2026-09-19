@@ -1,0 +1,14 @@
+# Nur server.py und schriften/ gehoeren ins Abbild - das Dockerfile kopiert
+# auch nur die. Diese Datei haelt den Rest aus dem Baukontext heraus.
+daten/
+seiten/
+__pycache__/
+tests/
+*.md
+*.conf
+docker-compose.yml
+.env
+.env.*
+.gitignore
+.stand-erfolgreich.yml
+*.tar.gz

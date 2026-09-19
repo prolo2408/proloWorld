@@ -2946,6 +2946,98 @@ Bestand schon vor der Änderung; darum notiert und nicht nebenbei behoben.
 Die Korrektur gehört in `edBloecke` (nur dann Titel, wenn die fette Stelle
 die **ganze** erste Zeile ist) und braucht ihre eigene Probe.
 
+## N-48 — Die Sperre ließ sich mit einer erfundenen Adresse unterlaufen
+
+Beim Bau des Freigabe-Werkzeugs entstanden, beim ersten Testlauf gefunden.
+
+Nach zehn Fehlversuchen soll eine Stunde Ruhe sein. Gezählt wird je
+Aufrufer, und der Aufrufer stand in `X-Forwarded-For` — ich nahm den
+**ersten** Eintrag, mit dem Kommentar „alles dahinter kann der Aufrufer
+selbst gesetzt haben". Das ist genau verkehrt herum: ein Proxy **hängt**
+seinen Eintrag **hinten** an. Was davor steht, kommt vom Aufrufer.
+
+Ein Angreifer hätte bei jedem Versuch eine andere Adresse vorne angestellt
+und die Sperre wäre wirkungslos gewesen — sie hätte nur noch Tippfehler
+gebremst.
+
+**Wie es aufgefallen ist:** zwei Tests derselben Klasse teilten sich die
+Sperre, der zweite bekam von Anfang an `429`. Beim Versuch, sie über diese
+Kopfzeile auseinanderzuhalten, fiel auf, welchen Eintrag der Code liest.
+
+Jetzt zählt der **letzte** Eintrag. Der TCP-Absender allein taugt nicht:
+das wäre immer Traefik, und dann teilten sich alle Aufrufer eine einzige
+Sperre. Die Prüflinie dazu stellt bei jedem von zwölf Versuchen eine andere
+Adresse voran und verlangt, dass es ab dem elften trotzdem `429` gibt.
+
+Die Regel steht jetzt in `CLAUDE.md §11`.
+
+## N-49 — Eine offene Schreibsperre, sichtbar nur an der Uhr
+
+Auch beim Bau des Freigabe-Werkzeugs. Die Funktion, die alte Fehlversuche
+wegräumt, machte ein `DELETE` und **kein `commit()`**. Damit blieb die
+Schreibsperre auf der SQLite-Datei offen, und der nächste schreibende
+Aufruf aus einem anderen Faden lief in `database is locked` — nach zehn
+Sekunden Wartezeit, als `500`.
+
+Das Auffällige war nicht der Fehler, sondern die **Uhr**: ein Test brauchte
+plötzlich zehn Sekunden statt Millisekunden. Nach der Korrektur lief die
+ganze Suite in 0,2 s statt 10,2 s.
+
+Die Lehre ist unspektakulär und teuer: **jede schreibende Anweisung braucht
+ihr `commit()`**, auch wenn sie nur aufräumt. Und eine Testsuite, die
+plötzlich langsam wird, ist ein Befund und keine Laune.
+
+## N-50 — Niemand wusste, wo die Geheimnisse überall stehen
+
+Der Anlass war keine Panne, sondern eine Frage beim Aufsetzen: „Bei Schritt
+drei komme ich nicht weiter." Schritt drei hieß, die Einlassmarke in jede
+`.env` einzutragen — und nirgends stand, **in welche**. Gemessen: `PROLO_EINLASS`
+steht an **vier** Stellen (`traefik/dynamic/einlass.yml`, `wiki/.env`,
+`bordbuch/.env`, `www/.env`), `AUTHENTIK_SECRET_KEY` und `PG_PASS` an je
+einer. Sechs Stellen, keine Liste, kein Datum, kein Weg sie zu wechseln.
+
+Das ist die stille Sorte Lücke. Nichts ist kaputt, alles läuft — bis jemand
+einen Wert an drei von vier Stellen ändert. Dann antwortet ein Werkzeug auf
+jede Anfrage mit `401`, und die Ursache steht in einer Datei, an die niemand
+denkt.
+
+**Die Korrektur besteht aus drei Teilen.** Jedes Werkzeug sagt in seiner
+`geheimnisse.conf` selbst, welche Werte es hält — wie bei `sicherung.conf`
+ist zentral nichts zu ändern, wenn ein Werkzeug dazukommt. `prolo
+geheimnisse` liest sie ein und zeigt **Namen, Orte, Alter, Risiko — und
+keinen einzigen Wert** (§22). `--neu` fragt je Geheimnis einzeln nach und
+würfelt neu; `--merkzettel` schreibt den verschlüsselten Zettel für den
+Passwortmanager.
+
+### Der Fallstrick, der dabei auffiel
+
+Ein Wechselwerkzeug, das alles wechselt, was es findet, wäre gefährlicher
+als gar keines. `PG_PASS` steht **nicht nur** in `authentik/.env`, sondern
+auch in PostgreSQL selbst. Wer nur die Datei ändert, sperrt Authentik aus
+seiner eigenen Datenbank aus — und damit den ganzen Stack aus der Anmeldung.
+Darum kennt die `geheimnisse.conf` drei Wechselarten (`harmlos`,
+`sitzungen`, `haende`), und `haende` heißt: **das Werkzeug zeigt den Wert
+und rührt ihn nicht an**, sondern sagt, in welcher Reihenfolge es von Hand
+geht. Die Reihenfolge beim Wechseln ist aus demselben Grund fest: erst
+Traefik, dann die Werkzeuge — andersherum wäre jede Anfrage so lange `401`,
+wie Traefik noch den alten Wert anhängt.
+
+### Was gemessen ist
+
+`werkzeuge/geheimnisse-pruefen.sh`: **81 Prüflinien**, davon 17 gegen einen
+im Kratzblock nachgebauten Mini-Stack, gegen den das Werkzeug wirklich
+läuft. Dass ein `haende`-Geheimnis in Ruhe bleibt, glaubt man erst, wenn man
+mit lauter „ja" dagegengelaufen ist. `--gegenprobe` baut **25 Fehler** ein,
+einen nach dem anderen — vom vertippten Namen bis zu „das Werkzeug wechselt
+`haende` doch" — und verlangt, dass jeder auffällt. Gemessen: 25 von 25
+gefunden.
+
+Zwei kleinere Sachen fielen dabei ab und sind mit repariert: `prolo
+geheimnisse | head` brach mit einem Stapelabzug ab (`SIGPIPE` stand auf
+`SIG_IGN`), und auf einer Maschine ohne Docker wäre der Neustart nach dem
+Wechsel mit `FileNotFoundError` abgestürzt statt zu sagen, dass die Dateien
+den neuen Wert tragen und die Dienste noch den alten.
+
 ## Sicherheitsaufnahme — der Stand nach `N-44` bis `N-46`
 
 Der Auftrag war: „Maximale Sicherheit für meine Tools und keine Fehlzugriffe

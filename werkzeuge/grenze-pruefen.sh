@@ -28,6 +28,48 @@ def sag(ok, text, zusatz=""):
     if not ok:
         fehler += 1
 
+def grenze_erreichbar(code, einstieg, tiefe=2):
+    """Fuehrt dieser Einstieg an einlass_pruefen vorbei - direkt oder ueber
+    einen Helfer?
+
+    Gelesen wird der Syntaxbaum, nicht der Text: welche Methoden ruft der
+    Einstieg auf, und ruft eine davon die Grenze? Zwei Ebenen reichen fuer
+    das Muster "do_GET -> _lauf -> einlass_pruefen"; tiefer verschachtelt
+    waere es ohnehin nicht mehr nachvollziehbar.
+    """
+    try:
+        baum = ast.parse(code)
+    except SyntaxError:
+        return False
+    koerper = {}
+    for knoten in ast.walk(baum):
+        if isinstance(knoten, ast.FunctionDef):
+            koerper[knoten.name] = knoten
+
+    def rufe(name):
+        k = koerper.get(name)
+        if k is None:
+            return set()
+        aus = set()
+        for x in ast.walk(k):
+            if isinstance(x, ast.Call) and isinstance(x.func, ast.Attribute):
+                aus.add(x.func.attr)
+            elif isinstance(x, ast.Call) and isinstance(x.func, ast.Name):
+                aus.add(x.func.id)
+        return aus
+
+    offen, gesehen = {einstieg}, set()
+    for _ in range(tiefe + 1):
+        if "einlass_pruefen" in offen:
+            return True
+        naechste = set()
+        for n in offen - gesehen:
+            gesehen.add(n)
+            naechste |= rufe(n)
+        offen = naechste
+    return "einlass_pruefen" in offen
+
+
 def freie_pfade(code):
     """Die Freiliste eines Werkzeugs als Pfade, egal wie sie geschrieben ist.
 
@@ -143,10 +185,18 @@ sag(not treffer, "der Platzhalter steht nur in der Beispieldatei",
     ", ".join(treffer))
 
 # --- 4. Jedes Werkzeug, das die Marke prueft, bekommt sie auch ----------
-for werkzeug in ("wiki", "bordbuch"):
+# Die Werkzeuge finden sich selbst. Eine feste Liste haette das naechste
+# uebersehen - genau das ist beim Anlegen von www/ beinahe passiert.
+werkzeuge = sorted(
+    o for o in os.listdir(stack)
+    if os.path.exists(os.path.join(stack, o, "server.py"))
+    and "PROLO_EINLASS" in (lies(o, "server.py") or ""))
+sag(len(werkzeuge) >= 2,
+    "Werkzeuge mit eigener Vertrauensgrenze gefunden (%d: %s)"
+    % (len(werkzeuge), ", ".join(werkzeuge)),
+    "ohne sie prueft der Rest dieses Skripts nichts")
+for werkzeug in werkzeuge:
     code = lies(werkzeug, "server.py") or ""
-    if "PROLO_EINLASS" not in code:
-        continue
     compose = lies(werkzeug, "docker-compose.yml") or ""
     sag("PROLO_EINLASS" in compose,
         "%s/docker-compose.yml reicht PROLO_EINLASS durch" % werkzeug)
@@ -155,11 +205,16 @@ for werkzeug in ("wiki", "bordbuch"):
         'ohne ":?" startet der Container und weist dann jede Anfrage ab')
     sag("PROLO_EINLASS" in (lies(werkzeug, ".env.beispiel") or ""),
         "%s/.env.beispiel nennt PROLO_EINLASS" % werkzeug)
-    # Die Wirkung, nicht die Zeichenfolge (N-36): der Aufruf muss in BEIDEN
-    # Einstiegen stehen. Nur in do_GET waere jede Schreibaktion offen.
-    n = len(re.findall(r"self\.einlass_pruefen\(", code))
-    sag(n >= 2, "%s: die Grenze steht in do_GET UND do_POST (%d Aufrufe)"
-        % (werkzeug, n), "eine Haelfte offen ist nicht halb sicher")
+    # Beide Einstiege muessen an der Grenze vorbei. Gezaehlt wird NICHT,
+    # wie oft der Aufruf dasteht: ein Werkzeug darf ihn aus einem
+    # gemeinsamen Helfer rufen, den do_GET und do_POST beide benutzen.
+    # Genau so macht es www, und eine Zaehlung haette das als Fehler
+    # gemeldet, den es nicht gibt. Gesucht wird die ERREICHBARKEIT, mit
+    # ast statt mit einem regulaeren Ausdruck.
+    for einstieg in ("do_GET", "do_POST"):
+        sag(grenze_erreichbar(code, einstieg),
+            "%s: %s fuehrt an der Vertrauensgrenze vorbei" % (werkzeug, einstieg),
+            "eine Haelfte offen ist nicht halb sicher")
     # Der freie Pfad darf nicht die Wurzel sein.
     frei = re.search(r"EINLASS_FREI = \((.*?)\)", code, re.S)
     sag(frei is not None and '"/"' not in frei.group(1)
@@ -167,7 +222,7 @@ for werkzeug in ("wiki", "bordbuch"):
         "%s: die Wurzel steht nicht auf der Freiliste" % werkzeug)
 
 # --- 5. Die Pruefadresse liegt auf einem freien Pfad --------------------
-for werkzeug in ("wiki", "bordbuch"):
+for werkzeug in werkzeuge:
     conf = lies(werkzeug, "aktualisierung.conf") or ""
     url = re.search(r'PRUEF_URL="([^"]*)"', conf)
     if not url or not url.group(1):

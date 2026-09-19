@@ -1,0 +1,72 @@
+services:
+  www:
+    build: .
+    # image: ist Pflicht, auch beim eigenen Dockerfile. Das zentrale
+    # aktualisieren.sh liest genau diese Zeile, um sich die bisherige
+    # Fassung zu merken - ohne sie gibt es keinen Rueckweg.
+    # Die Fassung passt zum CHANGELOG.md und wird dort mitgezogen.
+    image: www:1.0.0
+    container_name: www
+    # Grenzen nach CLAUDE.md §19.
+    mem_limit: 512m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Moeglich, weil ausschliesslich in /daten und /seiten geschrieben wird.
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    restart: unless-stopped
+    environment:
+      # Die Marke der Vertrauensgrenze (N-44). Mit ":?" bricht schon
+      # "docker compose up" ab und sagt, was fehlt - besser als ein
+      # Container, der startet und dann jede Anfrage mit 401 abweist.
+      PROLO_EINLASS: "${PROLO_EINLASS:?PROLO_EINLASS fehlt in www/.env - siehe traefik/dynamic/einlass.yml.beispiel}"
+      WWW_ADMIN_GRUPPE: "${WWW_ADMIN_GRUPPE:-stack-admin}"
+      WWW_MAX_UPLOAD_B: "${WWW_MAX_UPLOAD_B:-20971520}"
+    volumes:
+      - www_daten:/daten
+      - www_seiten:/seiten
+    networks:
+      - netz-www
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=netz-www"
+      - "traefik.http.services.www.loadbalancer.server.port=8080"
+
+      # ZWEI Router auf denselben Namen - das ist der Kern dieses Werkzeugs.
+      #
+      # 1. Oeffentlich, OHNE authentik@file: die Startseite und die
+      #    Zugangslinks. Eine Personalerin hat kein Konto und soll keines
+      #    brauchen. Die Startseite verraet nichts, und ein Zugangslink ist
+      #    192 Bit lang, laeuft ab und ist widerrufbar.
+      - "traefik.http.routers.www.rule=Host(`prolo.me`) || Host(`www.prolo.me`)"
+      - "traefik.http.routers.www.entrypoints=websecure"
+      - "traefik.http.routers.www.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.www.service=www"
+
+      # 2. Die Verwaltung, MIT authentik@file und hoeherer priority. Ohne
+      #    die hoehere Zahl gewaenne der Router oben, weil er dieselbe
+      #    Regel breiter fasst - und die Verwaltung staende offen.
+      #    Das Werkzeug prueft die Gruppe ZUSAETZLICH selbst (§17).
+      - "traefik.http.routers.www-verwaltung.rule=(Host(`prolo.me`) || Host(`www.prolo.me`)) && PathPrefix(`/verwaltung`)"
+      - "traefik.http.routers.www-verwaltung.entrypoints=websecure"
+      - "traefik.http.routers.www-verwaltung.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.www-verwaltung.middlewares=authentik@file"
+      - "traefik.http.routers.www-verwaltung.priority=100"
+      - "traefik.http.routers.www-verwaltung.service=www"
+
+volumes:
+  www_daten:
+  www_seiten:
+
+networks:
+  # Eigenes Netz je Werkzeug (N-45). Vorher hingen alle im selben Netz, und
+  # dort erreicht jeder Container jeden anderen direkt, ohne Traefik und
+  # ohne Anmeldung. Nur Traefik haengt in allen Netzen.
+  #
+  # Anlegen, einmalig je Server:  docker network create netz-www
+  netz-www:
+    external: true
