@@ -2933,6 +2933,66 @@ vorhergehende Schritt eingecheckt war. Das verstößt gegen „ein Befund, ein
 Commit". Aufgeräumt wird es **nicht** durch Umschreiben der Geschichte — der
 Zweig ist gepusht und hängt an einem Pull Request. Es steht stattdessen hier.
 
+## Sicherheitsaufnahme — der Stand nach `N-44` bis `N-46`
+
+Der Auftrag war: „Maximale Sicherheit für meine Tools und keine Fehlzugriffe
+von Leuten, die das nicht dürfen." Hier steht, was davon jetzt gemessen ist,
+was nur beschaffenheitsgeprüft ist, und was offen bleibt.
+
+### Die Rechtematrix
+
+`wiki/tests/test_rechtematrix.py`: **13 Routen × 5 Rollen = 65 Felder**, jeder
+Erwartungswert von Hand eingetragen. Die Rollen sind `anonym`,
+`wiki-nutzer`, `fremd` (Verwaltungsgruppe eines **anderen** Werkzeugs),
+`wiki-editor`, `wiki-admin`.
+
+| Route | anonym | nutzer | fremd | editor | admin |
+|---|---|---|---|---|---|
+| `/api/version`, `/gesundheit` | durch | durch | durch | durch | durch |
+| `/api/ich`, `/api/baum`, `/api/suche` | **401** | durch | durch | durch | durch |
+| `/api/verwaltung` | **401** | **403** | **403** | **403** | durch |
+| `/api/rechte`, `/api/zweig`, `/api/neuindex` | **401** | **403** | **403** | **403** | durch |
+| `/api/pruefen`, `/api/import` | **401** | **403** | **403** | durch | durch |
+| `/api/einstellungen`, `/api/lesezeichen` | **401** | durch | durch | durch | durch |
+
+Die Antwort auf die Ausgangsfrage steht in Zeile drei und vier: ein
+`wiki-nutzer` bekommt auf **jede** Verwaltungsroute **403** — mit gültiger
+Anmeldung, mit gültiger Einlassmarke und mit gefälschtem JSON im Körper.
+
+### Was gemessen ist und was nicht
+
+| | Stand | wie belegt |
+|---|---|---|
+| Rechteprüfung je Route und Rolle | **gemessen** | 65 Felder, 4 Mutationsproben |
+| Kopfzeilen-Fälschung von außen | **gemessen** | echte Traefik-Fassung, Echo-Dienst |
+| Kopfzeilen-Fälschung von innen | **gemessen** | 401 statt vorher 200 |
+| Ratenbremse | **gemessen** | 24/s durch, 302/s zu 70 % abgewiesen |
+| Netztrennung | **nur Beschaffenheit** | kein Docker-Daemon in der Arbeitsumgebung; 29 Prüflinien über sechs compose-Dateien |
+| Gruppenfilter | **gemessen** | `gruppen` gegen `gruppen_andere` |
+
+### Risikomatrix
+
+| Befund | Wirkung | Eintritt | Schwere | Stand |
+|---|---|---|---|---|
+| `N-44` Kopfzeile ungeprüft | voller Admin auf Wiki und Bordbuch | mittel | **hoch** | **behoben**, gemessen |
+| `N-45` flaches Netz | macht `N-44` erreichbar, seitliche Bewegung | — | **hoch** | **behoben**, Beschaffenheit |
+| `N-46` keine Ratenbremse | Raten und Zudecken | hoch | mittel | **behoben**, gemessen |
+| n8n-Webhooks ohne Anmeldung | Pfad von außen in ein Fremdprodukt | hoch | mittel | bleibt — bewusst so, jetzt aber gebremst und ohne Weg zu anderen Werkzeugen |
+| Rechteprüfung in den Werkzeugen | — | — | — | **war schon in Ordnung**, jetzt belegt |
+| Eine Person, ein Geheimnis für alle Werkzeuge | wer `einlass.yml` liest, kommt an jedem Werkzeug vorbei | niedrig (root nötig) | mittel | **offen** — je Werkzeug ein eigenes Geheimnis wäre besser |
+| Kein Protokoll über abgewiesene Zugriffe | ein Angriffsversuch fällt niemandem auf | — | niedrig | **offen** |
+| `N-42` 404 auf `/favicon.ico` | Rauschen im Protokoll | — | sehr niedrig | offen |
+| `N-43` drei Primärflächen | Bedienung, nicht Sicherheit | — | sehr niedrig | offen |
+
+### Was als Nächstes wirklich hilft
+
+1. **Je Werkzeug ein eigenes Einlassgeheimnis** statt eines gemeinsamen. Dann
+   nimmt ein gelesenes Geheimnis nur ein Werkzeug mit.
+2. **Abgewiesene Zugriffe zählen und sichtbar machen** — heute merkt niemand,
+   wenn jemand an der Tür rüttelt.
+3. Dieselbe Matrix für das **Bordbuch**. Dort gibt es bisher nur die sechs
+   Prüflinien der Vertrauensgrenze, nicht die volle Tabelle.
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
