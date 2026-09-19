@@ -11,7 +11,7 @@ services:
     # machte es richtig (build: . UND image: bordbuch:2.5.2).
     #
     # Die Fassung passt zum CHANGELOG.md und wird dort mitgezogen.
-    image: wiki:1.3.4
+    image: wiki:1.4.0
     container_name: wiki
     # Grenzen nach CLAUDE.md §19 (B-29). Vorher hatte KEIN Container
     # mem_limit, pids_limit, cap_drop oder security_opt. Folgen: ein
@@ -32,16 +32,22 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      # Die Marke der Vertrauensgrenze (N-44). Mit ":?" bricht schon
+      # "docker compose up" ab und sagt, was fehlt - besser als ein
+      # Container, der startet und dann jede Anfrage mit 401 abweist.
+      # Der Wert steht in /opt/stack/wiki/.env und muss derselbe sein wie
+      # in /opt/stack/traefik/dynamic/einlass.yml.
+      PROLO_EINLASS: "${PROLO_EINLASS:?PROLO_EINLASS fehlt in wiki/.env - siehe traefik/dynamic/einlass.yml.beispiel}"
       WIKI_ADMIN_GRUPPE: "${WIKI_ADMIN_GRUPPE:-wiki-admin}"
       WIKI_ADMIN_NUTZER: "${WIKI_ADMIN_NUTZER:-}"
     volumes:
       - wiki_daten:/daten
       - wiki_seiten:/seiten
     networks:
-      - proxy
+      - netz-wiki
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=proxy"
+      - "traefik.docker.network=netz-wiki"
       - "traefik.http.services.wiki.loadbalancer.server.port=8080"
       - "traefik.http.routers.wiki.rule=Host(`wiki.prolo.me`)"
       - "traefik.http.routers.wiki.entrypoints=websecure"
@@ -54,5 +60,13 @@ volumes:
   wiki_seiten:
 
 networks:
-  proxy:
+# Eigenes Netz je Werkzeug (N-45). Vorher hingen Wiki, Bordbuch, n8n und
+# Authentik im selben Netz "proxy" - und in einem Docker-Netz erreicht jeder
+# Container jeden anderen direkt, ohne Traefik und ohne Anmeldung. Damit war
+# der Weg von n8n (fuehrt angeklickte Ablaeufe mit einem HTTP-Baustein aus,
+# hat Webhook-Pfade ohne Anmeldung) zum Wiki offen. Jetzt gibt es ihn nicht
+# mehr: nur Traefik haengt in allen Netzen, die Werkzeuge in je ihrem.
+#
+# Anlegen, einmalig je Server:  docker network create netz-wiki
+  netz-wiki:
     external: true

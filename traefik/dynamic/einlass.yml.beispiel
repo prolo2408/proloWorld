@@ -1,0 +1,49 @@
+# /opt/stack/traefik/dynamic/einlass.yml
+#
+# DIESE DATEI IST EIN BEISPIEL. Die echte heisst einlass.yml, steht NICHT im
+# Git (CLAUDE.md §21) und enthaelt ein Geheimnis.
+#
+# Wozu (N-44): Die Identitaet eines Aufrufers kommt als Kopfzeile von
+# Traefik. Ein Werkzeug kann aber nicht sehen, WOHER eine Anfrage kam - nur,
+# was drinsteht. Im Docker-Netz erreicht jeder Container Port 8080 eines
+# anderen direkt, ohne Traefik und ohne Anmeldung. Wer das kann, koennte
+# sich jede Gruppe geben, die er will.
+#
+# Darum setzt Traefik am Eingang eine Marke, die nur er und die Werkzeuge
+# kennen. Ohne sie antwortet ein Werkzeug gar nicht erst.
+#
+# ANLEGEN, einmalig je Server:
+#
+#   1. Wert wuerfeln:
+#        openssl rand -base64 33
+#
+#   2. Diese Datei kopieren und den Wert eintragen:
+#        cd /opt/stack/traefik/dynamic
+#        sudo cp einlass.yml.beispiel einlass.yml
+#        sudo nano einlass.yml          # HIER-EINEN-GEWUERFELTEN-WERT ersetzen
+#        sudo chown root:root einlass.yml && sudo chmod 600 einlass.yml
+#
+#   3. DENSELBEN Wert in die .env JEDES Werkzeugs, das ihn prueft:
+#        /opt/stack/wiki/.env       PROLO_EINLASS=<derselbe Wert>
+#        /opt/stack/bordbuch/.env   PROLO_EINLASS=<derselbe Wert>
+#
+#   4. Erst Traefik, dann die Werkzeuge:
+#        sudo prolo compose traefik  up -d
+#        sudo prolo compose wiki     up -d
+#        sudo prolo compose bordbuch up -d
+#
+#      Diese Reihenfolge ist wichtig. Startet ein Werkzeug vor Traefik neu,
+#      kommen die Anfragen ohne Marke an und es antwortet mit 401 - bis
+#      Traefik nachzieht. Ohne den Wert in seiner .env startet ein Werkzeug
+#      ueberhaupt nicht und sagt im Protokoll, was fehlt.
+#
+# WECHSELN: neuen Wert wuerfeln, erst hier eintragen und Traefik neu laden,
+# dann die .env-Dateien und die Werkzeuge. Dazwischen liegen ein paar
+# Sekunden 401 - das ist der Preis und kein Datenverlust.
+
+http:
+  middlewares:
+    einlass:
+      headers:
+        customRequestHeaders:
+          X-Prolo-Einlass: "HIER-EINEN-GEWUERFELTEN-WERT-EINTRAGEN"

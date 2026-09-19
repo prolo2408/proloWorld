@@ -570,6 +570,25 @@ Die Identität kommt als HTTP-Kopf von Traefik:
 
 - Fehlt `X-Authentik-Username`, wird die Anfrage **abgewiesen**. Kein
   Vorgabenutzer, kein Gastzugang, kein stilles Weiterlaufen.
+- **Eine Kopfzeile ist nur so viel wert wie die Gewissheit, dass sie von
+  Traefik kommt** (`N-44`). Diese Gewissheit gibt es nicht von selbst: im
+  Docker-Netz erreicht jeder Container Port 8080 eines anderen direkt, ohne
+  Traefik und ohne Anmeldung. Gemessen: eine Anfrage mit
+  `X-Authentik-Groups: wiki-admin` bekam die Verwaltungsdaten.
+
+  Darum zwei Schichten, beide Pflicht:
+
+  1. **Traefik löscht am Eingang** jede mitgeschickte `X-Authentik-*` und
+     setzt `X-Prolo-Einlass` selbst — am **Eingang**, nicht je Router, sonst
+     fällt genau der Router durch, den jemand ohne Anmeldung anlegt.
+  2. **Jedes Werkzeug prüft `X-Prolo-Einlass`, bevor es nach der Identität
+     fragt.** Fehlt der Wert in seiner `.env`, **startet es nicht** — eine
+     Sicherung, deren Ausfall niemandem auffällt, ist keine.
+
+  Frei bleiben nur Pfade ohne Schützenswertes, die absichtlich am Zugang
+  vorbei aufgerufen werden: die Gesundheitsprüfung und die Fassung (§19).
+  `PRUEF_URL` in der `aktualisierung.conf` muss auf einem davon liegen.
+  `werkzeuge/grenze-pruefen.sh` hält die fünf Stellen zusammen.
 - Unbekannter Anmeldename legt automatisch einen Nutzer-Datensatz an.
 - Wiedererkennung über den **Anmeldenamen**, nicht über die E-Mail — die
   ändert sich.
@@ -595,8 +614,23 @@ Verbindlich in jeder `docker-compose.yml`:
 - **Keine `ports:`-Zeile.** Das ist der eigentliche Schutz: der Dienst ist nur
   über Traefik erreichbar. Eine `ports:`-Zeile hebelt Firewall und Anmeldung
   gleichzeitig aus.
-- Netzwerk `proxy` (extern), zusätzlich `internal` für Datenbanken.
-  Datenbanken und Hilfsdienste hängen **nur** in `internal`.
+- **Ein eigenes Netz je Werkzeug** (`netz-<werkzeug>`, extern), zusätzlich
+  `internal` für Datenbanken. Datenbanken und Hilfsdienste hängen **nur** in
+  `internal`.
+
+  **Nur Traefik hängt in allen Werkzeugnetzen** (`N-45`). In einem
+  gemeinsamen Netz erreicht jeder Container jeden anderen direkt — ohne
+  Traefik, ohne Anmeldung. Vorher lagen Wiki, Bordbuch, n8n und Authentik in
+  einem einzigen `proxy`, und damit stand der Weg von n8n (führt angeklickte
+  Abläufe mit einem HTTP-Baustein aus, hat Webhook-Pfade ohne Anmeldung) zum
+  Wiki offen.
+
+  Jedes Werkzeug nennt sein Netz **selbst** im Label
+  `traefik.docker.network` — seit `N-45` gibt es keine Vorgabe mehr, auf die
+  Traefik zurückfallen könnte. Beim Anlegen eines Werkzeugs gehört sein Netz
+  in **drei** Dateien: seine eigene, die von Traefik (Dienst **und** Block
+  unten) — und einmal `docker network create netz-<werkzeug>` auf dem
+  Server. `werkzeuge/netze-pruefen.sh` hält das zusammen.
 - `restart: unless-stopped`
 - **Grenzen sind Pflicht:**
 
@@ -630,6 +664,13 @@ Verbindlich in jeder `docker-compose.yml`:
   „ok" und eine Fassungsnummer, mehr nicht.
 - **Ausnahme Webhooks:** ein zweiter Router **ohne** `authentik@file` und mit
   höherer `priority` — und ein Vermerk unter `HINWEIS=`.
+- **Eine Ratenbremse am Eingang** (`N-46`), vor allem anderen: wer zu schnell
+  oder zu oft gleichzeitig anklopft, kommt gar nicht erst bis zur Anmeldung.
+  Gemessen je Quelladresse. Der Wert muss **beides** können — einen Menschen
+  durchlassen (ein Seitenaufruf des Wikis sind rund 15 Anfragen; bei 24/s
+  null Abweisungen) und ein Skript bremsen (bei 302/s wurden 558 von 800
+  abgewiesen). Sie hilft **nicht** gegen verteiltes Raten von vielen
+  Adressen; dagegen hilft nur, dass es nichts zu raten gibt.
 
 ## 20. Benennung
 

@@ -37,6 +37,10 @@ def freier_port():
 class Dienst(unittest.TestCase):
     """Ein laufender Server je Testklasse."""
 
+    # Der Wert steht hier im Klartext, weil er nur fuer diesen Testprozess
+    # gilt. Im Betrieb kommt er aus traefik/dynamic/einlass.yml (N-44).
+    EINLASS = "probe-einlass-4f2b"
+
     @classmethod
     def setUpClass(cls):
         cls.ordner = tempfile.mkdtemp(prefix="wiki-dienst-")
@@ -47,7 +51,11 @@ class Dienst(unittest.TestCase):
         cls.port = freier_port()
         umgebung = dict(os.environ,
                         WIKI_DATEN=cls.daten, WIKI_SEITEN=cls.seiten,
-                        WIKI_PORT=str(cls.port))
+                        WIKI_PORT=str(cls.port),
+                        # Die Marke der Vertrauensgrenze (N-44). Ohne sie
+                        # startet der Server gar nicht - der Test wuerde also
+                        # gleich hier scheitern, nicht erst beim ersten Ruf.
+                        PROLO_EINLASS=cls.EINLASS)
         cls.prozess = subprocess.Popen(
             [sys.executable, os.path.join(WURZEL, "server.py")],
             env=umgebung, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -77,8 +85,14 @@ class Dienst(unittest.TestCase):
 
     # ------------------------------------------------------------------
     def ruf(self, weg, nutzer="artur", gruppen="wiki-admin",
-            daten=None, methode=None, typ="application/json"):
-        """Eine Anfrage wie vom Anmelde-Stellvertreter. Gibt (code, inhalt)."""
+            daten=None, methode=None, typ="application/json", einlass=True):
+        """Eine Anfrage wie vom Anmelde-Stellvertreter. Gibt (code, inhalt).
+
+        einlass=True setzt die Marke, die Traefik am Eingang anhaengt.
+        einlass=False laesst sie weg - so sieht eine Anfrage aus, die aus
+        dem Docker-Netz kommt und Traefik umgeht (N-44). einlass="..."
+        schickt einen falschen Wert.
+        """
         koerper = None
         if daten is not None:
             koerper = (daten if isinstance(daten, bytes)
@@ -90,6 +104,10 @@ class Dienst(unittest.TestCase):
         a.add_header("X-Authentik-Name", nutzer.title())
         a.add_header("X-Authentik-Groups", gruppen)
         a.add_header("Sec-Fetch-Site", "same-origin")
+        if einlass is True:
+            a.add_header("X-Prolo-Einlass", self.EINLASS)
+        elif einlass:
+            a.add_header("X-Prolo-Einlass", einlass)
         if koerper is not None:
             a.add_header("Content-Type", typ)
         try:
@@ -219,11 +237,89 @@ class RechteAmDienst(Dienst):
         a.add_header("X-Authentik-Groups", "wiki-admin")
         a.add_header("Sec-Fetch-Site", "cross-site")
         a.add_header("Content-Type", "application/json")
+        # Die Marke gehoert dazu: sonst haenge dieser Test an der
+        # Vertrauensgrenze (401) und wuerde die Herkunftspruefung (403),
+        # um die es ihm geht, gar nicht mehr erreichen (N-44).
+        a.add_header("X-Prolo-Einlass", self.EINLASS)
         try:
             urllib.request.urlopen(a)
             self.fail("cross-site wurde nicht abgewiesen")
         except urllib.error.HTTPError as e:
             self.assertEqual(e.code, 403)
+
+
+class Vertrauensgrenze(Dienst):
+    """N-44: Die Identitaet ist nur so viel wert wie die Gewissheit,
+    dass die Anfrage ueber den Zugang kam.
+
+    Gemessen vor der Korrektur: eine Anfrage mit
+    "X-Authentik-Groups: wiki-admin" bekam 200 und die Verwaltungsdaten,
+    dieselbe ohne Gruppe 403. Die Rechtepruefung war also richtig - das
+    Vertrauen in die Kopfzeile nicht. Von aussen ist das kein Weg (Traefik
+    loescht die Kopfzeilen am Eingang), aus dem Docker-Netz heraus schon.
+    """
+
+    def test_ohne_marke_kommt_niemand_durch(self):
+        # Genau der Angriff: volle Adminrechte behauptet, keine Marke.
+        code, _ = self.ruf("/api/verwaltung", nutzer="eindringling",
+                           gruppen="wiki-admin", einlass=False)
+        self.assertEqual(code, 401)
+
+    def test_eine_geratene_marke_hilft_nicht(self):
+        code, _ = self.ruf("/api/verwaltung", nutzer="eindringling",
+                           gruppen="wiki-admin", einlass="geraten")
+        self.assertEqual(code, 401)
+
+    def test_auch_die_huelle_bleibt_zu(self):
+        # Nicht nur die Schnittstelle: ohne Marke gibt es gar nichts.
+        code, _ = self.ruf("/", einlass=False)
+        self.assertEqual(code, 401)
+
+    def test_eine_marke_mit_umlaut_gibt_401_und_keinen_serverfehler(self):
+        # compare_digest wirft auf Text mit Umlaut einen TypeError. Wuerde
+        # der durchschlagen, waere aus der Abweisung eine 500 geworden -
+        # und ein Weg, den Server mit einer Kopfzeile zu stoeren.
+        code, _ = self.ruf("/api/verwaltung", einlass="gehäim")
+        self.assertEqual(code, 401)
+
+    def test_auch_schreibende_aufrufe_brauchen_die_marke(self):
+        # Die Probe, die diese Zeile erzwungen hat: nimmt man den Aufruf der
+        # Grenze NUR aus do_POST heraus, bleibt die ganze Suite gruen - alle
+        # anderen Tests lesen. Eine halb offene Tuer ist nicht halb sicher.
+        code, _ = self.ruf("/api/neuindex", daten={}, einlass=False)
+        self.assertEqual(code, 401)
+
+    def test_die_zwei_freien_pfade_bleiben_frei(self):
+        # Beide werden am Zugang vorbei aufgerufen: die
+        # Gesundheitspruefung von Docker im Container, die Fassung von
+        # aktualisieren.sh ueber das interne Netz (§19).
+        for weg in ("/gesundheit", "/api/version"):
+            with self.subTest(weg=weg):
+                code, _ = self.ruf(weg, einlass=False)
+                self.assertEqual(code, 200)
+
+    def test_mit_marke_entscheidet_weiter_die_gruppe(self):
+        # Die zweite Schicht darf die erste nicht ersetzen: wer durch die
+        # Grenze kommt, ist damit noch lange kein Verwalter.
+        code, _ = self.ruf("/api/verwaltung", nutzer="gast", gruppen="")
+        self.assertEqual(code, 403)
+        code, _ = self.ruf("/api/verwaltung", nutzer="artur",
+                           gruppen="wiki-admin")
+        self.assertEqual(code, 200)
+
+    def test_ein_wiki_nutzer_kommt_auf_keine_verwalterstelle(self):
+        # Die Frage, um die es geht: mit gueltiger Marke, angemeldet, aber
+        # nur mit der Gruppe wiki-nutzer - und mit gefaelschtem JSON.
+        for weg, daten in (
+                ("/api/verwaltung", None),
+                ("/api/rechte", {"slug": "x", "gruppen": ["wiki-nutzer"]}),
+                ("/api/zweig", {"pfad": "Technik", "gruppen": []}),
+                ("/api/neuindex", {}),
+        ):
+            with self.subTest(weg=weg):
+                code, _ = self.ruf(weg, nutzer="lena", gruppen="wiki-nutzer",
+                                   daten=daten)
+                self.assertEqual(code, 403, weg)
 
 
 if __name__ == "__main__":

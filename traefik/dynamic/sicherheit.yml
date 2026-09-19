@@ -28,6 +28,82 @@ http:
           Server: ""
           X-Powered-By: ""
 
+# ------------------------------------------------------------------------
+# Die Vertrauensgrenze (N-44)
+#
+# Alles, was ein Werkzeug ueber seinen Aufrufer weiss, steht in
+# X-Authentik-* (CLAUDE.md §17). Wer diese Kopfzeilen setzen kann, IST
+# damit, wen er will - gemessen am Wiki: dieselbe Anfrage bekam mit
+# "X-Authentik-Groups: wiki-admin" die Verwaltungsdaten und ohne Gruppe
+# eine 403. Die Rechtepruefung war also in Ordnung, das Vertrauen in die
+# Kopfzeile nicht.
+#
+# Diese Middleware haengt am EINGANG (traefik.yml, entryPoints.websecure)
+# und gilt damit fuer JEDEN Router - auch fuer die ohne Anmeldung, wie die
+# Webhook-Route von n8n. Genau dort waere sonst die Luecke: ein Router ohne
+# authentik@file reicht durch, was der Client schickt.
+#
+# Ein leerer Wert LOESCHT die Kopfzeile. Gemessen mit Traefik 3.6.13 gegen
+# einen Echo-Dienst:
+#   Client schickt "X-Authentik-Groups: wiki-admin"  -> Backend sieht nichts
+#   danach setzt authentik@file die echten Werte     -> Backend sieht die echten
+# Die Reihenfolge stimmt also: Eingangs-Middlewares laufen VOR denen des
+# Routers, die Anmeldung ueberschreibt die geleerten Felder wieder.
+#
+# Die Liste muss zu authResponseHeaders in authentik.yml passen: jede
+# Kopfzeile, die Authentik setzen darf, gehoert hier vorher geleert.
+# werkzeuge/grenze-pruefen.sh haelt die beiden Listen zusammen.
+    vertrauensgrenze:
+      headers:
+        customRequestHeaders:
+          X-Authentik-Username: ""
+          X-Authentik-Groups: ""
+          X-Authentik-Email: ""
+          X-Authentik-Name: ""
+          X-Authentik-Uid: ""
+          X-Authentik-Jwt: ""
+          X-Authentik-Meta-Jwks: ""
+          X-Authentik-Meta-Outpost: ""
+          X-Authentik-Meta-Provider: ""
+          X-Authentik-Meta-App: ""
+          X-Authentik-Meta-Version: ""
+          # Auch die eigene Marke: sie wird gleich danach von einlass@file
+          # gesetzt. Fehlt diese Datei einmal, ist die Kopfzeile wenigstens
+          # leer statt vom Client bestimmt.
+          X-Prolo-Einlass: ""
+
+# ------------------------------------------------------------------------
+# Die Ratenbremse (N-46)
+#
+# Es gab keine. Weder vor der Anmeldung noch vor den Werkzeugen konnte
+# jemand ausgebremst werden, der in Schleife anklopft - Anmeldenamen raten,
+# Pfade absuchen, oder einfach einen kleinen Server mit Anfragen zudecken.
+#
+# Was sie leistet und was nicht, damit niemand sich auf das Falsche
+# verlaesst:
+#
+#   SIE BREMST   eine einzelne Quelle. 50 Anfragen je Sekunde sind fuer
+#                einen Menschen mehr als genug (ein Seitenaufruf des Wikis
+#                sind etwa 15 mit Schriften und Schnittstelle), fuer ein
+#                Skript in Schleife aber eine Grenze.
+#   SIE BREMST   gleichzeitige Verbindungen: 40 je Quelle. Ein Browser
+#                oeffnet sechs. Das haelt einen kleinen Server davon ab,
+#                an offenen Verbindungen zu ersticken.
+#   SIE BREMST NICHT ein verteiltes Raten von vielen Adressen aus. Dagegen
+#                hilft nur, dass es nichts zu raten gibt: die Anmeldung
+#                macht Authentik, und Zugangslinks sind 192 Bit lang.
+#
+# Gemessen wird je Quelladresse. Traefik steht am aeusseren Rand, also ist
+# die Quelle der echte Aufrufer und nicht ein vorgelagerter Proxy.
+    ratenbremse:
+      rateLimit:
+        average: 50
+        burst: 150
+        period: 1s
+    gleichzeitig:
+      inFlightReq:
+        amount: 40
+
 tls:
   options:
     streng:

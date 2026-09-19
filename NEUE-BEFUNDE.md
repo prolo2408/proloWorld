@@ -2667,6 +2667,345 @@ Die Frage, welcher der drei der Primärbutton der Seite ist — die
 Speicherleiste unten oder der Knopf im Bericht —, gehört in einen eigenen
 Arbeitsschritt, nicht in diesen.
 
+## N-44 — Die Identität war eine Behauptung, keine Tatsache
+
+### Der Auftrag
+
+„Maximale Sicherheit für meine Tools und keine Fehlzugriffe von Leuten, die
+das nicht dürfen. Wenn ich jemandem `wiki-nutzer` gebe, darf dieser in keinem
+Fall auf die Verwaltungsseite kommen, auch nicht, wenn er mit JSON versucht,
+da was vorzugaukeln."
+
+### Was gemessen wurde
+
+Erst die gute Nachricht. Jede Route des Wikis wurde ihrer Wache zugeordnet:
+
+| Route | Wache |
+|---|---|
+| `/api/verwaltung`, `/api/rechte`, `/api/zweig`, `/api/neuindex` | `admin` |
+| `/api/import`, `/api/loeschen`, `/api/zuruecksetzen` | `editor` + `darf_schreiben` |
+| Lesen einer Seite, Suche, Themenbaum | `darf_sehen` |
+
+Die Rechteprüfung ist **serverseitig** und in Ordnung. Drei Aufrufe gegen
+einen laufenden Server:
+
+```
+ohne Kopfzeile                                 → 401
+X-Authentik-Username: gast                     → 403
+X-Authentik-Username: x + Groups: wiki-admin   → 200 + Verwaltungsdaten
+```
+
+Der dritte ist der Befund. Nicht die Prüfung war falsch — das **Vertrauen in
+die Kopfzeile** war es. Wer sie setzen kann, ist, wen er will.
+
+Von außen ist das kein Weg. Mit der echten Traefik-Fassung 3.6.13 gegen einen
+Echo-Dienst nachgemessen: die ForwardAuth-Middleware löscht jede Kopfzeile
+aus `authResponseHeaders` und setzt sie aus der Antwort von Authentik neu.
+
+**Aus dem Docker-Netz heraus sehr wohl.** Wiki, Bordbuch, n8n und Authentik
+hängen im selben Netz `proxy`, und dort erreicht jeder Container Port 8080
+eines anderen — ohne Traefik, ohne Anmeldung. n8n ist der wunde Punkt: es
+führt angeklickte Abläufe aus, hat einen HTTP-Request-Baustein und
+Webhook-Pfade ohne Anmeldung. Kein Exploit nötig, das ist die normale
+Funktion.
+
+> Den Container-zu-Container-Teil konnte ich in der Arbeitsumgebung **nicht
+> ausführen** — dort läuft kein Docker-Daemon. Auf dem Server beweist ihn:
+> ```
+> docker run --rm --network proxy curlimages/curl -s -o /dev/null -w '%{http_code}\n' \
+>   -H 'X-Authentik-Groups: wiki-admin' http://wiki:8080/api/verwaltung
+> ```
+
+### Was daraus wurde
+
+Zwei Schichten, unabhängig voneinander.
+
+**Am Eingang** (`traefik.yml`, `entryPoints.websecure`, also für **jeden**
+Router — auch für die ohne Anmeldung wie die Webhook-Route von n8n):
+
+| Middleware | Wirkung |
+|---|---|
+| `vertrauensgrenze` | leert alle 11 `X-Authentik-*` und `X-Prolo-Einlass` |
+| `einlass` | setzt `X-Prolo-Einlass` auf das Geheimnis des Servers |
+| `sicherheitskopf` | wie bisher (B-26) |
+
+Die Reihenfolge ist gemessen, nicht angenommen: Eingangs-Middlewares laufen
+**vor** denen eines Routers, die Anmeldung setzt die geleerten Felder danach
+mit den echten Werten neu.
+
+**Im Werkzeug**: `einlass_pruefen()` läuft in `do_GET` **und** `do_POST`, vor
+jeder Frage nach der Identität, mit `hmac.compare_digest` auf Bytes. Fehlt
+`PROLO_EINLASS` in der `.env`, **startet das Werkzeug nicht** — mit einer
+Meldung, die den Weg nennt.
+
+Frei bleiben zwei Pfade, beide ohne Schützenswertes und beide absichtlich am
+Zugang vorbei erreichbar (§19): `/gesundheit` und `/api/version`. Deshalb
+zieht dieser Schritt die `PRUEF_URL` des Bordbuchs von `/` auf
+`/api/version` — sonst hätte `aktualisieren.sh` jeden Lauf zurückgerollt.
+
+### Der Durchstich
+
+Echte Traefik-Fassung, die **echten** Konfigurationsdateien aus dem
+Repository, echter Wiki-Server dahinter, gespielter Authentik als
+`wiki-nutzer`:
+
+| | |
+|---|---|
+| angemeldet, Verwaltung aufgerufen | **403** |
+| dabei `wiki-admin` mitgefälscht | **403** — `/api/ich` sagt weiter `wiki-nutzer`, `ist_admin: false` |
+| dabei auch die Einlassmarke geraten | **403** |
+| die Hülle, angemeldet | 200 |
+| **am Traefik vorbei, mit `wiki-admin`** | **401** *(vorher: 200)* |
+
+### Die Probe
+
+| Mutation | Ergebnis |
+|---|---|
+| `vertrauensgrenze` aus der Kette | 1 Fehler |
+| Reihenfolge vertauscht (erst setzen, dann löschen) | 1 Fehler |
+| eine Kopfzeile aus der Leerliste entfernt | 1 Fehler |
+| `:?` aus der compose-Datei entfernt | 1 Fehler |
+| Grenze nur noch in `do_GET` | 1 Fehler (Prüfer) + je 1 Fehler in beiden Testsuiten |
+| Vergleich immer wahr | 4 Fehler |
+| Wurzel auf die Freiliste gesetzt | 1 Fehler (Prüfer) + 1 Fehler (Wiki) |
+| Grenze im Bordbuch ganz entfernt | 1 Fehler (Prüfer) + 4 Fehler (Bordbuch) |
+| `PRUEF_URL` zurück auf `/` | 1 Fehler |
+| unverändert | 0 Fehler |
+
+### Zwei eigene Fehler dabei
+
+**Der Extraktor im Probelauf hat gelogen.** Er sollte die Middleware-Kette
+aus der echten `traefik.yml` ziehen und lieferte nur den ersten von drei
+Einträgen: `gsub` ändert in awk `$0`, damit traf die nächste Regel zu und
+brach ab. Der Durchstich lief also gegen eine halbe Kette — und meldete
+überall 401, was *aussah* wie ein Erfolg. Erst die Gegenprobe („findet der
+Extraktor wirklich drei?") hat es aufgedeckt.
+
+**Der Prüfer ist über sich selbst gestolpert.** `grenze-pruefen.sh` sucht den
+Platzhalter aus der Beispieldatei — und fand sich selbst. Zum fünften Mal in
+dieser Reihe nach `N-33`, `N-36`, `N-39` und dem Prüfskript aus `N-39`. Der
+gesuchte Text wird jetzt zusammengesetzt, nicht ausgeschrieben. Dazu ein
+zweiter Fehlschlag aus derselben Quelle: die beiden Werkzeuge schreiben ihre
+Freiliste verschieden (`["api", "version"]` im Wiki, `"/api/version"` im
+Bordbuch), und ein Prüfer, der nur eine Form kennt, meldet einen Fehler, den
+es nicht gibt. Er liest jetzt beide.
+
+### Eine Testlücke, die eine Probe gefunden hat
+
+Mutation „Grenze nur noch in `do_GET`": der Prüfer schlug an, **beide
+Testsuiten blieben grün**. Alle Tests, die die Grenze berührten, lasen nur.
+Eine halb offene Tür ist nicht halb sicher — also je ein Test, der schreibend
+ohne Marke anklopft. Danach findet die Mutation auch die Testsuite.
+
+### Was das für die nächsten Schritte heißt
+
+`N-45` (ein Netz je Werkzeug) und `N-46` (Ratenbremse) bleiben offen und
+kommen als eigene Schritte. Die Grenze hier hält auch ohne sie: ein Container
+im selben Netz kennt das Geheimnis nicht.
+
+## N-45 — Ein Netz für alle heißt: jeder erreicht jeden
+
+### Was war
+
+Wiki, Bordbuch, n8n und Authentik hingen im selben Docker-Netz `proxy`. In
+einem Docker-Netz erreicht jeder Container jeden anderen unter seinem Namen —
+ohne Traefik, ohne Anmeldung, ohne Protokollzeile im Zugriffsprotokoll.
+
+`N-44` hat diesen Weg bereits verriegelt: wer die Einlassmarke nicht kennt,
+kommt an keinem Werkzeug vorbei. Aber eine Verriegelung ist kein Ersatz für
+eine Wand. Solange der Weg *existiert*, hängt alles an einem einzigen
+Geheimnis und an der Sorgfalt, mit der jedes künftige Werkzeug es prüft.
+
+### Was daraus wurde
+
+| Werkzeug | Netz |
+|---|---|
+| Wiki | `netz-wiki` |
+| Bordbuch | `netz-bordbuch` |
+| n8n | `netz-n8n` |
+| Authentik (Server) | `netz-authentik` + `internal` wie bisher |
+| **Traefik** | **alle vier** + `socket` |
+
+Traefik ist der einzige Dienst in mehr als einem. Genau das ist der Punkt:
+die Werkzeuge erreichen einander nicht mehr, nur Traefik erreicht sie.
+
+Dazu fällt die Vorgabe `network: proxy` im Docker-Anbieter weg. Sie zeigte
+auf ein Netz, das es nicht mehr gibt — und eine Vorgabe auf etwas, das nicht
+existiert, ist schlimmer als keine. Jedes Werkzeug nennt sein Netz jetzt
+selbst im Label, und `prolo` legt neue Werkzeuge gleich so an.
+
+### Was daran nicht geprüft ist
+
+**Die Wirkung ist hier nicht gemessen.** In der Arbeitsumgebung läuft kein
+Docker-Daemon; ich konnte die Netze nicht anlegen und keinen Container gegen
+einen anderen laufen lassen. Geprüft ist die **Beschaffenheit** — dass die
+sechs `docker-compose.yml` zusammen die Trennung beschreiben —, und das ist
+eine Eigenschaft, die man beim Lesen einer einzelnen Datei nicht sieht.
+Darum `werkzeuge/netze-pruefen.sh` mit 29 Prüflinien.
+
+Auf dem Server ist die Wirkung ein Befehl:
+
+```
+docker run --rm --network netz-n8n curlimages/curl -s -o /dev/null \
+  -w '%{http_code}\n' --max-time 5 http://wiki:8080/gesundheit
+```
+
+Vorher `200`. Jetzt darf dort **kein** Ergebnis mehr kommen — der Name `wiki`
+ist in `netz-n8n` nicht mehr auflösbar.
+
+### Die Probe
+
+| Mutation | Ergebnis |
+|---|---|
+| Bordbuch ins Wiki-Netz gehängt | 2 Fehler |
+| Traefik aus dem Wiki-Netz entfernt | 1 Fehler |
+| Label beim Wiki entfernt | 1 Fehler |
+| Label zeigt auf ein fremdes Netz | 1 Fehler |
+| Vorgabe `network: proxy` wieder eingetragen | 1 Fehler |
+| `prolo`-Vorlage fällt auf `proxy` zurück | 1 Fehler |
+| unverändert | 0 Fehler |
+
+### Und wieder ein Prüfer, der über ein Wort stolperte
+
+Die Prüflinie „hängt nicht mehr im gemeinsamen Netz" suchte die Zeichenfolge
+`proxy` — und meldete `socket-proxy` als Verstoß. Der Dienst **heißt** so und
+hängt in keinem Netz dieses Namens. Gesucht wird jetzt die Netzreferenz
+(`- proxy` in einer Netzliste, `proxy:` im Block unten, das Label), nicht das
+Wort. Das ist dieselbe Falle wie in `N-36` und `N-44`, zum sechsten Mal.
+
+## N-46 — Es gab keine Bremse
+
+### Was war
+
+Weder vor der Anmeldung noch vor den Werkzeugen konnte jemand ausgebremst
+werden, der in Schleife anklopft. Gemessen durch Nachsehen: in `traefik/`
+kam weder `rateLimit` noch `inFlightReq` vor.
+
+### Was daraus wurde
+
+Zwei Middlewares am Eingang, **vor** allem anderen — wer zu schnell klopft,
+soll gar nicht erst bis zur Anmeldung kommen:
+
+| | Wert | wogegen |
+|---|---|---|
+| `rateLimit` | 50/s, Spitze 150 | Anfragen in Schleife |
+| `inFlightReq` | 40 gleichzeitig | offene Verbindungen, an denen ein kleiner Server erstickt |
+
+Gemessen mit der echten Traefik-Fassung gegen den echten Dienst — und das
+Messwerkzeug vorher gegengeprobt (ein einzelner Aufruf muss 200 geben, sonst
+misst es nichts):
+
+| Last | Ergebnis |
+|---|---|
+| ein einzelner Aufruf | 200 — *das Messwerkzeug kann messen* |
+| **wie ein Mensch:** 15 Anfragen, 24/s | **15 × 200, keine Abweisung** |
+| **wie ein Skript:** 800 Anfragen, 302/s | **558 × 429** (70 %), 242 durch |
+
+Beim ersten Versuch war das Messwerkzeug kaputt: `c.getresponse` ohne
+Klammern, Antwort nie gelesen — die nächste Anfrage auf derselben Verbindung
+lief in `ResponseNotReady`. Die Zahlen sahen aus wie ein Ergebnis und waren
+Müll. Erst die Gegenprobe hat es aufgedeckt.
+
+### Was sie nicht leistet
+
+Sie bremst eine **einzelne Quelle**. Gegen verteiltes Raten von vielen
+Adressen hilft sie nicht. Dagegen hilft nur, dass es nichts zu raten gibt:
+die Anmeldung macht Authentik, und die Zugangslinks, die noch kommen, sind
+192 Bit lang. Das steht so auch im Kommentar in `sicherheit.yml` — damit sich
+niemand auf das Falsche verlässt.
+
+### Die Probe
+
+| Mutation | Ergebnis |
+|---|---|
+| Bremse aus der Kette | 1 Fehler |
+| Bremse hinter die Vertrauensgrenze geschoben | 1 Fehler |
+| `average` auf 5 (träfe einen Menschen) | 1 Fehler |
+| `average` auf 100000 (bremst nichts mehr) | 1 Fehler |
+| Gleichzeitigkeitsgrenze auf 0 | 1 Fehler |
+| unverändert | 0 Fehler |
+
+### Ein Fehler in meiner Arbeitsweise
+
+Der Eintrag in die Middleware-Kette steckt bereits im Commit zu `N-45`: ich
+hatte `traefik.yml` für diesen Befund schon angefasst, bevor der
+vorhergehende Schritt eingecheckt war. Das verstößt gegen „ein Befund, ein
+Commit". Aufgeräumt wird es **nicht** durch Umschreiben der Geschichte — der
+Zweig ist gepusht und hängt an einem Pull Request. Es steht stattdessen hier.
+
+## N-47 — *(offen)* Ein Warnkasten, der mit einem Wort beginnt
+
+Beim Browserlauf zur nachgezogenen Anleitung gesehen: ein `!>`-Kasten, dessen
+Text mit `**Vor**` anfängt, macht aus diesem einen Wort seine Überschrift —
+der Kasten heißt dann „Vor" und der Satz fängt darunter mit „dem ersten Start
+eintragen" an. Dieselbe Ursache wie die drei Bausteinzeilen aus dem Schritt zu
+`prolo-bedienen.html`: die erste fette Stelle wird als Titel gelesen. Bei
+einem Kasten ist es auffälliger als bei einer Zeile.
+
+Bestand schon vor der Änderung; darum notiert und nicht nebenbei behoben.
+Die Korrektur gehört in `edBloecke` (nur dann Titel, wenn die fette Stelle
+die **ganze** erste Zeile ist) und braucht ihre eigene Probe.
+
+## Sicherheitsaufnahme — der Stand nach `N-44` bis `N-46`
+
+Der Auftrag war: „Maximale Sicherheit für meine Tools und keine Fehlzugriffe
+von Leuten, die das nicht dürfen." Hier steht, was davon jetzt gemessen ist,
+was nur beschaffenheitsgeprüft ist, und was offen bleibt.
+
+### Die Rechtematrix
+
+`wiki/tests/test_rechtematrix.py`: **13 Routen × 5 Rollen = 65 Felder**, jeder
+Erwartungswert von Hand eingetragen. Die Rollen sind `anonym`,
+`wiki-nutzer`, `fremd` (Verwaltungsgruppe eines **anderen** Werkzeugs),
+`wiki-editor`, `wiki-admin`.
+
+| Route | anonym | nutzer | fremd | editor | admin |
+|---|---|---|---|---|---|
+| `/api/version`, `/gesundheit` | durch | durch | durch | durch | durch |
+| `/api/ich`, `/api/baum`, `/api/suche` | **401** | durch | durch | durch | durch |
+| `/api/verwaltung` | **401** | **403** | **403** | **403** | durch |
+| `/api/rechte`, `/api/zweig`, `/api/neuindex` | **401** | **403** | **403** | **403** | durch |
+| `/api/pruefen`, `/api/import` | **401** | **403** | **403** | durch | durch |
+| `/api/einstellungen`, `/api/lesezeichen` | **401** | durch | durch | durch | durch |
+
+Die Antwort auf die Ausgangsfrage steht in Zeile drei und vier: ein
+`wiki-nutzer` bekommt auf **jede** Verwaltungsroute **403** — mit gültiger
+Anmeldung, mit gültiger Einlassmarke und mit gefälschtem JSON im Körper.
+
+### Was gemessen ist und was nicht
+
+| | Stand | wie belegt |
+|---|---|---|
+| Rechteprüfung je Route und Rolle | **gemessen** | 65 Felder, 4 Mutationsproben |
+| Kopfzeilen-Fälschung von außen | **gemessen** | echte Traefik-Fassung, Echo-Dienst |
+| Kopfzeilen-Fälschung von innen | **gemessen** | 401 statt vorher 200 |
+| Ratenbremse | **gemessen** | 24/s durch, 302/s zu 70 % abgewiesen |
+| Netztrennung | **nur Beschaffenheit** | kein Docker-Daemon in der Arbeitsumgebung; 29 Prüflinien über sechs compose-Dateien |
+| Gruppenfilter | **gemessen** | `gruppen` gegen `gruppen_andere` |
+
+### Risikomatrix
+
+| Befund | Wirkung | Eintritt | Schwere | Stand |
+|---|---|---|---|---|
+| `N-44` Kopfzeile ungeprüft | voller Admin auf Wiki und Bordbuch | mittel | **hoch** | **behoben**, gemessen |
+| `N-45` flaches Netz | macht `N-44` erreichbar, seitliche Bewegung | — | **hoch** | **behoben**, Beschaffenheit |
+| `N-46` keine Ratenbremse | Raten und Zudecken | hoch | mittel | **behoben**, gemessen |
+| n8n-Webhooks ohne Anmeldung | Pfad von außen in ein Fremdprodukt | hoch | mittel | bleibt — bewusst so, jetzt aber gebremst und ohne Weg zu anderen Werkzeugen |
+| Rechteprüfung in den Werkzeugen | — | — | — | **war schon in Ordnung**, jetzt belegt |
+| Eine Person, ein Geheimnis für alle Werkzeuge | wer `einlass.yml` liest, kommt an jedem Werkzeug vorbei | niedrig (root nötig) | mittel | **offen** — je Werkzeug ein eigenes Geheimnis wäre besser |
+| Kein Protokoll über abgewiesene Zugriffe | ein Angriffsversuch fällt niemandem auf | — | niedrig | **offen** |
+| `N-42` 404 auf `/favicon.ico` | Rauschen im Protokoll | — | sehr niedrig | offen |
+| `N-43` drei Primärflächen | Bedienung, nicht Sicherheit | — | sehr niedrig | offen |
+
+### Was als Nächstes wirklich hilft
+
+1. **Je Werkzeug ein eigenes Einlassgeheimnis** statt eines gemeinsamen. Dann
+   nimmt ein gelesenes Geheimnis nur ein Werkzeug mit.
+2. **Abgewiesene Zugriffe zählen und sichtbar machen** — heute merkt niemand,
+   wenn jemand an der Tür rüttelt.
+3. Dieselbe Matrix für das **Bordbuch**. Dort gibt es bisher nur die sechs
+   Prüflinien der Vertrauensgrenze, nicht die volle Tabelle.
+
 ## Was daraus für die Abnahme folgt
 
 `N-01` bis `N-05` sind behoben. `N-05` ist der einzige, der nach außen
