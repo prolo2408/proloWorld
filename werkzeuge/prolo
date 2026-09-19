@@ -379,7 +379,7 @@ networks:
   #   docker network create netz-$NAME
   #   dann netz-$NAME in /opt/stack/traefik/docker-compose.yml eintragen
   #   (bei den networks des Dienstes UND im Block ganz unten)
-  #   sudo prolo compose traefik up -d
+  #   sudo prolo start traefik
   netz-$NAME:
     external: true
 YML

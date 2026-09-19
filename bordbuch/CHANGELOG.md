@@ -85,7 +85,7 @@ die Menge zum Vergleich.
 
 `--betraege-pruefen` ändert nichts und sagt, was es tun würde. Vor dem
 Berichtigen eine Sicherung ziehen (Einstellungen › Daten, oder
-`sudo prolo sicherung`).
+`sudo prolo sichern`).
 
 Auf dem Server, wo Bordbuch im Container läuft:
 
