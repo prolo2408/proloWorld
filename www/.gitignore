@@ -1,0 +1,13 @@
+# /opt/stack/www/.gitignore - zusaetzlich zur Wurzeldatei (CLAUDE.md §21).
+#
+# Hier entsteht eine neue Art von Daten: hochgeladene HTML-Seiten und die
+# Abdruecke der ausgegebenen Zugangslinks. Beides gehoert auf den Server
+# und in die Sicherung, nie ins Git.
+daten/
+seiten/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+.env
+__pycache__/

@@ -2946,6 +2946,47 @@ Bestand schon vor der Änderung; darum notiert und nicht nebenbei behoben.
 Die Korrektur gehört in `edBloecke` (nur dann Titel, wenn die fette Stelle
 die **ganze** erste Zeile ist) und braucht ihre eigene Probe.
 
+## N-48 — Die Sperre ließ sich mit einer erfundenen Adresse unterlaufen
+
+Beim Bau des Freigabe-Werkzeugs entstanden, beim ersten Testlauf gefunden.
+
+Nach zehn Fehlversuchen soll eine Stunde Ruhe sein. Gezählt wird je
+Aufrufer, und der Aufrufer stand in `X-Forwarded-For` — ich nahm den
+**ersten** Eintrag, mit dem Kommentar „alles dahinter kann der Aufrufer
+selbst gesetzt haben". Das ist genau verkehrt herum: ein Proxy **hängt**
+seinen Eintrag **hinten** an. Was davor steht, kommt vom Aufrufer.
+
+Ein Angreifer hätte bei jedem Versuch eine andere Adresse vorne angestellt
+und die Sperre wäre wirkungslos gewesen — sie hätte nur noch Tippfehler
+gebremst.
+
+**Wie es aufgefallen ist:** zwei Tests derselben Klasse teilten sich die
+Sperre, der zweite bekam von Anfang an `429`. Beim Versuch, sie über diese
+Kopfzeile auseinanderzuhalten, fiel auf, welchen Eintrag der Code liest.
+
+Jetzt zählt der **letzte** Eintrag. Der TCP-Absender allein taugt nicht:
+das wäre immer Traefik, und dann teilten sich alle Aufrufer eine einzige
+Sperre. Die Prüflinie dazu stellt bei jedem von zwölf Versuchen eine andere
+Adresse voran und verlangt, dass es ab dem elften trotzdem `429` gibt.
+
+Die Regel steht jetzt in `CLAUDE.md §11`.
+
+## N-49 — Eine offene Schreibsperre, sichtbar nur an der Uhr
+
+Auch beim Bau des Freigabe-Werkzeugs. Die Funktion, die alte Fehlversuche
+wegräumt, machte ein `DELETE` und **kein `commit()`**. Damit blieb die
+Schreibsperre auf der SQLite-Datei offen, und der nächste schreibende
+Aufruf aus einem anderen Faden lief in `database is locked` — nach zehn
+Sekunden Wartezeit, als `500`.
+
+Das Auffällige war nicht der Fehler, sondern die **Uhr**: ein Test brauchte
+plötzlich zehn Sekunden statt Millisekunden. Nach der Korrektur lief die
+ganze Suite in 0,2 s statt 10,2 s.
+
+Die Lehre ist unspektakulär und teuer: **jede schreibende Anweisung braucht
+ihr `commit()`**, auch wenn sie nur aufräumt. Und eine Testsuite, die
+plötzlich langsam wird, ist ein Befund und keine Laune.
+
 ## Sicherheitsaufnahme — der Stand nach `N-44` bis `N-46`
 
 Der Auftrag war: „Maximale Sicherheit für meine Tools und keine Fehlzugriffe

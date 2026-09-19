@@ -52,20 +52,22 @@ Wo was steht:
   Ankündigung sucht, bleibt grün, wenn die Tat entfällt (`N-38`). Geprüft
   wird die Wirkung.
 
-## Die zwei Werkzeuge mit eigenem Code
+## Die drei Werkzeuge mit eigenem Code
 
 | Ordner | Was | Fassung steht in |
 |---|---|---|
 | `wiki/` | Wissenssammlung, eigenständige HTML-Seiten in einem abgeschotteten Rahmen | `server.py` (`VERSION`), `docker-compose.yml` (`image:`), `CHANGELOG.md` |
 | `bordbuch/` | Fahrtenbuch, Lade- und Tankkosten | ebenso |
+| `www/` | `prolo.me`: HTML-Seiten ablegen und je Empfänger einen widerrufbaren Zugangslink ausgeben | ebenso |
 
-Beide: Python-Standardbibliothek, SQLite, **kein Fremdpaket**. Geld in
+Alle drei: Python-Standardbibliothek, SQLite, **kein Fremdpaket**. Geld in
 **ganzen Cent** (`Decimal`, kaufmännisch gerundet), niemals `float` als
 Speicherform.
 
 ```bash
 cd wiki      && ./tests/alle.sh
 cd bordbuch  && ./tests/alle.sh
+cd www       && ./tests/alle.sh
 ```
 
 Liegt `node` nicht im `PATH`, meldet `alle.sh` einen Fehlschlag — Absicht:
@@ -396,6 +398,11 @@ bevor sie irgendwo landet: Pflichtfelder vorhanden? Zahlen im plausiblen
 Bereich (ein Kilometerstand von 9 Millionen ist ein Tippfehler)? Datum
 lesbar und nicht sinnlos in der Zukunft? Text auf sinnvolle Länge begrenzt?
 
+**Aus `X-Forwarded-For` zählt der LETZTE Eintrag, nie der erste.** Ein Proxy
+**hängt** seinen Eintrag hinten an; was davor steht, hat der Aufrufer
+mitgeschickt und ist frei erfunden. Wer den ersten nimmt, baut eine Sperre,
+die sich mit einer erfundenen Adresse je Versuch unterlaufen lässt (`N-48`).
+
 **Keine stillen Vorgabewerte.** Fehlt ein Wert, wird das gemeldet — nicht
 durch eine Null ersetzt. Eine Null in der Verbrauchsrechnung ist schlimmer
 als eine Fehlermeldung, weil sie falsche Ergebnisse erzeugt, die niemandem
@@ -664,6 +671,12 @@ Verbindlich in jeder `docker-compose.yml`:
   „ok" und eine Fassungsnummer, mehr nicht.
 - **Ausnahme Webhooks:** ein zweiter Router **ohne** `authentik@file` und mit
   höherer `priority` — und ein Vermerk unter `HINWEIS=`.
+- **Zwei Router auf demselben Namen** sind erlaubt, wenn ein Teil öffentlich
+  sein muss (`www/`: die Startseite und die Zugangslinks). Dann gilt: der
+  geschützte Router bekommt die **höhere** `priority`, sonst gewinnt der
+  breitere und die Verwaltung steht offen. Und das Werkzeug prüft die Gruppe
+  **zusätzlich selbst** — eine Kopfzeile allein ist auf einem Host mit
+  öffentlichem Router kein Nachweis.
 - **Eine Ratenbremse am Eingang** (`N-46`), vor allem anderen: wer zu schnell
   oder zu oft gleichzeitig anklopft, kommt gar nicht erst bis zur Anmeldung.
   Gemessen je Quelladresse. Der Wert muss **beides** können — einen Menschen

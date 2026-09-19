@@ -57,6 +57,7 @@ services:
     # werkzeuge/netze-pruefen.sh haelt die Listen zusammen.
     networks:
       - netz-wiki
+      - netz-www
       - netz-bordbuch
       - netz-n8n
       - netz-authentik
@@ -64,8 +65,11 @@ services:
 
 networks:
   # Je Werkzeug eines, alle von Hand angelegt (wie "proxy" vorher):
-  #   docker network create netz-wiki netz-bordbuch netz-n8n netz-authentik
+  #   docker network create netz-wiki netz-www netz-bordbuch \
+  #                         netz-n8n netz-authentik
   netz-wiki:
+    external: true
+  netz-www:
     external: true
   netz-bordbuch:
     external: true
