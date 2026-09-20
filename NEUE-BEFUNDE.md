@@ -3288,10 +3288,14 @@ was fehlt", und verliert eine `.env`.
 `--gegenprobe` baut zwei Schwächen ein („die `.env` wird immer neu kopiert",
 „die fehlende Zeile wird immer angehängt"), **beide werden gefunden**.
 
-Und `prolo geheimnisse --verteilen` hat acht eigene Prüflinien: füllt Leeres,
-lässt Vorhandenes, tut beim zweiten Mal nichts, entscheidet bei zwei
-verschiedenen Werten **nicht**, und würfelt einmal statt je Stelle. Der
-Prüfstand steht damit bei **114 Linien** und **36 von 36** Mutationen.
+Und `prolo geheimnisse --verteilen` hat neun eigene Prüflinien: füllt
+Leeres, lässt Vorhandenes, tut beim zweiten Mal nichts, entscheidet bei
+zwei verschiedenen Werten **nicht**, würfelt einmal statt je Stelle — und
+schreibt auch dann einen Merkzettel, wenn es nur einen **vorhandenen** Wert
+weitergegeben hat. Das war zuerst nicht so, und es ist dieselbe Lücke wie
+überall hier: der Wert stand danach in vier Dateien und in keinem
+Passwortmanager. Der Prüfstand steht damit bei **115 Linien** und **37 von
+37** Mutationen.
 
 ## N-55 — *(offen)* Fettung mitten im Satz zerreißt einen Schrittkasten
 

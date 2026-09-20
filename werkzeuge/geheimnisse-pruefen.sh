@@ -464,6 +464,20 @@ with tempfile.TemporaryDirectory(prefix="geheimnis-probe-") as tmp:
         sag(n1 is not None and n1.group(1) != jetzt,
             "--verteilen nimmt dann wirklich einen neuen Wert")
 
+        # Auch beim blossen Weiterverteilen muss ein Zettel entstehen: der
+        # Wert steht danach an mehr Stellen und vielleicht in keinem
+        # Passwortmanager.
+        import shutil as _sh
+        _sh.rmtree(os.path.join(tmp, "merkzettel"), ignore_errors=True)
+        open(os.path.join(tmp, "zwei", ".env"), "w").write(
+            "VORHER=bleibt\nGEMEINSAM=\nNACHHER=bleibt\n")
+        rc, aus = lauf(prog, ["--verteilen"])
+        zettel2 = os.listdir(os.path.join(tmp, "merkzettel")) \
+            if os.path.isdir(os.path.join(tmp, "merkzettel")) else []
+        sag(len(zettel2) == 1,
+            "--verteilen schreibt auch beim blossen Weitergeben einen Zettel",
+            "sonst steht der Wert in vier Dateien und in keinem Passwortmanager")
+
 print("")
 print("Alles gruen." if not fehler else "%d Fehler." % fehler)
 sys.exit(1 if fehler else 0)

@@ -417,11 +417,15 @@ def verteilen():
         print("\n  Alles wieder gesund.")
 
     stand_schreiben(st)
-    if zettel:
-        pfad = merkzettel_schreiben(zettel)
-        print("\n  " + fett("Merkzettel: %s" % pfad))
-        print("  Hol ihn auf den Arbeitsrechner und sortiere die Werte in")
-        print("  den Passwortmanager ein.")
+    # Auch wenn nur ein vorhandener Wert weiterverteilt wurde: er steht
+    # jetzt an mehr Stellen und womoeglich in keinem Passwortmanager. Der
+    # Zettel listet ohnehin ALLE Geheimnisse, nicht nur die gewechselten.
+    pfad = merkzettel_schreiben(zettel)
+    print("\n  " + fett("Merkzettel: %s" % pfad))
+    print("  Hol ihn auf den Arbeitsrechner und sortiere die Werte in")
+    print("  den Passwortmanager ein:")
+    print("    scp <server>:%s ." % pfad)
+    print("    age -d -i ~/.prolo-sicherung.key %s" % os.path.basename(pfad))
     print("")
     if gestockt:
         print(rot("  Achtung: mindestens eine Stelle blieb offen (siehe oben).\n"))

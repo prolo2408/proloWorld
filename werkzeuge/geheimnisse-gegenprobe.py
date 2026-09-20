@@ -287,6 +287,18 @@ def m_verteilen_wuerfelt_je_stelle(w):
            "        for g in leer:\n            g.schreiben(wuerfeln())\n")
 
 
+def m_verteilen_ohne_zettel(w):
+    tausch(w, "werkzeuge/geheimnisse.py",
+           "    pfad = merkzettel_schreiben(zettel)\n"
+           '    print("\\n  " + fett("Merkzettel: %s" % pfad))\n'
+           '    print("  Hol ihn auf den Arbeitsrechner und sortiere die Werte in")\n'
+           '    print("  den Passwortmanager ein:")\n',
+           "    pfad = None\n"
+           '    if False:\n'
+           '        print("  Hol ihn auf den Arbeitsrechner und sortiere die Werte in")\n'
+           '        print("  den Passwortmanager ein:")\n')
+
+
 MUTATIONEN = [
     ("conf-Zeile hat nur vier Felder",              m_conf_vier_felder),
     ("conf nennt eine erfundene FORM",              m_conf_form_erfunden),
@@ -324,6 +336,7 @@ MUTATIONEN = [
     ("--verteilen ueberschreibt vorhandene Werte",  m_verteilen_ueberschreibt),
     ("--verteilen entscheidet bei Uneinigkeit",     m_verteilen_entscheidet_selbst),
     ("--verteilen wuerfelt je Stelle einzeln",      m_verteilen_wuerfelt_je_stelle),
+    ("--verteilen schreibt keinen Zettel",         m_verteilen_ohne_zettel),
 ]
 
 
