@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.beispiel
+daten/
+*.db
+*.db-*
+*.sqlite
+__pycache__/
+.vorschau/
+*.vor-stand-*

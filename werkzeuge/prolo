@@ -10,7 +10,8 @@
 #   prolo start|stop|neustart <tool>
 #   prolo protokoll <tool> [-f]
 #   prolo sichern
-#   prolo neu <name>                neues Tool anlegen (Geruest + Anmeldung)
+#   prolo neu <name>                neues Tool anlegen (fragt alles ab)
+#   prolo netze [anlegen|schliessen|umziehen]
 #   prolo suchen <begriff>          Abbild in der Registry suchen
 #   prolo entfernen <tool>          ins Archiv, NICHT loeschen
 #   prolo archiv                    was liegt im Archiv
@@ -303,158 +304,6 @@ befehl_dns() {
 }
 
 # ----------------------------------------------------------------------
-befehl_neu() {
-  root_noetig neu "$@"
-  local NAME="${1:-}"
-  [ -n "$NAME" ] || { fehler "Aufruf: prolo neu <name>"; exit 1; }
-  case "$NAME" in
-    *[!a-z0-9-]*) fehler "Nur Kleinbuchstaben, Ziffern und Bindestrich (CLAUDE.md §16)."; exit 1 ;;
-  esac
-  [ -e "$STACK/$NAME" ] && { fehler "$STACK/$NAME gibt es schon."; exit 1; }
-
-  local ABBILD PORT
-  read -rp "  Abbild (z. B. nginx:1.27-alpine): " ABBILD
-  [ -n "$ABBILD" ] || { fehler "Ohne Abbild geht es nicht."; exit 1; }
-  case "$ABBILD" in
-    *:latest|*[!:]) : ;;
-  esac
-  if ! printf '%s' "$ABBILD" | grep -q ':'; then
-    fehler "Ohne Fassung nicht erlaubt (CLAUDE.md §19: nie latest, immer fest)."
-    fehler "Beispiel: ${ABBILD}:1.2.3"
-    exit 1
-  fi
-  if printf '%s' "$ABBILD" | grep -q ':latest$'; then
-    fehler "'latest' ist verboten (CLAUDE.md §19). Feste Fassung eintragen."
-    exit 1
-  fi
-  read -rp "  Interner Port des Dienstes [8080]: " PORT
-  PORT="${PORT:-8080}"
-
-  mkdir -p "$STACK/$NAME"
-  geruest_schreiben "$NAME" "$ABBILD" "$PORT"
-
-  melde ""
-  melde "Angelegt: $STACK/$NAME"
-  melde "  docker-compose.yml   Geruest nach CLAUDE.md §16 und 5"
-  melde "  sicherung.conf       ist damit in backup.sh aufgenommen"
-  melde "  aktualisierung.conf  ist damit in prolo aktualisieren aufgenommen"
-  melde ""
-  melde "Noch von Hand:"
-  melde "  1. Subdomain $NAME.$DOMAENE beim Anbieter auf die Server-IP setzen"
-  melde "     (KEIN DynDNS - siehe prolo dns)"
-  melde "  2. In Authentik eine Anwendung anlegen UND dem Outpost zuweisen"
-  melde "  3. In der docker-compose.yml: environment und volumes ergaenzen -"
-  melde "     die kann kein Skript raten, die stehen in der Doku des Abbilds"
-  melde "  4. prolo aktualisieren $NAME"
-}
-
-geruest_schreiben() {
-  local NAME="$1" ABBILD="$2" PORT="$3"
-  cat > "$STACK/$NAME/docker-compose.yml" <<YML
-# /opt/stack/$NAME/docker-compose.yml
-#
-# Angelegt mit "prolo neu $NAME".
-#
-# Bewusst KEINE ports-Zeile: der Dienst ist ausschliesslich ueber Traefik
-# erreichbar. Das ist nicht Gewohnheit, sondern der eigentliche Schutz -
-# die Anmeldekoepfe von Authentik waeren faelschbar, sobald jemand den
-# Container direkt erreicht.
-
-services:
-  $NAME:
-    image: $ABBILD          # feste Fassung, nie latest
-    container_name: $NAME
-    # Grenzen nach CLAUDE.md §19. Die Werte sind ein Anfang - anpassen,
-    # wenn der Dienst mehr braucht, aber nicht ersatzlos streichen.
-    mem_limit: 512m
-    pids_limit: 256
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    restart: unless-stopped
-
-    # environment:
-    #   Hier die Variablen aus der Doku des Abbilds eintragen.
-
-    volumes:
-      - ${NAME}_daten:/daten
-
-    networks:
-      - netz-$NAME
-
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=netz-$NAME"
-      - "traefik.http.services.$NAME.loadbalancer.server.port=$PORT"
-      - "traefik.http.routers.$NAME.rule=Host(\`$NAME.$DOMAENE\`)"
-      - "traefik.http.routers.$NAME.entrypoints=websecure"
-      - "traefik.http.routers.$NAME.tls.certresolver=letsencrypt"
-      # Ohne diese Zeile steht der Dienst offen im Netz.
-      - "traefik.http.routers.$NAME.middlewares=authentik@file"
-      - "traefik.http.routers.$NAME.service=$NAME"
-
-volumes:
-  ${NAME}_daten:                    # von aussen: ${NAME}_${NAME}_daten
-
-networks:
-  # Eigenes Netz je Werkzeug (N-45): in einem gemeinsamen Netz erreicht
-  # jeder Container jeden anderen direkt, ohne Traefik und ohne Anmeldung.
-  # Vor dem ersten Start anlegen und Traefik hineinhaengen:
-  #   docker network create netz-$NAME
-  #   dann netz-$NAME in /opt/stack/traefik/docker-compose.yml eintragen
-  #   (bei den networks des Dienstes UND im Block ganz unten)
-  #   sudo prolo start traefik
-  netz-$NAME:
-    external: true
-YML
-
-  cat > "$STACK/$NAME/sicherung.conf" <<CONF
-# /opt/stack/$NAME/sicherung.conf
-# Angelegt mit "prolo neu $NAME". Damit ist das Tool in backup.sh drin.
-
-# Namen pruefen mit: docker volume ls | grep $NAME
-VOLUMES="${NAME}_${NAME}_daten"
-
-# Fuer einen eigenen Datenbank-Container ausfuellen, sonst leer lassen.
-DB_CONTAINER=""
-DB_USER=""
-DB_NAME=""
-
-# Ein "?" davor heisst: darf fehlen, ohne dass die Sicherung als
-# fehlgeschlagen gilt.
-DATEIEN="?.env"
-
-# SQLite IM Container, Form "behaelter:/pfad/zur.db". Leer lassen, wenn es
-# keine gibt - sonst meldet jede Sicherung einen Fehler.
-SQLITE=""
-
-ORDNER=""
-
-HINWEIS="Neu angelegt am $(date +%Y-%m-%d). Noch nicht geprueft, ob die
-Volume-Namen stimmen - vor der ersten Sicherung einmal nachsehen."
-CONF
-
-  cat > "$STACK/$NAME/aktualisierung.conf" <<CONF
-# /opt/stack/$NAME/aktualisierung.conf
-# Angelegt mit "prolo neu $NAME".
-
-# "image" = fertiges Abbild, "build" = eigenes Dockerfile im Ordner
-TYP="image"
-
-# Interne Adresse - Containername und interner Port, NICHT die oeffentliche
-# Domain. Leer lassen, wenn das Abbild eine eigene Gesundheitspruefung
-# mitbringt; die ist naeher an der Wahrheit.
-PRUEF_URL="http://$NAME:$PORT/"
-
-# Obergrenze, kein fester Schlaf. Hochsetzen bei Diensten, die beim Start
-# Migrationen fahren.
-PRUEF_WARTEN=60
-CONF
-
-  printf '%s\n' ".env" "daten/" "*.db" > "$STACK/$NAME/.gitignore"
-}
-
 # ----------------------------------------------------------------------
 befehl_suchen() {
   local BEGRIFF="${1:-}"
@@ -632,10 +481,74 @@ befehl_zurueckholen() {
 }
 
 # ----------------------------------------------------------------------
+# Bevor etwas losgelassen wird: zwei Dinge, die man einem Werkzeug von
+# aussen nicht ansieht und die beide den ganzen Schutz aufheben (N-61).
+#
+#   1. Eine veroeffentlichte ports:-Zeile. Damit ist der Dienst an Traefik,
+#      an der Anmeldung UND an der Firewall vorbei erreichbar (§19). Bei
+#      einem Fremdwerkzeug bringt der Hersteller sie fast immer mit - und
+#      unsere override-Datei kann sie nicht wieder wegnehmen, Compose
+#      haengt Listen aneinander.
+#   2. Ein Router ohne Anmeldung und ohne Erklaerung. Ein fehlendes
+#      middlewares= sieht genauso aus wie ein vergessenes (N-59).
+#
+# Gemessen wird an der ZUSAMMENGESETZTEN Konfiguration ("docker compose
+# config"), nicht an einer Datei - sonst sieht die Pruefung die Haelfte.
+#
+# Das ist eine Sperre in "prolo start", nicht in Docker: wer es wirklich
+# will, kann immer noch "cd <ordner> && docker compose up -d" tippen. Der
+# gefuehrte Weg soll nur nicht der sein, auf dem man aus Versehen einen
+# Dienst ins offene Netz stellt.
+start_pruefen() {
+  local TOOL="$1" Z T D NN TN SCHUTZ PORTS GRUND FEHLT=0
+
+  if grep -q 'PROLO-PLATZHALTER' "$STACK/$TOOL/docker-compose.yml" 2>/dev/null; then
+    fehler "NICHT gestartet: in $TOOL/docker-compose.yml steht noch der"
+    fehler "Platzhalter von 'prolo neu'."
+    fehler ""
+    fehler "  Die docker-compose.yml des Herstellers gehoert dort hinein,"
+    fehler "  ihre ports:-Zeile weg, und dann die Zeile PROLO-PLATZHALTER"
+    fehler "  loeschen. Das Warum steht in $TOOL/LIESMICH.md."
+    return 1
+  fi
+
+  [ -x "$HIER/netze.sh" ] || return 0
+  while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND; do
+    [ "$Z" = dienst ] || continue
+    if [ -n "$PORTS" ] && [ -z "$GRUND" ]; then
+      fehler "NICHT gestartet: $TOOL/$D veroeffentlicht Port(s) $PORTS auf dem Host."
+      fehler ""
+      fehler "  Damit waere der Dienst an Traefik, an der Anmeldung und an der"
+      fehler "  Firewall vorbei erreichbar (CLAUDE.md §19). Erreichbar bleibt"
+      fehler "  er ueber seinen Hostnamen - das macht Traefik."
+      fehler ""
+      fehler "  Abhilfe: die ports:-Zeile in $TOOL/docker-compose.yml entfernen."
+      fehler "  Muss sie wirklich sein, wird sie erklaert:"
+      fehler "    labels: [ \"prolo.ports=<warum>\" ]"
+      FEHLT=1
+    fi
+    if [ "$SCHUTZ" = OFFEN ]; then
+      fehler "NICHT gestartet: $TOOL/$D hat einen Router ohne Anmeldung."
+      fehler ""
+      fehler "  Entweder Authentik davor:"
+      fehler "    - \"traefik.http.routers.$TOOL.middlewares=authentik@file\""
+      fehler "  oder - wenn das Werkzeug seine eigene Anmeldung mitbringt -"
+      fehler "  erklaert (CLAUDE.md §17a):"
+      fehler "    - \"prolo.anmeldung=eigene\""
+      fehler "    - \"prolo.anmeldung.grund=<warum>\""
+      FEHLT=1
+    fi
+  done < <("$HIER/netze.sh" --dienste "$TOOL" 2>/dev/null)
+  return "$FEHLT"
+}
+
 befehl_compose() {
   local WAS="$1" TOOL="${2:-}"
   [ -n "$TOOL" ] || { fehler "Aufruf: prolo $WAS <tool>"; exit 1; }
   tool_pruefen_da "$TOOL"
+  case "$WAS" in
+    start|neustart) start_pruefen "$TOOL" || exit 1 ;;
+  esac
   cd "$STACK/$TOOL"
   case "$WAS" in
     start)    docker compose up -d ;;
@@ -703,7 +616,14 @@ prolo - ein Einstiegspunkt fuer den Stack unter $STACK
     --merkzettel              verschluesselter Zettel fuer den
                               Passwortmanager
 
-  neu <name>                  neues Tool anlegen (auch: new)
+  neu <name>                  neues Tool anlegen - fragt nach Art,
+                              Netz und Anmeldung und legt alles an
+                              (auch: new)
+  netze                       Welche Netze gibt es, wer haengt drin,
+                              wer ist ungeschuetzt (auch: networks)
+    anlegen <netz>            anlegen und bei Traefik eintragen
+    schliessen <netz>         abbauen - nur, wenn niemand drin ist
+    umziehen <tool> <netz>    Werkzeug in ein anderes Netz
   suchen <begriff>            Abbild suchen (auch: search)
   entfernen <tool>            ins Archiv (auch: remove)
   archiv                      Archiv anzeigen (auch: archive)
@@ -727,7 +647,8 @@ case "$BEFEHL" in
   quelle|source)              befehl_quelle "$@" ;;
   start|stop|neustart)        root_noetig "$BEFEHL" "$@"; befehl_compose "$BEFEHL" "$@" ;;
   protokoll|logs)             root_noetig protokoll "$@"; befehl_protokoll "$@" ;;
-  neu|new)                    befehl_neu "$@" ;;
+  neu|new)                    exec "$HIER/neu.sh" "$@" ;;
+  netze|netz|networks)        exec "$HIER/netze.sh" "$@" ;;
   suchen|search)              befehl_suchen "$@" ;;
   entfernen|remove|rm)        befehl_entfernen "$@" ;;
   archiv|archive)             befehl_archiv ;;

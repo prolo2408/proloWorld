@@ -3749,3 +3749,240 @@ immer grün.
 
 `werkzeuge/aktualisieren-pruefen.sh`: **74 ok** (vorher 64), `RC=0`.
 Zehn neue Prüflinien, sieben Mutationen, **7 von 7 gefunden**.
+
+
+---
+
+## N-61 — Ein Fremdwerkzeug ist kein eigener Code, und das Gerüst tat so
+
+Der Auftrag: *„Externe Tools, wie n8n, Bitwarden, Seafile usw. sollen normal
+wie vom Hersteller vorgeschlagen laufen. Der einzige Eingriff, der von
+unserer Seite passiert, ist der, dass wir eine x.prolo.me auf das gewünschte
+Tool zeigen lassen und mit einem Zertifikat versehen."*
+
+Genau das konnte `prolo neu` nicht. Es schrieb **eine** `docker-compose.yml`
+mit unserem Gerüst darin und danach eine Liste mit vier Dingen, die „noch von
+Hand" zu tun seien: Netz anlegen, Netz bei Traefik eintragen (an zwei
+Stellen), Authentik einrichten, environment und volumes ergänzen. Wer die
+Datei des Herstellers hatte, musste sie in unser Gerüst hineinschreiben — und
+bei der nächsten Fassung dasselbe noch einmal, von Hand, mit dem Risiko,
+eine unserer Zeilen mitzuverlieren.
+
+### Zwei Dateien statt einer
+
+`docker compose` liest `docker-compose.yml` **und**
+`docker-compose.override.yml` von selbst, ohne `-f` und ohne Umweg. Damit
+geht die Trennung sauber auf:
+
+| Datei | wem sie gehört |
+|---|---|
+| `docker-compose.yml` | **dem Hersteller** — unverändert, bei neuer Fassung ersetzen |
+| `docker-compose.override.yml` | **uns** — Netz, Route, Zertifikat, Anmeldung, Grenzen |
+
+Gemessen mit Compose v5.1.1: die Labels des Herstellers bleiben stehen, unsere
+kommen dazu; ein Dienst ohne eigenes `networks:` landet nur in unserem Netz;
+Nebendienste (Datenbank, Worker) bleiben im projekteigenen Netz und damit
+unerreichbar von außen. Und **`docker compose config` braucht keinen
+laufenden Docker-Dienst** — das macht die zusammengesetzte Konfiguration zu
+etwas, das man messen kann, statt sie mit regulären Ausdrücken nachzubauen.
+
+### Was eine override-Datei NICHT kann
+
+Sie kann eine `ports:`-Zeile nicht wegnehmen. Compose hängt Listen
+aneinander. Und fast jedes Fremdwerkzeug bringt eine mit — sie ist in der
+Anleitung des Herstellers der normale Weg.
+
+> Eine `ports:`-Zeile hebelt Firewall **und** Anmeldung gleichzeitig aus. Das
+> ist nicht eine Regel unter vielen, das ist der eigentliche Schutz (`§19`).
+
+Also eine Sperre, und zwar eine **messende**: `prolo start` liest die
+zusammengesetzte Konfiguration und lässt nichts los, das einen Port
+veröffentlicht, ohne ihn mit `prolo.ports=<grund>` zu erklären. Traefik hat
+diese Erklärung jetzt (80 und 443 sind der Eingang); alles andere wird
+abgelehnt, mit dem Weg heraus in der Meldung. Die Sperre sitzt in `prolo`,
+nicht in Docker: wer es wirklich will, kann immer noch
+`cd <ordner> && docker compose up -d` tippen. Der **geführte** Weg soll nur
+nicht der sein, auf dem man aus Versehen einen Dienst ins offene Netz stellt.
+
+Dieselbe Sperre gilt für einen Router ganz ohne Anmeldung: entweder
+`authentik@file`, oder `prolo.anmeldung=eigene` mit Grund (`§17a`) — sonst
+kein Start.
+
+### Und die Anmeldung wird gefragt, nicht vorgegeben
+
+`prolo neu` fragt: Authentik davor, oder eigene Anmeldung des Werkzeugs?
+**Ohne Vorgabe** — ein Enter darf hier nicht genügen. Bei `--art eigen`
+entfällt die Frage, weil `§17` keine Wahl lässt.
+
+### Das Netz zuerst, dann der Ordner
+
+Die erste Fassung legte den Ordner an und richtete danach das Netz ein.
+Schlug das fehl, stand ein Ordner da, den niemand von einem fertigen
+Werkzeug unterscheiden kann. Jetzt läuft das Netz zuerst: geht es nicht,
+entsteht gar nichts (`§12`).
+
+### Prüfung
+
+`werkzeuge/neu-pruefen.sh`, **76 ok, RC=0**. Der Prüfer reicht
+`docker compose config` an das echte `docker` durch — das ist die einzige
+Stelle, an der wirklich gemessen und nicht nachgebildet wird.
+
+`werkzeuge/neu-gegenprobe.py`: **12 Mutationen, 12 gefunden.** Die Fehler
+landen in den Kopien im Wegwerfordner, nie im Arbeitsstand (`N-34`, `N-60`).
+
+**Eine Prüfzeile war beim ersten Lauf grün, ohne zu prüfen.** „eigener Code
+mit eigener Anmeldung wird abgelehnt" rief `prolo neu` ohne `--grund` auf —
+und scheiterte damit an der fehlenden Begründung, nie an der `§17`-Regel. Die
+Mutation, die genau diese Regel ausbaute, blieb unentdeckt. Jetzt wird
+`--grund` mitgegeben, und zusätzlich geprüft, dass `§17` der genannte Grund
+ist.
+
+---
+
+## N-62 — Man konnte nicht nachsehen, wer in welchem Netz hängt
+
+Die Netztrennung aus `N-45` ist die wichtigste Schutzschicht des Stacks. Sie
+war aber nur von Hand herzustellen — `docker network create`, dann zwei
+Stellen in der Traefik-Datei, dann Traefik **neu anlegen** (`N-58`) — und vor
+allem: man konnte sie nicht **ansehen**. „Welche Netze gibt es, wer hängt
+drin, hängt Traefik überall mit, ist irgendwo ein Router offen?" war eine
+Frage an drei `docker`-Befehle und fünf Dateien.
+
+`prolo netze` beantwortet sie:
+
+```
+Netze
+  NETZ                 GEHOERT ZU               TRAEFIK  DOCKER  CONTAINER
+  netz-admin           admin                    ja       ja      1
+  netz-n8n             n8n                      ja       ja      1
+  ...
+Werkzeuge
+  WERKZEUG      DIENST          NETZ                     SCHUTZ      OFFENE PORTS
+  n8n           n8n             netz-n8n                 eigene      -
+  traefik       traefik         netz-authentik,netz-bo.. -           80,443 (Eingang des Stacks)
+```
+
+Dazu `anlegen` (Netz + **beide** Stellen bei Traefik), `schliessen` (nur,
+wenn es niemand mehr erklärt und kein Container mehr drin hängt) und
+`umziehen <werkzeug> <netz>`.
+
+**Umziehen ist das Riskanteste hier**, darum mit Kopie, Ersetzen, **Messen**
+und Rücknahme: nach dem Ersetzen wird die zusammengesetzte Konfiguration
+gelesen, und steht dort nicht genau das erwartete Netz, geht alles zurück.
+Keine Datei bleibt halb geändert (`§12`).
+
+### Die Spalte, um die es eigentlich geht
+
+**SCHUTZ.** Sie wird aus der Middleware-Kette in den Labels **gelesen**, nicht
+geraten: `authentik@file` → „authentik"; `prolo.anmeldung` → dessen Wert;
+`prolo.oeffentlich` → „öffentlich"; ein Router ohne all das → **`OFFEN`**.
+Ein fehlendes `middlewares=` sieht sonst genauso aus wie ein vergessenes
+(`N-59`), und es sah bisher niemand.
+
+### Drei Fehlalarme, die der eigene Prüfer erst erzeugt hat
+
+1. **`authentik_internal` sollte Traefik bekommen.** Das ist Authentiks
+   projekteigenes Netz — da hat Traefik nichts verloren. Die Regel „jedes
+   erklärte Netz braucht Traefik" war zu breit. Jetzt bleiben projekteigene
+   Netze draußen, erkannt am Namen `<projekt>_<schlüssel>`.
+2. **Traefiks Ports 80/443 galten als Verstoß.** Sind sie nicht — sie sind
+   der Eingang. Aber das stand nirgends. Jetzt steht es dort, als Label.
+3. **`docker compose config` scheiterte auf einem frischen Klon.** An jedem
+   `${...}` aus einer `.env`, die es gerade nicht gibt — also an fast allem.
+   `--no-interpolate` behebt es: Netze und Labels benutzen keine Variablen.
+
+> Ein Prüfer, der jeden Tag denselben Fehlalarm gibt, ist schlimmer als
+> keiner. Beim echten Fund sieht dann niemand mehr hin.
+
+### Geteilte Netze sind jetzt erlaubt — wenn sie erklärt sind
+
+Der Wunsch war ein Testbereich: *„damit kann ich mir ein Netz test anlegen
+und mir da irgendwelche Docker-Container anlegen."* Bisher verlangte
+`netze-pruefen.sh` ein Netz je Werkzeug, ohne Ausnahme. Jetzt darf geteilt
+werden — aber **alle** Beteiligten schreiben `prolo.netz.geteilt=<grund>`.
+Sonst sieht ein geteiltes Netz genauso aus wie ein verwechseltes.
+
+### Prüfung
+
+`werkzeuge/netze-pruefen.sh`: **42 ok**, RC=0 (vorher 35). Es liest jetzt
+**beide** Compose-Dateien — ein Prüfer, der bei einem Fremdwerkzeug nur die
+Herstellerdatei liest, sieht von Netz, Route und Anmeldung nichts und meldet
+Entwarnung für etwas, das er gar nicht angesehen hat.
+
+---
+
+## N-63 — Der Stack hatte keine Ansicht
+
+Es gab keinen Ort, an dem man den Zustand des Stacks **sieht**. `prolo status`
+sagt viel, aber im Terminal und nur auf dem Server. Der Auftrag: *„fange
+außerdem mit der Admin-Seite an … Das soll eine Umgebung sein, die ganz
+einfach zu administrieren und zu verwalten ist, aber trotzdem mächtig und
+sicher. Also muss die Admin-Seite sehr gut geschützt sein."*
+
+`admin/` — eigener Code, Python-Standardbibliothek, hinter Authentik **und**
+hinter der Gruppe `admin`. Vier Ansichten: Übersicht, Werkzeuge, Netze,
+Einstellungen.
+
+### Was sie liest, und warum das der schmalere Weg ist
+
+Zwei lesende Aufrufe an den Vermittler vor dem Docker-Socket:
+`/containers/json` und `/networks`. **Kein Zugriff auf `/opt/stack`.** Der
+naheliegende Weg wäre gewesen, den Stack-Ordner schreibgeschützt
+hineinzuhängen — dann läge aber jede `.env` in Reichweite. So liegt keine.
+
+Was bleibt: wer lesend an der Docker-API sitzt, kann die
+Umgebungsvariablen von Containern abfragen, und da stehen Geheimnisse drin.
+Das ist genau die Berechtigung, die **Traefik seit `B-02` ohnehin hat** —
+diese Seite weitet sie nicht aus, sie teilt sie. Der Preis ist bewusst
+bezahlt und steht in der `docker-compose.yml`, nicht in einer Fußnote.
+
+### Was sie mit Absicht NICHT tut
+
+Sie startet nichts und hält nichts an. Dafür müsste der Vermittler
+schreibende Aufrufe durchlassen (`POST: 1`), und damit wäre aus einer
+Übersichtsseite der kürzeste Weg zur Serverübernahme geworden. Kommt das
+später, dann mit einem **eigenen** Vermittler für genau diesen einen Aufruf
+und als eigene Entscheidung — nicht nebenbei.
+
+### Der Fund, den sie liefern soll
+
+Die Übersicht zählt nicht Container, sondern **Punkte zum Klären**: ein
+Router ohne Anmeldung und ohne Erklärung, ein unerklärt offener Port, ein
+Container, der in einem anderen Netz läuft als sein Label sagt (`N-58`), ein
+Dienst, der nicht läuft. Das ist die Hero-Kennzahl, und sie steht oben.
+
+### Prüfung
+
+`admin/tests/alle.sh`: **36 Tests, RC=0**, Fassung an allen drei Stellen
+gleich. `admin/tests/gegenprobe.sh`: **14 Mutationen, 14 gefunden** — darunter
+„ein Router ohne Anmeldung gilt als geschützt", „die Marke von Traefik wird
+nur am Anfang verglichen" und „Labels werden ungefiltert ausgegeben".
+
+**Zwei Tests haben sich beim ersten Lauf gegenseitig belogen.** `urllib`
+folgt einer 303 von selbst — der Test maß die Seite *danach* und nie die
+Weiterleitung. Und `setUpClass` hatte `docker_lesen` global ersetzt und nie
+zurückgegeben, sodass der nächste Test gegen die Attrappe lief und etwas
+anderes prüfte, als er zu prüfen glaubte.
+
+### Im Browser, nicht nur getestet
+
+Vier Ansichten × drei Breiten (360/768/1920) × zwei Themen, dazu Zoom 200 %:
+**150 Messpunkte, 0 Fehler** — nach zwei echten Funden:
+
+- **Kontrast 3.3:1** beim aktiven Eintrag der Tabbar im Dunkelmodus
+  (`--accent` auf `--chrome`, 12 px — `§8` verlangt 4.5:1). Behoben über die
+  Kontrast-Ausnahme aus `§2`: `--accent-ink`. Der 3-px-Strich bleibt
+  `--accent`, die Farbe als Signal geht nicht verloren.
+- **Die Marke fehlte am Handy.** Die Sidebar ist unter 900 px ausgeblendet —
+  und damit war die Marke weg, die `§5` auf jeder Ansicht verlangt. Das sieht
+  man beim Lesen des Codes nicht.
+
+Dazu Tabellenspalten von Hand gesetzt (die Zustandsspalte brach
+„Up 13 days (healthy)" auf vier Zeilen) und die Segmentknöpfe von 38 auf
+44 px (`§9` schlägt die 38 aus `§5`).
+
+**Und der Prüfer wurde gegengeprobt** (`§14a`): blasser Text, seitliches
+Scrollen und zu kleine Touchziele wurden absichtlich eingebaut — **3 von 3
+gefunden**. Die Farben kommen als `oklch()` und werden über die Leinwand des
+Browsers umgerechnet, nicht von Hand: ein Prüfer, der `oklch` als RGB liest,
+hat hier schon einmal gelogen.
