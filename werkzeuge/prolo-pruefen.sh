@@ -262,6 +262,39 @@ else
 fi
 
 # ----------------------------------------------------------------------
+# Wird ein Notzertifikat als solches erkannt? (N-57)
+#
+# "prolo status" zeigte fuer prolo.me "364 Tage ()" an - als waere alles in
+# Ordnung. Dahinter stand Traefiks Notzertifikat. Die Erkennung las nur das
+# O=-Feld, und Traefiks Notzertifikat hat keines; herausgekommen ist eine
+# leere Zeichenkette, und die Warnung suchte darin nach "traefik".
+#
+# Erwartungswerte von Hand, nicht aus der Ausgabe uebernommen (§13).
+DEUT="$T/deuten.sh"
+sed -n '/^zertifikat_deuten()/,/^}/p;/^zertifikat_notbehelf()/,/^}/p' \
+  "$HIER/prolo" > "$DEUT"
+# shellcheck disable=SC1090
+. "$DEUT"
+
+roh() { printf 'notAfter=Sep 20 10:00:00 2027 GMT\nissuer=%s\n' "$1"; }
+deute() { local R; R=$(zertifikat_deuten "$(roh "$1")"); printf '%s' "${R#*|}"; }
+notbehelf() { zertifikat_notbehelf "$(deute "$1")" && echo ja || echo nein; }
+
+pruefe "Let's Encrypt wird am O=-Feld erkannt" \
+  "Let's Encrypt" "$(deute "C = US, O = Let's Encrypt, CN = R11")"
+pruefe "Traefiks Notzertifikat wird am CN= erkannt" \
+  "TRAEFIK DEFAULT CERT" "$(deute "CN = TRAEFIK DEFAULT CERT")"
+pruefe "ein Herausgeber ohne O= und CN= heisst 'unbekannt'" \
+  "unbekannt" "$(deute "C = XX")"
+pruefe "Traefiks Notzertifikat gilt als Notbehelf" "ja" "$(notbehelf "CN = TRAEFIK DEFAULT CERT")"
+pruefe "ein unbekannter Herausgeber gilt als Notbehelf" "ja" "$(notbehelf "C = XX")"
+pruefe "Let's Encrypt gilt NICHT als Notbehelf" "nein" \
+  "$(notbehelf "C = US, O = Let's Encrypt, CN = R11")"
+# Ohne Ablaufdatum gibt es nichts zu deuten - dann lieber gar nichts sagen.
+zertifikat_deuten "issuer=CN = irgendwas" >/dev/null 2>&1 && E=ja || E=nein
+pruefe "ohne notAfter meldet die Deutung einen Fehlschlag" "nein" "$E"
+
+# ----------------------------------------------------------------------
 # Steht in den Anleitungen ein Befehl, den es gar nicht gibt? (N-51)
 #
 # Ein erfundener Unterbefehl (compose) stand in der Bedienungsseite, in dem

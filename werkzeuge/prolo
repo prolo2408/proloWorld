@@ -108,18 +108,41 @@ aufloesen() {
 
 # Zertifikat einer Domaene: Aussteller und Restlaufzeit in Tagen.
 # Gibt "<tage>|<aussteller>" oder "" zurueck.
-zertifikat() {
-  local NAME="$1" ROH ENDE
-  ROH=$(echo | timeout 12 openssl s_client -connect "$NAME:443" \
-        -servername "$NAME" 2>/dev/null | openssl x509 -noout -enddate -issuer 2>/dev/null) \
-        || return 1
-  ENDE=$(printf '%s' "$ROH" | sed -n 's/^notAfter=//p')
+# Wer hat das Zertifikat ausgestellt? Getrennt vom Netzaufruf, damit es
+# sich mit festen Eingaben pruefen laesst (N-57).
+#
+# Die erste Fassung las nur das O=-Feld. Traefiks Notzertifikat hat keines,
+# es heisst nur "CN = TRAEFIK DEFAULT CERT" - herausgekommen ist eine leere
+# Zeichenkette, und die Warnung "NOTZERTIFIKAT" sucht nach "traefik" darin.
+# Sie kam also nie. Angezeigt wurde "364 Tage ()", als waere alles in
+# Ordnung. Eine Anzeige, die im Zweifel beruhigt, ist schlimmer als keine.
+zertifikat_deuten() {
+  local ROH="$1" ENDE AUS
+  ENDE=$(printf '%s' "$ROH" | sed -n 's/^notAfter=//p' | head -1)
   [ -n "$ENDE" ] || return 1
   local BIS HEUTE
   BIS=$(date -d "$ENDE" +%s 2>/dev/null) || return 1
   HEUTE=$(date +%s)
-  printf '%s|%s' "$(( (BIS - HEUTE) / 86400 ))" \
-    "$(printf '%s' "$ROH" | sed -n 's/.*issuer=.*O *= *\([^,]*\).*/\1/p' | head -1)"
+  local ZEILE
+  ZEILE=$(printf '%s' "$ROH" | sed -n 's/^issuer=//p' | head -1)
+  AUS=$(printf '%s' "$ZEILE" | sed -n 's/.*O *= *\([^,]*\).*/\1/p' | head -1)
+  [ -n "$AUS" ] || AUS=$(printf '%s' "$ZEILE" | sed -n 's/.*CN *= *\([^,]*\).*/\1/p' | head -1)
+  # Leer heisst NICHT "in Ordnung", sondern "nicht erkannt".
+  [ -n "$AUS" ] || AUS="unbekannt"
+  printf '%s|%s' "$(( (BIS - HEUTE) / 86400 ))" "$AUS"
+}
+
+# Ein Herausgeber, der so heisst, ist kein echtes Zertifikat.
+zertifikat_notbehelf() {
+  printf '%s' "$1" | grep -qiE "traefik|default|unbekannt|localhost|selbst"
+}
+
+zertifikat() {
+  local NAME="$1" ROH
+  ROH=$(echo | timeout 12 openssl s_client -connect "$NAME:443" \
+        -servername "$NAME" 2>/dev/null | openssl x509 -noout -enddate -issuer 2>/dev/null) \
+        || return 1
+  zertifikat_deuten "$ROH"
 }
 
 # ----------------------------------------------------------------------
@@ -189,8 +212,9 @@ befehl_status() {
         printf '  %-26s %-16s ABGELAUFEN seit %s Tagen\n' "$name" "$ipfeld" "$(( -tage ))"; warnung=1
       elif [ "$tage" -lt 21 ]; then
         printf '  %-26s %-16s laeuft in %s Tagen ab (%s)\n' "$name" "$ipfeld" "$tage" "$aus"; warnung=1
-      elif printf '%s' "$aus" | grep -qi "traefik"; then
-        printf '  %-26s %-16s NOTZERTIFIKAT (%s)\n' "$name" "$ipfeld" "$aus"; warnung=1
+      elif zertifikat_notbehelf "$aus"; then
+        printf '  %-26s %-16s NOTZERTIFIKAT (%s) - kein Let'"'"'s Encrypt\n' \
+          "$name" "$ipfeld" "$aus"; warnung=1
       else
         printf '  %-26s %-16s %s Tage (%s)\n' "$name" "$ipfeld" "$tage" "$aus"
       fi
