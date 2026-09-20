@@ -366,7 +366,7 @@ with tempfile.TemporaryDirectory(prefix="geheimnis-probe-") as tmp:
             "ein halber Wechsel macht genau die Werkzeuge unerreichbar, "
             "die die Marke pruefen")
         sag(rc != 0, "--neu meldet den halben Wechsel als Fehlschlag (rc=%d)" % rc)
-        sag("NICHT gewechselt" in aus and "zwei/.env" in aus,
+        sag("NICHT angefasst" in aus and "zwei/.env" in aus,
             "--neu sagt, WELCHE Stelle klemmt",
             "eine Meldung ohne den Ort ist ein Raetsel (§7)")
         # Dass es sich weigert, reicht nicht - es muss den RICHTIGEN Grund
@@ -419,6 +419,50 @@ with tempfile.TemporaryDirectory(prefix="geheimnis-probe-") as tmp:
                 "ein Zettel, den man nicht lesen kann, hilft niemandem")
             sag("UNBERUEHRBAR" in klar.stdout and "eins/.env" in klar.stdout,
                 "--merkzettel: Name und Ort stehen dabei")
+
+        # --- --verteilen: Luecken fuellen, ohne zu wechseln -----------
+        # Der haeufigste Fall beim Aufsetzen. "--neu" waere dafuer falsch:
+        # es wuerfelt einen neuen, obwohl gar nichts kaputt war.
+        jetzt = re.search(r"^GEMEINSAM=(.*)$", env("eins"), re.M).group(1)
+        open(os.path.join(tmp, "zwei", ".env"), "w").write(
+            "VORHER=bleibt\nGEMEINSAM=\nNACHHER=bleibt\n")
+        rc, aus = lauf(prog, ["--verteilen"])
+        w2 = re.search(r"^GEMEINSAM=(.*)$", env("zwei"), re.M)
+        sag(w2 is not None and w2.group(1) == jetzt,
+            "--verteilen fuellt die leere Stelle mit dem vorhandenen Wert",
+            "es soll fuellen, nicht wuerfeln - sonst enden Sitzungen ohne Grund")
+        sag(re.search(r"^GEMEINSAM=(.*)$", env("eins"), re.M).group(1) == jetzt,
+            "--verteilen laesst den vorhandenen Wert in Ruhe")
+        sag(jetzt not in aus, "--verteilen zeigt den Wert nicht (§22)")
+
+        rc, aus = lauf(prog, ["--verteilen"])
+        sag(rc == 0 and "steht schon an allen" in aus,
+            "--verteilen ein zweites Mal tut nichts mehr (rc=%d)" % rc,
+            "ein Einrichtungsschritt muss sich wiederholen lassen")
+
+        # Zwei verschiedene Werte: das entscheidet kein Skript.
+        open(os.path.join(tmp, "zwei", ".env"), "w").write(
+            "VORHER=bleibt\nGEMEINSAM=EIN-GANZ-ANDERER\nNACHHER=bleibt\n")
+        rc, aus = lauf(prog, ["--verteilen"])
+        sag(rc != 0 and "UNEINIG" in aus,
+            "--verteilen entscheidet bei zwei Werten NICHT (rc=%d)" % rc)
+        sag(re.search(r"^GEMEINSAM=(.*)$", env("eins"), re.M).group(1) == jetzt
+            and "EIN-GANZ-ANDERER" in env("zwei"),
+            "--verteilen laesst dabei beide Werte stehen",
+            "raten waere schlimmer als nichts tun")
+
+        # Nirgends gesetzt: einmal wuerfeln, dann ueberall derselbe.
+        for w in ("eins", "zwei"):
+            open(os.path.join(tmp, w, ".env"), "w").write(
+                "VORHER=bleibt\nGEMEINSAM=\nNACHHER=bleibt\n")
+        rc, aus = lauf(prog, ["--verteilen"])
+        n1 = re.search(r"^GEMEINSAM=(.*)$", env("eins"), re.M)
+        n2 = re.search(r"^GEMEINSAM=(.*)$", env("zwei"), re.M)
+        sag(n1 and n2 and n1.group(1) == n2.group(1) and len(n1.group(1)) >= 40,
+            "--verteilen wuerfelt einmal, wenn nirgends etwas steht",
+            "zwei verschiedene neue Werte waeren schlimmer als gar keiner")
+        sag(n1 is not None and n1.group(1) != jetzt,
+            "--verteilen nimmt dann wirklich einen neuen Wert")
 
 print("")
 print("Alles gruen." if not fehler else "%d Fehler." % fehler)
