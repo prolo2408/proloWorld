@@ -578,9 +578,9 @@ der nächste Bau das alte Abbild — und der Rückweg ist weg, obwohl
 
 ## 17. Anmeldung: niemals selbst bauen
 
-**Kein Werkzeug bringt eine eigene Anmeldung mit.** Kein Login-Formular,
-keine Registrierung, keine Passwortspeicherung, kein Zurücksetzen per Mail.
-Die Identität kommt als HTTP-Kopf von Traefik:
+**Kein Werkzeug mit eigenem Code bringt eine eigene Anmeldung mit.** Kein
+Login-Formular, keine Registrierung, keine Passwortspeicherung, kein
+Zurücksetzen per Mail. Die Identität kommt als HTTP-Kopf von Traefik:
 
 | Kopf | Inhalt |
 |---|---|
@@ -616,6 +616,40 @@ Die Identität kommt als HTTP-Kopf von Traefik:
 - Gruppen dürfen für werkzeug-interne Rollen ausgewertet werden. Ein Werkzeug
   wertet nur seine **eigenen** Gruppen aus (das Wiki: alles, was mit `wiki`
   anfängt) und verwirft den Rest an **einer** Stelle, nicht an sieben.
+
+### 17a. Fremdwerkzeuge mit eigener Anmeldung
+
+§17 gilt für **eigenen Code**. Ein zugekauftes Werkzeug ist etwas anderes:
+n8n, Vaultwarden und ihresgleichen bringen eine Anmeldung mit, die man
+nicht abschalten kann, und ein Teil ihrer Oberfläche spricht über Wege,
+die eine ForwardAuth-Anmeldung im Browser **nicht mitmachen kann** —
+Webhooks, Formulare, die API. Bei Vaultwarden ist es endgültig: die
+Handy-App und die Browser-Erweiterung sprechen die API direkt und würden
+mit Authentik davor gar nicht funktionieren.
+
+Vorher stand dafür ein zweiter Router ohne Anmeldung daneben, und dessen
+`priority` war die einzige Klammer zwischen „geschützt" und „offen". **Ein
+Router ist ehrlicher als zwei, von denen einer aus Versehen gewinnt.**
+
+Ein solches Werkzeug darf ohne `authentik@file` laufen, wenn **alles
+davon** erfüllt ist:
+
+| | |
+|---|---|
+| erklärt | Label `prolo.anmeldung=eigene` an seinem Dienst — sonst ist es ein vergessenes `middlewares=`, kein Entschluss |
+| eigenes Netz | `netz-<werkzeug>`, nur Traefik hängt mit drin (§19) |
+| Ratenbremse | greift ohnehin am Eingang (`N-46`) |
+| 2FA | in der eigenen Anmeldung eingeschaltet — ohne sie hängt alles an einem Passwort |
+| vermerkt | im `HINWEIS` der `sicherung.conf`, wo ein Betreiber nachsieht |
+
+**Eigener Code darf das nie.** Ein Werkzeug mit `Dockerfile` im Ordner, das
+`prolo.anmeldung=eigene` setzt, ist ein Verstoß gegen §17 und kein
+Grenzfall — dort hätten wir die Anmeldung selbst gebaut, und genau das
+tun wir nicht. `werkzeuge/grenze-pruefen.sh` hält die Stellen zusammen.
+
+Die Vertrauensgrenze (`X-Prolo-Einlass`) bleibt davon unberührt: Traefik
+löscht die Identitätskopfzeilen weiter am Eingang. Ein Fremdwerkzeug
+wertet sie ohnehin nicht aus.
 
 ## 18. Datentrennung
 
@@ -684,7 +718,8 @@ Verbindlich in jeder `docker-compose.yml`:
   `sicherung.conf`. Ein solcher Pfad gibt **nichts Schützenswertes** aus:
   „ok" und eine Fassungsnummer, mehr nicht.
 - **Ausnahme Webhooks:** ein zweiter Router **ohne** `authentik@file` und mit
-  höherer `priority` — und ein Vermerk unter `HINWEIS=`.
+  höherer `priority` — und ein Vermerk unter `HINWEIS=`. Braucht ein
+  Fremdwerkzeug das für den halben Betrieb, ist §17a der ehrlichere Weg.
 - **Zwei Router auf demselben Namen** sind erlaubt, wenn ein Teil öffentlich
   sein muss (`www/`: die Startseite und die Zugangslinks). Dann gilt: der
   geschützte Router bekommt die **höhere** `priority`, sonst gewinnt der

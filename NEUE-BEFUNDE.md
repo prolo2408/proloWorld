@@ -3483,6 +3483,83 @@ Zwei Mutationen, beide gefunden: „ein laufender Container wird nie
 nachgehängt" und „fehlende Netze werden gar nicht erst gesucht". Der
 Prüfstand steht bei **12 Linien** und **4 von 4** Schwächen.
 
+## N-59 — Ein fehlendes `middlewares=` sieht aus wie ein vergessenes
+
+Kein Absturz, sondern eine **Entscheidung** — und der Weg, sie so
+festzuhalten, dass sie nicht zur Erosion wird.
+
+Der Auftrag war: *„Ich finde, dass es reicht, wenn Tools wie n8n in einem
+extra Netz sind. Ich muss da keine zweite Anmeldung vorschalten und ggf.
+Features kaputt machen."* Für Vaultwarden ist das ohnehin zwingend — die
+Handy-App und die Browser-Erweiterung sprechen die API direkt und können
+keine ForwardAuth-Anmeldung im Browser durchlaufen.
+
+Bei n8n stand vorher ein **zweiter Router** ohne Anmeldung daneben, für
+Webhooks und Formulare. Dessen `priority` war die einzige Klammer zwischen
+„geschützt" und „offen". **Ein Router ist ehrlicher als zwei, von denen
+einer aus Versehen gewinnt.**
+
+### Das eigentliche Problem
+
+`middlewares=authentik@file` **fehlt** — das sieht genau gleich aus, ob es
+ein Entschluss war oder ein Versehen. Eine Regel, die nur im Kopf steht,
+ist nach dem dritten Werkzeug weg.
+
+Darum wird jetzt jeder Router ohne Authentik **erklärt**, mit einem Label
+neben der Sache, die es beschreibt:
+
+| Label | heißt |
+|---|---|
+| `prolo.anmeldung=eigene` | das ganze Werkzeug bringt seine eigene Anmeldung mit (n8n, Authentik selbst) |
+| `prolo.oeffentlich=<router>` | **dieser** Router ist mit Absicht offen (`www`: Startseite und Zugangslinks) |
+
+Dazu die Bedingungen aus `§17a`: eigenes Netz, Ratenbremse, 2FA in der
+eigenen Anmeldung, und ein Vermerk im `HINWEIS` der `sicherung.conf` —
+dort sieht ein Betreiber nach, nicht in den Labels.
+
+**Eigener Code darf das nie.** Ein Werkzeug mit `Dockerfile`, das
+`prolo.anmeldung=eigene` setzt, hätte die Anmeldung selbst gebaut, und
+genau das tun wir nicht (`§17`).
+
+### Zwei eigene Fehler beim Bauen der Prüfung
+
+**Sie hat `www` gefunden — zu Recht.** Dessen öffentlicher Router war
+Absicht, stand aber nirgends. Die Regel hatte nur zwei Fälle, es gibt
+drei. Jetzt erklärt.
+
+**Sie hat `n8n` gar nicht angesehen.** Die Schleife lief über
+`werkzeuge` — und das ist im Prüfskript die Liste der Werkzeuge mit
+eigenem `server.py`. n8n und Authentik stehen nicht darin, also genau die
+Fremdwerkzeuge, um die es geht. **Die Prüfung hätte das Werkzeug
+übersehen, für das sie geschrieben wurde.** Derselbe Fehler wie `N-56`:
+der Umfang einer Prüfung ist selbst eine Annahme.
+
+### Und der dritte, den erst die Mutationsprobe zeigte
+
+Die Korrektur dazu war zuerst:
+
+```python
+sag(len(alle_werkzeuge) > len(werkzeuge), "sieht MEHR Werkzeuge an …")
+```
+
+Die Mutation „die Prüfung sieht wieder nur eigenen Code an" änderte die
+**Schleife**, nicht die Listen — und blieb **grün**. Natürlich: geprüft war,
+dass die Liste größer ist, nicht dass sie benutzt wird. `N-38` in Reinform.
+
+Jetzt wird die Wirkung gemessen: *wurde tatsächlich ein Fremdwerkzeug
+angesehen?*
+
+```
+ok     angesehen wurde auch mindestens ein Fremdwerkzeug (authentik, n8n)
+```
+
+**6 von 6 Mutationen gefunden**, der Prüfstand steht bei 52 Linien.
+
+### Was das nicht behebt
+
+Der `504` auf `n8n.prolo.me`. Authentik lag nie auf diesem Weg — n8n
+antwortet schlicht nicht. Das ist ein eigener Befund und bleibt offen.
+
 ## Sicherheitsaufnahme — der Stand nach `N-44` bis `N-46`
 
 Der Auftrag war: „Maximale Sicherheit für meine Tools und keine Fehlzugriffe
