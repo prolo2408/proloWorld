@@ -130,10 +130,16 @@ fi
 schritt "5. Netze"
 # Gelesen wird, welche externen Netze die Compose-Dateien verlangen -
 # keine feste Liste, sonst uebersieht das Skript das naechste Werkzeug.
-NETZE=$(python3 - "$STACK" <<'PY'
+# Welche EXTERNEN Netze nennt eine Compose-Datei? (ein Name je Zeile)
+# Ein Werkzeug ohne Argument heisst: alle Compose-Dateien zusammen.
+externe_netze() {
+python3 - "$STACK" "${1:-}" <<'PY'
 import os, re, sys
-stack = sys.argv[1]; aus, erzeugt = set(), set()
+stack, nur = sys.argv[1], (sys.argv[2] if len(sys.argv) > 2 else "")
+aus, erzeugt = set(), set()
 for d in sorted(os.listdir(stack)):
+    if nur and d != nur:
+        continue
     p = os.path.join(stack, d, "docker-compose.yml")
     if not os.path.isfile(p):
         continue
@@ -154,9 +160,12 @@ for d in sorted(os.listdir(stack)):
 # entsteht mit socket-proxy und ist "internal: true". Von Hand angelegt
 # waere es ein gewoehnliches Bridge-Netz - und socket-proxy kaeme nicht
 # mehr hoch. Traefik nennt es nur "external", weil es von aussen kommt.
-print(" ".join(sorted(aus - erzeugt)))
+# Beim Blick auf EIN Werkzeug zaehlt nur, was es selbst nicht anlegt.
+print("\n".join(sorted(aus - erzeugt)))
 PY
-)
+}
+
+NETZE=$(externe_netze)
 if [ -z "$NETZE" ]; then f_offen "keine externen Netze in den Compose-Dateien gefunden"; fi
 for N in $NETZE; do
   if docker network inspect "$N" >/dev/null 2>&1; then f_ok "$N"
@@ -244,12 +253,54 @@ schritt "9. Dienste starten"
 # Traefik braucht; Traefik muss stehen, bevor Authentik seine Zertifikate
 # bekommt; erst danach die Werkzeuge.
 ZUERST="socket-proxy traefik authentik"
+# In welchen Netzen haengen die Container eines Werkzeugs WIRKLICH?
+netze_der_container() {
+  local T="$1" id
+  for id in $(docker compose --project-directory "$STACK/$T" ps -q 2>/dev/null); do
+    docker inspect "$id" \
+      --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}' \
+      2>/dev/null
+  done | sort -u
+}
+
+# Welches erklaerte Netz hat KEINEN einzigen Container? (N-58)
+#
+# Ein Compose kann mehrere Dienste haben, die in verschiedenen Netzen
+# haengen - Authentiks Datenbank etwa nur im internen. Darum reicht es,
+# wenn je Netz MINDESTENS EIN Container drin ist. Fehlt eines ganz, ist
+# der Container aelter als das Netz.
+netze_fehlen() {
+  local T="$1" N IST
+  IST=$(netze_der_container "$T")
+  for N in $(externe_netze "$T"); do
+    printf '%s\n' "$IST" | grep -qx "$N" || printf '%s ' "$N"
+  done
+}
+
 starten() {
   local T="$1"
   [ -f "$STACK/$T/docker-compose.yml" ] || return 0
-  local LAUFEN
+  local LAUFEN FEHLT
   LAUFEN=$(docker compose --project-directory "$STACK/$T" ps -q 2>/dev/null | grep -c .)
-  if [ "${LAUFEN:-0}" -gt 0 ]; then f_ok "$T laeuft"; return 0; fi
+  if [ "${LAUFEN:-0}" -gt 0 ]; then
+    # Laeuft - aber haengt er auch in seinen Netzen? Ein Netz, das erst
+    # in Schritt 5 entstanden ist, erreicht einen schon laufenden
+    # Container NICHT von allein. Genau daran ist Traefik einmal
+    # vorbeigelaufen: die Netze waren da, die Werkzeuge hingen drin, und
+    # Traefik - der als Einziger in alle gehoert - noch im alten Satz.
+    # Von aussen sah das aus wie "Gateway Timeout" (N-58).
+    FEHLT=$(netze_fehlen "$T")
+    if [ -z "$FEHLT" ]; then f_ok "$T laeuft"; return 0; fi
+    if ! tun; then f_wuerde "$T neu verbinden (fehlt: $FEHLT)"; return 0; fi
+    if (cd "$STACK/$T" && docker compose up -d >/dev/null 2>&1); then
+      FEHLT=$(netze_fehlen "$T")
+      if [ -z "$FEHLT" ]; then f_tat "$T neu verbunden"
+      else f_bad "$T haengt weiter nicht in: $FEHLT"; fi
+    else
+      f_bad "$T liess sich nicht neu verbinden:  sudo prolo protokoll $T"
+    fi
+    return 0
+  fi
   if ! tun; then f_wuerde "$T starten"; return 0; fi
   if (cd "$STACK/$T" && docker compose up -d >/dev/null 2>&1); then
     f_tat "$T gestartet"

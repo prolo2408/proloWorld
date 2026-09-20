@@ -3428,6 +3428,61 @@ Authentik noch fehlt — Traefik fordert dann keines an. Nach dem Beheben
 zeigt `prolo status` dort `90 Tage (Let's Encrypt)`; bis dahin steht jetzt
 ehrlich `NOTZERTIFIKAT (…) - kein Let's Encrypt` da.
 
+## N-58 — Ein neues Netz erreicht einen laufenden Container nicht
+
+`prolo einrichten` lief durch, meldete „Alles eingerichtet", alle sieben
+Dienste liefen und meldeten sich gesund. Im Browser: **Gateway Timeout**
+auf `wiki.prolo.me`.
+
+Die Kette, rückwärts:
+
+1. Vor dem Lauf gab es die Netze `netz-*` **noch nicht** — Wiki, Bordbuch
+   und www waren darum aus.
+2. Schritt 5 legte sie an. Schritt 9 startete die drei Werkzeuge; sie
+   hingen danach richtig in ihrem Netz.
+3. **Traefik lief schon.** Schritt 9 sah „läuft" und ließ ihn in Ruhe —
+   also im alten Netzsatz, ohne `netz-wiki`.
+
+Traefik hatte die Route, fand den Container aber nicht: `504`. Von außen
+sieht das aus, als sei das Wiki kaputt. Es war kerngesund; die beiden
+standen nur in verschiedenen Räumen.
+
+**Ein Container bekommt ein Netz nicht nachträglich.** Docker hängt ihn
+beim Anlegen hinein. Wer ein Netz anlegt, muss jeden, der hineingehört,
+neu verbinden — und das trifft **immer** Traefik, denn der ist der
+Einzige, der in alle Werkzeugnetze gehört.
+
+Aufgelöst hat es sich später von selbst, weil `prolo aktualisieren --alle`
+Traefik neu startete. Das ist genau die Sorte Heilung, die einen Fehler
+verschleiert: Es ging wieder, und niemand wüsste warum.
+
+### Die Korrektur
+
+Schritt 9 fragt jetzt nicht mehr nur „läuft?", sondern **„hängt er auch in
+seinen Netzen?"**. Für jedes externe Netz, das die Compose-Datei eines
+Werkzeugs nennt, muss mindestens einer seiner Container darin hängen —
+mindestens einer, weil ein Compose mehrere Dienste in verschiedenen Netzen
+haben kann (Authentiks Datenbank etwa nur im internen). Fehlt eines, läuft
+`docker compose up -d`, und danach wird **nachgesehen**, ob es geholfen
+hat:
+
+```
+  getan   traefik neu verbunden
+```
+
+### Gemessen
+
+Drei neue Prüflinien, gegen eine Docker-Attrappe, die sich je Container
+merkt, in welchen Netzen er hängt:
+
+- ein laufender Traefik wird in ein neues Netz nachgehängt
+- danach hängt er **wirklich** drin (nicht nur die Meldung — `N-38`)
+- beim nächsten Lauf passiert nichts mehr
+
+Zwei Mutationen, beide gefunden: „ein laufender Container wird nie
+nachgehängt" und „fehlende Netze werden gar nicht erst gesucht". Der
+Prüfstand steht bei **12 Linien** und **4 von 4** Schwächen.
+
 ## Sicherheitsaufnahme — der Stand nach `N-44` bis `N-46`
 
 Der Auftrag war: „Maximale Sicherheit für meine Tools und keine Fehlzugriffe

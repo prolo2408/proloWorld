@@ -34,17 +34,34 @@ cat > "$T/bin/docker" <<'STUB'
 #!/bin/bash
 N="$DOCKER_ATTRAPPE/netze"; L="$DOCKER_ATTRAPPE/laufen"
 touch "$N" "$L"
+V="$DOCKER_ATTRAPPE/verbunden"; touch "$V"
 case "$1 $2" in
   "network inspect") grep -qx "$3" "$N" && exit 0 || exit 1 ;;
   "network create")  echo "$3" >> "$N"; echo "id-$3"; exit 0 ;;
   "compose version") echo "Docker Compose version v2.0.0"; exit 0 ;;
 esac
+# docker inspect <id> --format '...Networks...'  -> die Netze des Containers
+if [ "$1" = "inspect" ]; then
+  case "$*" in
+    *Networks*) sed -n "s/^${2#c-} //p" "$V"; exit 0 ;;
+    *) echo healthy; exit 0 ;;
+  esac
+fi
 if [ "$1" = "compose" ]; then
   DIR="$PWD"
   for i in "$@"; do case "$VOR" in --project-directory) DIR="$i" ;; esac; VOR="$i"; done
   case " $* " in
     *" ps "*) grep -qx "$(basename "$DIR")" "$L" && echo "c-$(basename "$DIR")"; exit 0 ;;
-    *" up "*) basename "$DIR" >> "$L"; exit 0 ;;
+    *" up "*)
+      W=$(basename "$DIR"); grep -qx "$W" "$L" || echo "$W" >> "$L"
+      # "up -d" verbindet den Container mit allen erklaerten Netzen -
+      # genau das, was echtes compose tut, wenn sich die Netze geaendert haben.
+      sed -i "/^$W /d" "$V"
+      for NZ in $(grep -A50 '^networks:' "$DIR/docker-compose.yml" 2>/dev/null \
+                  | sed -n 's/^  \([A-Za-z0-9_.-]*\):$/\1/p'); do
+        echo "$W $NZ" >> "$V"
+      done
+      exit 0 ;;
   esac
 fi
 [ "$1" = "inspect" ] && { echo healthy; exit 0; }
@@ -131,6 +148,25 @@ pruefen_einmal() {
     && sag ok "zweiter Lauf erkennt das Geheimnis als vollstaendig" \
     || sag FEHLER "zweiter Lauf erkennt das vorhandene Geheimnis nicht"
 
+  # --- Der Fall aus der Praxis: Traefik laeuft schon, das Netz kommt
+  # spaeter (N-58). Von aussen sah das aus wie "Gateway Timeout".
+  sed -i "/^traefik /d" "$DOCKER_ATTRAPPE/verbunden"
+  echo "traefik altes-netz" >> "$DOCKER_ATTRAPPE/verbunden"
+  local A4
+  A4=$(lauf "$W")
+  grep -q "traefik neu verbunden" <<<"$A4" \
+    && sag ok "ein laufender Traefik wird in ein neues Netz nachgehaengt" \
+    || sag FEHLER "ein neues Netz erreicht einen laufenden Container nicht" \
+           "genau so entsteht ein Gateway Timeout: Traefik kennt das Netz des Werkzeugs nicht"
+  grep -q "^traefik netz-wiki$" "$DOCKER_ATTRAPPE/verbunden" \
+    && sag ok "danach haengt Traefik wirklich im Werkzeugnetz" \
+    || sag FEHLER "Traefik haengt danach immer noch nicht im Werkzeugnetz"
+  # Und beim naechsten Lauf ist wieder Ruhe.
+  local A5; A5=$(lauf "$W")
+  grep -q "traefik neu verbunden" <<<"$A5" \
+    && sag FEHLER "haengt bei jedem Lauf neu" "das waere kein 'nur was fehlt'" \
+    || sag ok "beim naechsten Lauf wird nichts mehr nachgehaengt"
+
   # Das selbst angelegte Netz darf er nicht anfassen
   grep -qx "socket" "$DOCKER_ATTRAPPE/netze" \
     && sag FEHLER "hat 'socket' von Hand angelegt" \
@@ -183,6 +219,29 @@ probe "die .env wird immer neu aus der Vorlage kopiert" \
       's|elif \[ -f "$PFAD" \]; then|elif false; then|'
 probe "die fehlende Zeile wird immer angehaengt" \
       's|&& ! grep -q "\^$NAME=" "$PFAD"|\&\& true|'
+
+# Die Probe zu N-58 braucht einen anderen Massstab als die beiden oben:
+# hier geht es nicht um Dateien, sondern darum, ob ein laufender Container
+# in ein neues Netz nachgehaengt wird.
+netzprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/n$((++GEFUNDEN))"
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  lauf "$W" > /dev/null
+  sed -i "/^traefik /d" "$DOCKER_ATTRAPPE/verbunden"
+  echo "traefik altes-netz" >> "$DOCKER_ATTRAPPE/verbunden"
+  lauf "$W" > /dev/null
+  if grep -q "^traefik netz-wiki$" "$DOCKER_ATTRAPPE/verbunden"; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+}
+netzprobe "ein laufender Container wird nie nachgehaengt" \
+          's|FEHLT=$(netze_fehlen "$T")|FEHLT=""|'
+netzprobe "fehlende Netze werden gar nicht erst gesucht" \
+          's|^netze_fehlen() {|netze_fehlen() { return 0;|'
 
 echo
 if [ -n "$DURCH" ]; then
