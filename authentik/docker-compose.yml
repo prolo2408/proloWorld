@@ -83,6 +83,12 @@ services:
       - "traefik.http.services.authentik.loadbalancer.server.port=9000"
 
       # Router 1: die Authentik-Oberfläche selbst
+      # Authentik IST die Anmeldung - es kann nicht hinter sich selbst
+      # haengen. Das ist der Urfall von §17a und wird genauso erklaert
+      # wie jeder andere: ein fehlendes "middlewares=" soll nie
+      # stillschweigend durchgehen (N-59). Eigene Anmeldung heisst
+      # hier: das Konto in Authentik selbst, mit 2FA.
+      - "prolo.anmeldung=eigene"
       - "traefik.http.routers.authentik.rule=Host(`auth.prolo.me`)"
       - "traefik.http.routers.authentik.entrypoints=websecure"
       - "traefik.http.routers.authentik.tls.certresolver=letsencrypt"

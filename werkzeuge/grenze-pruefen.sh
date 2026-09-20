@@ -221,6 +221,74 @@ for werkzeug in werkzeuge:
         and "[]" not in frei.group(1),
         "%s: die Wurzel steht nicht auf der Freiliste" % werkzeug)
 
+# --- 4b. Wer ohne Authentik laeuft, hat es ERKLAERT (§17a, N-59) -------
+#
+# Ein fehlendes "middlewares=authentik@file" sieht genauso aus, ob es ein
+# Entschluss war oder ein Versehen. Darum muss ein Werkzeug, das ohne
+# Authentik laufen soll, das Label "prolo.anmeldung=eigene" tragen - und
+# eigener Code darf das NIE. Sonst haetten wir die Anmeldung selbst
+# gebaut, und genau das tun wir nicht (§17).
+# ACHTUNG, hier NICHT "werkzeuge" nehmen: das sind nur die mit eigenem
+# server.py. n8n und authentik stehen nicht darin - also genau die
+# Fremdwerkzeuge, um die es hier geht. Die erste Fassung dieser Pruefung
+# haette das Werkzeug uebersehen, fuer das sie geschrieben wurde. Derselbe
+# Fehler wie N-56: der Umfang einer Pruefung ist selbst eine Annahme.
+alle_werkzeuge = sorted(
+    o for o in os.listdir(stack)
+    if os.path.isfile(os.path.join(stack, o, "docker-compose.yml")))
+geprueft = []
+for werkzeug in alle_werkzeuge:
+    compose = lies(werkzeug, "docker-compose.yml") or ""
+    if "traefik.enable=true" not in compose:
+        continue
+    geprueft.append(werkzeug)
+    # Router, die auf dem oeffentlichen Eingang haengen.
+    router = set(re.findall(r"traefik\.http\.routers\.([A-Za-z0-9_-]+)\.rule", compose))
+    if not router:
+        continue
+    eigene = "prolo.anmeldung=eigene" in compose
+    # Einzelne Router duerfen mit ABSICHT offen sein (www: Startseite und
+    # Zugangslinks). Auch das wird erklaert, nicht stillschweigend - ein
+    # fehlendes "middlewares=" sieht sonst genauso aus wie ein vergessenes.
+    offen = set()
+    for m in re.finditer(r"prolo\.oeffentlich=([A-Za-z0-9_,-]+)", compose):
+        offen |= {x for x in m.group(1).split(",") if x}
+    sag(not (offen - router),
+        "%s: jeder als offen erklaerte Router gibt es auch" % werkzeug,
+        "erklaert, aber nicht vorhanden: %s" % ", ".join(sorted(offen - router)))
+    ohne = [r for r in sorted(router)
+            if r not in offen
+            and not re.search(r"traefik\.http\.routers\.%s\.middlewares=[^\"']*authentik@file"
+                              % re.escape(r), compose)]
+    if eigene:
+        sag(not os.path.isfile(os.path.join(stack, werkzeug, "Dockerfile")),
+            "%s: eigener Code setzt NICHT 'prolo.anmeldung=eigene'" % werkzeug,
+            "eigener Code baut keine eigene Anmeldung (§17) - das ist kein Grenzfall")
+        hinweis = lies(werkzeug, "sicherung.conf") or ""
+        sag("EIGENE ANMELDUNG" in hinweis,
+            "%s: der HINWEIS der sicherung.conf sagt es auch" % werkzeug,
+            "dort sieht ein Betreiber nach, nicht in den Labels")
+        sag("netz-%s" % werkzeug in compose,
+            "%s: laeuft im eigenen Netz" % werkzeug,
+            "ohne Anmeldung ist das Netz die einzige Trennung")
+    else:
+        sag(not ohne,
+            "%s: jeder Router ist geschuetzt oder erklaert" % werkzeug,
+            "ohne authentik@file, ohne 'prolo.anmeldung=eigene' und ohne "
+            "'prolo.oeffentlich=' ist offen, ob das ein Entschluss war: %s"
+            % ", ".join(ohne))
+
+# Und jetzt die WIRKUNG, nicht die Ankuendigung: wurde wirklich ein
+# Fremdwerkzeug angesehen? Eine erste Fassung verglich nur die Laenge der
+# beiden Listen - und blieb gruen, als die Schleife danach wieder ueber
+# die kurze lief. Eine Mutationsprobe hat das gezeigt (N-38, N-59).
+fremde = [w for w in geprueft
+          if not os.path.exists(os.path.join(stack, w, "server.py"))]
+sag(fremde != [],
+    "angesehen wurde auch mindestens ein Fremdwerkzeug (%s)"
+    % (", ".join(fremde) or "keins"),
+    "genau die fallen sonst durch - um sie geht es bei §17a")
+
 # --- 5. Die Pruefadresse liegt auf einem freien Pfad --------------------
 for werkzeug in werkzeuge:
     conf = lies(werkzeug, "aktualisierung.conf") or ""

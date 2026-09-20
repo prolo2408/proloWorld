@@ -42,6 +42,12 @@ services:
       #    Zugangslinks. Eine Personalerin hat kein Konto und soll keines
       #    brauchen. Die Startseite verraet nichts, und ein Zugangslink ist
       #    192 Bit lang, laeuft ab und ist widerrufbar.
+      # Dieser Router ist mit ABSICHT offen: die Startseite und die
+      # Zugangslinks muessen ohne Anmeldung gehen - eine Personalerin
+      # hat kein Konto. Erklaert statt stillschweigend: ein fehlendes
+      # "middlewares=" sieht sonst genauso aus wie ein vergessenes
+      # (§17a, N-59). Die Verwaltung darunter bleibt geschuetzt.
+      - "prolo.oeffentlich=www"
       - "traefik.http.routers.www.rule=Host(`prolo.me`) || Host(`www.prolo.me`)"
       - "traefik.http.routers.www.entrypoints=websecure"
       - "traefik.http.routers.www.tls.certresolver=letsencrypt"
