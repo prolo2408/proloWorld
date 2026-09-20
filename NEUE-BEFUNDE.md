@@ -3658,3 +3658,94 @@ weil er Meta-Block, Farben und Anker prüft — nicht, ob die Seite im Browser
 tut, was sie soll. Dagegen steht jetzt `wiki/tests/test_seiten.py`: es prüft
 die mitgelieferten Seiten mit derselben Funktion, die beim Einspielen läuft,
 und verlangt den korrigierten Pflichtteil.
+
+
+---
+
+## N-60 — Die Standmeldung nannte den Weg und verschwieg die Mauer davor
+
+Gemessen am 20.09.2026 auf dem Server, direkt nach dem Mergen von `N-59`:
+
+```
+prolo@…:/opt/stack$ git pull origin main
+Updating 6ef1d5b..c55b524
+error: Your local changes to the following files would be overwritten by merge:
+        n8n/docker-compose.yml
+Please commit your changes or stash them before you merge.
+Aborting
+```
+
+`prolo status` hatte kurz vorher gesagt: **„N Commit(s) hinter
+origin/main"**. Wahr. `prolo pruefen` hatte den Weg dazu genannt: `prolo
+quelle --holen`, *oder* `git pull origin main`. Auch richtig.
+
+Und beide zusammen führten in eine Mauer, von der `quellstand.sh` zu
+diesem Zeitpunkt **schon wusste**: die Variable `SCHMUTZ` — geänderte
+verfolgte Dateien — wird ganz oben im Skript berechnet, lange bevor
+irgendeine Meldung entsteht. Benutzt wurde sie nur im Zweig `--holen`.
+`--kurz` (das ist `prolo status`) und `--pruefen` (das ist `prolo pruefen`
+und die Vorprüfung von `prolo aktualisieren`) ließen sie fallen.
+
+> **Ein Hindernis, das das Werkzeug kennt, gehört in jede Meldung, die
+> einen Weg nennt — nicht erst in die, gegen die man läuft.**
+
+Das ist nicht dasselbe wie `N-35` („die Meldung führt nicht an die
+Stelle"), sondern eine Stufe davor: hier war die Meldung vollständig
+korrekt und trotzdem irreführend, weil sie eine bekannte Bedingung
+weggelassen hat. Eine Teilwahrheit, die zur Tat auffordert, ist eine
+Falle.
+
+### Was jetzt passiert
+
+`prolo status`, eine Zeile:
+
+```
+1 Commit(s) hinter origin/main - Holen blockiert (1 geaenderte Datei(en))
+```
+
+`prolo pruefen` und `prolo quelle --holen` nennen dieselbe Stelle und
+denselben Weg heraus — **mit der Kopie vor dem Verwerfen**:
+
+```
+  BLOCKIERT: im Arbeitsstand liegen eigene Aenderungen an
+             1 verfolgten Datei(en). Daran bricht jedes Holen ab -
+             auch ein 'git pull' von Hand.
+
+              M n8n/docker-compose.yml
+
+             Erst die Kopie, dann verwerfen - in dieser Reihenfolge:
+               cd /opt/stack
+               cp n8n/docker-compose.yml /root/docker-compose.yml.von-hand
+               git checkout -- n8n/docker-compose.yml
+
+             Danach erneut holen. Was anders war, zeigt danach:
+               diff -u n8n/docker-compose.yml /root/docker-compose.yml.von-hand
+```
+
+Die alte Meldung im `--holen`-Zweig sagte *„Erst aufräumen (git stash /
+git checkout --)"* — ein Rat, der mit dem Löschen anfängt. `git checkout
+--` fragt nicht nach (`§15`). Die Kopie steht jetzt davor, und die
+Reihenfolge ist eine eigene Prüflinie, keine Absichtserklärung.
+
+### Die Mutationsprobe hat dabei meine eigene Arbeit gelöscht
+
+Der erste Lauf der Gegenprobe fand **null von sieben** Mutationen — mit
+der Begründung „Muster nicht eindeutig (0)". Der Grund: die Probe rollte
+vor jeder Mutation auf die Kopie im Kratzblock zurück, und die war
+**vor** dem Patch angelegt worden. Der erste Rückrollvorgang hat die
+Korrektur entfernt, gegen die geprüft werden sollte.
+
+Das ist `N-34` und `N-40` in einem, und zwar in der Form, die am
+leisesten zuschnappt: die Probe lief durch, meldete ordentlich, und was
+sie maß, war ein Stand ohne die Arbeit. Dazu kam eine Kontrollzeile, die
+nichts kontrollierte — `diff -q datei kopie-von-derselben-datei` ist
+immer grün.
+
+> **Der Rückweg einer Probe ist der Stand, der geprüft werden soll — nicht
+> der, von dem man losgegangen ist.** Und eine Kontrolle, die eine Datei
+> gegen ihre eigene Kopie hält, prüft nichts.
+
+### Prüfung
+
+`werkzeuge/aktualisieren-pruefen.sh`: **74 ok** (vorher 64), `RC=0`.
+Zehn neue Prüflinien, sieben Mutationen, **7 von 7 gefunden**.

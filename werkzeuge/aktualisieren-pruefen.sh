@@ -337,6 +337,46 @@ if command -v git >/dev/null 2>&1 && [ -x "$QUELLSTAND" ]; then
   echo "$A" | grep -q "NICHT geholt" && E=ja || E=nein
   pruefe "eigene Aenderung: es wird gesagt, dass nichts geholt wurde" "ja" "$E"
 
+  # N-60: was das Holen blockiert, gehoert in JEDE Meldung, die einen Weg
+  # nennt - nicht erst in die, gegen die man laeuft. Vorher sagte
+  # "prolo status" nur "1 Commit(s) hinter origin/haupt"; der naechste
+  # Griff war "git pull", und der brach mit einer Git-Meldung ab, die von
+  # prolo nie angekuendigt worden war.
+  Z=$("$GIT_T/werkzeuge/quellstand.sh" --kurz 2>&1)
+  pruefe "blockiert: --kurz bleibt genau eine Zeile" "1" "$(printf '%s\n' "$Z" | wc -l)"
+  printf '%s' "$Z" | grep -q "blockiert" && E=ja || E=nein
+  pruefe "blockiert: --kurz nennt das Hindernis (das sieht prolo status)" "ja" "$E"
+  printf '%s' "$Z" | grep -q "1 geaenderte Datei" && E=ja || E=nein
+  pruefe "blockiert: --kurz nennt die Anzahl" "ja" "$E"
+
+  A=$("$GIT_T/werkzeuge/quellstand.sh" --pruefen 2>&1); R=$?
+  pruefe "blockiert: --pruefen bleibt bei Rueckgabe 10" "10" "$R"
+  echo "$A" | grep -q "BLOCKIERT" && E=ja || E=nein
+  pruefe "blockiert: --pruefen nennt das Hindernis" "ja" "$E"
+  echo "$A" | grep -q "git pull origin" && E=ja || E=nein
+  pruefe "blockiert: --pruefen empfiehlt NICHT den versperrten Weg" "nein" "$E"
+
+  # Der Weg heraus darf nicht mit dem Loeschen anfangen (CLAUDE.md §15):
+  # die Kopie steht VOR dem "git checkout --", und die Datei wird beim
+  # Namen genannt statt als <datei> (N-35).
+  A=$("$GIT_T/werkzeuge/quellstand.sh" --holen 2>&1)
+  echo "$A" | grep -qE "^ *cp datei /" && E=ja || E=nein
+  pruefe "blockiert: der Weg heraus nennt Datei und Kopie beim Namen" "ja" "$E"
+  NCP=$(printf '%s\n' "$A" | grep -n "cp datei " | head -1 | cut -d: -f1)
+  NCO=$(printf '%s\n' "$A" | grep -n "git checkout -- datei" | head -1 | cut -d: -f1)
+  { [ -n "$NCP" ] && [ -n "$NCO" ] && [ "$NCP" -lt "$NCO" ]; } && E=ja || E=nein
+  pruefe "blockiert: die Kopie steht VOR dem Verwerfen" "ja" "$E"
+
+  # Und die Gegenrichtung - ohne eigene Aenderung darf nichts davon kommen,
+  # sonst waere die Blockade-Meldung nur Zierde.
+  gitstack_bauen
+  Z=$("$GIT_T/werkzeuge/quellstand.sh" --kurz 2>&1)
+  printf '%s' "$Z" | grep -q "blockiert" && E=ja || E=nein
+  pruefe "sauber: --kurz meldet KEINE Blockade" "nein" "$E"
+  A=$("$GIT_T/werkzeuge/quellstand.sh" --pruefen 2>&1)
+  echo "$A" | grep -q "git pull origin" && E=ja || E=nein
+  pruefe "sauber: --pruefen nennt den Weg zum Holen wieder" "ja" "$E"
+
   # Eine unverfolgte Datei darf ein Vorspulen NICHT blockieren.
   gitstack_bauen
   echo notiz > "$GIT_T/mein-zettel.txt"

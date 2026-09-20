@@ -36,7 +36,11 @@ Wo was steht:
   nicht eingecheckte Korrektur mit weg (`N-34`). Kopie im Kratzblock — und
   zwar von allem, was die Probe **schreiben kann**, nicht nur von dem, was
   man von Hand ändert. Ruft die Probe einen Erzeuger auf, gehören seine
-  **Ausgaben** gesichert, nicht seine Eingaben (`N-40`).
+  **Ausgaben** gesichert, nicht seine Eingaben (`N-40`). Und die Kopie
+  entsteht **nach** der Korrektur: eine vor dem Patch angelegte ist genau
+  der Stand, den man loswerden wollte — die erste Rückrollung entfernt
+  damit das, was geprüft werden soll, und die Probe findet null von sieben
+  (`N-60`).
 - **Nichts still nebenbei ändern.** Ein Problem, das beim Arbeiten auffällt,
   wird ein **neuer Befund** in `NEUE-BEFUNDE.md` und bekommt seinen eigenen
   Schritt.
@@ -328,6 +332,14 @@ technischen Brocken: „Speichern hat nicht geklappt — Verbindung zum Server
 unterbrochen" statt „HTTP 500". Und sie führen **an die Stelle**: eine Zeile
 „eine Sache fehlt noch" ohne Weg dorthin ist keine Meldung, sondern ein
 Rätsel (`N-35`).
+
+**Eine Meldung, die einen Weg nennt, nennt auch das Hindernis darauf**
+(`N-60`). „3 Commit(s) hinter origin/main" war wahr, und „git pull"
+daneben war richtig — zusammen führten sie in eine Mauer, von der das
+Werkzeug bereits wusste. Eine Teilwahrheit, die zur Tat auffordert, ist
+eine Falle. Und führt der genannte Weg über etwas Zerstörendes (`git
+checkout --`, ein Überschreiben), steht die **Kopie davor**, nicht
+daneben.
 
 ## 8. Umsetzungsregeln
 
