@@ -3821,6 +3821,31 @@ Schlug das fehl, stand ein Ordner da, den niemand von einem fertigen
 Werkzeug unterscheiden kann. Jetzt läuft das Netz zuerst: geht es nicht,
 entsteht gar nichts (`§12`).
 
+### Und ein dritter Prüfer, der beim Umstellen von n8n die Hälfte übersah
+
+Beim Umstellen von `n8n/` auf die zwei Dateien fiel `grenze-pruefen.sh` von
+61 auf 57 Prüfzeilen — **und blieb grün**. Der Grund: es las nur
+`docker-compose.yml`, fand dort kein `traefik.enable=true` mehr (das steht
+jetzt im Overlay) und sprang über n8n hinweg.
+
+> Der Prüfer wurde **leiser**, nicht richtiger. Und „alles grün" hieß
+> danach: „ich habe n8n nicht angesehen."
+
+Die Wirkungsmessung, die genau davor schützen sollte, war zu schwach: sie
+verlangte „mindestens **ein** Fremdwerkzeug angesehen", und `authentik`
+blieb übrig. Jetzt wird gegen eine Liste gemessen, die **ohne** den Filter
+der Schleife entsteht: jedes Werkzeug, das irgendwo in seinen
+Compose-Dateien einen Router hat, muss angesehen worden sein.
+
+```
+ok     kein Werkzeug mit Router blieb ungeprueft (6 angesehen)
+```
+
+**Dreimal derselbe Fehler in einer Sitzung** — `N-56`, dann `N-59`, jetzt
+hier. Der Umfang einer Prüfung ist selbst eine Annahme, und eine Zahl, die
+sinkt, ohne dass jemand hinsieht, ist die leiseste Art, eine Prüfung zu
+verlieren.
+
 ### Prüfung
 
 `werkzeuge/neu-pruefen.sh`, **76 ok, RC=0**. Der Prüfer reicht

@@ -1,0 +1,7 @@
+.env
+.env.*
+!.env.beispiel
+daten/
+*.db
+*.db-*
+*.sqlite

@@ -1,23 +1,28 @@
+# /opt/stack/n8n/docker-compose.yml
+#
+# DIE DATEI DES HERSTELLERS (N-61).
+#
+# n8n laeuft so, wie n8n es vorschlaegt. Alles, was von uns kommt - Netz,
+# Route, Zertifikat, Anmeldung, Grenzen -, steht daneben in
+# docker-compose.override.yml. "docker compose" liest beide von selbst.
+#
+# Kommt eine neue Fassung von n8n, wird NUR diese Datei angefasst: Nummer
+# in image: hoch, fertig. Unsere Zeilen bleiben liegen und koennen nicht
+# beim Abschreiben verloren gehen.
+#
+# EINE Abweichung vom Vorschlag des Herstellers, und sie ist Absicht:
+# seine ports: - "5678:5678" ist hier nicht. Sie wuerde n8n direkt auf dem
+# Server veroeffentlichen, an Traefik, an der Ratenbremse und an der
+# Firewall vorbei (CLAUDE.md §19). Erreichbar ist n8n ueber
+# https://n8n.prolo.me - das macht Traefik. "prolo start" laesst nichts
+# mit offenen Ports los und wuerde es auch sagen.
+
 services:
   n8n:
-    image: docker.n8n.io/n8nio/n8n:1.121.0
-    container_name: n8n
-    # Grenzen nach CLAUDE.md §19 (B-29). Vorher hatte KEIN Container
-    # mem_limit, pids_limit, cap_drop oder security_opt. Folgen: ein
-    # Speicherleck in einem Tool brachte den GANZEN Server in den OOM-Killer,
-    # nicht nur sich selbst; die Container liefen mit dem vollen
-    # Standardsatz an Linux-Faehigkeiten, obwohl keiner davon welche
-    # braucht; und ohne no-new-privileges ermoeglicht eine Datei mit
-    # gesetztem setuid-Bit im Abbild eine Rechteausweitung.
-    # n8n fuehrt beliebige Ablaeufe aus und braucht mehr Luft.
-    mem_limit: 2g
-    pids_limit: 512
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    restart: unless-stopped
+    image: docker.n8n.io/n8nio/n8n:1.121.0   # feste Fassung, nie latest (§19)
     environment:
+      # Damit n8n weiss, unter welchem Namen es erreichbar ist - sonst
+      # zeigen Weiterleitungen und Webhook-Adressen auf sich selbst.
       N8N_HOST: n8n.prolo.me
       N8N_PORT: 5678
       N8N_PROTOCOL: https
@@ -25,46 +30,14 @@ services:
       N8N_EDITOR_BASE_URL: https://n8n.prolo.me/
       GENERIC_TIMEZONE: Europe/Berlin
       TZ: Europe/Berlin
+      # Genau ein Proxy davor (Traefik). Ohne das nimmt n8n die
+      # Absenderadresse aus einer Kopfzeile, die der Aufrufer selbst
+      # mitschickt - dieselbe Falle wie X-Forwarded-For (§11, N-48).
       N8N_PROXY_HOPS: 1
       N8N_RUNNERS_ENABLED: true
       N8N_DIAGNOSTICS_ENABLED: false
     volumes:
       - n8n_data:/home/node/.n8n
-    networks:
-      - netz-n8n
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=netz-n8n"
-      - "traefik.http.services.n8n.loadbalancer.server.port=5678"
-
-      # n8n bringt seine EIGENE Anmeldung mit (N-59). Kein Authentik
-      # davor: die halbe Oberflaeche von n8n spricht ueber Wege, die eine
-      # ForwardAuth-Anmeldung im Browser nicht mitmachen - Webhooks,
-      # Formulare, die API. Vorher stand darum ein zweiter Router ohne
-      # Anmeldung daneben, und dessen "priority" war die einzige Klammer
-      # zwischen "geschuetzt" und "offen". Ein Router ist ehrlicher als
-      # zwei, von denen einer aus Versehen gewinnt.
-      #
-      # Was n8n dafuer schuldet: eigene Anmeldung mit 2FA, ein eigenes
-      # Netz (netz-n8n, nur Traefik haengt mit drin), die Ratenbremse am
-      # Eingang (N-46) und ein Vermerk im HINWEIS der sicherung.conf.
-      - "prolo.anmeldung=eigene"
-      - "traefik.http.routers.n8n.rule=Host(`n8n.prolo.me`)"
-      - "traefik.http.routers.n8n.entrypoints=websecure"
-      - "traefik.http.routers.n8n.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.n8n.service=n8n"
 
 volumes:
   n8n_data:
-
-networks:
-# Eigenes Netz je Werkzeug (N-45). Vorher hingen Wiki, Bordbuch, n8n und
-# Authentik im selben Netz "proxy" - und in einem Docker-Netz erreicht jeder
-# Container jeden anderen direkt, ohne Traefik und ohne Anmeldung. Damit war
-# der Weg von n8n (fuehrt angeklickte Ablaeufe mit einem HTTP-Baustein aus,
-# hat Webhook-Pfade ohne Anmeldung) zum Wiki offen. Jetzt gibt es ihn nicht
-# mehr: nur Traefik haengt in allen Netzen, die Werkzeuge in je ihrem.
-#
-# Anlegen, einmalig je Server:  docker network create netz-n8n
-  netz-n8n:
-    external: true

@@ -236,9 +236,19 @@ for werkzeug in werkzeuge:
 alle_werkzeuge = sorted(
     o for o in os.listdir(stack)
     if os.path.isfile(os.path.join(stack, o, "docker-compose.yml")))
+# UND BEIDE Compose-Dateien lesen (N-61). Seit ein Fremdwerkzeug die
+# Datei des Herstellers unveraendert behaelt, stehen Netz, Route und
+# Anmeldung nebenan in docker-compose.override.yml. Beim Umstellen von n8n
+# ist genau das passiert: der Pruefer fand in der Herstellerdatei kein
+# "traefik.enable=true" mehr, sprang ueber n8n hinweg - und meldete
+# weiterhin "alles gruen". Er wurde LEISER, nicht richtiger.
+def compose_alles(w):
+    return "\n".join(lies(w, d) or ""
+                     for d in ("docker-compose.yml", "docker-compose.override.yml"))
+
 geprueft = []
 for werkzeug in alle_werkzeuge:
-    compose = lies(werkzeug, "docker-compose.yml") or ""
+    compose = compose_alles(werkzeug)
     if "traefik.enable=true" not in compose:
         continue
     geprueft.append(werkzeug)
@@ -288,6 +298,19 @@ sag(fremde != [],
     "angesehen wurde auch mindestens ein Fremdwerkzeug (%s)"
     % (", ".join(fremde) or "keins"),
     "genau die fallen sonst durch - um sie geht es bei §17a")
+
+# "Mindestens eins" war zu wenig. Als n8n aus der Schleife fiel, blieb
+# authentik uebrig und diese Zeile gruen - der Pruefer sah die Haelfte und
+# sagte es nicht. Jetzt wird gegen eine Liste gemessen, die OHNE den
+# Filter der Schleife entsteht: jedes Werkzeug, das irgendwo in seinen
+# Compose-Dateien einen Router hat, MUSS angesehen worden sein.
+mit_router = {w for w in alle_werkzeuge
+              if re.search(r"traefik\.http\.routers\.[A-Za-z0-9_-]+\.rule",
+                           compose_alles(w))}
+uebersehen = sorted(mit_router - set(geprueft))
+sag(not uebersehen,
+    "kein Werkzeug mit Router blieb ungeprueft (%d angesehen)" % len(geprueft),
+    "uebersehen: %s" % ", ".join(uebersehen))
 
 # --- 5. Die Pruefadresse liegt auf einem freien Pfad --------------------
 for werkzeug in werkzeuge:

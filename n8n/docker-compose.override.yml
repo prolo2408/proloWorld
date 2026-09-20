@@ -1,0 +1,72 @@
+# /opt/stack/n8n/docker-compose.override.yml
+#
+# UNSERE ZUTAT. Die Datei des Herstellers daneben bleibt unveraendert.
+#
+# Was hier drinsteht und sonst nichts:
+#   - das Netz netz-n8n (Abschottung, N-45)
+#   - die Route auf n8n.prolo.me und das Zertifikat
+#   - die Anmeldung: keine von uns, n8n bringt eine eigene mit (§17a)
+#   - die Grenzen nach §19
+#   - der Schluessel, ohne den eine Sicherung wertlos waere
+
+services:
+  n8n:
+    restart: unless-stopped
+
+    # Grenzen nach CLAUDE.md §19. n8n fuehrt beliebige Ablaeufe aus und
+    # braucht mehr Luft als die eigenen Werkzeuge. Braucht es eine
+    # Linux-Faehigkeit zurueck, wird sie EINZELN ergaenzt (cap_add) -
+    # cap_drop bleibt stehen.
+    mem_limit: 2g
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    environment:
+      # OHNE DIESEN WERT IST JEDE SICHERUNG WERTLOS.
+      #
+      # n8n verschluesselt die hinterlegten Zugangsdaten zu fremden
+      # Diensten mit diesem Schluessel. Fehlt er, wuerfelt sich n8n beim
+      # ersten Start einen und legt ihn ins Volume. Wer n8n je neu
+      # aufbaut und nur die Datenbank zurueckspielt, kann danach keine
+      # einzige hinterlegte Zugangsdatei mehr entschluesseln - und merkt
+      # es erst dann.
+      #
+      # Der Wert steht in n8n/.env und kommt aus
+      #   sudo prolo geheimnisse --verteilen
+      # Er gehoert in den Passwortmanager (siehe geheimnisse.conf,
+      # WECHSEL=haende: ein neuer Wert ist ein Datenverlust, kein Wechsel).
+      N8N_ENCRYPTION_KEY: "${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY fehlt in n8n/.env - anlegen mit - sudo prolo geheimnisse --verteilen}"
+
+    networks:
+      - netz-n8n
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=netz-n8n"
+      - "traefik.http.services.n8n.loadbalancer.server.port=5678"
+      - "traefik.http.routers.n8n.rule=Host(`n8n.prolo.me`)"
+      - "traefik.http.routers.n8n.entrypoints=websecure"
+      - "traefik.http.routers.n8n.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.n8n.service=n8n"
+      # Kein authentik@file - und das ist ein Entschluss, kein Versehen.
+      # Genau dafuer stehen die beiden Zeilen darunter (N-59).
+      #
+      # Vorher stand hier ein ZWEITER Router ohne Anmeldung daneben, fuer
+      # Webhooks und Formulare, und dessen "priority" war die einzige
+      # Klammer zwischen "geschuetzt" und "offen". Ein Router ist
+      # ehrlicher als zwei, von denen einer aus Versehen gewinnt.
+      #
+      # Bedingungen aus CLAUDE.md §17a, alle Pflicht: eigenes Netz
+      # (netz-n8n), Ratenbremse am Eingang (kommt von Traefik), Vermerk im
+      # HINWEIS der sicherung.conf - und 2FA in der Anmeldung von n8n.
+      - "prolo.anmeldung=eigene"
+      - "prolo.anmeldung.grund=Webhooks, Formulare und die API koennen keine ForwardAuth-Anmeldung im Browser durchlaufen"
+
+networks:
+  # Angelegt und bei Traefik eingetragen mit:
+  #   sudo prolo netze anlegen netz-n8n
+  netz-n8n:
+    external: true
