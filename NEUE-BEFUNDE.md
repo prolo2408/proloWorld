@@ -3117,6 +3117,39 @@ wichtigste ist der letzte: ein Befehl verschwindet aus dem Verteiler,
 während die Anleitungen ihn weiter nennen. Genau das passiert beim
 Umbenennen, und genau das fällt sonst erst dem auf, der es tippt.
 
+## N-53 — Die Vorlage lag auf meiner Platte und nie im Repository
+
+Derselbe Lauf, eine Zeile höher: `/opt/stack/bordbuch/.env fehlt`. Es fehlte
+aber nicht nur die `.env`, sondern auch die **Vorlage**, aus der man sie
+baut. Bei mir lag `bordbuch/.env.beispiel` da — im Git war sie nie.
+
+Der Grund steht in `bordbuch/.gitignore`:
+
+```
+.env
+.env.*
+```
+
+Die Wurzeldatei hat die Ausnahme `!**/.env.beispiel`, die tool-eigene nicht
+— und **für Dateien in `bordbuch/` gewinnt die tool-eigene**. `wiki` und
+`www` hatten die Ausnahme, `bordbuch` nicht. Ein Buchstabe Unterschied
+zwischen drei fast gleichen Dateien, und niemandem fällt es auf, weil auf
+dem Entwicklungsrechner alles da ist. Erst ein frischer Klon zeigt es.
+
+Das ist die Kehrseite der Regel aus `§21` („zusätzlich eine `.gitignore` je
+Werkzeug"): sie schützt besser, und sie kann auch besser danebengehen.
+
+### Was jetzt prüft
+
+Drei Linien, weil drei Dinge schieflaufen können:
+
+- **die Vorlage gibt es** — unabhängig davon, ob die echte Datei da ist
+- **die `.gitignore` des Werkzeugs lässt sie durch** — Textregel, läuft
+  überall
+- **sie liegt wirklich im Git** — gefragt wird `git ls-files`, nicht der
+  Text der Regeln. Die Probe aufs Exempel; sie lief beim ersten Mal sofort
+  rot und wurde grün, als die Datei eingecheckt war.
+
 ## Sicherheitsaufnahme — der Stand nach `N-44` bis `N-46`
 
 Der Auftrag war: „Maximale Sicherheit für meine Tools und keine Fehlzugriffe

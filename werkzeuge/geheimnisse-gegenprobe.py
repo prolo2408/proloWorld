@@ -31,7 +31,7 @@ KOPIEREN = [
     "werkzeuge/geheimnisse-pruefen.sh",
 ]
 JE_WERKZEUG = ["docker-compose.yml", "geheimnisse.conf", ".env.beispiel",
-               "dynamic/einlass.yml.beispiel"]
+               "dynamic/einlass.yml.beispiel", ".gitignore"]
 
 
 def kopieren(stack, ziel):
@@ -231,6 +231,15 @@ def m_zettel_ohne_alten_wert(w):
            "")
 
 
+def m_gitignore_frisst_die_vorlage(w):
+    tausch(w, "bordbuch/.gitignore", "!.env.beispiel\n", "")
+
+
+def m_vorlage_fehlt(w):
+    import os as _os
+    _os.remove(_os.path.join(w, "bordbuch", ".env.beispiel"))
+
+
 MUTATIONEN = [
     ("conf-Zeile hat nur vier Felder",              m_conf_vier_felder),
     ("conf nennt eine erfundene FORM",              m_conf_form_erfunden),
@@ -259,6 +268,8 @@ MUTATIONEN = [
     ("der Merkzettel enthaelt keine Werte",         m_merkzettel_ohne_werte),
     ("der Schluessel wird erst am Ende geprueft",   m_schluesselpruefung_erst_am_ende),
     ("der Zettel nennt den alten Wert nicht mehr",  m_zettel_ohne_alten_wert),
+    (".gitignore frisst die eigene Vorlage",        m_gitignore_frisst_die_vorlage),
+    ("die Vorlage fehlt ganz",                      m_vorlage_fehlt),
 ]
 
 

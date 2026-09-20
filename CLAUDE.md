@@ -721,6 +721,14 @@ nicht: sie ist leicht zu übersehen, und ein Werkzeug bringt seine Regel dort
 mit, wo die Daten entstehen. Wer ein Werkzeug anlegt, das eine **neue Art von
 Daten** ablegt, ergänzt die Regel im **selben** Arbeitsschritt.
 
+**Und sie trägt die Ausnahmen mit** (`N-53`). Für Dateien im Werkzeugordner
+gewinnt die tool-eigene `.gitignore` gegen die Wurzeldatei. Wer dort
+`.env.*` schreibt, ohne `!.env.beispiel` daneben, fängt seine **eigene
+Vorlage** mit — auf der Platte ist alles da, im Repository nichts, und
+auffallen tut es erst beim nächsten frischen Klon. Jede Vorlage, die ein
+Werkzeug zum Aufsetzen braucht, muss in `git ls-files` auftauchen; der Text
+der Regeln ist kein Beweis.
+
 **Vor jedem Push:** `git status` und `git diff --cached` wirklich **lesen**.
 Taucht dort etwas Schützenswertes auf: nicht committen, erst die `.gitignore`
 korrigieren. Dazu der versionierte Vorab-Test:
