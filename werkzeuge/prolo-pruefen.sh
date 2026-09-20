@@ -261,6 +261,24 @@ else
   echo "uebersprungen  Quellstand (git oder quellstand.sh fehlt)"
 fi
 
+# ----------------------------------------------------------------------
+# Steht in den Anleitungen ein Befehl, den es gar nicht gibt? (N-51)
+#
+# "sudo prolo compose traefik up -d" stand in der Bedienungsseite und in dem
+# Geruest, das "prolo neu" schreibt - und "prolo compose" hat es nie
+# gegeben. Wer es tippt, bekommt "Unbekannt: compose". Eine Anleitung, die
+# in einen Fehler fuehrt, ist schlimmer als keine, weil man ihr glaubt und
+# den Fehler bei sich sucht.
+#
+# Gesucht wird nur an BEFEHLSSTELLE - am Zeilenanfang, hinter sudo, hinter
+# &&/;/| - und nur in Codebloecken. Sonst faellt die Pruefung ueber ihren
+# eigenen Fliesstext ("prolo ruft die Skripte auf") und ueber Dateilisten
+# ("-rw------- 1 prolo prolo acme.json"). Das ist hier schon sechsmal
+# passiert (N-33, N-36, N-39, N-44, N-45, N-50).
+A=$(python3 "$HIER/prolo-befehle-pruefen.py" "$(dirname "$HIER")" 2>&1); R=$?
+echo "$A"
+[ "$R" -eq 0 ] || FEHLER=1
+
 echo
 if [ "$FEHLER" -eq 0 ]; then echo "Alles gruen."; else echo "GEGENPROBE FEHLGESCHLAGEN." >&2; fi
 exit "$FEHLER"

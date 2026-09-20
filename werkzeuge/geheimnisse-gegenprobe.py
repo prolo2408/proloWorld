@@ -216,6 +216,21 @@ def m_merkzettel_ohne_werte(w):
            '        zeilen += ["%s" % name,\n                   "  (siehe Server)",')
 
 
+def m_schluesselpruefung_erst_am_ende(w):
+    """Die Pruefung auf den Sicherungsschluessel faellt weg - der Wechsel
+    laeuft durch und scheitert erst beim Schreiben des Zettels, wenn die
+    neuen Werte schon in den Dateien stehen und der alte weg ist."""
+    tausch(w, "werkzeuge/geheimnisse.py",
+           "    if not os.path.exists(SCHLUESSEL) or shutil.which(\"age\") is None:\n",
+           "    if False:\n")
+
+
+def m_zettel_ohne_alten_wert(w):
+    tausch(w, "werkzeuge/geheimnisse.py",
+           '                       "  alt : %s" % (alt or "(war nicht gesetzt)"),\n',
+           "")
+
+
 MUTATIONEN = [
     ("conf-Zeile hat nur vier Felder",              m_conf_vier_felder),
     ("conf nennt eine erfundene FORM",              m_conf_form_erfunden),
@@ -242,6 +257,8 @@ MUTATIONEN = [
     ("Schreiben wirft den Rest der Datei weg",      m_schreiben_zerlegt_die_datei),
     ("gewuerfelt wird viel zu kurz",                m_wuerfeln_zu_kurz),
     ("der Merkzettel enthaelt keine Werte",         m_merkzettel_ohne_werte),
+    ("der Schluessel wird erst am Ende geprueft",   m_schluesselpruefung_erst_am_ende),
+    ("der Zettel nennt den alten Wert nicht mehr",  m_zettel_ohne_alten_wert),
 ]
 
 

@@ -3038,6 +3038,85 @@ geheimnisse | head` brach mit einem Stapelabzug ab (`SIGPIPE` stand auf
 Wechsel mit `FileNotFoundError` abgestürzt statt zu sagen, dass die Dateien
 den neuen Wert tragen und die Dienste noch den alten.
 
+### Nachtrag: der Zettel wurde zu spät geprüft
+
+Beim Aufschreiben der Schritte für den Server fiel ein Fehler in der eigenen
+Arbeit auf. Der Merkzettel entsteht am **Ende** des Wechsels — fehlte der
+Sicherungsschlüssel erst dort, waren die neuen Werte bereits in den Dateien,
+die Dienste bereits neu gestartet, und der einzige Zettel mit **altem und
+neuem** Wert ging verloren. Genau der Fall, gegen den `§24a` den Dreischritt
+vorschreibt: der Hinweis gehört **vor** die erste Änderung, nicht dahinter.
+
+`--neu` prüft jetzt als Allererstes, ob `age` und
+`/opt/stack/.backup-schluessel.pub` da sind, und bricht ab, **bevor** es die
+Frage nach der Sicherung stellt. Zwei neue Prüflinien, zwei neue Mutationen —
+der Prüfstand steht damit bei **85 Linien** und **27 von 27** gefundenen
+Mutationen. Es ist kein eigener Befund geworden, weil es ein Mangel an `N-50`
+selbst ist: eigener Arbeitsschritt, eigener Commit, gleiche Nummer.
+
+## N-51 — Die Anleitung nannte einen Befehl, den es nie gab
+
+Beim Aufschreiben der Serverschritte für `N-50` wollte ich
+`sudo prolo compose traefik up -d` weitergeben — es steht so in der
+Bedienungsseite. Vorher einmal nachgesehen, was `prolo` überhaupt kennt:
+`status`, `pruefen`, `aktualisieren`, `sichern`, `dns`, `quelle`,
+`start|stop|neustart`, `protokoll`, `neu`, `suchen`, `entfernen`, `archiv`,
+`zurueckholen`, `geheimnisse`, `hilfe`. **`compose` ist nicht dabei und war
+es nie.** Wer den Befehl tippt, bekommt „Unbekannt: compose" und die
+Hilfeausgabe.
+
+Das ist die unangenehmste Sorte Fehler in einer Anleitung: sie führt in eine
+Fehlermeldung, die nach einem Problem beim Leser aussieht. Man sucht den
+Fehler bei sich — im Pfad, in der Installation, in den Rechten — und nicht
+dort, wo er steht.
+
+Gesucht wurde dann im ganzen Baum. Drei Stellen:
+
+| Datei | stand da | richtig |
+|---|---|---|
+| `wiki/vorlagen/prolo-bedienen.html` | `sudo prolo compose traefik up -d` | `sudo prolo start traefik` |
+| `werkzeuge/prolo` (Kommentar im Gerüst, das `prolo neu` schreibt) | dasselbe | dasselbe |
+| `bordbuch/CHANGELOG.md` | `sudo prolo sicherung` | `sudo prolo sichern` |
+
+Die dritte ist besonders hübsch: `sicherung` ist der Name der **Datei**
+(`sicherung.conf`), `sichern` der des **Befehls**. Ein Buchstabe, und die
+Anleitung führt ins Leere.
+
+### Die Prüfung dazu
+
+`werkzeuge/prolo-befehle-pruefen.py` liest die Befehle **aus dem Verteiler
+in `prolo` selbst** — eine zweite, gepflegte Liste wäre genau die Sorte, die
+als Nächstes veraltet — und sucht in jeder `.md`, jeder `.html` und in
+`prolo` nach `prolo <wort>`.
+
+Der schwierige Teil war, **nicht** über den eigenen Fließtext zu fallen. Die
+erste Fassung meldete sechs Treffer, von denen drei Unsinn waren: „prolo
+**ruft** die Skripte auf", „(prolo **und** seine Helfer)" und eine
+Dateiliste `-rw------- 1 prolo prolo acme.json`. Gesucht wird darum nur an
+**Befehlsstelle** — am Zeilenanfang, hinter `sudo`, hinter `&&`, `;` oder
+`|` — und nur innerhalb von Codeblöcken. Damit: **3 echte Treffer, 0
+Fehlalarme**. Das ist inzwischen das siebte Mal, dass eine Prüfung hier über
+ihren eigenen Text gestolpert wäre (`N-33`, `N-36`, `N-39`, dazu die
+Platzhalter- und Netznamen-Fälle bei `N-44`, `N-45` und `N-50`).
+
+### Und dann ist sie über diesen Eintrag gestolpert
+
+Der erste Lauf **nach** dem Schreiben dieses Befunds war rot — mit zwei
+Treffern in `NEUE-BEFUNDE.md`. Natürlich: der Eintrag **zitiert** die
+falschen Befehle, das ist ja sein Inhalt. Eine Meldung über den Eintrag über
+die Meldung.
+
+Das Narbenbuch ist keine Anleitung; es hält fest, was falsch war. Genau
+diese **eine** Datei ist darum ausgenommen, mit Namen im Code und mit der
+Begründung daneben. Damit die Ausnahme nicht abfärbt, gibt es eine
+Mutation, die denselben falschen Befehl in `CLAUDE.md` einbaut — er wird
+weiter gefunden.
+
+`--gegenprobe` baut sechs Fehler ein, **alle sechs werden gefunden**. Der
+wichtigste ist der letzte: ein Befehl verschwindet aus dem Verteiler,
+während die Anleitungen ihn weiter nennen. Genau das passiert beim
+Umbenennen, und genau das fällt sonst erst dem auf, der es tippt.
+
 ## Sicherheitsaufnahme — der Stand nach `N-44` bis `N-46`
 
 Der Auftrag war: „Maximale Sicherheit für meine Tools und keine Fehlzugriffe
