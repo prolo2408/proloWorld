@@ -15,6 +15,7 @@ Wo was steht:
 | **diese hier** | die Regeln: Oberfläche, Robustheit, Betrieb |
 | `NEUE-BEFUNDE.md` | was schon einmal schiefging und warum. Fast jede Regel hier hat dort eine Narbe |
 | `wiki/vorlagen/prolo-bedienen.html` | die **Bedienung**: neuer Server, Alltag, Sichern, Wiederherstellen, Fehlersuche |
+| `werkzeuge/ANLEITUNG.md` | ein Werkzeug **anlegen**, Netze verwalten, die Admin-Seite |
 | `wiki/EINRICHTUNG.md` | der Seitenaufbau des Wikis im Einzelnen |
 | `bordbuch/ANLEITUNG.md` | die Bedienung des Bordbuchs im Einzelnen |
 
@@ -36,7 +37,11 @@ Wo was steht:
   nicht eingecheckte Korrektur mit weg (`N-34`). Kopie im Kratzblock — und
   zwar von allem, was die Probe **schreiben kann**, nicht nur von dem, was
   man von Hand ändert. Ruft die Probe einen Erzeuger auf, gehören seine
-  **Ausgaben** gesichert, nicht seine Eingaben (`N-40`).
+  **Ausgaben** gesichert, nicht seine Eingaben (`N-40`). Und die Kopie
+  entsteht **nach** der Korrektur: eine vor dem Patch angelegte ist genau
+  der Stand, den man loswerden wollte — die erste Rückrollung entfernt
+  damit das, was geprüft werden soll, und die Probe findet null von sieben
+  (`N-60`).
 - **Nichts still nebenbei ändern.** Ein Problem, das beim Arbeiten auffällt,
   wird ein **neuer Befund** in `NEUE-BEFUNDE.md` und bekommt seinen eigenen
   Schritt.
@@ -59,8 +64,9 @@ Wo was steht:
 | `wiki/` | Wissenssammlung, eigenständige HTML-Seiten in einem abgeschotteten Rahmen | `server.py` (`VERSION`), `docker-compose.yml` (`image:`), `CHANGELOG.md` |
 | `bordbuch/` | Fahrtenbuch, Lade- und Tankkosten | ebenso |
 | `www/` | `prolo.me`: HTML-Seiten ablegen und je Empfänger einen widerrufbaren Zugangslink ausgeben | ebenso |
+| `admin/` | Lesende Übersicht über den Stack: was läuft, in welchem Netz, unter welchem Namen — und was **nicht** geschützt ist | ebenso |
 
-Alle drei: Python-Standardbibliothek, SQLite, **kein Fremdpaket**. Geld in
+Alle vier: Python-Standardbibliothek, SQLite, **kein Fremdpaket**. Geld in
 **ganzen Cent** (`Decimal`, kaufmännisch gerundet), niemals `float` als
 Speicherform.
 
@@ -68,6 +74,7 @@ Speicherform.
 cd wiki      && ./tests/alle.sh
 cd bordbuch  && ./tests/alle.sh
 cd www       && ./tests/alle.sh
+cd admin     && ./tests/alle.sh
 ```
 
 Liegt `node` nicht im `PATH`, meldet `alle.sh` einen Fehlschlag — Absicht:
@@ -329,6 +336,14 @@ unterbrochen" statt „HTTP 500". Und sie führen **an die Stelle**: eine Zeile
 „eine Sache fehlt noch" ohne Weg dorthin ist keine Meldung, sondern ein
 Rätsel (`N-35`).
 
+**Eine Meldung, die einen Weg nennt, nennt auch das Hindernis darauf**
+(`N-60`). „3 Commit(s) hinter origin/main" war wahr, und „git pull"
+daneben war richtig — zusammen führten sie in eine Mauer, von der das
+Werkzeug bereits wusste. Eine Teilwahrheit, die zur Tat auffordert, ist
+eine Falle. Und führt der genannte Weg über etwas Zerstörendes (`git
+checkout --`, ein Überschreiben), steht die **Kopie davor**, nicht
+daneben.
+
 ## 8. Umsetzungsregeln
 
 - Kein Farbwert ohne Token.
@@ -534,6 +549,8 @@ Die **Handgriffe** stehen in der Wiki-Seite „Prolo bedienen und verstehen"
 (`wiki/vorlagen/prolo-bedienen.html`). Hier stehen nur die Regeln.
 
 **Was man auf einem neuen Server tut, tut `prolo einrichten`** (`N-54`).
+**Was man beim Anlegen eines Werkzeugs tut, tut `prolo neu`** (`N-61`), und
+**was man an den Netzen tut, tut `prolo netze`** (`N-62`).
 Eine Einrichtung, die nur als Befehlsliste in einer Anleitung steht, wird
 abgetippt — und beim Abtippen fällt eine Zeile aus, ohne dass es auffällt.
 Jeder Schritt des Skripts **sieht erst nach**, ob er nötig ist: es läuft
@@ -548,7 +565,11 @@ Alles unter `/opt/stack/`. Ein Werkzeug ist ein Ordner mit einer
 
 ```
 /opt/stack/<werkzeug>/
-├── docker-compose.yml      Pflicht
+├── docker-compose.yml      Pflicht. Bei einem Fremdwerkzeug: die Datei
+│                           des HERSTELLERS, unverändert
+├── docker-compose.override.yml   nur bei Fremdwerkzeugen — unsere Zutat:
+│                           Netz, Route, Zertifikat, Anmeldung, Grenzen
+├── LIESMICH.md             nur bei Fremdwerkzeugen — wem welche Datei gehört
 ├── sicherung.conf          Pflicht — was gesichert wird
 ├── aktualisierung.conf     Pflicht — wie aktualisiert wird
 ├── geheimnisse.conf        nur wenn das Werkzeug Geheimnisse hat
@@ -562,6 +583,20 @@ Alles unter `/opt/stack/`. Ein Werkzeug ist ein Ordner mit einer
 
 Der Ordnername ist kleingeschrieben, ohne Leerzeichen und Umlaute, und
 **identisch mit der Subdomain**: Ordner `bordbuch` → `bordbuch.prolo.me`.
+
+**Angelegt wird ein Werkzeug mit `prolo neu <name>`** (`N-61`), nicht von
+Hand. Das Skript fragt nach Art, Netz und Anmeldung, schreibt alle Dateien,
+legt das Netz an und trägt es bei Traefik ein — und zwar **bevor** der
+Ordner entsteht: geht das Netz nicht, entsteht gar nichts, statt eines
+Ordners, den niemand von einem fertigen Werkzeug unterscheiden kann (`§12`).
+
+**Ein Fremdwerkzeug läuft, wie der Hersteller es vorschlägt.** Seine
+`docker-compose.yml` wird unverändert übernommen; alles, was von uns kommt,
+steht daneben in `docker-compose.override.yml`. `docker compose` liest beide
+von selbst — bei einer neuen Fassung ersetzt man nur die Herstellerdatei.
+Was dabei herauskommt, zeigt `docker compose config`; **das** ist die
+Wahrheit über ein Werkzeug, nicht eine einzelne Datei. Jeder Prüfer, der
+nur `docker-compose.yml` liest, sieht bei einem Fremdwerkzeug die Hälfte.
 
 Daneben liegt, was **allen** gemeinsam ist — und das ist kein Werkzeug, also
 ohne `sicherung.conf` und `aktualisierung.conf`: `backup.sh`, `werkzeuge/`
@@ -642,6 +677,10 @@ davon** erfüllt ist:
 | 2FA | in der eigenen Anmeldung eingeschaltet — ohne sie hängt alles an einem Passwort |
 | vermerkt | im `HINWEIS` der `sicherung.conf`, wo ein Betreiber nachsieht |
 
+`prolo neu` fragt diese Entscheidung ab — **ohne Vorgabe**. Ein Enter darf
+hier nicht genügen, und der Grund wird mit abgefragt und landet im Label
+`prolo.anmeldung.grund` und im `HINWEIS`.
+
 **Eigener Code darf das nie.** Ein Werkzeug mit `Dockerfile` im Ordner, das
 `prolo.anmeldung=eigene` setzt, ist ein Verstoß gegen §17 und kein
 Grenzfall — dort hätten wir die Anmeldung selbst gebaut, und genau das
@@ -669,6 +708,14 @@ Verbindlich in jeder `docker-compose.yml`:
 - **Keine `ports:`-Zeile.** Das ist der eigentliche Schutz: der Dienst ist nur
   über Traefik erreichbar. Eine `ports:`-Zeile hebelt Firewall und Anmeldung
   gleichzeitig aus.
+
+  Muss doch eine sein — bei Traefik selbst sind 80 und 443 der Eingang —,
+  dann **erklärt**: Label `prolo.ports=<grund>` am Dienst. Ohne das sieht
+  eine nötige Portfreigabe genauso aus wie eine vergessene (`N-59`).
+  `prolo start` misst die **zusammengesetzte** Konfiguration und lässt
+  nichts mit unerklärten offenen Ports los; bei einem Fremdwerkzeug bringt
+  der Hersteller die Zeile fast immer mit, und die override-Datei kann sie
+  nicht wieder wegnehmen — Compose hängt Listen aneinander.
 - **Ein eigenes Netz je Werkzeug** (`netz-<werkzeug>`, extern), zusätzlich
   `internal` für Datenbanken. Datenbanken und Hilfsdienste hängen **nur** in
   `internal`.
@@ -680,12 +727,28 @@ Verbindlich in jeder `docker-compose.yml`:
   Abläufe mit einem HTTP-Baustein aus, hat Webhook-Pfade ohne Anmeldung) zum
   Wiki offen.
 
+  **Ein Netz teilen sich zwei Werkzeuge nur, wenn sie es sagen** (`N-62`).
+  Der Normalfall bleibt ein Netz je Werkzeug. Ein gemeinsamer Bereich — ein
+  Testnetz etwa — ist erlaubt, hebt aber die Abschottung zwischen genau
+  diesen Werkzeugen auf. Das darf eine Entscheidung sein und keine
+  Bequemlichkeit: wer teilt, schreibt `prolo.netz.geteilt=<grund>` an
+  seinen Dienst. `werkzeuge/netze-pruefen.sh` verlangt es von allen
+  Beteiligten.
+
   Jedes Werkzeug nennt sein Netz **selbst** im Label
   `traefik.docker.network` — seit `N-45` gibt es keine Vorgabe mehr, auf die
   Traefik zurückfallen könnte. Beim Anlegen eines Werkzeugs gehört sein Netz
   in **drei** Dateien: seine eigene, die von Traefik (Dienst **und** Block
   unten) — und einmal `docker network create netz-<werkzeug>` auf dem
-  Server. `werkzeuge/netze-pruefen.sh` hält das zusammen.
+  Server. **Das tut `prolo netze anlegen <netz>`** (`N-62`); von Hand
+  fällt eine der drei Stellen aus, und das Ergebnis ist ein toter Router
+  ohne Fehlermeldung. `werkzeuge/netze-pruefen.sh` hält es zusammen,
+  `prolo netze` zeigt es.
+
+  Und danach muss Traefik **neu angelegt** werden, nicht nur neu
+  gestartet: Docker verbindet einen Container beim Anlegen mit seinen
+  Netzen, ein laufender bekommt ein neues nicht nachträglich (`N-58`).
+  `prolo start traefik` tut das Richtige.
 - `restart: unless-stopped`
 - **Grenzen sind Pflicht:**
 
@@ -952,7 +1015,11 @@ Sicherung.
 - [ ] Im **Browser** geladen, nicht nur getestet
 
 **Betrieb**
-- [ ] Keine `ports:`-Zeile, Grenzen gesetzt, feste Abbildfassung
+- [ ] Mit `prolo neu` angelegt, nicht von Hand
+- [ ] Fremdwerkzeug: Herstellerdatei unverändert, unsere Zutat im Overlay
+- [ ] Keine `ports:`-Zeile — oder eine mit `prolo.ports=<grund>`
+- [ ] Netz mit `prolo netze anlegen` angelegt, `prolo netze` ohne Beanstandung
+- [ ] Grenzen gesetzt, feste Abbildfassung
 - [ ] `sicherung.conf` und `aktualisierung.conf` vorhanden und gefüllt
 - [ ] `geheimnisse.conf`, falls das Werkzeug Geheimnisse hat — ohne Werte
 - [ ] `.gitignore` je Werkzeug ergänzt, `pre-commit` verlinkt

@@ -16,7 +16,7 @@ pruefe() {
 }
 
 mkdir -p "$T/bin" "$T/stack/werkzeuge"
-cp "$HIER/prolo" "$T/stack/werkzeuge/"
+cp "$HIER/prolo" "$HIER/neu.sh" "$HIER/netze.sh" "$T/stack/werkzeuge/"
 printf '#!/bin/bash\nexit 0\n' > "$T/stack/backup.sh"; chmod +x "$T/stack/backup.sh"
 printf '#!/bin/bash\n[ "$1" = "-u" ] && echo "${UID_VORGABE:-0}" || exec /usr/bin/id "$@"\n' \
   > "$T/bin/id"; chmod +x "$T/bin/id"
@@ -62,38 +62,39 @@ prolo() { PATH="$T/bin:$PATH" "$T/stack/werkzeuge/prolo" "$@"; }
 echo "=== Gegenprobe prolo ==="
 
 # 1. Anlegen
-printf 'nginx:1.27-alpine\n8080\n' | prolo neu pdfeditor >/dev/null 2>&1
-[ -f "$T/stack/pdfeditor/docker-compose.yml" ] && E=ja || E=nein
-pruefe "neu legt die docker-compose.yml an" "ja" "$E"
-[ -f "$T/stack/pdfeditor/sicherung.conf" ] && E=ja || E=nein
-pruefe "und die sicherung.conf (damit ist es im Backup)" "ja" "$E"
-[ -f "$T/stack/pdfeditor/aktualisierung.conf" ] && E=ja || E=nein
-pruefe "und die aktualisierung.conf" "ja" "$E"
+#
+# Seit N-61 steht der Erzeuger in werkzeuge/neu.sh, und geprueft wird er
+# dort: werkzeuge/neu-pruefen.sh laesst ihn wirklich laufen und liest
+# danach "docker compose config" - beide Dateien zusammengesetzt, mit dem
+# echten docker. Das ist eine staerkere Probe als alles, was hier stand
+# (Dateien zaehlen und nach Zeichenfolgen greppen), also steht es nur noch
+# dort und nicht an zwei Stellen halb.
+#
+# Hier bleibt die Frage, die nur HIER zu beantworten ist: reicht der
+# Einstiegspunkt den Befehl ueberhaupt weiter?
+A=$(prolo neu 2>&1); R=$?
+pruefe "neu ohne Namen wird abgelehnt" "1" "$R"
+echo "$A" | grep -q "prolo neu <name>" && E=ja || E=nein
+pruefe "und sagt, wie es geht" "ja" "$E"
+grep -q 'exec "$HIER/neu.sh"' "$HIER/prolo" && E=ja || E=nein
+pruefe "neu reicht an werkzeuge/neu.sh weiter" "ja" "$E"
+grep -q 'exec "$HIER/netze.sh"' "$HIER/prolo" && E=ja || E=nein
+pruefe "netze reicht an werkzeuge/netze.sh weiter" "ja" "$E"
+[ -x "$HIER/neu-pruefen.sh" ] && E=ja || E=nein
+pruefe "und der ausfuehrende Pruefer dazu ist da" "ja" "$E"
 
-grep -q 'authentik@file' "$T/stack/pdfeditor/docker-compose.yml" && E=ja || E=nein
-pruefe "das Geruest haengt Authentik davor" "ja" "$E"
-grep -q 'cap_drop' "$T/stack/pdfeditor/docker-compose.yml" && E=ja || E=nein
-pruefe "und setzt die Grenzen aus CLAUDE.md §19" "ja" "$E"
-grep -qE '^\s+ports:' "$T/stack/pdfeditor/docker-compose.yml" && E=ja || E=nein
-pruefe "und oeffnet KEINEN Port am Host" "nein" "$E"
-python3 -c "import yaml,sys; yaml.safe_load(open('$T/stack/pdfeditor/docker-compose.yml'))" 2>/dev/null \
-  && E=ja || E=nein
-pruefe "die erzeugte YAML ist gueltig" "ja" "$E"
-
-# 2. latest und fehlende Fassung werden abgelehnt
-A=$(printf 'nginx:latest\n8080\n' | prolo neu mitlatest 2>&1)
-echo "$A" | grep -q "latest" && E=ja || E=nein
-pruefe "'latest' wird abgelehnt" "ja" "$E"
-[ -e "$T/stack/mitlatest" ] && E=ja || E=nein
-pruefe "und es entsteht kein halbes Tool" "nein" "$E"
-
-A=$(printf 'nginx\n8080\n' | prolo neu ohnefassung 2>&1)
-echo "$A" | grep -q "Ohne Fassung" && E=ja || E=nein
-pruefe "Abbild ohne Fassung wird abgelehnt" "ja" "$E"
-
-A=$(prolo neu "Gross Falsch" 2>&1)
-echo "$A" | grep -q "Kleinbuchstaben" && E=ja || E=nein
-pruefe "unerlaubter Name wird abgelehnt" "ja" "$E"
+# Fuer die naechsten Abschnitte ein Tool von Hand - hier geht es um
+# entfernen, archiv und zurueckholen, nicht um das Anlegen.
+pdfeditor_anlegen() {
+  mkdir -p "$T/stack/pdfeditor"
+  cat > "$T/stack/pdfeditor/docker-compose.yml" <<'PDF'
+services:
+  pdfeditor:
+    image: nginx:1.27-alpine
+PDF
+  printf 'VOLUMES="pdfeditor_pdfeditor_daten"\n' > "$T/stack/pdfeditor/sicherung.conf"
+}
+pdfeditor_anlegen
 
 # 3. Entfernen legt ins Archiv statt zu loeschen
 mkdir -p "$VOLUMEHEIM/pdfeditor_pdfeditor_daten"
@@ -139,7 +140,7 @@ pruefe "das Archiv bleibt nach dem Zurueckholen erhalten" "ja" "$E"
 # Bewusst OHNE Pause: zwei Entfernungen in derselben Sekunde duerfen sich
 # nicht gegenseitig ueberschreiben.
 prolo entfernen pdfeditor >/dev/null 2>&1
-printf 'nginx:1.27-alpine\n8080\n' | prolo neu pdfeditor >/dev/null 2>&1
+pdfeditor_anlegen
 prolo entfernen pdfeditor >/dev/null 2>&1
 # Drei, nicht zwei: der Stand vom ersten Entfernen bleibt beim Zurueckholen
 # liegen (wird oben eigens geprueft), dazu kommen die beiden hier.
@@ -177,14 +178,16 @@ A=$(PATH="$T/bin:$PATH" "$T/anderswo/prolo" hilfe 2>&1)
 echo "$A" | grep -q "Stack unter $T/stack" && E=ja || E=nein
 pruefe "ueber einen Symlink wird derselbe Stack gefunden" "ja" "$E"
 
-# Und zwar nicht nur in der Hilfe, sondern auch bei einem echten Befehl.
-printf 'nginx:1.27-alpine\n8080\n' | PATH="$T/bin:$PATH" "$T/anderswo/prolo" neu symtest \
-  >/dev/null 2>&1
-[ -f "$T/stack/symtest/docker-compose.yml" ] && E=ja || E=nein
-pruefe "und 'neu' legt im richtigen Ordner an" "ja" "$E"
+# Und zwar nicht nur in der Hilfe, sondern auch bei einem echten Befehl,
+# der den Ort WIRKLICH benutzt. "neu" scheidet dafuer seit N-61 aus - es
+# legt zuerst ein Netz an und braucht dazu Docker. "protokoll" braucht den
+# Ort genauso: es muss den Werkzeugordner finden.
+A=$(PATH="$T/bin:$PATH" "$T/anderswo/prolo" protokoll gibtsnicht 2>&1)
+echo "$A" | grep -q "Kein Tool 'gibtsnicht' unter $T/stack" && E=ja || E=nein
+pruefe "und ein echter Befehl arbeitet im richtigen Ordner" "ja" "$E"
 
 A=$(PATH="$T/bin:$PATH" "$T/anderswo/prolo" status --kurz 2>&1)
-echo "$A" | grep -q "symtest" && E=ja || E=nein
+echo "$A" | grep -q "pdfeditor" && E=ja || E=nein
 pruefe "und 'status' findet die Tools" "ja" "$E"
 
 # Auch ueber eine Kette aus zwei Symlinks.

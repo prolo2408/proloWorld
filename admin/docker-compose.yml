@@ -1,0 +1,93 @@
+# /opt/stack/admin/docker-compose.yml
+#
+# Die Uebersichtsseite ueber den Stack. Eigener Code, also gilt §17 ohne
+# Ausnahme: die Anmeldung macht Authentik, und zusaetzlich verlangt das
+# Werkzeug die Gruppe "admin". Zwei Tueren - Authentik laesst aufs
+# Grundstueck, das Werkzeug ins Haus.
+#
+# WARUM DIESE SEITE NICHTS STARTEN KANN
+#
+# Sie haengt im Netz "socket" und liest ueber den Vermittler
+# (socket-proxy) zwei Listen: Container und Netze. Der Vermittler laesst
+# POST nicht durch (POST: 0), also kann von hier aus kein Container
+# gestartet, angehalten oder angelegt werden - auch nicht, wenn dieses
+# Werkzeug uebernommen wuerde.
+#
+# Was der Vermittler durchlaesst, ist trotzdem nicht nichts: wer lesend an
+# der Docker-API sitzt, kann auch die Umgebungsvariablen von Containern
+# abfragen, und da stehen Geheimnisse drin. Das ist genau die Berechtigung,
+# die Traefik seit B-02 ohnehin hat - dieses Werkzeug weitet sie nicht aus,
+# es teilt sie. Der Preis dafuer ist bewusst bezahlt:
+#
+#   - read_only: das Programmverzeichnis ist schreibgeschuetzt
+#   - cap_drop ALL, no-new-privileges
+#   - kein Zugriff auf /opt/stack: keine .env, kein acme.json, kein Volume
+#     ausser dem eigenen
+#   - das Netz "socket" ist internal - von dort geht nichts nach draussen
+#
+# Soll hier je ein Knopf "Neustarten" hin, dann mit einem EIGENEN
+# Vermittler, der genau diesen einen Aufruf durchlaesst, und als eigene
+# Entscheidung - nicht, indem hier POST: 1 gesetzt wird.
+
+services:
+  admin:
+    build: .
+    image: prolo-admin:0.1.0          # feste Fassung, nie latest (§19)
+    container_name: admin
+    restart: unless-stopped
+
+    # Grenzen nach CLAUDE.md §19.
+    mem_limit: 256m
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Das Programmverzeichnis wird nicht beschrieben - die Datenbank liegt
+    # im Volume. Dann darf der Rest schreibgeschuetzt sein.
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+
+    environment:
+      PROLO_EINLASS: ${PROLO_EINLASS:?PROLO_EINLASS fehlt in admin/.env - siehe traefik/dynamic/einlass.yml.beispiel}
+      ADMIN_DATEN: /daten
+      ADMIN_PORT: 8080
+      # Lesender Vermittler vor dem Docker-Socket, NICHT der Socket selbst.
+      ADMIN_DOCKER_API: http://socket-proxy:2375
+      # Wer hier hereindarf. Ausgewertet werden nur Gruppen, die mit
+      # ADMIN_GRUPPE_PRAEFIX anfangen - der Rest wird verworfen (§17).
+      ADMIN_GRUPPE: admin
+      ADMIN_GRUPPE_PRAEFIX: admin
+
+    volumes:
+      - admin_daten:/daten
+
+    networks:
+      # netz-admin: der Weg von Traefik herein.
+      # socket: der Weg zum lesenden Docker-Vermittler. Das Netz ist
+      # internal - von dort kommt man nirgendwohin sonst.
+      - netz-admin
+      - socket
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=netz-admin"
+      - "traefik.http.services.admin.loadbalancer.server.port=8080"
+      - "traefik.http.routers.admin.rule=Host(`admin.prolo.me`)"
+      - "traefik.http.routers.admin.entrypoints=websecure"
+      - "traefik.http.routers.admin.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.admin.service=admin"
+      # Ohne diese Zeile steht die Lueckenliste des ganzen Stacks offen.
+      - "traefik.http.routers.admin.middlewares=authentik@file"
+
+volumes:
+  admin_daten:                        # von aussen: admin_admin_daten
+
+networks:
+  # Angelegt mit: sudo prolo netze anlegen netz-admin
+  netz-admin:
+    external: true
+  # Legt /opt/stack/socket-proxy an (internal, kein Weg nach draussen).
+  socket:
+    external: true

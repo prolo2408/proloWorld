@@ -75,6 +75,39 @@ VORAUS=$(git -C "$STACK" rev-list --count "origin/$ZWEIG..HEAD" 2>/dev/null || e
 # weiter. Sie mitzuzaehlen hiesse: ein einzelnes vergessenes Notizblatt im
 # Ordner blockiert jede Aktualisierung.
 SCHMUTZ=$(git -C "$STACK" status --porcelain 2>/dev/null | grep -v '^??' || true)
+ANZ_SCHMUTZ=0
+[ -n "$SCHMUTZ" ] && ANZ_SCHMUTZ=$(printf '%s\n' "$SCHMUTZ" | wc -l | tr -d ' ')
+
+# Ein Hindernis, das dieses Skript bereits KENNT, gehoert in jede Meldung,
+# die einen Weg nennt - nicht erst in die, die man beim Hineinlaufen zu
+# sehen bekommt (N-60). "3 Commit(s) hinter origin/main" ist wahr, und
+# "git pull" daneben ist richtig - und zusammen fuehren sie in eine Mauer,
+# solange die eigene Aenderung verschwiegen wird, an der genau dieses
+# git pull abbricht.
+#
+# Der Weg heraus nennt die KOPIE vor dem Verwerfen, und zwar in dieser
+# Reihenfolge: "git checkout --" loescht eigene Arbeit ohne Rueckfrage
+# (CLAUDE.md §15). Und er nennt die Datei beim Namen statt <datei> - eine
+# Meldung, die den Weg beschreibt, aber nicht die Stelle, ist ein Raetsel
+# (N-35).
+schmutz_melden() {
+  local ERSTE KOPIE
+  ERSTE=$(printf '%s\n' "$SCHMUTZ" | head -1 | sed 's/^...//; s/^"//; s/"$//')
+  KOPIE="${HOME:-/tmp}/$(basename "$ERSTE").von-hand"
+  melde "  BLOCKIERT: im Arbeitsstand liegen eigene Aenderungen an"
+  melde "             $ANZ_SCHMUTZ verfolgten Datei(en). Daran bricht jedes Holen ab -"
+  melde "             auch ein 'git pull' von Hand."
+  melde ""
+  printf '%s\n' "$SCHMUTZ" | sed 's/^/             /' | head -12
+  melde ""
+  melde "             Erst die Kopie, dann verwerfen - in dieser Reihenfolge:"
+  melde "               cd $STACK"
+  melde "               cp $ERSTE $KOPIE"
+  melde "               git checkout -- $ERSTE"
+  melde ""
+  melde "             Danach erneut holen. Was anders war, zeigt danach:"
+  melde "               diff -u $ERSTE $KOPIE"
+}
 
 if [ "${HINTER:-0}" -eq 0 ]; then
   if [ "${VORAUS:-0}" -gt 0 ]; then
@@ -89,7 +122,11 @@ if [ "${HINTER:-0}" -eq 0 ]; then
 fi
 
 # --- Ab hier: es liegt etwas Neueres bereit ----------------------------
-zeile "$HINTER Commit(s) hinter origin/$ZWEIG"
+if [ "$ANZ_SCHMUTZ" -gt 0 ]; then
+  zeile "$HINTER Commit(s) hinter origin/$ZWEIG - Holen blockiert ($ANZ_SCHMUTZ geaenderte Datei(en))"
+else
+  zeile "$HINTER Commit(s) hinter origin/$ZWEIG"
+fi
 lang "  Quellstand         $HINTER Commit(s) HINTER origin/$ZWEIG"
 if ! kurz; then
   melde ""
@@ -106,8 +143,12 @@ if [ "$WAS" = "--pruefen" ]; then
   melde "           und am Ende staende FERTIG, obwohl sich nichts geaendert"
   melde "           hat."
   melde ""
-  melde "           Holen:  prolo quelle --holen"
-  melde "                   (oder: cd $STACK && git pull origin $ZWEIG)"
+  if [ "$ANZ_SCHMUTZ" -gt 0 ]; then
+    schmutz_melden
+  else
+    melde "           Holen:  prolo quelle --holen"
+    melde "                   (oder: cd $STACK && git pull origin $ZWEIG)"
+  fi
   exit 10
 fi
 
@@ -116,14 +157,10 @@ fi
 # nicht mit einem stillen Fehlschlag: ein Skript, das eigene Arbeit
 # wegraeumt, ist schlimmer als eins, das nichts tut (CLAUDE.md §15).
 if [ -n "$SCHMUTZ" ]; then
-  melde "  NICHT geholt: im Arbeitsstand liegen eigene Aenderungen an"
-  melde "                verfolgten Dateien."
+  melde "  NICHT geholt - aus demselben Grund, an dem auch ein 'git pull'"
+  melde "  von Hand abbricht:"
   melde ""
-  printf '%s\n' "$SCHMUTZ" | sed 's/^/                     /' | head -12
-  melde ""
-  melde "           Vorspulen wuerde sie nicht loeschen, aber git bricht ab,"
-  melde "           sobald eine von ihnen eine geholte Datei betrifft. Erst"
-  melde "           aufraeumen (git stash / git checkout --), dann erneut."
+  schmutz_melden
   exit 1
 fi
 if [ "${VORAUS:-0}" -gt 0 ]; then

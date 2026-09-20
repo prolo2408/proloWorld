@@ -1,0 +1,6 @@
+__pycache__/
+tests/
+.env
+.env.*
+*.md
+daten/
