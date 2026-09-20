@@ -412,6 +412,10 @@ auffallen.
 
 - Eine fehlgeschlagene Aktion hinterlässt **keinen halben Datensatz**. Bei
   mehreren zusammengehörenden Schreibvorgängen: Transaktion.
+- **Mehrere Dateien sind auch eine Transaktion** (`N-52`). Gehört ein Wert an
+  vier Stellen, wird **vor der ersten** geprüft, ob alle vier gehen — sonst
+  schreibt man drei und bricht bei der vierten ab. „Erst danebenschreiben,
+  dann umbenennen" rettet die **einzelne** Datei, nicht die Menge.
 - Import von 200 Zeilen, Zeile 137 kaputt: ganz übernehmen oder gar nicht —
   und im Klartext sagen, welche Zeile das Problem war.
 - Netzwerkfehler und Zeitüberschreitungen abfangen. Ein hängender Aufruf darf
