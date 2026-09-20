@@ -274,7 +274,7 @@ fi
 # &&/;/| - und nur in Codebloecken. Sonst faellt die Pruefung ueber ihren
 # eigenen Fliesstext ("prolo ruft die Skripte auf") und ueber Dateilisten
 # ("-rw------- 1 prolo prolo acme.json"). Das ist hier schon sechsmal
-# passiert (N-33, N-36, N-39, N-44, N-50).
+# passiert (N-33, N-36, N-39, N-44, N-45, N-50).
 A=$(python3 "$HIER/prolo-befehle-pruefen.py" "$(dirname "$HIER")" 2>&1); R=$?
 echo "$A"
 [ "$R" -eq 0 ] || FEHLER=1
