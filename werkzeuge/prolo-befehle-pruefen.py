@@ -32,17 +32,32 @@ def stellen(text, html):
         s += re.findall(r"<pre[^>]*>(.*?)</pre>", text, re.S)
     s += re.findall(r"```(.*?)```", text, re.S)
     s += re.findall(r"`([^`\n]{1,200})`", text)
+    # Ueberall, in jeder Sorte Datei: was mit sudo anfaengt, ist ein Befehl.
+    # Damit werden auch Fehlermeldungen im Quellcode erwischt (N-56).
     s += re.findall(r"(sudo prolo [a-z][a-z\-]*)", text)
     return s
 
 
-# Das Narbenbuch ist keine Anleitung. Es ZITIERT falsche Befehle, weil das
-# der Befund ist - "sudo prolo compose" steht dort mit Absicht. Wer es
-# mitprueft, bekommt eine Meldung ueber den eigenen Eintrag ueber die
-# Meldung. Genau in diese Falle ist diese Pruefung bei ihrem ersten Lauf
-# getappt (N-51). Ausgenommen wird darum GENAU diese eine Datei, und zwar
-# mit Namen: jede weitere Ausnahme waere ein Loch.
+# Zwei Dateien haben die Aufgabe, falsche Befehle zu NENNEN: das Narbenbuch
+# haelt fest, was falsch war, und diese Pruefung hier baut sie als
+# Mutationen ein. Wer sie mitprueft, bekommt eine Meldung ueber den eigenen
+# Eintrag ueber die Meldung - genau in diese Falle ist die Pruefung bei
+# ihrem ersten Lauf getappt (N-51).
+#
+# Ausgenommen sind darum GENAU diese zwei, mit Namen. Die Zusicherung
+# darunter haelt die Liste kurz: eine Ausnahme, die sich still
+# dazuschleicht, waere das groesste Loch.
 NARBENBUCH = "NEUE-BEFUNDE.md"
+AUSGENOMMEN = (NARBENBUCH, "prolo-befehle-pruefen.py")
+assert len(AUSGENOMMEN) == 2, "die Ausnahmen duerfen nicht wachsen"
+
+# Gelesen wird ALLES, worin ein Befehl stehen kann - auch Quellcode. Die
+# erste Fassung sah nur in Anleitungen nach und hat darum vier falsche
+# Befehle in FEHLERMELDUNGEN uebersehen (N-56): "sudo prolo compose wiki
+# up -d" stand in dem Text, den das Wiki ausgibt, wenn es nicht startet.
+# Eine Anleitung liest man in Ruhe; eine Fehlermeldung liest man, wenn
+# gerade etwas kaputt ist - dort schadet ein falscher Befehl am meisten.
+ENDUNGEN = (".md", ".html", ".py", ".sh", ".mjs", ".yml", ".conf")
 
 
 def pruefen(wurzel):
@@ -52,9 +67,9 @@ def pruefen(wurzel):
         if any(t in ordner for t in (".git", "node_modules", "__pycache__", "schriften")):
             continue
         for d in dateien:
-            if not d.endswith((".md", ".html")) and d != "prolo":
+            if not d.endswith(ENDUNGEN) and d != "prolo":
                 continue
-            if d == NARBENBUCH:
+            if d in AUSGENOMMEN:
                 continue
             p = os.path.join(ordner, d)
             t = open(p, encoding="utf-8", errors="replace").read()
@@ -82,7 +97,8 @@ def melden(wurzel):
 # ------------------------------------------------------------ Gegenprobe
 
 DATEIEN = ["werkzeuge/prolo", "wiki/vorlagen/prolo-bedienen.html",
-           "bordbuch/CHANGELOG.md", "CLAUDE.md", NARBENBUCH]
+           "bordbuch/CHANGELOG.md", "CLAUDE.md", NARBENBUCH,
+           "wiki/server.py"]
 
 
 def _tausch(w, rel, alt, neu):
@@ -112,6 +128,13 @@ MUTATIONEN = [
     ("Anleitung mit demselben Zitat wie im Narbenbuch",
      lambda w: _tausch(w, "CLAUDE.md", "`prolo status` sagt es.",
                        "`prolo compose` sagt es.")),
+    # Der Fall, der vier Mal durchgerutscht ist (N-56): ein falscher Befehl
+    # nicht in einer Anleitung, sondern in einer FEHLERMELDUNG. Die steht im
+    # Quellcode, und dorthin hat die erste Fassung nicht gesehen.
+    ("eine Fehlermeldung nennt einen erfundenen Befehl",
+     lambda w: _tausch(w, "wiki/server.py",
+                       '"  3. sudo prolo start wiki\\n\\n"',
+                       '"  3. sudo prolo compose wiki up -d\\n\\n"')),
     # Der Fall, um dessentwillen es die Pruefung gibt: jemand benennt einen
     # Befehl um oder wirft ihn weg, und die Anleitungen nennen ihn weiter.
     ("ein Befehl faellt aus dem Verteiler",

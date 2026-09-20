@@ -426,7 +426,7 @@ ADD_INDEXES = [
 SCHEMA_VERSION = "6"
 # Fassungsnummer der Anwendung, getrennt vom Datenstand oben. Wird von
 # --version und /api/version gelesen.
-VERSION = "2.6.0"
+VERSION = "2.6.1"
 
 # --------------------------------------------------- Die Vertrauensgrenze
 #
@@ -2820,7 +2820,7 @@ def main():
             if not CFG.betraege_richten:
                 print("\nGeaendert wurde nichts. Zum Berichtigen:")
                 print("  1. Sicherung ziehen - Einstellungen > Daten > Sicherung,")
-                print("     oder auf dem Server: sudo prolo sicherung")
+                print("     oder auf dem Server: sudo prolo sichern")
                 print("  2. python3 server.py --db %s --betraege-richten" % CFG.db)
                 if indiz:
                     print("     Die verdaechtigen Zeilen kommen nur mit "
@@ -2887,7 +2887,7 @@ def main():
               "So geht es weiter:\n"
               "  1. Den Wert aus /opt/stack/traefik/dynamic/einlass.yml nehmen.\n"
               "  2. In /opt/stack/bordbuch/.env eintragen:  PROLO_EINLASS=<Wert>\n"
-              "  3. sudo prolo compose bordbuch up -d\n\n"
+              "  3. sudo prolo start bordbuch\n\n"
               "Der Wert ist ein Geheimnis wie ein Passwort: nicht in Git und\n"
               "nicht in einen Chat (CLAUDE.md §21, §22).", file=sys.stderr)
         sys.exit(2)

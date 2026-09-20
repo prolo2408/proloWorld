@@ -264,11 +264,16 @@ fi
 # ----------------------------------------------------------------------
 # Steht in den Anleitungen ein Befehl, den es gar nicht gibt? (N-51)
 #
-# "sudo prolo compose traefik up -d" stand in der Bedienungsseite und in dem
-# Geruest, das "prolo neu" schreibt - und "prolo compose" hat es nie
-# gegeben. Wer es tippt, bekommt "Unbekannt: compose". Eine Anleitung, die
-# in einen Fehler fuehrt, ist schlimmer als keine, weil man ihr glaubt und
-# den Fehler bei sich sucht.
+# Ein erfundener Unterbefehl (compose) stand in der Bedienungsseite, in dem
+# Geruest, das "prolo neu" schreibt, und in drei Fehlermeldungen der
+# Werkzeuge - gegeben hat es ihn nie. Wer ihn tippt, bekommt "Unbekannt:".
+# Eine Anleitung, die in einen Fehler fuehrt, ist schlimmer als keine, weil
+# man ihr glaubt und den Fehler bei sich sucht.
+#
+# Der Befehlsname steht hier mit Absicht NICHT ausgeschrieben: sonst faellt
+# diese Pruefung ueber ihren eigenen Kommentar (N-36, und danach noch
+# sechsmal). Eine Ausnahme fuer diese Datei waere der bequemere Weg und das
+# groessere Loch.
 #
 # Gesucht wird nur an BEFEHLSSTELLE - am Zeilenanfang, hinter sudo, hinter
 # &&/;/| - und nur in Codebloecken. Sonst faellt die Pruefung ueber ihren

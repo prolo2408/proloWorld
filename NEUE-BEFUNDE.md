@@ -3315,6 +3315,51 @@ ist. Meine eigenen neuen Schritte sind bis dahin ohne Fettung im Satz
 geschrieben; die alten habe ich **nicht** angefasst — das wäre eine stille
 Änderung an fremdem Text.
 
+## N-56 — Die Prüfung sah nur in Anleitungen, nicht in Fehlermeldungen
+
+`N-51` galt als erledigt: drei Stellen mit `prolo compose` korrigiert, eine
+Prüfung dazu, sechs Mutationen, alle gefunden. Beim Nachsehen, ob der
+Server nach dem Einrichten wirklich sauber steht, fielen **vier weitere**
+auf:
+
+| Datei | stand da |
+|---|---|
+| `wiki/server.py` | `sudo prolo compose wiki up -d` |
+| `www/server.py` | `sudo prolo compose www up -d` |
+| `bordbuch/server.py` | `sudo prolo compose bordbuch up -d` |
+| `bordbuch/server.py` | `sudo prolo sicherung` |
+
+Alle vier stehen in **Fehlermeldungen** — in dem Text, den ein Werkzeug
+ausgibt, wenn es wegen einer fehlenden Einlassmarke nicht startet. Die
+Prüfung hat sie nicht gesehen, weil sie nur `.md`, `.html` und die Datei
+`prolo` gelesen hat. Quellcode war außerhalb ihres Blickfelds.
+
+**Das ist die schlechteste Stelle für einen falschen Befehl.** Eine
+Anleitung liest man in Ruhe und mit Zeit zum Nachdenken. Eine
+Fehlermeldung liest man, wenn gerade etwas kaputt ist — und tippt, was
+dort steht. Ausgerechnet dort stand dreimal ein Befehl, den es nie gab.
+
+Die Lehre ist nicht „mehr Dateien lesen", sondern: **eine Prüfung, die
+einen Fehler an drei Stellen findet, hat damit nichts über die vierte
+gesagt.** Der Umfang der Prüfung ist selbst eine Annahme, und Annahmen
+gehören geprüft.
+
+### Was jetzt gilt
+
+Gelesen wird `.md`, `.html`, `.py`, `.sh`, `.mjs`, `.yml`, `.conf` und die
+Datei `prolo`. Die Mutationsliste hat einen siebten Eintrag bekommen, und
+zwar genau diesen Fall: eine Fehlermeldung im Quellcode nennt einen
+erfundenen Befehl. Er wird gefunden.
+
+### Und die Ausnahmen bleiben kurz
+
+Mit dem Quellcode kam eine zweite Datei dazu, die falsche Befehle
+**nennen muss**: die Prüfung selbst, die sie als Mutationen einbaut. Statt
+die Ausnahmeliste wachsen zu lassen, steht jetzt eine Zusicherung daneben,
+die sie auf zwei festnagelt — und der Kommentar in `prolo-pruefen.sh`,
+der den Befehl bisher ausgeschrieben zitierte, nennt ihn nicht mehr beim
+Namen. Eine dritte Ausnahme wäre der bequemere Weg und das größere Loch.
+
 ## Sicherheitsaufnahme — der Stand nach `N-44` bis `N-46`
 
 Der Auftrag war: „Maximale Sicherheit für meine Tools und keine Fehlzugriffe

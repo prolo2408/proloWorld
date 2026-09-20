@@ -11,7 +11,7 @@ services:
     # machte es richtig (build: . UND image: bordbuch:2.5.2).
     #
     # Die Fassung passt zum CHANGELOG.md und wird dort mitgezogen.
-    image: wiki:1.4.0
+    image: wiki:1.4.1
     container_name: wiki
     # Grenzen nach CLAUDE.md §19 (B-29). Vorher hatte KEIN Container
     # mem_limit, pids_limit, cap_drop oder security_opt. Folgen: ein

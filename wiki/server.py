@@ -36,7 +36,7 @@ from urllib.parse import unquote, urlparse, parse_qs
 # hatte VERSION, --version und /api/version, das Wiki gar nichts. Gelesen von
 # --version, /api/version und der image:-Zeile im docker-compose.yml; die
 # drei muessen zusammenpassen.
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 
 DATEN = os.environ.get("WIKI_DATEN", "/daten")
 SEITEN = os.environ.get("WIKI_SEITEN", "/seiten")
@@ -2722,7 +2722,7 @@ def main():
             "So geht es weiter:\n"
             "  1. Den Wert aus /opt/stack/traefik/dynamic/einlass.yml nehmen.\n"
             "  2. In /opt/stack/wiki/.env eintragen:  PROLO_EINLASS=<Wert>\n"
-            "  3. sudo prolo compose wiki up -d\n\n"
+            "  3. sudo prolo start wiki\n\n"
             "Der Wert ist ein Geheimnis wie ein Passwort: nicht in Git und\n"
             "nicht in einen Chat (CLAUDE.md §21, §22).\n")
         sys.exit(2)

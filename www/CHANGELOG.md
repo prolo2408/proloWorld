@@ -5,6 +5,15 @@ Geschrieben für den Nutzer, nicht für Entwickler. Neueste Fassung oben.
 Fassungsnummern: letzte Stelle = Fehlerbehebung, mittlere = neue Funktion,
 erste = etwas Bestehendes bricht.
 
+## Fassung 1.0.1
+
+Die Meldung beim Start ohne Einlassmarke schickte in den nächsten
+Fehler: sie nannte einen Unterbefehl `compose`, den `prolo` nie
+gekannt hat. Sie nennt jetzt `sudo prolo start www`. Ausgerechnet eine
+Fehlermeldung liest man, wenn gerade etwas kaputt ist — dort schadet
+ein falscher Befehl am meisten (`N-56`).
+
+
 ## Fassung 1.0.0
 
 Das Werkzeug auf `prolo.me`. Es tut drei Dinge:
