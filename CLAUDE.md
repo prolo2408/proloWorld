@@ -412,6 +412,10 @@ auffallen.
 
 - Eine fehlgeschlagene Aktion hinterlässt **keinen halben Datensatz**. Bei
   mehreren zusammengehörenden Schreibvorgängen: Transaktion.
+- **Mehrere Dateien sind auch eine Transaktion** (`N-52`). Gehört ein Wert an
+  vier Stellen, wird **vor der ersten** geprüft, ob alle vier gehen — sonst
+  schreibt man drei und bricht bei der vierten ab. „Erst danebenschreiben,
+  dann umbenennen" rettet die **einzelne** Datei, nicht die Menge.
 - Import von 200 Zeilen, Zeile 137 kaputt: ganz übernehmen oder gar nicht —
   und im Klartext sagen, welche Zeile das Problem war.
 - Netzwerkfehler und Zeitüberschreitungen abfangen. Ein hängender Aufruf darf
@@ -720,6 +724,14 @@ Ausnahme `!**/.env.beispiel`, `**/acme.json`, `**/*.key`, `**/*.pem`,
 nicht: sie ist leicht zu übersehen, und ein Werkzeug bringt seine Regel dort
 mit, wo die Daten entstehen. Wer ein Werkzeug anlegt, das eine **neue Art von
 Daten** ablegt, ergänzt die Regel im **selben** Arbeitsschritt.
+
+**Und sie trägt die Ausnahmen mit** (`N-53`). Für Dateien im Werkzeugordner
+gewinnt die tool-eigene `.gitignore` gegen die Wurzeldatei. Wer dort
+`.env.*` schreibt, ohne `!.env.beispiel` daneben, fängt seine **eigene
+Vorlage** mit — auf der Platte ist alles da, im Repository nichts, und
+auffallen tut es erst beim nächsten frischen Klon. Jede Vorlage, die ein
+Werkzeug zum Aufsetzen braucht, muss in `git ls-files` auftauchen; der Text
+der Regeln ist kein Beweis.
 
 **Vor jedem Push:** `git status` und `git diff --cached` wirklich **lesen**.
 Taucht dort etwas Schützenswertes auf: nicht committen, erst die `.gitignore`

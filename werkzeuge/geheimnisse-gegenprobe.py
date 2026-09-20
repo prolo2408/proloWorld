@@ -31,7 +31,7 @@ KOPIEREN = [
     "werkzeuge/geheimnisse-pruefen.sh",
 ]
 JE_WERKZEUG = ["docker-compose.yml", "geheimnisse.conf", ".env.beispiel",
-               "dynamic/einlass.yml.beispiel"]
+               "dynamic/einlass.yml.beispiel", ".gitignore"]
 
 
 def kopieren(stack, ziel):
@@ -231,6 +231,41 @@ def m_zettel_ohne_alten_wert(w):
            "")
 
 
+def m_stelle_fuer_stelle(w):
+    """Der teuerste Fehler: wieder Stelle fuer Stelle schreiben, statt
+    vorher alle zu pruefen. Traefik traegt dann die neue Marke und die
+    Werkzeuge die alte (N-52)."""
+    tausch(w, "werkzeuge/geheimnisse.py",
+           "        klemmt = [(g, grund) for g, grund in ((g, g.schreibbar())\n",
+           "        klemmt = [] or [(g, grund) for g, grund in ((g, None)\n")
+
+
+def m_halber_wechsel_bleibt_gruen(w):
+    tausch(w, "werkzeuge/geheimnisse.py",
+           "            gestockt = True\n", "            pass\n")
+
+
+def m_fehlende_datei_faellt_nicht_auf(w):
+    tausch(w, "werkzeuge/geheimnisse.py",
+           "        if not os.path.exists(self.pfad):\n            return (\"die Datei fehlt.",
+           "        if False:\n            return (\"die Datei fehlt.")
+
+
+def m_fehlende_zeile_faellt_nicht_auf(w):
+    tausch(w, "werkzeuge/geheimnisse.py",
+           "        if not self._muster().search(inhalt):\n            vorlage =",
+           "        if False:\n            vorlage =")
+
+
+def m_gitignore_frisst_die_vorlage(w):
+    tausch(w, "bordbuch/.gitignore", "!.env.beispiel\n", "")
+
+
+def m_vorlage_fehlt(w):
+    import os as _os
+    _os.remove(_os.path.join(w, "bordbuch", ".env.beispiel"))
+
+
 MUTATIONEN = [
     ("conf-Zeile hat nur vier Felder",              m_conf_vier_felder),
     ("conf nennt eine erfundene FORM",              m_conf_form_erfunden),
@@ -259,6 +294,12 @@ MUTATIONEN = [
     ("der Merkzettel enthaelt keine Werte",         m_merkzettel_ohne_werte),
     ("der Schluessel wird erst am Ende geprueft",   m_schluesselpruefung_erst_am_ende),
     ("der Zettel nennt den alten Wert nicht mehr",  m_zettel_ohne_alten_wert),
+    ("wieder Stelle fuer Stelle geschrieben",       m_stelle_fuer_stelle),
+    ("ein halber Wechsel bleibt ohne Fehlschlag",   m_halber_wechsel_bleibt_gruen),
+    ("eine fehlende Datei faellt nicht auf",        m_fehlende_datei_faellt_nicht_auf),
+    ("eine fehlende Zeile faellt nicht auf",        m_fehlende_zeile_faellt_nicht_auf),
+    (".gitignore frisst die eigene Vorlage",        m_gitignore_frisst_die_vorlage),
+    ("die Vorlage fehlt ganz",                      m_vorlage_fehlt),
 ]
 
 

@@ -60,21 +60,28 @@ class Geheimnis:
     def pfad(self):
         return os.path.join(STACK, self.werkzeug, self.datei)
 
+    # Ein Muster fuer alles: Lesen, Schreiben und die Vorabpruefung. Drei
+    # eigene Ausdruecke waeren drei Gelegenheiten, dass die Pruefung etwas
+    # anderes sucht als das Schreiben spaeter findet (N-52).
+    def _muster(self):
+        if self.form == "env":
+            return re.compile(r"^(%s=)(.*)$" % re.escape(self.name), re.M)
+        # Im YAML heisst der Wert nicht wie die Variable, sondern wie die
+        # Kopfzeile, die Traefik setzt.
+        kopf = re.escape(self.name.replace("PROLO_EINLASS", "Prolo-Einlass"))
+        return re.compile(r'^(\s*\S*%s\S*:\s*")([^"]*)("\s*)$' % kopf, re.M)
+
     def lesen(self):
         """Der abgelegte Wert - oder None. Wird nie ausgegeben."""
         if not os.path.exists(self.pfad):
             return None
-        with open(self.pfad, encoding="utf-8", errors="replace") as f:
-            inhalt = f.read()
-        if self.form == "env":
-            m = re.search(r"^%s=(.*)$" % re.escape(self.name), inhalt, re.M)
-            wert = m.group(1).strip() if m else None
-        else:
-            m = re.search(r'^\s*\S*%s\S*:\s*"([^"]*)"\s*$'
-                          % re.escape(self.name.replace("PROLO_EINLASS",
-                                                        "Prolo-Einlass")),
-                          inhalt, re.M)
-            wert = m.group(1) if m else None
+        try:
+            with open(self.pfad, encoding="utf-8", errors="replace") as f:
+                inhalt = f.read()
+        except OSError:
+            return None
+        m = self._muster().search(inhalt)
+        wert = m.group(2).strip() if m else None
         if wert in ("", None):
             return None
         # Der Platzhalter aus der Beispieldatei ist kein Wert.
@@ -82,18 +89,42 @@ class Geheimnis:
             return None
         return wert
 
+    def schreibbar(self):
+        """Ginge ein Wechsel hier gut? None heisst ja, sonst der Grund.
+
+        Gefragt wird VOR der ersten Aenderung, fuer JEDE Stelle (N-52).
+        Wer Stelle fuer Stelle schreibt und mittendrin abbricht, hinterlaesst
+        einen Stack, in dem Traefik eine andere Marke anhaengt als die
+        Werkzeuge erwarten - und das heisst 401 auf jede Anfrage.
+        """
+        if not os.path.exists(self.pfad):
+            return ("die Datei fehlt. Anlegen aus %s.beispiel, dann noch "
+                    "einmal." % self.datei)
+        try:
+            with open(self.pfad, encoding="utf-8", errors="replace") as f:
+                inhalt = f.read()
+        except OSError as e:
+            return "nicht lesbar (%s). Mit sudo aufrufen." % e.__class__.__name__
+        if not self._muster().search(inhalt):
+            vorlage = ("%s=" % self.name if self.form == "env"
+                       else '%s: "…"' % self.name.replace("PROLO_EINLASS",
+                                                          "Prolo-Einlass"))
+            return ("es steht keine Zeile fuer %s darin. Zeile %r "
+                    "ergaenzen, dann noch einmal." % (self.name, vorlage))
+        if not os.access(self.pfad, os.W_OK):
+            return "nicht beschreibbar. Mit sudo aufrufen."
+        return None
+
     def schreiben(self, neu):
         with open(self.pfad, encoding="utf-8") as f:
             inhalt = f.read()
-        if self.form == "env":
-            muster = re.compile(r"^%s=.*$" % re.escape(self.name), re.M)
-            ersatz = "%s=%s" % (self.name, neu)
-        else:
-            muster = re.compile(r'^(\s*\S*Prolo-Einlass\S*:\s*)"[^"]*"\s*$', re.M)
-            ersatz = r'\g<1>"%s"' % neu
+        muster = self._muster()
         if not muster.search(inhalt):
-            raise SystemExit("In %s steht keine Zeile fuer %s."
-                             % (self.pfad, self.name))
+            # Kommt nach schreibbar() nicht mehr vor - bleibt als Netz.
+            raise RuntimeError("In %s steht keine Zeile fuer %s."
+                               % (self.pfad, self.name))
+        ersatz = (lambda m: m.group(1) + neu + (m.group(3) if self.form != "env"
+                                                else ""))
         # Erst danebenschreiben, dann umbenennen: ein Abbruch mittendrin
         # hinterlaesst sonst eine halbe Datei (CLAUDE.md §12).
         vorher = os.stat(self.pfad)
@@ -318,7 +349,7 @@ def wechseln():
         return 1
 
     heute = datetime.date.today().isoformat()
-    zettel, geaendert = [], set()
+    zettel, geaendert, gestockt = [], set(), False
     for name, stellen in sorted(gruppen.items()):
         art = stellen[0].wechsel
         print("\n" + fett("  " + name))
@@ -346,15 +377,31 @@ def wechseln():
             print("    uebersprungen.")
             continue
 
+        # ALLE Stellen pruefen, BEVOR eine einzige geschrieben wird (N-52).
+        # Vorher lief das Stelle fuer Stelle: eine fehlende Zeile mitten in
+        # der Liste liess Traefik mit der neuen Marke stehen und die
+        # Werkzeuge mit der alten - also 401 auf jede Anfrage, und der alte
+        # Wert war weg, weil der Merkzettel erst am Ende entsteht.
+        klemmt = [(g, grund) for g, grund in ((g, g.schreibbar())
+                                              for g in stellen) if grund]
+        if klemmt:
+            print(rot("    NICHT gewechselt - an %d von %d Stellen ginge es "
+                      "nicht:" % (len(klemmt), len(stellen))))
+            for g, grund in klemmt:
+                print(rot("      %s" % g.pfad))
+                print("        %s" % grund)
+            print("    Ein Wechsel, der nur die Haelfte erreicht, macht die")
+            print("    Werkzeuge unerreichbar. Darum bleibt hier alles, wie")
+            print("    es war. Erst das oben in Ordnung bringen.")
+            gestockt = True
+            continue
+
         alt = next((w for w in (g.lesen() for g in stellen) if w), None)
         neu = wuerfeln()
         # Der alte Wert zuerst auf den Zettel - vor der ersten Aenderung.
         zettel.append((name, alt, neu, [g.werkzeug + "/" + g.datei
                                         for g in stellen]))
         for g in stellen:
-            if g.lesen() is None and not os.path.exists(g.pfad):
-                print(rot("    %s fehlt - uebersprungen." % g.pfad))
-                continue
             g.schreiben(neu)
             print("    geschrieben: %s/%s" % (g.werkzeug, g.datei))
         st[name] = heute
@@ -362,7 +409,7 @@ def wechseln():
 
     if not zettel:
         print("\n  Nichts gewechselt.\n")
-        return 0
+        return 1 if gestockt else 0
 
     print("")
     if not dienste_neu(geaendert):
@@ -385,7 +432,10 @@ def wechseln():
     print("    age -d -i ~/.prolo-sicherung.key %s"
           % os.path.basename(pfad))
     print("")
-    return 0
+    if gestockt:
+        print(rot("  Achtung: mindestens ein Geheimnis blieb stehen (siehe"))
+        print(rot("  oben). Nach dem Beheben noch einmal aufrufen.\n"))
+    return 1 if gestockt else 0
 
 
 # ----------------------------------------------------------- Merkzettel

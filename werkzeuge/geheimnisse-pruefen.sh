@@ -145,6 +145,47 @@ for werkzeug, eintraege in erklaert.items():
             "%s/%s: die Vorlage steht leer da" % (werkzeug, name),
             "in einer Beispieldatei hat ein echter Wert nichts zu suchen")
 
+# --- 2b. Die Vorlage muss es geben UND sie muss ins Git kommen ---------
+# Ein frischer Server hat keine .env - er baut sie aus der .beispiel. Fehlt
+# die, steht man ohne Vorlage da. Genau das ist passiert: bordbuch hatte
+# eine, aber die tool-eigene .gitignore fing sie mit ".env.*" ab, also kam
+# sie nie im Repository an (N-53). Auf der Platte des Entwicklers war alles
+# in Ordnung - nur beim Klonen nicht.
+for werkzeug, eintraege in sorted(erklaert.items()):
+    for name, (datei, form, wechsel) in sorted(eintraege.items()):
+        vorlage = datei + ".beispiel"
+        sag(lies(werkzeug, vorlage) is not None,
+            "%s: es gibt %s" % (werkzeug, vorlage),
+            "ohne Vorlage kann ein frischer Server die Datei nicht bauen")
+
+for werkzeug in werkzeuge:
+    if not erklaert.get(werkzeug):
+        continue
+    eigen = lies(werkzeug, ".gitignore")
+    if eigen is None:
+        continue
+    faengt = re.search(r"^\.env\.\*\s*$", eigen, re.M) is not None
+    ausnahme = re.search(r"^!\.env\.beispiel\s*$", eigen, re.M) is not None
+    sag(not faengt or ausnahme,
+        "%s/.gitignore laesst .env.beispiel durch" % werkzeug,
+        '".env.*" faengt die eigene Vorlage mit - sie kaeme nie ins Git')
+
+# Und die Probe aufs Exempel, wo es ein Git gibt: fragt nicht den Text der
+# Regeln, sondern git selbst.
+if os.path.isdir(os.path.join(stack, ".git")) and shutil.which("git"):
+    verfolgt = set(subprocess.run(
+        ["git", "-C", stack, "ls-files"], capture_output=True, text=True
+    ).stdout.split())
+    for werkzeug, eintraege in sorted(erklaert.items()):
+        for name, (datei, form, wechsel) in sorted(eintraege.items()):
+            rel = "%s/%s.beispiel" % (werkzeug, datei)
+            if lies(werkzeug, datei + ".beispiel") is None:
+                continue
+            sag(rel in verfolgt, "%s liegt wirklich im Git" % rel,
+                "sie ist da, aber keiner bekommt sie beim Klonen")
+else:
+    print("ok     (kein Git-Arbeitsstand - die Textregel oben traegt allein)")
+
 # --- 3. Kein Geheimnis ohne Eintrag ------------------------------------
 for werkzeug in werkzeuge:
     vorlage = lies(werkzeug, ".env.beispiel")
@@ -310,6 +351,44 @@ with tempfile.TemporaryDirectory(prefix="geheimnis-probe-") as tmp:
             "eine .env haelt mehr als Geheimnisse")
         sag("ALTERWERT-EINS" not in aus and w1.group(1) not in aus,
             "--neu schreibt auch den neuen Wert nicht auf den Bildschirm")
+
+        # Klemmt EINE Stelle, bleibt ALLES stehen (N-52). Der teuerste
+        # Fehler dieses Werkzeugs: es schrieb Stelle fuer Stelle und brach
+        # mittendrin ab - Traefik trug die neue Marke, die Werkzeuge die
+        # alte, und der alte Wert war weg, weil der Merkzettel erst am
+        # Ende entsteht.
+        vor_eins, vor_zwei = env("eins"), env("zwei")
+        os.rename(os.path.join(tmp, "zwei", ".env"),
+                  os.path.join(tmp, "zwei", ".env.weg"))
+        rc, aus = lauf(prog, ["--neu"], eingabe="j\n" + "j\n" * 10)
+        sag(env("eins") == vor_eins,
+            "--neu laesst die erste Stelle in Ruhe, wenn die zweite fehlt",
+            "ein halber Wechsel macht genau die Werkzeuge unerreichbar, "
+            "die die Marke pruefen")
+        sag(rc != 0, "--neu meldet den halben Wechsel als Fehlschlag (rc=%d)" % rc)
+        sag("NICHT gewechselt" in aus and "zwei/.env" in aus,
+            "--neu sagt, WELCHE Stelle klemmt",
+            "eine Meldung ohne den Ort ist ein Raetsel (§7)")
+        # Dass es sich weigert, reicht nicht - es muss den RICHTIGEN Grund
+        # nennen. Eine Mutationsprobe hat genau hier eine Luecke gezeigt:
+        # ohne die Existenzpruefung weigerte es sich weiter, sagte aber
+        # "nicht lesbar, mit sudo aufrufen" - und schickte damit auf die
+        # falsche Faehrte (§7).
+        sag("die Datei fehlt" in aus and ".beispiel" in aus,
+            "--neu sagt bei fehlender Datei, dass sie FEHLT - und woraus",
+            "'nicht lesbar' laesst einen die Rechte suchen statt die Datei")
+        os.rename(os.path.join(tmp, "zwei", ".env.weg"),
+                  os.path.join(tmp, "zwei", ".env"))
+
+        # Und dasselbe, wenn die Datei da ist, aber die Zeile fehlt.
+        open(os.path.join(tmp, "zwei", ".env"), "w").write("VORHER=bleibt\n")
+        rc, aus = lauf(prog, ["--neu"], eingabe="j\n" + "j\n" * 10)
+        sag(env("eins") == vor_eins and rc != 0,
+            "--neu laesst alles stehen, wenn einer Datei die Zeile fehlt",
+            "genau der Fall, der auf dem Server zugeschlagen hat")
+        sag("keine Zeile fuer GEMEINSAM" in aus,
+            "--neu nennt die fehlende Zeile beim Namen")
+        open(os.path.join(tmp, "zwei", ".env"), "w").write(vor_zwei)
 
         # Der Zettel aus dem Wechsel selbst: er muss BEIDE Werte tragen.
         zettel = sorted(os.listdir(os.path.join(tmp, "merkzettel")))

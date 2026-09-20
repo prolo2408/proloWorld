@@ -1,6 +1,10 @@
 # Schuetzenswerte Daten - siehe CLAUDE.md §21 und 10.
 .env
 .env.*
+# Die Beispieldatei gehoert ausdruecklich ins Git - ohne diese
+# Ausnahme faengt sie die Zeile darueber mit, und das Werkzeug kommt
+# ohne Vorlage auf dem Server an (N-53).
+!.env.beispiel
 *.key
 *.pem
 *.db

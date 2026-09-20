@@ -3117,6 +3117,103 @@ wichtigste ist der letzte: ein Befehl verschwindet aus dem Verteiler,
 während die Anleitungen ihn weiter nennen. Genau das passiert beim
 Umbenennen, und genau das fällt sonst erst dem auf, der es tippt.
 
+## N-52 — Das Werkzeug gegen halbe Stände hinterließ einen halben Stand
+
+Der erste echte Lauf auf dem Server, und `prolo geheimnisse --neu` tat
+genau das, wogegen es gebaut war. Protokoll, gekürzt:
+
+```
+  PROLO_EINLASS
+  Diesen Wert jetzt neu wuerfeln? [j/N] j
+    /opt/stack/bordbuch/.env fehlt - uebersprungen.
+    geschrieben: traefik/dynamic/einlass.yml
+In /opt/stack/wiki/.env steht keine Zeile fuer PROLO_EINLASS.
+```
+
+Drei Fehler in vier Zeilen:
+
+1. **Es schrieb Stelle für Stelle.** Traefik bekam die neue Marke, die
+   Werkzeuge behielten die alte. Traefik liest sein `dynamic/`-Verzeichnis
+   mit `watch: true` — die neue Marke war also **binnen Sekunden scharf**,
+   ohne dass jemand etwas neu gestartet hätte. Jede Anfrage an ein Werkzeug,
+   das die Marke prüft, hätte `401` bekommen.
+2. **Eine fehlende Datei war ein „übersprungen"**, kein Abbruch. Ein
+   Geheimnis, das an vier Stellen stehen muss und an dreien steht, ist
+   kaputt — nicht „größtenteils in Ordnung".
+3. **Der Abbruch war ein `SystemExit` mitten in der Schleife.** Danach lief
+   weder der Neustart noch der Merkzettel. Der **alte** Wert war damit weg:
+   er stand nur in der Variable `alt`, und die starb mit dem Prozess.
+
+Das ist wörtlich `§12`: „Eine fehlgeschlagene Aktion hinterlässt **keinen
+halben Datensatz**. Bei mehreren zusammengehörenden Schreibvorgängen:
+Transaktion." Vier Dateien sind mehrere zusammengehörende Schreibvorgänge.
+Ich hatte die Regel beim Bauen im Kopf — aber nur für die **einzelne** Datei
+(erst danebenschreiben, dann umbenennen) und nicht für die **Menge** der
+Dateien, um die es eigentlich geht.
+
+### Die Korrektur
+
+`schreibbar()` je Stelle, und **alle** Stellen werden gefragt, **bevor** eine
+einzige geschrieben wird. Klemmt eine, bleibt alles stehen, und die Meldung
+nennt Datei und Handgriff:
+
+```
+    NICHT gewechselt - an 2 von 3 Stellen ginge es nicht:
+      …/bordbuch/.env
+        die Datei fehlt. Anlegen aus .env.beispiel, dann noch einmal.
+      …/wiki/.env
+        es steht keine Zeile fuer PROLO_EINLASS darin. Zeile
+        'PROLO_EINLASS=' ergaenzen, dann noch einmal.
+```
+
+Dazu ein Muster statt dreier: Lesen, Schreiben und die Vorabprüfung suchen
+jetzt mit **demselben** regulären Ausdruck. Drei eigene wären drei
+Gelegenheiten, dass die Prüfung etwas anderes findet als das Schreiben.
+
+### Die Testlücke, die eine Mutation gezeigt hat
+
+Die Mutation „eine fehlende Datei fällt nicht auf" blieb zuerst
+**unentdeckt** — und das zu Recht: ohne die Existenzprüfung fällt der Code
+in den Lesezweig, bekommt einen `FileNotFoundError` und weigert sich
+weiter. Nur eben mit „**nicht lesbar. Mit sudo aufrufen.**" Das Verhalten
+war richtig, die Meldung schickte einen die Rechte suchen statt die Datei.
+
+Geprüft wird darum jetzt die **Meldung**, nicht nur die Weigerung. Danach:
+33 von 33 Mutationen gefunden, 106 Prüflinien.
+
+## N-53 — Die Vorlage lag auf meiner Platte und nie im Repository
+
+Derselbe Lauf, eine Zeile höher: `/opt/stack/bordbuch/.env fehlt`. Es fehlte
+aber nicht nur die `.env`, sondern auch die **Vorlage**, aus der man sie
+baut. Bei mir lag `bordbuch/.env.beispiel` da — im Git war sie nie.
+
+Der Grund steht in `bordbuch/.gitignore`:
+
+```
+.env
+.env.*
+```
+
+Die Wurzeldatei hat die Ausnahme `!**/.env.beispiel`, die tool-eigene nicht
+— und **für Dateien in `bordbuch/` gewinnt die tool-eigene**. `wiki` und
+`www` hatten die Ausnahme, `bordbuch` nicht. Ein Buchstabe Unterschied
+zwischen drei fast gleichen Dateien, und niemandem fällt es auf, weil auf
+dem Entwicklungsrechner alles da ist. Erst ein frischer Klon zeigt es.
+
+Das ist die Kehrseite der Regel aus `§21` („zusätzlich eine `.gitignore` je
+Werkzeug"): sie schützt besser, und sie kann auch besser danebengehen.
+
+### Was jetzt prüft
+
+Drei Linien, weil drei Dinge schieflaufen können:
+
+- **die Vorlage gibt es** — unabhängig davon, ob die echte Datei da ist
+- **die `.gitignore` des Werkzeugs lässt sie durch** — Textregel, läuft
+  überall
+- **sie liegt wirklich im Git** — gefragt wird `git ls-files`, nicht der
+  Text der Regeln. Die Probe aufs Exempel; sie lief beim ersten Mal sofort
+  rot und wurde grün, als die Datei eingecheckt war.
+
 ## Sicherheitsaufnahme — der Stand nach `N-44` bis `N-46`
 
 Der Auftrag war: „Maximale Sicherheit für meine Tools und keine Fehlzugriffe
