@@ -10,6 +10,15 @@ erste = etwas Bestehendes bricht.
 
 ---
 
+## 2.6.1 — 2026-09-20
+
+Die Meldung beim Start ohne Einlassmarke schickte in den nächsten
+Fehler: sie nannte einen Unterbefehl `compose`, den `prolo` nie
+gekannt hat. Sie nennt jetzt `sudo prolo start bordbuch`. Ausgerechnet eine
+Fehlermeldung liest man, wenn gerade etwas kaputt ist — dort schadet
+ein falscher Befehl am meisten (`N-56`).
+
+
 ## 2.6.0
 
 Die Vertrauensgrenze.

@@ -38,7 +38,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 EIGENER_ORDNER = os.path.dirname(os.path.abspath(__file__))
 DATEN = os.environ.get("WWW_DATEN", os.path.join(EIGENER_ORDNER, "daten"))
@@ -1184,7 +1184,7 @@ def main():
             "So geht es weiter:\n"
             "  1. Den Wert aus /opt/stack/traefik/dynamic/einlass.yml nehmen.\n"
             "  2. In /opt/stack/www/.env eintragen:  PROLO_EINLASS=<Wert>\n"
-            "  3. sudo prolo compose www up -d\n\n"
+            "  3. sudo prolo start www\n\n"
             "Der Wert ist ein Geheimnis wie ein Passwort: nicht in Git und\n"
             "nicht in einen Chat (CLAUDE.md §21, §22).\n")
         sys.exit(2)

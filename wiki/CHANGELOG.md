@@ -25,6 +25,15 @@ Zwei Schichten schuetzen dabei (beide aus der Pruefung vom 14.09.2026):
   ab, sagt die Karte genau das - und der Block zaehlt wieder als Code der
   Seite (N-40).
 
+## Fassung 1.4.1
+
+Die Meldung beim Start ohne Einlassmarke schickte in den nächsten
+Fehler: sie nannte einen Unterbefehl `compose`, den `prolo` nie
+gekannt hat. Sie nennt jetzt `sudo prolo start wiki`. Ausgerechnet eine
+Fehlermeldung liest man, wenn gerade etwas kaputt ist — dort schadet
+ein falscher Befehl am meisten (`N-56`).
+
+
 ## Fassung 1.4.0
 
 Die Vertrauensgrenze.

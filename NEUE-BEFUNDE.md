@@ -3315,6 +3315,119 @@ ist. Meine eigenen neuen Schritte sind bis dahin ohne Fettung im Satz
 geschrieben; die alten habe ich **nicht** angefasst — das wäre eine stille
 Änderung an fremdem Text.
 
+## N-56 — Die Prüfung sah nur in Anleitungen, nicht in Fehlermeldungen
+
+`N-51` galt als erledigt: drei Stellen mit `prolo compose` korrigiert, eine
+Prüfung dazu, sechs Mutationen, alle gefunden. Beim Nachsehen, ob der
+Server nach dem Einrichten wirklich sauber steht, fielen **vier weitere**
+auf:
+
+| Datei | stand da |
+|---|---|
+| `wiki/server.py` | `sudo prolo compose wiki up -d` |
+| `www/server.py` | `sudo prolo compose www up -d` |
+| `bordbuch/server.py` | `sudo prolo compose bordbuch up -d` |
+| `bordbuch/server.py` | `sudo prolo sicherung` |
+
+Alle vier stehen in **Fehlermeldungen** — in dem Text, den ein Werkzeug
+ausgibt, wenn es wegen einer fehlenden Einlassmarke nicht startet. Die
+Prüfung hat sie nicht gesehen, weil sie nur `.md`, `.html` und die Datei
+`prolo` gelesen hat. Quellcode war außerhalb ihres Blickfelds.
+
+**Das ist die schlechteste Stelle für einen falschen Befehl.** Eine
+Anleitung liest man in Ruhe und mit Zeit zum Nachdenken. Eine
+Fehlermeldung liest man, wenn gerade etwas kaputt ist — und tippt, was
+dort steht. Ausgerechnet dort stand dreimal ein Befehl, den es nie gab.
+
+Die Lehre ist nicht „mehr Dateien lesen", sondern: **eine Prüfung, die
+einen Fehler an drei Stellen findet, hat damit nichts über die vierte
+gesagt.** Der Umfang der Prüfung ist selbst eine Annahme, und Annahmen
+gehören geprüft.
+
+### Was jetzt gilt
+
+Gelesen wird `.md`, `.html`, `.py`, `.sh`, `.mjs`, `.yml`, `.conf` und die
+Datei `prolo`. Die Mutationsliste hat einen siebten Eintrag bekommen, und
+zwar genau diesen Fall: eine Fehlermeldung im Quellcode nennt einen
+erfundenen Befehl. Er wird gefunden.
+
+### Und die Ausnahmen bleiben kurz
+
+Mit dem Quellcode kam eine zweite Datei dazu, die falsche Befehle
+**nennen muss**: die Prüfung selbst, die sie als Mutationen einbaut. Statt
+die Ausnahmeliste wachsen zu lassen, steht jetzt eine Zusicherung daneben,
+die sie auf zwei festnagelt — und der Kommentar in `prolo-pruefen.sh`,
+der den Befehl bisher ausgeschrieben zitierte, nennt ihn nicht mehr beim
+Namen. Eine dritte Ausnahme wäre der bequemere Weg und das größere Loch.
+
+## N-57 — `prolo status` zeigte ein Notzertifikat an, als wäre alles gut
+
+Aus einer echten Statusausgabe nach dem Einrichten:
+
+```
+  NAME                       ZEIGT AUF        ZERTIFIKAT
+  wiki.prolo.me              89.58.44.224     83 Tage (Let's Encrypt)
+  prolo.me                   89.58.44.224     364 Tage ()
+  www.prolo.me               89.58.44.224     364 Tage ()
+```
+
+Zwei Zeilen sehen unauffällig aus und sind es nicht. **364 Tage sind kein
+Let's-Encrypt-Zertifikat** — das gibt es nur mit 90 Tagen. Dahinter steht
+Traefiks Notzertifikat, das er ausliefert, solange für einen Namen noch
+keines ausgestellt wurde. Im Browser gibt das eine Warnseite.
+
+Es gab sogar eine Warnung dafür — sie kam nur nie:
+
+```bash
+elif printf '%s' "$aus" | grep -qi "traefik"; then
+  printf '... NOTZERTIFIKAT (%s)\n' ...
+```
+
+Der Herausgeber wurde so gelesen:
+
+```bash
+sed -n 's/.*issuer=.*O *= *\([^,]*\).*/\1/p'
+```
+
+Also **nur das `O=`-Feld**. Traefiks Notzertifikat heißt
+`issuer=CN = TRAEFIK DEFAULT CERT` und hat gar kein `O=`. Heraus kam eine
+leere Zeichenkette, `grep -qi "traefik"` fand darin nichts, und die Zeile
+fiel in den Zweig „alles in Ordnung". Die leeren Klammern in der Ausgabe
+waren der einzige Hinweis, und der sieht nach Formatierung aus.
+
+**Eine Anzeige, die im Zweifel beruhigt, ist schlimmer als keine.** Genau
+dieselbe Klasse wie `N-38`: geprüft wurde, ob ein Wort vorkommt — nicht,
+ob überhaupt etwas erkannt wurde.
+
+### Die Korrektur
+
+Das Deuten ist jetzt vom Netzaufruf getrennt (`zertifikat_deuten`), damit
+es sich mit festen Eingaben prüfen lässt. Gelesen wird `O=`, ersatzweise
+`CN=`, und **wenn beides fehlt, heißt das Ergebnis `unbekannt`** — nicht
+leer. `zertifikat_notbehelf` schlägt bei `traefik`, `default`, `unbekannt`,
+`localhost` und `selbst` an.
+
+Sieben Prüflinien, Erwartungswerte von Hand:
+
+| Eingabe | erwartet |
+|---|---|
+| `C = US, O = Let's Encrypt, CN = R11` | `Let's Encrypt`, kein Notbehelf |
+| `CN = TRAEFIK DEFAULT CERT` | `TRAEFIK DEFAULT CERT`, **Notbehelf** |
+| `C = XX` | `unbekannt`, **Notbehelf** |
+| ohne `notAfter` | Fehlschlag, keine Zeile |
+
+Drei Mutationen, alle gefunden — darunter der ursprüngliche Fehler selbst
+(„der `CN=`-Rückfall fällt weg"), „leer heißt wieder in Ordnung" und
+„`traefik` fällt aus der Notbehelf-Liste".
+
+### Was das für den Server heißt
+
+Die beiden Namen brauchen ein echtes Zertifikat. Ursache ist meist, dass
+der Router für sie erst neu dazugekommen ist oder die Anwendung in
+Authentik noch fehlt — Traefik fordert dann keines an. Nach dem Beheben
+zeigt `prolo status` dort `90 Tage (Let's Encrypt)`; bis dahin steht jetzt
+ehrlich `NOTZERTIFIKAT (…) - kein Let's Encrypt` da.
+
 ## Sicherheitsaufnahme — der Stand nach `N-44` bis `N-46`
 
 Der Auftrag war: „Maximale Sicherheit für meine Tools und keine Fehlzugriffe
