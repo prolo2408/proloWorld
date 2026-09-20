@@ -16,7 +16,8 @@
 #   prolo archiv                    was liegt im Archiv
 #   prolo zurueckholen <tool> [stand]
 #   prolo dns                       zeigen die Namen noch hierher?
-#   prolo geheimnisse [--neu|--merkzettel]
+#   prolo einrichten [--trocken]    vom frischen Klon zum Stack
+#   prolo geheimnisse [--neu|--verteilen|--merkzettel]
 #
 # Die englischen Namen aus der Anfrage gehen auch: update, healthcheck,
 # logs, backup, new, search, remove, archive, restore.
@@ -668,9 +669,13 @@ prolo - ein Einstiegspunkt fuer den Stack unter $STACK
   start|stop|neustart <tool>
   protokoll <tool> [-f]       auch: logs
   sichern                     auch: backup
+  einrichten [--trocken]      vom frischen Klon zum laufenden Stack.
+                              Sieht erst nach, was schon da ist - es
+                              passiert nichts doppelt (auch: setup)
   geheimnisse                 Bestand: was es gibt, wo es steht,
                               wie alt. Ohne Werte (auch: secrets)
     --neu                     je Geheimnis fragen und neu wuerfeln
+    --verteilen               leere Stellen fuellen, Werte behalten
     --merkzettel              verschluesselter Zettel fuer den
                               Passwortmanager
 
@@ -692,6 +697,8 @@ case "$BEFEHL" in
   sichern|backup)             root_noetig sichern; exec "$STACK/backup.sh" ;;
   geheimnisse|secrets)        root_noetig geheimnisse "$@"
                               exec python3 "$HIER/geheimnisse.py" "$@" ;;
+  einrichten|setup)           root_noetig einrichten "$@"
+                              exec "$HIER/einrichten.sh" "$@" ;;
   dns)                        befehl_dns ;;
   quelle|source)              befehl_quelle "$@" ;;
   start|stop|neustart)        root_noetig "$BEFEHL" "$@"; befehl_compose "$BEFEHL" "$@" ;;

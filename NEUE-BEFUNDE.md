@@ -3214,6 +3214,107 @@ Drei Linien, weil drei Dinge schieflaufen können:
   Text der Regeln. Die Probe aufs Exempel; sie lief beim ersten Mal sofort
   rot und wurde grün, als die Datei eingecheckt war.
 
+## N-54 — Die Einrichtung stand nur als Befehlsliste in einer Anleitung
+
+Kein Absturz, sondern die Summe aus `N-50` bis `N-53`. Der Weg vom frischen
+Klon zum laufenden Stack war eine Liste von vierzehn Schritten in der
+Bedienungsseite: Netze anlegen, `.env` aus Vorlagen bauen, eine Marke
+würfeln und an vier Stellen eintragen, Dienste in der richtigen Reihenfolge
+starten.
+
+Das funktioniert genau so lange, wie jemand jede Zeile abtippt und keine
+auslässt. Gemessen an dem, was tatsächlich passiert ist:
+
+- `N-52` — eine `.env` fehlte, eine hatte die Zeile nicht, und das
+  Wechselwerkzeug schrieb trotzdem los
+- `N-53` — die Vorlage, aus der man die fehlende `.env` gebaut hätte, war
+  gar nicht im Repository
+- `N-51` — einer der Befehle in der Anleitung existierte nicht
+
+Drei Befunde, eine Ursache: **die Anleitung war das Werkzeug.** Eine
+Anleitung kann nicht nachsehen, was schon da ist.
+
+### `prolo einrichten`
+
+Zehn statt vierzehn Schritten in der Anleitung, weil vier davon jetzt das
+Skript tut. Jeder Abschnitt sieht erst nach und meldet `ok` (war schon),
+`getan` oder `offen` mit dem nächsten Handgriff:
+
+| | |
+|---|---|
+| Umgebung | docker, compose, git, python3, age — fehlt eins, bricht es ab, bevor es etwas anfasst |
+| `prolo` im PATH, `safe.directory`, `pre-commit` | |
+| Sicherungsschlüssel | fehlt er, erklärt es den Weg über den Arbeitsrechner und fragt, ob es trotzdem weitergehen soll |
+| Netze | **gelesen aus den Compose-Dateien**, keine feste Liste |
+| Geheimnisdateien | aus der jeweiligen `.beispiel`, und die erklärte Zeile wird ergänzt, falls sie fehlt |
+| Geheimnisse | `--verteilen`: füllt Leeres, lässt Vorhandenes |
+| Sicherung | fragt, ob eine eingespielt werden soll — und **tut es nicht selbst** |
+| Dienste | socket-proxy, traefik, authentik, dann der Rest |
+| Abschluss | DNS-Namen aus den Traefik-Regeln, Authentik-Schritte, Gruppen |
+
+**Was es nicht tut:** eine Sicherung einspielen. Ein Skript, das
+Produktivdaten überschreibt, ist genau das Werkzeug, das man nicht haben
+will. Es sagt, wo der Weg steht, und hört auf.
+
+### Zwei eigene Fehler, im Trockenlauf gefunden
+
+**Es hätte `socket` von Hand angelegt.** Die erste Fassung sammelte jedes
+Netz mit `external: true` — und Traefik nennt `socket` so, weil es von
+außen kommt. Angelegt wird es aber von `socket-proxy` selbst, mit
+`internal: true`. Von Hand angelegt wäre es ein gewöhnliches Bridge-Netz
+gewesen, und socket-proxy wäre nicht mehr hochgekommen. Gesammelt wird
+jetzt `external` **minus** `selbst erzeugt`.
+
+**Der Trockenlauf brach bei der ersten Frage ab.** Wer nachsieht, will das
+ganze Bild sehen, nicht die erste Hürde. Gefragt wird nur noch, wenn es
+wirklich losgeht.
+
+Dazu eine Kleinigkeit: `authentik/.env` stand zweimal in der Liste, weil
+dort zwei Geheimnisse in derselben Datei wohnen. Gemeldet wird jetzt je
+Datei.
+
+### Gemessen
+
+`werkzeuge/einrichten-pruefen.sh`: **9 Prüflinien** gegen eine Kopie des
+Stacks mit einer Docker-Attrappe auf dem `PATH`. Die wichtigste:
+
+> zweiter Lauf lässt jede Datei **byteweise**, wie sie war
+
+Denn das ist die einzige Eigenschaft, auf die es ankommt. Ein
+Einrichtungsskript, das beim zweiten Lauf etwas überschreibt, ist
+gefährlicher als gar keines — man ruft es arglos auf, weil „es tut ja nur,
+was fehlt", und verliert eine `.env`.
+
+`--gegenprobe` baut zwei Schwächen ein („die `.env` wird immer neu kopiert",
+„die fehlende Zeile wird immer angehängt"), **beide werden gefunden**.
+
+Und `prolo geheimnisse --verteilen` hat neun eigene Prüflinien: füllt
+Leeres, lässt Vorhandenes, tut beim zweiten Mal nichts, entscheidet bei
+zwei verschiedenen Werten **nicht**, würfelt einmal statt je Stelle — und
+schreibt auch dann einen Merkzettel, wenn es nur einen **vorhandenen** Wert
+weitergegeben hat. Das war zuerst nicht so, und es ist dieselbe Lücke wie
+überall hier: der Wert stand danach in vier Dateien und in keinem
+Passwortmanager. Der Prüfstand steht damit bei **115 Linien** und **37 von
+37** Mutationen.
+
+## N-55 — *(offen)* Fettung mitten im Satz zerreißt einen Schrittkasten
+
+Beim Neuschreiben der Einrichtungsschritte aufgefallen, und nicht von mir
+verursacht: `.bk-schritte li b { display:block }`. Jede Fettung **mitten in
+einem Satz** bekommt dadurch eine eigene Zeile. In Schritt 1 steht
+„**Keinen AAAA-Record**" allein zwischen zwei Satzhälften, in Schritt 7
+ebenso „**muss**".
+
+Derselbe Mechanismus wie in den Hinweiskästen, wo `<b>` die Überschrift des
+Kastens ist und die Blockdarstellung Sinn ergibt. Im Schrittkasten ist
+`<b>` aber schon der **Titel** des Schritts — eine zweite Fettung im Text
+darunter ist etwas anderes und sollte im Fluss bleiben.
+
+Zu klären: `.bk-schritte li > b` statt `li b`, damit nur der Titel Block
+ist. Meine eigenen neuen Schritte sind bis dahin ohne Fettung im Satz
+geschrieben; die alten habe ich **nicht** angefasst — das wäre eine stille
+Änderung an fremdem Text.
+
 ## Sicherheitsaufnahme — der Stand nach `N-44` bis `N-46`
 
 Der Auftrag war: „Maximale Sicherheit für meine Tools und keine Fehlzugriffe

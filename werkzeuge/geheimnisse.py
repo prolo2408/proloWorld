@@ -318,6 +318,120 @@ def gesund(werkzeuge, warten=30):
         time.sleep(2)
 
 
+def klemmen(stellen):
+    """Welche Stellen koennten NICHT geschrieben werden? (N-52)"""
+    return [(g, grund) for g, grund in ((g, g.schreibbar()) for g in stellen)
+            if grund]
+
+
+def klemmen_melden(stellen, klemmt):
+    print(rot("    NICHT angefasst - an %d von %d Stellen ginge es nicht:"
+              % (len(klemmt), len(stellen))))
+    for g, grund in klemmt:
+        print(rot("      %s" % g.pfad))
+        print("        %s" % grund)
+
+
+def verteilen():
+    """Luecken fuellen, ohne zu wechseln.
+
+    Der haeufigste Fall beim Aufsetzen: ein Wert steht schon an einer
+    Stelle und fehlt an den anderen. "--neu" waere dafuer das falsche
+    Werkzeug - es wuerfelt einen neuen und beendet damit alle Sitzungen,
+    obwohl gar nichts kaputt war.
+
+    Drei Lagen, drei Antworten:
+      ueberall gleich      nichts zu tun
+      einer hat ihn        die Leeren bekommen denselben
+      keiner hat ihn       einmal wuerfeln, dann ueberall
+      zwei verschiedene    Finger weg, das entscheidet ein Mensch
+    """
+    alle = bestand()
+    st = stand_lesen()
+    print(fett("Geheimnisse verteilen") + "\n")
+    print("  Gefuellt wird nur, was leer ist. Ein vorhandener Wert bleibt.\n")
+
+    if not os.path.exists(SCHLUESSEL) or shutil.which("age") is None:
+        print(rot("  Es fehlt %s"
+                  % ("das Programm 'age'" if shutil.which("age") is None
+                     else SCHLUESSEL)))
+        print("  Ohne ihn liesse sich am Ende kein Merkzettel schreiben, und")
+        print("  ein gewuerfelter Wert waere nirgends notiert.\n")
+        return 1
+
+    heute = datetime.date.today().isoformat()
+    zettel, geaendert, gestockt = [], set(), False
+    for name, stellen in sorted(gruppiert(alle).items()):
+        print("\n" + fett("  " + name))
+        werte = [g.lesen() for g in stellen]
+        verschieden = {w for w in werte if w}
+        leer = [g for g, w in zip(stellen, werte) if not w]
+
+        if len(verschieden) > 1:
+            print(rot("    UNEINIG: an den Stellen stehen %d verschiedene"
+                      % len(verschieden)))
+            print("    Werte. Das entscheidet kein Skript. Entweder mit")
+            print("    'sudo prolo geheimnisse --neu' einen neuen ueberall")
+            print("    setzen, oder von Hand angleichen.")
+            gestockt = True
+            continue
+        if not leer:
+            print("    steht schon an allen %d Stellen." % len(stellen))
+            continue
+        if stellen[0].wechsel == "haende" and not verschieden:
+            print(rot("    Fehlt ueberall - und dieses Geheimnis wuerfelt das"))
+            print("    Werkzeug NICHT (es steht auch ausserhalb seiner Datei).")
+            print("    Von Hand eintragen: %s" % ", ".join(g.pfad for g in leer))
+            gestockt = True
+            continue
+
+        klemmt = klemmen(leer)
+        if klemmt:
+            klemmen_melden(leer, klemmt)
+            gestockt = True
+            continue
+
+        if verschieden:
+            wert, woher = verschieden.pop(), "uebernommen"
+            alt = wert
+        else:
+            wert, woher, alt = wuerfeln(), "neu gewuerfelt", None
+            zettel.append((name, alt, wert,
+                           [g.werkzeug + "/" + g.datei for g in stellen]))
+            st[name] = heute
+        for g in leer:
+            g.schreiben(wert)
+            print("    %s: %s/%s" % (woher, g.werkzeug, g.datei))
+        geaendert |= {g.werkzeug for g in leer}
+
+    if not geaendert:
+        print("\n  Nichts zu verteilen.\n")
+        return 1 if gestockt else 0
+
+    print("")
+    if not dienste_neu(geaendert):
+        print(rot("\n  Ein Dienst kam nicht hoch - sieh im Protokoll nach.\n"))
+    elif not gesund(geaendert):
+        print(rot("\n  Die Dienste laufen, melden sich aber nicht gesund.\n"))
+    else:
+        print("\n  Alles wieder gesund.")
+
+    stand_schreiben(st)
+    # Auch wenn nur ein vorhandener Wert weiterverteilt wurde: er steht
+    # jetzt an mehr Stellen und womoeglich in keinem Passwortmanager. Der
+    # Zettel listet ohnehin ALLE Geheimnisse, nicht nur die gewechselten.
+    pfad = merkzettel_schreiben(zettel)
+    print("\n  " + fett("Merkzettel: %s" % pfad))
+    print("  Hol ihn auf den Arbeitsrechner und sortiere die Werte in")
+    print("  den Passwortmanager ein:")
+    print("    scp <server>:%s ." % pfad)
+    print("    age -d -i ~/.prolo-sicherung.key %s" % os.path.basename(pfad))
+    print("")
+    if gestockt:
+        print(rot("  Achtung: mindestens eine Stelle blieb offen (siehe oben).\n"))
+    return 1 if gestockt else 0
+
+
 def wechseln():
     alle = bestand()
     st = stand_lesen()
@@ -382,14 +496,9 @@ def wechseln():
         # der Liste liess Traefik mit der neuen Marke stehen und die
         # Werkzeuge mit der alten - also 401 auf jede Anfrage, und der alte
         # Wert war weg, weil der Merkzettel erst am Ende entsteht.
-        klemmt = [(g, grund) for g, grund in ((g, g.schreibbar())
-                                              for g in stellen) if grund]
+        klemmt = klemmen(stellen)
         if klemmt:
-            print(rot("    NICHT gewechselt - an %d von %d Stellen ginge es "
-                      "nicht:" % (len(klemmt), len(stellen))))
-            for g, grund in klemmt:
-                print(rot("      %s" % g.pfad))
-                print("        %s" % grund)
+            klemmen_melden(stellen, klemmt)
             print("    Ein Wechsel, der nur die Haelfte erreicht, macht die")
             print("    Werkzeuge unerreichbar. Darum bleibt hier alles, wie")
             print("    es war. Erst das oben in Ordnung bringen.")
@@ -517,14 +626,19 @@ def main():
         description="Den Bestand an Geheimnissen zeigen, wechseln, aufschreiben.")
     p.add_argument("--neu", action="store_true",
                    help="je Geheimnis nachfragen und es neu wuerfeln")
+    p.add_argument("--verteilen", action="store_true",
+                   help="leere Stellen fuellen, vorhandene Werte behalten")
     p.add_argument("--merkzettel", action="store_true",
                    help="den verschluesselten Zettel schreiben, ohne zu aendern")
     a = p.parse_args()
-    if a.neu and a.merkzettel:
-        raise SystemExit("Entweder --neu oder --merkzettel, nicht beides. "
-                         "--neu schreibt den Zettel ohnehin.")
+    if sum([a.neu, a.verteilen, a.merkzettel]) > 1:
+        raise SystemExit("Nur eins auf einmal: --neu, --verteilen oder "
+                         "--merkzettel. Die ersten beiden schreiben den "
+                         "Zettel ohnehin.")
     if a.neu:
         return wechseln()
+    if a.verteilen:
+        return verteilen()
     if a.merkzettel:
         pfad = merkzettel_schreiben()
         print("Merkzettel: %s" % pfad)

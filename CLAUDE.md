@@ -533,6 +533,14 @@ abschalten und den Endzustand prüfen.
 Die **Handgriffe** stehen in der Wiki-Seite „Prolo bedienen und verstehen"
 (`wiki/vorlagen/prolo-bedienen.html`). Hier stehen nur die Regeln.
 
+**Was man auf einem neuen Server tut, tut `prolo einrichten`** (`N-54`).
+Eine Einrichtung, die nur als Befehlsliste in einer Anleitung steht, wird
+abgetippt — und beim Abtippen fällt eine Zeile aus, ohne dass es auffällt.
+Jeder Schritt des Skripts **sieht erst nach**, ob er nötig ist: es läuft
+beliebig oft, und beim zweiten Mal passiert nichts. Wer einen
+Einrichtungsschritt ergänzt, ergänzt ihn dort — nicht in der Anleitung
+daneben.
+
 ## 16. Ein Ordner je Werkzeug
 
 Alles unter `/opt/stack/`. Ein Werkzeug ist ein Ordner mit einer
@@ -558,7 +566,8 @@ Der Ordnername ist kleingeschrieben, ohne Leerzeichen und Umlaute, und
 Daneben liegt, was **allen** gemeinsam ist — und das ist kein Werkzeug, also
 ohne `sicherung.conf` und `aktualisierung.conf`: `backup.sh`, `werkzeuge/`
 (`prolo`, `aktualisieren.sh`, `quellstand.sh`, `geheimnisse.py`,
-`pre-commit` und die Gegenproben), diese Datei und `NEUE-BEFUNDE.md`.
+`einrichten.sh`, `pre-commit` und die Gegenproben), diese Datei und
+`NEUE-BEFUNDE.md`.
 
 **Die Fassungsnummer steht an drei Stellen** und muss überall dieselbe sein:
 `server.py` (`VERSION`), `docker-compose.yml` (`image:`), `CHANGELOG.md` (als

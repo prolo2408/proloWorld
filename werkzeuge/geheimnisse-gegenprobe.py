@@ -221,8 +221,10 @@ def m_schluesselpruefung_erst_am_ende(w):
     laeuft durch und scheitert erst beim Schreiben des Zettels, wenn die
     neuen Werte schon in den Dateien stehen und der alte weg ist."""
     tausch(w, "werkzeuge/geheimnisse.py",
-           "    if not os.path.exists(SCHLUESSEL) or shutil.which(\"age\") is None:\n",
-           "    if False:\n")
+           "    if not os.path.exists(SCHLUESSEL) or shutil.which(\"age\") is None:\n"
+           "        print(rot(\"  Der Merkzettel liesse sich am Ende nicht schreiben.\"))\n",
+           "    if False:\n"
+           "        print(rot(\"  Der Merkzettel liesse sich am Ende nicht schreiben.\"))\n")
 
 
 def m_zettel_ohne_alten_wert(w):
@@ -236,8 +238,8 @@ def m_stelle_fuer_stelle(w):
     vorher alle zu pruefen. Traefik traegt dann die neue Marke und die
     Werkzeuge die alte (N-52)."""
     tausch(w, "werkzeuge/geheimnisse.py",
-           "        klemmt = [(g, grund) for g, grund in ((g, g.schreibbar())\n",
-           "        klemmt = [] or [(g, grund) for g, grund in ((g, None)\n")
+           "def klemmen(stellen):\n",
+           "def klemmen(stellen):\n    return []  # Mutation\n")
 
 
 def m_halber_wechsel_bleibt_gruen(w):
@@ -264,6 +266,37 @@ def m_gitignore_frisst_die_vorlage(w):
 def m_vorlage_fehlt(w):
     import os as _os
     _os.remove(_os.path.join(w, "bordbuch", ".env.beispiel"))
+
+
+def m_verteilen_ueberschreibt(w):
+    """--verteilen fasst auch die Stellen an, die schon einen Wert haben."""
+    tausch(w, "werkzeuge/geheimnisse.py",
+           "        leer = [g for g, w in zip(stellen, werte) if not w]\n",
+           "        leer = list(stellen)\n")
+
+
+def m_verteilen_entscheidet_selbst(w):
+    """Bei zwei verschiedenen Werten nimmt es einfach einen."""
+    tausch(w, "werkzeuge/geheimnisse.py",
+           "        if len(verschieden) > 1:\n", "        if False:\n")
+
+
+def m_verteilen_wuerfelt_je_stelle(w):
+    tausch(w, "werkzeuge/geheimnisse.py",
+           "        for g in leer:\n            g.schreiben(wert)\n",
+           "        for g in leer:\n            g.schreiben(wuerfeln())\n")
+
+
+def m_verteilen_ohne_zettel(w):
+    tausch(w, "werkzeuge/geheimnisse.py",
+           "    pfad = merkzettel_schreiben(zettel)\n"
+           '    print("\\n  " + fett("Merkzettel: %s" % pfad))\n'
+           '    print("  Hol ihn auf den Arbeitsrechner und sortiere die Werte in")\n'
+           '    print("  den Passwortmanager ein:")\n',
+           "    pfad = None\n"
+           '    if False:\n'
+           '        print("  Hol ihn auf den Arbeitsrechner und sortiere die Werte in")\n'
+           '        print("  den Passwortmanager ein:")\n')
 
 
 MUTATIONEN = [
@@ -300,6 +333,10 @@ MUTATIONEN = [
     ("eine fehlende Zeile faellt nicht auf",        m_fehlende_zeile_faellt_nicht_auf),
     (".gitignore frisst die eigene Vorlage",        m_gitignore_frisst_die_vorlage),
     ("die Vorlage fehlt ganz",                      m_vorlage_fehlt),
+    ("--verteilen ueberschreibt vorhandene Werte",  m_verteilen_ueberschreibt),
+    ("--verteilen entscheidet bei Uneinigkeit",     m_verteilen_entscheidet_selbst),
+    ("--verteilen wuerfelt je Stelle einzeln",      m_verteilen_wuerfelt_je_stelle),
+    ("--verteilen schreibt keinen Zettel",         m_verteilen_ohne_zettel),
 ]
 
 
