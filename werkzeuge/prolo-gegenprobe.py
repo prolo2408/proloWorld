@@ -98,6 +98,10 @@ MUTATIONEN = [
      """        printf '  %-26s %-23s ABGELAUFEN seit %s Tagen\\n' "$name" "$ipfeld" "$(( -tage ))"
         zert=gut"""),
 
+    ("der Hinweis schickt wieder zu VOLUMES= statt ORDNER= (N-78)", "prolo",
+     '      bind)      melde "    ORDNER=\\"... $NAME\\"" ;;',
+     '      bind)      melde "    VOLUMES=\\"... $NAME\\"" ;;'),
+
     ("die Spalte ZEIGT AUF ist wieder zu schmal fuer '(FREMD)' (N-71)",
      "prolo",
      """      printf '  %-26s %-23s keine Antwort auf 443\\n' "$name" "$ipfeld\"""",

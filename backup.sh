@@ -53,17 +53,26 @@ if [ -n "$LUECKEN" ]; then
     echo
     echo "ACHTUNG: hier entstehen Daten, die NICHT gesichert werden."
     echo
-    printf '%s\n' "$LUECKEN" | while IFS='|' read -r T ART NAME _; do
-      printf '  %-14s %-7s %s\n' "$T" "$ART" "$NAME"
-    done
-    echo
     echo "  Das ist keine Warnung, sondern eine Luecke: was hier nicht steht,"
-    echo "  ist nach einem Verlust weg. Je Zeile EINE der beiden Zeilen in"
-    echo "  die sicherung.conf des Werkzeugs:"
+    echo "  ist nach einem Verlust weg. Je Zeile die genannte Zeile in die"
+    echo "  sicherung.conf des Werkzeugs - oder, wenn es wirklich keine"
+    echo "  Sicherung braucht, VOLUMES_OHNE mit einer Begruendung:"
     echo
-    echo "    VOLUMES=\"... <name>\"        # es wird gesichert"
-    echo "    VOLUMES_OHNE=\"<name>|<warum>\" # es braucht keine Sicherung"
-    echo
+    # Die Zeile haengt von der ART ab. Ein Bind-Mount gehoert NICHT in
+    # VOLUMES - das ist fuer benannte Docker-Volumes. Eine Meldung, die
+    # die falsche Zeile nennt, schickt in den naechsten Fehlversuch
+    # (N-78).
+    printf '%s\n' "$LUECKEN" | while IFS='|' read -r T ART NAME _; do
+      case "$ART" in
+        volume)    ZEILE="VOLUMES=\"... $NAME\"" ; WAS="benanntes Docker-Volume" ;;
+        bind)      ZEILE="ORDNER=\"... $NAME\""  ; WAS="Ordner im Werkzeugordner" ;;
+        binddatei) ZEILE="DATEIEN=\"... $NAME\"" ; WAS="Datei im Werkzeugordner" ;;
+        *)         ZEILE="VOLUMES_OHNE=\"$NAME|<warum>\""; WAS="$ART" ;;
+      esac
+      printf '  %s  (%s)\n' "$T/$NAME" "$WAS"
+      printf '      %s\n' "$ZEILE"
+      printf '      oder  VOLUMES_OHNE="%s|<warum>"\n\n' "$NAME"
+    done
     echo "  Nachsehen, was ein Werkzeug anlegt:"
     echo "    python3 /opt/stack/werkzeuge/volumes.py /opt/stack <werkzeug>"
     echo

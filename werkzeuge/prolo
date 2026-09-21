@@ -10,6 +10,7 @@
 #   prolo start|stop|neustart <tool>
 #   prolo protokoll <tool> [-f]
 #   prolo sichern
+#   prolo wiederherstellen [--probe]  einen gesicherten Stand zurueckholen
 #   prolo neu <name>                neues Tool anlegen (fragt alles ab)
 #   prolo netze [anlegen|schliessen|umziehen]
 #   prolo suchen <begriff>          Abbild in der Registry suchen
@@ -736,14 +737,20 @@ sicherung_hinweis() {
             | grep '|FEHLT$' || true)
   [ -n "$LUECKEN" ] || return 0
   melde ""
-  melde "  HINWEIS: $TOOL legt Daten ab, die NICHT gesichert werden:"
-  printf '%s\n' "$LUECKEN" | while IFS='|' read -r _ ART NAME _; do
-    melde "    $ART  $NAME"
-  done
+  melde "  HINWEIS: $TOOL legt Daten ab, die NICHT gesichert werden."
+  melde "  Je Zeile die genannte in $TOOL/sicherung.conf:"
   melde ""
-  melde "  Je Zeile eine der beiden in $TOOL/sicherung.conf:"
-  melde "    VOLUMES=\"... <name>\"          # wird gesichert"
-  melde "    VOLUMES_OHNE=\"<name>|<warum>\"  # braucht keine Sicherung"
+  # Welche Zeile es ist, haengt von der Art ab: ein Bind-Mount gehoert
+  # nicht in VOLUMES (N-78).
+  printf '%s\n' "$LUECKEN" | while IFS='|' read -r _ ART NAME _; do
+    case "$ART" in
+      volume)    melde "    VOLUMES=\"... $NAME\"" ;;
+      bind)      melde "    ORDNER=\"... $NAME\"" ;;
+      binddatei) melde "    DATEIEN=\"... $NAME\"" ;;
+      *)         melde "    VOLUMES_OHNE=\"$NAME|<warum>\"" ;;
+    esac
+    melde "      oder  VOLUMES_OHNE=\"$NAME|<warum>\"   # braucht keine"
+  done
   melde ""
   melde "  Solange etwas fehlt, bricht 'prolo sichern' ab und nennt es."
 }
@@ -817,6 +824,13 @@ prolo - ein Einstiegspunkt fuer den Stack unter $STACK
   start|stop|neustart <tool>
   protokoll <tool> [-f]       auch: logs
   sichern                     auch: backup
+  wiederherstellen            einen gesicherten Stand zurueckholen
+    --probe                   nur ueben: auspacken, nachpruefen, nichts
+                              anfassen. Gehoert regelmaessig gemacht (§23)
+    --stand <datum>           welcher Stand. Ohne das: der neueste
+    --schluessel <datei>      der geheime age-Schluessel
+    Nicht zu verwechseln mit "zurueckholen": das holt ein ENTFERNTES
+    Werkzeug aus dem Archiv, nicht aus der taeglichen Sicherung.
   einrichten [--trocken]      vom frischen Klon zum laufenden Stack.
                               Sieht erst nach, was schon da ist - es
                               passiert nichts doppelt (auch: setup)
@@ -864,6 +878,7 @@ case "$BEFEHL" in
   entfernen|remove|rm)        befehl_entfernen "$@" ;;
   archiv|archive)             befehl_archiv ;;
   zurueckholen|restore)       befehl_zurueckholen "$@" ;;
+  wiederherstellen)           exec "$HIER/wiederherstellen.sh" "$@" ;;
   hilfe|help|-h|--help)       hilfe ;;
   *) fehler "Unbekannt: $BEFEHL"; echo; hilfe; exit 1 ;;
 esac

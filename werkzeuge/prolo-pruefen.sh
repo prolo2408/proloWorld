@@ -16,7 +16,7 @@ pruefe() {
 }
 
 mkdir -p "$T/bin" "$T/stack/werkzeuge"
-cp "$HIER/prolo" "$HIER/neu.sh" "$HIER/netze.sh" "$T/stack/werkzeuge/"
+cp "$HIER/prolo" "$HIER/neu.sh" "$HIER/netze.sh" "$HIER/volumes.py" "$T/stack/werkzeuge/"
 
 # Einstieg fuer die Mutationsprobe (werkzeuge/prolo-gegenprobe.py). Sie
 # baut ihre Fehler in die KOPIE im Wegwerfordner ein, nie in die Datei im
@@ -36,8 +36,14 @@ printf '#!/bin/bash\n[ "$1" = "-u" ] && echo "${UID_VORGABE:-0}" || exec /usr/bi
 
 # docker-Attrappe: tar-Aufrufe fuer Volumes echt ausfuehren, damit das
 # Zurueckholen wirklich Daten bewegt und nicht nur so tut.
-cat > "$T/bin/docker" <<'STUB'
+ECHTES_DOCKER=$(command -v docker || true)
+cat > "$T/bin/docker" <<STUB
 #!/bin/bash
+ECHT="$ECHTES_DOCKER"
+STUB
+cat >> "$T/bin/docker" <<'STUB'
+# "compose config" braucht keinen Daemon - durchreichen statt erfinden.
+if [ "$1 $2" = "compose config" ] && [ -n "$ECHT" ]; then exec "$ECHT" "$@"; fi
 case "$1 $2" in
   "compose ps")   echo "c1"; exit 0 ;;
   "compose down"|"compose up"|"compose restart"|"compose logs") exit 0 ;;
@@ -561,6 +567,36 @@ pruefe "und der aus der Herstellerdatei weiterhin auch" "ja" \
 A=$(PATH="$T/netz:$T/bin:$PATH" "$T/stack/werkzeuge/prolo" status 2>&1 || true)
 pruefe "status sieht ihn ebenfalls" "ja" "$(hat "$A" "fremdtool.beispiel")"
 rm -rf "$T/stack/fremdtool" "$T/stack/eigentool"
+# ----------------------------------------------------------------------
+# Der Hinweis beim Starten nennt die Zeile, die WIRKLICH passt (N-78)
+#
+# bitwarden bindet ./vw-data ein - ein Ordner, kein benanntes Volume.
+# Die erste Fassung schickte trotzdem zu VOLUMES=, und das ist die
+# falsche Zeile: dort gehoeren nur Docker-Volumes hin. Eine Meldung, die
+# in den naechsten Fehlversuch schickt, ist schlimmer als keine (§7).
+mkdir -p "$T/stack/bindtool/vw-data"
+cat > "$T/stack/bindtool/docker-compose.yml" <<'Y'
+services:
+  bindtool:
+    image: bindtool:1
+    volumes:
+      - ./vw-data:/data
+Y
+printf 'VOLUMES=""\nORDNER=""\nDATEIEN=""\n' > "$T/stack/bindtool/sicherung.conf"
+A=$(PATH="$T/bin:$PATH" "$T/stack/werkzeuge/prolo" start bindtool 2>&1)
+echo "$A" | grep -q 'ORDNER="... vw-data"' && E=ja || E=nein
+pruefe "der Hinweis nennt ORDNER= fuer einen gebundenen Ordner" "ja" "$E"
+echo "$A" | grep -q 'VOLUMES="... vw-data"' && E=ja || E=nein
+pruefe "und eben NICHT VOLUMES=" "nein" "$E"
+echo "$A" | grep -q 'VOLUMES_OHNE="vw-data' && E=ja || E=nein
+pruefe "der Ausweg mit Begruendung steht daneben" "ja" "$E"
+# Und der Prueferbeweis: ist es eingetragen, kommt gar kein Hinweis.
+printf 'VOLUMES=""\nORDNER="vw-data"\nDATEIEN=""\n' > "$T/stack/bindtool/sicherung.conf"
+A=$(PATH="$T/bin:$PATH" "$T/stack/werkzeuge/prolo" start bindtool 2>&1)
+echo "$A" | grep -q 'NICHT gesichert' && E=ja || E=nein
+pruefe "ist es eingetragen, schweigt der Hinweis" "nein" "$E"
+rm -rf "$T/stack/bindtool"
+
 # ----------------------------------------------------------------------
 # Steht in den Anleitungen ein Befehl, den es gar nicht gibt? (N-51)
 #
