@@ -4965,3 +4965,145 @@ Und auch hier hat der erste Messlauf gelogen: die drei Fälle zeigten noch
 den alten Satz, weil der Probedienst seit **vor** der Änderung lief. Eine
 Codeänderung ist kein Beweis, solange der Prozess sie nicht geladen hat
 (§ TEIL 0). Nach dem Neustart standen die Sätze oben.
+
+---
+
+## N-76 — Ein Werkzeug konnte laufen und ungesichert sein, und die Sicherung meldete Erfolg
+
+Im Sicherungsprotokoll eines ganz normalen Laufs stand das hier:
+
+```
+Sichere bitwarden
+  Hinweis: /opt/stack/bitwarden/.env gibt es nicht - uebersprungen.
+...
+Verschluesselt: /opt/backups/2026-09-21.tar.gz.age
+Backup fertig: 2026-09-21
+```
+
+„Backup fertig." Von bitwarden war **nichts** darin. Kein Tresor, kein
+Schlüssel, keine Datei — der Container lief und legte Daten ab, und die
+Sicherung ging an ihm vorbei, ohne zu stolpern.
+
+Der Grund ist banal und deshalb gefährlich: `prolo neu` schreibt die
+`sicherung.conf`, **bevor** es die Datei des Herstellers gibt. `VOLUMES`
+bleibt leer, weil es zu dem Zeitpunkt nichts einzutragen gibt. Und danach
+hat nie jemand nachgesehen.
+
+> §25 sagt: „Eine Sicherung, deren Scheitern niemand merkt, ist keine
+> Sicherung." Dieser Fall ist die schlimmere Schwester davon — eine
+> Sicherung, die **nicht scheitert**, weil sie gar nicht weiß, dass sie
+> etwas übersehen hat.
+
+### Was der Prüfer beim ersten Lauf sofort fand
+
+Nicht nur bitwarden. Auf dem gepflegten Arbeitsstand:
+
+```
+authentik|bind|custom-templates|FEHLT
+traefik|bind|traefik.yml|FEHLT
+traefik|bind|dynamic|FEHLT
+traefik|bind|acme.json|FEHLT
+traefik|bind|log|FEHLT
+```
+
+**`traefik` hatte als einziges Werkzeug gar keine `sicherung.conf`.**
+`backup.sh` geht die `sicherung.conf`-Dateien durch — ohne eine wurde
+traefik schlicht übersprungen. Was von ihm gesichert wurde, stand als
+**fester Block mit Toolnamen** im zentralen Skript, und der deckte genau
+eine Datei ab: `acme.json`.
+
+Nicht gesichert war damit `dynamic/` — und darin liegt `einlass.yml` mit
+der Marke der Vertrauensgrenze (`N-44`). Die Datei ist bewusst nicht im
+Git (§21). Nach einem Verlust gibt es sie nur neu, und dann muss sie in
+jedes Werkzeug nachgezogen werden, wobei alle Sitzungen ablaufen.
+
+### Was jetzt kommt
+
+**`werkzeuge/volumes.py`** misst, was ein Werkzeug wirklich ablegt:
+
+```
+$ python3 werkzeuge/volumes.py /opt/stack
+admin|volume|admin_admin_daten|gesichert
+traefik|bind|acme.json|gesichert
+traefik|bind|log|erklaert|Betriebsprotokoll - faengt nach einer Wiederherstellung neu an
+bitwarden|volume|bitwarden_bw-data|FEHLT
+```
+
+Drei Entscheidungen darin:
+
+1. **Gemessen wird die zusammengesetzte Konfiguration**, nicht eine
+   Datei. Bei einem Fremdwerkzeug steht die Hälfte im Overlay (§16), und
+   ein Prüfer, der nur eine der beiden liest, sieht die Hälfte — dieselbe
+   Narbe wie `N-70`.
+2. **Der Laufzeitname kommt von `docker compose config`**, nicht aus einer
+   Rechnung. Er lautet `<ordner>_<schlüssel>` und nicht `<schlüssel>` —
+   genau daran vertippt man sich beim Eintragen von Hand. Die Meldung
+   schreibt ihn aus. (Und `config` braucht dafür keinen laufenden Docker.)
+3. **Bind-Mounts zählen mit.** Die sieht `docker volume ls` gar nicht, und
+   bei authentik und traefik lag genau dort das Unbewachte.
+
+**Die Sicherung bricht jetzt ab**, wenn etwas fehlt — kein `.letzter-erfolg`,
+Rückgabewert 1, also stoppt auch `prolo aktualisieren`, bevor es etwas
+anfasst. Das ist die richtige Reihenfolge: nichts aktualisieren, dessen
+Daten nicht gesichert sind. Und die Meldung nennt die Zeile, nicht die
+Aufgabe (§7, `N-67`):
+
+```
+ACHTUNG: hier entstehen Daten, die NICHT gesichert werden.
+
+  bitwarden      volume  bitwarden_bw-data
+
+  Das ist keine Warnung, sondern eine Luecke: was hier nicht steht,
+  ist nach einem Verlust weg. Je Zeile EINE der beiden Zeilen in
+  die sicherung.conf des Werkzeugs:
+
+    VOLUMES="... <name>"          # es wird gesichert
+    VOLUMES_OHNE="<name>|<warum>" # es braucht keine Sicherung
+```
+
+**`VOLUMES_OHNE` ist der ehrliche Ausweg.** Nicht jedes Volume braucht
+eine Sicherung — ein Zwischenspeicher nicht, ein Protokoll nicht. Aber
+das ist eine **Entscheidung**, und sie wird hingeschrieben, wie
+`prolo.ports=` und `prolo.netz.geteilt=` auch. Stillschweigen zählt nicht.
+
+**`prolo start` warnt, blockiert aber nicht.** Starten muss man ein
+Werkzeug auch, bevor die Sicherung steht — sonst wird aus „einfach mal
+ausprobieren" eine Hürde. Der Hinweis steht an der Stelle, an der man noch
+etwas dagegen tun kann; das Abbrechen macht die Sicherung selbst.
+
+**`prolo neu`** nennt den Schritt jetzt in seiner Liste — nach dem
+Einsetzen der Herstellerdatei, weil es vorher nichts zu messen gibt, und
+vor dem Starten, weil danach Daten entstehen.
+
+Der feste `acme.json`-Block in `backup.sh` ist weg: traefik hat jetzt eine
+eigene `sicherung.conf`. Ein Toolname im zentralen Skript war genau das,
+was der Grundsatz verbietet.
+
+### Prüfung
+
+| | |
+|---|---|
+| `werkzeuge/sicherung-pruefen.sh` (neu) | **12 ok**, RC=0 |
+| `werkzeuge/sicherung-gegenprobe.py` (neu) | **8 von 8 gefunden** |
+| prolo / netze / grenze / neu | 92 / 42 / 62 / 101, alle RC=0 |
+| einrichten / regeln / dockerfile | 12 / 6 / 4, alle RC=0 |
+| `python3 werkzeuge/volumes.py .` | RC=**0** — vorher 5 Lücken |
+
+Zwei Dinge sind beim Bauen schiefgegangen, beide durch Hinsehen gefunden:
+
+**Der Prüfer gab Falschalarm.** Er meldete `authentik/custom-templates`
+als Lücke, obwohl der Eintrag längst dastand — er zog das führende `?`
+(„darf fehlen") nur bei `DATEIEN` ab, nicht bei `ORDNER`. Ein Prüfer, der
+Falschalarm gibt, wird nach dem zweiten Mal weggeklickt und ist dann
+schlimmer als keiner.
+
+**Und eine Mutation entwischte**, zum wiederholten Mal aus demselben
+Grund wie in `N-68` und `N-72`: *„liest nur die Herstellerdatei"* änderte
+nichts, weil im Prüfstand **jedes** Volume in der Herstellerdatei stand.
+Der Fall „ein Volume kommt erst im Overlay dazu" kam gar nicht vor. Er
+kommt jetzt vor.
+
+> Zum dritten Mal dieselbe Lehre: eine Prüfzeile über einen Fall, den der
+> Prüfstand nicht herstellt, ist grün aus Mangel an Gelegenheit. Beim
+> Schreiben einer Prüfzeile gehört die Frage dazu: **kommt dieser Fall im
+> Stand überhaupt vor?**

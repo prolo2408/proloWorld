@@ -33,12 +33,41 @@ FEHLER=0
 rm -rf "$ZIEL"
 mkdir -p "$ZIEL"
 
-# --- Feste Bestandteile ---------------------------------------------
-# Mit ||-Zweig: eine fehlende Datei darf nicht die ganze Sicherung verhindern.
-if [ -f /opt/stack/traefik/acme.json ]; then
-  cp /opt/stack/traefik/acme.json "$ZIEL/acme.json"
-else
-  echo "WARNUNG: /opt/stack/traefik/acme.json fehlt" >&2
+# --- Weiss die Sicherung ueberhaupt, was es zu sichern gibt? --------
+#
+# Frueher stand hier ein fester Block, der acme.json kopierte - der einzige
+# Toolname im zentralen Skript, und damit der einzige Grund, warum traefik
+# ohne eigene sicherung.conf durchkam. Jetzt hat es eine (N-76), und
+# stattdessen misst dieser Schritt, ob IRGENDEIN Werkzeug Daten ablegt,
+# die in keiner sicherung.conf stehen.
+#
+# Gemessen wird die zusammengesetzte Compose-Konfiguration, nicht eine
+# Datei - bei einem Fremdwerkzeug steht die Haelfte im Overlay (§16).
+LUECKEN=""
+if [ -x /opt/stack/werkzeuge/volumes.py ]; then
+  LUECKEN=$(python3 /opt/stack/werkzeuge/volumes.py /opt/stack 2>/dev/null \
+            | grep '|FEHLT$' || true)
+fi
+if [ -n "$LUECKEN" ]; then
+  {
+    echo
+    echo "ACHTUNG: hier entstehen Daten, die NICHT gesichert werden."
+    echo
+    printf '%s\n' "$LUECKEN" | while IFS='|' read -r T ART NAME _; do
+      printf '  %-14s %-7s %s\n' "$T" "$ART" "$NAME"
+    done
+    echo
+    echo "  Das ist keine Warnung, sondern eine Luecke: was hier nicht steht,"
+    echo "  ist nach einem Verlust weg. Je Zeile EINE der beiden Zeilen in"
+    echo "  die sicherung.conf des Werkzeugs:"
+    echo
+    echo "    VOLUMES=\"... <name>\"        # es wird gesichert"
+    echo "    VOLUMES_OHNE=\"<name>|<warum>\" # es braucht keine Sicherung"
+    echo
+    echo "  Nachsehen, was ein Werkzeug anlegt:"
+    echo "    python3 /opt/stack/werkzeuge/volumes.py /opt/stack <werkzeug>"
+    echo
+  } >&2
   FEHLER=1
 fi
 
@@ -194,5 +223,10 @@ if [ "$FEHLER" -eq 0 ]; then
   echo "Backup fertig: $DATUM"
 else
   echo "BACKUP MIT FEHLERN - bitte nachsehen. .letzter-erfolg wurde NICHT gesetzt." >&2
+  if [ -n "$LUECKEN" ]; then
+    # Zweimal dasselbe zu sagen ist hier Absicht: die Liste steht ganz
+    # oben, und wer eine lange Sicherung laufen laesst, sieht nur das Ende.
+    echo "  Darunter ungesicherte Daten - die Liste steht oben in dieser Ausgabe." >&2
+  fi
   exit 1
 fi

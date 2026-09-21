@@ -912,8 +912,25 @@ eine Kopie außer Haus.
 | Daten | `prolo sichern`, danach weg vom Server |
 
 Jedes Werkzeug bringt seine `sicherung.conf` mit (`VOLUMES`, `DB_CONTAINER`,
-`DATEIEN`, `ORDNER`, `SQLITE`, `HINWEIS`); das zentrale Skript liest sie ein,
-also ist beim Anlegen eines Werkzeugs an der Sicherung **nichts** zu ändern.
+`DATEIEN`, `ORDNER`, `SQLITE`, `VOLUMES_OHNE`, `HINWEIS`); das zentrale
+Skript liest sie ein, also ist beim Anlegen eines Werkzeugs an der
+Sicherung **nichts** zu ändern.
+
+**Aber was dort nicht steht, wird nicht gesichert — und das darf nicht
+stillschweigend passieren** (`N-76`). `prolo neu` schreibt die Datei,
+bevor es die Compose-Datei des Herstellers gibt; `VOLUMES` bleibt dann
+leer, und niemand merkt es. Darum misst `werkzeuge/volumes.py` die
+**zusammengesetzte** Konfiguration (§16) gegen die `sicherung.conf` —
+benannte Volumes **und** Bind-Mounts aus dem Werkzeugordner, die
+`docker volume ls` gar nicht kennt. Jedes Volume gehört in `VOLUMES`
+oder mit Begründung in `VOLUMES_OHNE="<name>|<warum>"`; Stillschweigen
+zählt nicht, wie bei `prolo.ports=` auch. Fehlt eines, **bricht die
+Sicherung ab** und setzt keinen Erfolgsvermerk — und damit hält auch
+`prolo aktualisieren` an, bevor es etwas anfasst.
+
+Im zentralen Skript steht **kein Toolname**. Was ein Werkzeug braucht,
+sagt das Werkzeug; traefik hatte deshalb lange gar keine `sicherung.conf`
+und wurde übersprungen.
 
 **SQLite braucht ein eigenes Feld.** Eine Datei aus dem laufenden Volume zu
 kopieren kann einen Stand mitten in einer Schreibaktion erwischen — die Kopie

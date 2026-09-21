@@ -494,12 +494,27 @@ SQLITE=""
 
 ORDNER=""
 
+# Was mit Absicht NICHT gesichert wird, je Zeile "name|warum".
+# Ohne Begruendung beanstandet es werkzeuge/volumes.py - und das soll es.
+VOLUMES_OHNE=""
+
 HINWEIS="Angelegt am $(date +%Y-%m-%d) mit prolo neu.
 Art: $ART. Netz: $NETZ. Hostname: $HOST.
 ANMELDUNG: $ANMELDUNG$([ "$ANMELDUNG" = eigene ] && printf '%s' " - KEIN Authentik davor.
 Grund: $GRUND
 Bedingungen nach CLAUDE.md §17a: eigenes Netz, Ratenbremse am Eingang,
 2FA in der eigenen Anmeldung EINGESCHALTET.")
+$([ "$ART" = fremd ] && printf '%s' "
+SICHERUNG NOCH NICHT VOLLSTAENDIG: die Herstellerdatei gibt es zu diesem
+Zeitpunkt noch nicht, also steht in VOLUMES nichts. Nach dem Einsetzen
+der Compose-Datei des Herstellers zeigt
+
+  python3 /opt/stack/werkzeuge/volumes.py /opt/stack $NAME
+
+welche Volumes das Werkzeug anlegt - mit ihrem LAUFZEITnamen, der
+<ordner>_<schluessel> lautet und nicht der Schluessel ist. Jedes davon
+gehoert in VOLUMES oder mit Begruendung in VOLUMES_OHNE. Solange eines
+fehlt, bricht die Sicherung ab und sagt welches (N-76).")
 Die Volume-Namen sind geraten - vor der ersten Sicherung einmal nachsehen."
 CONF
 
@@ -561,8 +576,21 @@ if [ "$OHNE_NETZ" -eq 1 ]; then
   melde "  $N. Das Netz nachholen:  sudo prolo netze anlegen $NETZ"
   N=$((N+1))
 fi
+if [ "$ART" = fremd ]; then
+  # Der Schritt, der bei bitwarden gefehlt hat (N-76). Er steht NACH dem
+  # Einsetzen der Herstellerdatei, weil es vorher nichts zu messen gibt -
+  # und VOR dem Starten, weil danach Daten entstehen.
+  melde "  $N. Sagen, was gesichert werden soll:"
+  melde "       python3 $STACK/werkzeuge/volumes.py $STACK $NAME"
+  melde "     zeigt jedes Volume und jeden Bind-Mount dieses Werkzeugs."
+  melde "     Jedes davon gehoert in $NAME/sicherung.conf - entweder in"
+  melde "     VOLUMES (wird gesichert) oder mit Begruendung in"
+  melde "     VOLUMES_OHNE. Solange eines fehlt, bricht die Sicherung ab."
+  N=$((N+1))
+fi
 melde "  $N. Starten:  sudo prolo start $NAME"
 melde ""
 melde "  Nachsehen, was dabei herauskommt:"
 melde "    cd $STACK/$NAME && docker compose config"
 melde "    prolo netze"
+melde "    python3 $STACK/werkzeuge/volumes.py $STACK $NAME"
