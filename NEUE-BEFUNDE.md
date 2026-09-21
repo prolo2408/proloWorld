@@ -4272,3 +4272,365 @@ ganz neuen Namen"* muss auffallen.
 `werkzeuge/prolo-pruefen.sh`: **51 ok**, RC=0 (vorher 47) — darunter
 „ohne Git kommt der Hinweis nicht", damit aus dem Hinweis keine Tapete wird.
 `werkzeuge/neu-gegenprobe.py`: **18 Mutationen** (vorher 15).
+
+
+---
+
+## N-67 — Die Meldung nannte die Aufgabe, nicht den Befehl, der sie erledigt
+
+Gemessen am 21.09.2026, beim Aufsetzen von n8n nach `N-65`. Die Frage kam
+richtig, die Antwort war „j" — und dann:
+
+```
+  Frisch aufgesetzt, also noch kein alter Wert irgendwo? [j/N] j
+    NICHT angefasst - an 2 von 2 Stellen ginge es nicht:
+      /opt/stack/n8n/.env
+        die Datei fehlt. Anlegen aus .env.beispiel, dann noch einmal.
+```
+
+Wieder eine Sackgasse, und diesmal eine besonders ärgerliche: **es gibt
+einen Befehl, der genau das tut.** `prolo einrichten` legt jede fehlende
+Geheimnisdatei aus ihrer Vorlage an, ergänzt die leere Zeile darin, und ist
+idempotent — Schritt 6 seit `N-54`. Die Meldung wusste nur nichts davon und
+schickte zum Abtippen.
+
+> Eine Meldung, die die **Aufgabe** nennt statt des **Befehls**, der sie
+> erledigt, ist eine halbe Meldung. `§7` verlangt, dass sie sagt, was zu tun
+> ist — und „was zu tun ist" heißt hier: dieser eine Befehl.
+
+Jetzt:
+
+```
+        die Datei fehlt. Das legt 'sudo prolo einrichten' an (aus
+        .env.beispiel, mit der leeren Zeile darin) - danach noch einmal.
+
+    Das ist kein Fehler, sondern ein ausgelassener Schritt:
+      sudo prolo einrichten
+    legt jede fehlende Geheimnisdatei aus ihrer Vorlage an.
+    Er laeuft beliebig oft; beim zweiten Mal passiert nichts.
+```
+
+Der gebündelte Hinweis kommt **nur**, wenn ausschließlich Dateien fehlen.
+Klemmt es aus einem anderen Grund, hat er dort nichts zu suchen — ein Rat,
+der immer danebensteht, ist nach dem dritten Mal Tapete (`N-64`).
+
+### Warum der Schritt ausgelassen war
+
+n8n kam per `git pull` dazu, nicht über `prolo neu`. Ein Werkzeug, das so
+in den Stack kommt, bringt seine `.env.beispiel` mit, aber keine `.env` —
+und niemand sagt einem, dass `prolo einrichten` noch einmal laufen will.
+Jetzt sagt es die Stelle, an der es auffällt.
+
+### Und die Mutationsprobe fand ihre eigene Lücke
+
+Zwei Stück:
+
+- Die Prüfzeile `"prolo einrichten" in aus` war grün, obwohl die Mutation
+  den Befehl aus der **Grund**-Meldung entfernt hatte — er stand ja noch im
+  gebündelten Hinweis darunter. Eine Prüfung auf „steht irgendwo in der
+  Ausgabe" lässt eine von zwei Stellen verschwinden. Jetzt ist jede Zeile
+  an ihre eigene Stelle gebunden.
+- Die Mutation *„eine fehlende Datei fällt nicht auf"* traf die **falsche
+  Funktion**: `os.path.exists(self.pfad)` steht zweimal in der Datei, in
+  `lesen()` und in `schreibbar()`, und ersetzt wurde die erste. Sie bewies
+  damit gar nichts. Dasselbe war in dieser Sitzung schon einmal passiert —
+  **ein Mutationsmuster muss eindeutig sein, und das prüft niemand für
+  einen.**
+
+### Prüfung
+
+`werkzeuge/geheimnisse-pruefen.sh`: **156 ok**, RC=0 (vorher 149).
+`--gegenprobe`: **45 von 45 gefunden** (vorher 42).
+
+---
+
+## N-68 — Die Übersicht zeigte die Kollision und nannte sie nicht
+
+Derselbe Lauf. Auf dem Server lag neben `n8n/` noch ein `n8n_alt/` — eine
+Kopie von vor dem Umbau. `prolo netze` zeigte das brav:
+
+```
+  netz-n8n             n8n,n8n_alt              ja       ?       ?
+
+  WERKZEUG      DIENST          NETZ             SCHUTZ      OFFENE PORTS
+  n8n_alt       n8n             netz-n8n         eigene      -
+  n8n           n8n             netz-n8n         eigene      -
+```
+
+Und sagte dazu: nichts. Kein Wort unter „Zu klären".
+
+Dabei stehen da zwei Dinge, die beide falsch sind:
+
+1. **Zwei Werkzeuge in einem Netz.** In einem Docker-Netz erreicht jeder
+   Container jeden anderen direkt, ohne Traefik und ohne Anmeldung — das
+   ist `N-45`, die teuerste Narbe im ganzen Stack.
+2. **Zwei Router auf demselben Hostnamen.** Beide beanspruchten
+   `n8n.prolo.me`. Traefik nimmt einen davon, und welchen, sieht man
+   nirgends.
+
+> Eine Zeile, die man selbst deuten muss, ist keine Meldung. Die Übersicht
+> hatte beides vor Augen und hat es als Datenzeile behandelt.
+
+### Was jetzt kommt
+
+```
+  netz-x teilen sich mehrere Werkzeuge: a b
+     In einem Netz erreicht jeder Container jeden anderen direkt - ohne
+     Traefik und ohne Anmeldung (N-45). Erlaubt ist das, aber als
+     Entscheidung, nicht aus Versehen. Wer teilt, sagt warum:
+       - "prolo.netz.geteilt=<grund>"
+     Es fehlt bei: a b
+
+  gleich.prolo.me wird von mehreren Diensten beansprucht:
+       a/a
+       b/b
+     Traefik nimmt einen davon, und welchen, sieht man nirgends.
+```
+
+`netze-pruefen.sh` kannte die Regel für geteilte Netze seit `N-62` — aber
+nur als **statische** Prüfung über das Repository. Auf dem Server, wo ein
+Ordner auch ohne Git entstehen kann, sah sie niemand.
+
+### Gast ist nicht gleich Eigentümer
+
+Die erste Fassung beanstandete `socket` — Traefik, socket-proxy und admin
+hängen dort gemeinsam drin, und das ist so gebaut. Die Regel war zu grob.
+
+> Wer sein Netz **selbst anlegt**, teilt nichts; er ist der Eigentümer. Erst
+> ein **zweiter Gast** macht daraus eine gemeinsame Fläche.
+
+Gezählt werden darum nur die Werkzeuge, die sich in ein *fremdes* Netz
+hängen (`external: true`). socket-proxy legt `socket` an, admin ist der eine
+Gast — kein Fund. Kämen zwei Gäste dazu, wäre es einer.
+
+Und die beiden Beanstandungen schalten sich nicht gegenseitig stumm: wer
+das geteilte Netz erklärt, wird den doppelten Hostnamen trotzdem nicht los.
+Eigene Prüflinie dafür.
+
+### Prüfung
+
+`werkzeuge/neu-pruefen.sh`: **99 ok**, RC=0 (vorher 91).
+`werkzeuge/neu-gegenprobe.py`: **21 von 21 gefunden** (vorher 18).
+
+Und genau diese Mutation — *„auch ein Netz mit genau einem Gast gilt als
+geteilt"* — **entwischte im ersten Lauf**. Nicht, weil die Prüfzeile falsch
+war, sondern weil der Fall im Wegwerfstack **gar nicht vorkam**: es gab dort
+kein Netz mit Eigentümer und genau einem Gast, also änderte die Mutation
+nichts, was jemand hätte sehen können.
+
+> Eine Prüfzeile über einen Fall, den der Prüfstand nicht herstellt, ist
+> grün aus Mangel an Gelegenheit. Der Stand muss den Fall **haben**, nicht
+> nur die Zeile darüber.
+
+Jetzt legt der Prüfstand ihn an (ein `vermittler`, der ein Netz mit festem
+Namen erzeugt, und ein `gast`, der sich hineinhängt) — und daneben steht die
+Zeile „mit einem **zweiten** Gast wird es einer", damit die erste nicht
+grün bleiben kann, wenn gar nichts mehr geprüft wird.
+
+---
+
+## N-69 — Ursache und Wirkung standen nebeneinander, gesagt wurde es nie
+
+`admin.prolo.me` ließ sich im Browser nicht öffnen: „Seite ist nicht
+sicher". `prolo status` hatte den Grund längst gemessen — in zwei Zellen
+derselben Zeile:
+
+```
+  NAME                       ZEIGT AUF        ZERTIFIKAT
+  admin.prolo.me             217.160.0.1 (FREMD) keine Antwort auf 443
+  auth.prolo.me              89.58.44.224     80 Tage (Let's Encrypt)
+```
+
+Beide Angaben stimmen. Der Fußtext erklärte auch beide — `FREMD` in einem
+Absatz, `NOTZERTIFIKAT` in einem zweiten. Nur das Wort dazwischen fehlte:
+**weil**. Der Name zeigt nicht hierher, also erreicht die Prüfung von
+Let's Encrypt diesen Server nie, also entsteht kein Zertifikat, also
+meckert der Browser. Vier Glieder, drei davon im Werkzeug, keines
+verbunden.
+
+Gefragt wurde genau danach:
+
+> „Das Problem mit dem Nicht sichere Verbindung hatten wir schonmal. Ich
+> weiß nicht, was da der Fix ist, aber kann man das nicht automatisch
+> machen lassen?"
+
+Die Antwort auf die zweite Hälfte ist: das Zertifikat **ist** automatisch.
+Traefik holt es von selbst, sobald der Name hierher zeigt. Automatisieren
+lässt sich nur der A-Eintrag beim DNS-Anbieter nicht — dafür bräuchte der
+Server dessen API-Schlüssel, und der hätte auf einer Maschine, die im Netz
+steht, nichts verloren (§21). Was das Werkzeug also schuldig blieb, ist
+**nicht die Tat, sondern der Satz**.
+
+> Zwei richtige Zellen nebeneinander sind keine Diagnose. Wer die Ursache
+> und die Wirkung beide gemessen hat, sagt auch, dass die eine die andere
+> ist — sonst verlangt er vom Menschen genau die Arbeit, für die es ihn
+> gibt. Dieselbe Narbe wie `N-60` und `N-64`, nur eine Zeile weiter rechts.
+
+### Was jetzt kommt
+
+```
+  NAME                       ZEIGT AUF        ZERTIFIKAT
+  admin.beispiel             217.160.0.1 (FREMD) keine Antwort auf 443
+  n8n.beispiel               217.160.0.1 (FREMD) keine Antwort auf 443
+  auth.beispiel              9.9.9.9          80 Tage (Let's Encrypt)
+  notzert.beispiel           9.9.9.9          NOTZERTIFIKAT (…) - kein Let's Encrypt
+
+  Was daraus folgt:
+
+  admin.beispiel hat kein Zertifikat, WEIL der Name auf 217.160.0.1 zeigt und nicht hierher.
+    A-Eintrag fuer admin.beispiel auf 9.9.9.9 setzen.
+  n8n.beispiel hat kein Zertifikat, WEIL der Name auf 217.160.0.1 zeigt und nicht hierher.
+    A-Eintrag fuer n8n.beispiel auf 9.9.9.9 setzen.
+  notzert.beispiel zeigt hierher, und trotzdem kommt kein Zertifikat
+  von Let's Encrypt. Am Namen liegt es also nicht.
+
+  Let's Encrypt prueft ueber Port 80 an genau der Adresse, auf die der Name
+  zeigt. Ist das nicht dieser Server, kann hier kein Zertifikat entstehen -
+  im Browser steht dann "Seite ist nicht sicher".
+  Zu tun ist es beim DNS-Anbieter, nicht auf dem Server. […]
+  Danach holt Traefik das Zertifikat von selbst, meist in unter einer
+  Minute. Sofort versuchen lassen:
+    sudo prolo start traefik
+
+  Haeufigste Ursache sind die Rechte an acme.json (N-05). Woran es wirklich
+  liegt, sagt Traefik selbst:
+    sudo prolo protokoll traefik
+```
+
+Vier Lagen, und jede hat einen Grund:
+
+1. **Der Satz nennt das Warum** und die IP, auf die der A-Eintrag zeigen
+   muss — nicht „richtig setzen", sondern `auf 9.9.9.9`.
+2. **Zeigt der Name hierher, wird das ausdrücklich gesagt.** „Am Namen
+   liegt es also nicht" schließt die halbe Fehlersuche, bevor sie anfängt.
+   Eine Meldung, die in beiden Fällen gleich klingt, schickt in einem der
+   beiden in die Irre.
+3. **Die Erklärung kommt einmal je Art, nicht einmal je Name.** Bei drei
+   betroffenen Namen wären es dreimal dieselben zehn Zeilen gewesen — nach
+   dem zweiten Mal Tapete (§7).
+4. **Wo alles heil ist, steht nichts.** Eine Folgerung, die immer kommt,
+   wird überlesen.
+
+`prolo dns` kennt keine Zertifikate, weiß aber, dass eines daran hängt —
+und sagt es jetzt, samt Ziel-IP und `sudo prolo start traefik`.
+
+### Was sich NICHT automatisieren lässt — und warum das in Ordnung ist
+
+Der A-Eintrag liegt beim DNS-Anbieter. Ihn vom Server aus zu setzen hieße,
+dessen API-Schlüssel dort zu hinterlegen: ein Wert, mit dem man jede
+Subdomain auf jeden Rechner der Welt zeigen lassen kann, auf der Maschine,
+die direkt am Netz hängt. Das ist der Handgriff, der ein Mensch bleibt.
+Alles danach läuft von selbst.
+
+### Prüfung
+
+`werkzeuge/prolo-pruefen.sh`: **87 ok**, RC=0 (vorher 41).
+`werkzeuge/prolo-gegenprobe.py` (neu): **14 von 14 gefunden**.
+
+Die Gegenprobe gab es für `prolo` bis jetzt nicht — geprüft wurde die
+Datei im Arbeitsstand, mutiert hätte sich nur die Kopie im Wegwerfordner.
+Beides zeigt jetzt auf dieselbe Kopie (`QUELLE_PROLO`), sonst wäre die
+Probe grün gewesen, ohne je etwas verändert zu haben.
+
+Und eine Mutation **entwischte** im ersten Lauf: *„ein abgelaufenes
+Zertifikat gilt als vorhanden"*. Nicht weil die Prüfzeile fehlte, sondern
+weil der Prüfstand keinen Namen mit abgelaufenem Zertifikat hatte — wieder
+`N-68`: grün aus Mangel an Gelegenheit. Der Stand hat jetzt einen.
+
+Dazu ein eigener Stolperstein: die Attrappe für `openssl` steht in einem
+`<<'STUB'`-Block, in dem nichts ausgewertet wird. Das übliche
+`'"'"'`-Geflecht für ein Apostroph wurde dort **wörtlich** übernommen und
+riss die ganze Attrappe syntaktisch auf — woraufhin *jeder* Name als „kein
+Zertifikat" galt und der heile Name mit in der Liste stand. Eine kaputte
+Attrappe fällt auf, wenn eine Prüfzeile verlangt, dass ein heiler Fall
+**nichts** meldet. Ohne diese Zeile wäre der Fehler durchgelaufen.
+
+---
+
+## N-70 — Der Name von n8n stand unter keiner Aufsicht mehr
+
+Im Status des Servers fehlte etwas, was niemandem auffiel, weil nichts rot
+wurde — die Liste war nur kürzer:
+
+```
+  NAME                       ZEIGT AUF        ZERTIFIKAT
+  admin.prolo.me             217.160.0.1 (FREMD) keine Antwort auf 443
+  auth.prolo.me              89.58.44.224     80 Tage (Let's Encrypt)
+  bordbuch.prolo.me          89.58.44.224     80 Tage (Let's Encrypt)
+  …
+```
+
+`n8n.prolo.me` kam nicht vor. Nicht, weil es den Namen nicht gäbe — der
+Browser erreicht ihn —, sondern weil `hostnamen()` ihn nicht mehr fand:
+
+```bash
+grep -ho 'Host(`[^`]*`)' "$STACK"/*/docker-compose.yml
+```
+
+Seit `N-61` steht bei einem Fremdwerkzeug **alles von uns** in der
+`docker-compose.override.yml` — Netz, Route, Zertifikat. Die
+Herstellerdatei bleibt unberührt, und genau sie war die einzige, die hier
+gelesen wurde. Mit dem Umbau auf die saubere Trennung ist der Name aus der
+Aufsicht gefallen: kein Zertifikatsalter, keine DNS-Prüfung, kein
+`prolo dns`.
+
+> Eine Aufsicht, die leiser wird, sieht aus wie eine Aufsicht, die nichts
+> zu beanstanden hat. Das ist dieselbe Narbe wie bei
+> `grenze-pruefen.sh`, das beim selben Umbau von 61 auf 57 Prüfungen fiel
+> und grün blieb.
+
+Die Regel dagegen stand zu dem Zeitpunkt schon in `CLAUDE.md` §16 — „jeder
+Prüfer, der nur `docker-compose.yml` liest, sieht bei einem Fremdwerkzeug
+die Hälfte". `prolo` selbst hat sie gebrochen. Eine Regel, die nur für die
+Prüfskripte gilt, ist halb geschrieben; sie steht jetzt für jede Stelle
+da, die Compose-Dateien liest.
+
+### Was jetzt kommt
+
+`hostnamen()` liest beide Dateien und vereinigt sie (`sort -u`, ein Name
+in beiden zählt einmal). Auf dem Arbeitsstand sind es damit sieben Namen
+statt sechs; `n8n.prolo.me` ist wieder dabei.
+
+Und die Prüfung dazu fragt **beide** Richtungen ab: ein Name aus der
+override-Datei muss durchkommen, und einer aus der Herstellerdatei muss es
+weiterhin. Ohne die zweite Zeile wäre „lies nur noch die override-Datei"
+eine Korrektur gewesen, die dieselbe Lücke nur verschiebt — die Mutation
+dazu steht in der Gegenprobe.
+
+### Prüfung
+
+`werkzeuge/prolo-pruefen.sh`: **90 ok**, RC=0 (vorher 87).
+`werkzeuge/prolo-gegenprobe.py`: **16 von 16 gefunden** (vorher 14).
+
+---
+
+## N-71 — Genau die auffällige Zeile sprengte die Spalte
+
+In derselben Tabelle, in derselben Ausgabe:
+
+```
+  NAME                       ZEIGT AUF        ZERTIFIKAT
+  admin.prolo.me             217.160.0.1 (FREMD) keine Antwort auf 443
+  auth.prolo.me              89.58.44.224     80 Tage (Let's Encrypt)
+```
+
+Die Spalte war `%-16s` breit. Eine IPv4 passt da hinein (15 Zeichen), das
+`(FREMD)` dahinter nicht — 19 Zeichen, und die letzte Spalte rutscht nach
+rechts. Ausgerechnet in der Zeile, auf die man schaut.
+
+> Eine Spalte wird nach ihrem längsten Wert bemessen, nicht nach ihrem
+> häufigsten. Der längste ist hier immer der Problemfall — das ist keine
+> Ausnahme, sondern der Zweck der Tabelle (§14a, Punkt 5).
+
+`%-23s`: 15 Zeichen IPv4 plus `" (FREMD)"` sind genau 23.
+
+### Prüfung
+
+`werkzeuge/prolo-pruefen.sh`: **92 ok**, RC=0 (vorher 90).
+`werkzeuge/prolo-gegenprobe.py`: **17 von 17 gefunden** (vorher 16).
+
+Die Prüfzeile misst die Stelle, an der die Spalte `ZERTIFIKAT` beginnt —
+handgerechnet aus dem Formatstring (`2 + 26 + 1 + 23 + 1 = 53`), einmal in
+einer Zeile mit langem und einmal mit kurzem Eintrag. Eine Prüfung, die
+nur die beiden Zeilen miteinander vergleicht, hielte auch eine Tabelle für
+heil, die als Ganzes verrutscht ist.

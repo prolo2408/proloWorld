@@ -248,9 +248,15 @@ def m_halber_wechsel_bleibt_gruen(w):
 
 
 def m_fehlende_datei_faellt_nicht_auf(w):
+    # Das Muster muss EINDEUTIG sein: "os.path.exists(self.pfad)" steht
+    # zweimal in der Datei - einmal in lesen(), einmal in schreibbar().
+    # Ohne die Folgezeile traf die Mutation die falsche Funktion und
+    # bewies damit gar nichts.
     tausch(w, "werkzeuge/geheimnisse.py",
-           "        if not os.path.exists(self.pfad):\n            return (\"die Datei fehlt.",
-           "        if False:\n            return (\"die Datei fehlt.")
+           "        if not os.path.exists(self.pfad):\n"
+           "            # Es gibt einen Befehl",
+           "        if False:\n"
+           "            # Es gibt einen Befehl")
 
 
 def m_fehlende_zeile_faellt_nicht_auf(w):
@@ -338,6 +344,28 @@ def m_frisch_tut_nichts(w):
            "        return verteilen(frisch=False)")
 
 
+def m_fehlende_datei_ohne_befehl(w):
+    """Die Meldung nennt wieder die AUFGABE statt des Befehls, der sie
+    erledigt - und schickt damit zum Abtippen (N-67)."""
+    tausch(w, "werkzeuge/geheimnisse.py",
+           '''            return ("die Datei fehlt. Das legt 'sudo prolo einrichten' an "''',
+           '''            return ("die Datei fehlt. Anlegen aus "''')
+
+
+def m_einrichtungshinweis_immer(w):
+    """Der Hinweis kommt auch dann, wenn es aus einem ganz anderen Grund
+    klemmt. Ein Rat, der immer danebensteht, ist bald Tapete."""
+    tausch(w, "werkzeuge/geheimnisse.py",
+           '''    if all("die Datei fehlt" in grund for _, grund in klemmt):''',
+           '''    if True:''')
+
+
+def m_einrichtungshinweis_nie(w):
+    tausch(w, "werkzeuge/geheimnisse.py",
+           '''    if all("die Datei fehlt" in grund for _, grund in klemmt):''',
+           '''    if False:''')
+
+
 MUTATIONEN = [
     ("conf-Zeile hat nur vier Felder",              m_conf_vier_felder),
     ("conf nennt eine erfundene FORM",              m_conf_form_erfunden),
@@ -381,6 +409,9 @@ MUTATIONEN = [
     ("die Meldung nennt den Ausweg --frisch nicht", m_haende_nennt_den_ausweg_nicht),
     ("--frisch ist auch ohne --verteilen erlaubt",  m_frisch_ohne_verteilen_erlaubt),
     ("--frisch tut gar nichts",                     m_frisch_tut_nichts),
+    ("die fehlende Datei nennt keinen Befehl (N-67)", m_fehlende_datei_ohne_befehl),
+    ("der Einrichtungshinweis kommt immer",         m_einrichtungshinweis_immer),
+    ("der Einrichtungshinweis kommt nie",           m_einrichtungshinweis_nie),
 ]
 
 

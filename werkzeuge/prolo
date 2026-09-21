@@ -83,7 +83,15 @@ hostnamen() {
   # Jede Stufe mit "|| true": ein grep ohne Treffer gibt 1 zurueck, und
   # unter set -euo pipefail reisst das die Funktion ab - dann wuerde die
   # Zusatzdatei unten nie gelesen. Genau so ist sie zuerst stumm geblieben.
-  { grep -ho 'Host(`[^`]*`)' "$STACK"/*/docker-compose.yml 2>/dev/null \
+  #
+  # BEIDE Dateien, nicht nur die des Herstellers (N-70): seit N-61 steht
+  # bei einem Fremdwerkzeug alles von uns - Netz, Route, Zertifikat - in
+  # der docker-compose.override.yml. Wer nur die erste liest, verliert
+  # genau die Namen der Werkzeuge, die gerade erst dazugekommen sind, und
+  # merkt nichts davon: die Liste wird kuerzer, nicht rot.
+  { grep -ho 'Host(`[^`]*`)' \
+      "$STACK"/*/docker-compose.yml \
+      "$STACK"/*/docker-compose.override.yml 2>/dev/null \
     | sed 's/Host(`//; s/`)//' | sort -u; } || true
   # Dazu Namen, die zum Server gehoeren, aber in keiner Regel stehen -
   # eine Subdomain, die noch eingerichtet wird, oder eine, die jemand
@@ -146,6 +154,118 @@ zertifikat() {
   zertifikat_deuten "$ROH"
 }
 
+# Was folgt daraus, dass der Name irgendwohin zeigt und das Zertifikat
+# so oder so aussieht? (N-69)
+#
+# Vorher standen beide Tatsachen als zwei Zellen nebeneinander:
+#
+#   admin.prolo.me    217.160.0.1 (FREMD)   keine Antwort auf 443
+#
+# und der Fusstext erklaerte FREMD und NOTZERTIFIKAT je fuer sich. Dass
+# das eine die URSACHE des anderen ist, stand nirgends - und genau danach
+# wurde gefragt: "Ich weiss nicht, was da der Fix ist."
+#
+# Getrennt vom Netzaufruf, damit es sich mit festen Eingaben pruefen
+# laesst (wie zertifikat_deuten, N-57). Gibt 0 zurueck, wenn es etwas zu
+# sagen gibt, sonst 1 - wer nichts zu sagen hat, sagt nichts.
+#
+# Ausgegeben wird die ART in der ersten Zeile und darunter der Satz zu
+# DIESEM Namen. Die Erklaerung dazu steht in zertifikat_rat und kommt
+# einmal je Art, nicht einmal je Name: zehn Zeilen, die sich bei drei
+# Namen dreimal wiederholen, sind nach dem zweiten Mal Tapete (§7).
+#
+#   $1 Name  $2 wohin: hier|fremd|keine  $3 zertifikat: gut|notbehelf|keins|ablauf
+#   $4 gefundene IP  $5 IP dieses Servers
+zertifikat_folgerung() {
+  local NAME="$1" WOHIN="$2" ZERT="$3" IP="${4:-}" EIGEN="${5:-}"
+  local ZIEL="" ZIEL_H="" SOLL="${EIGEN:-die IP dieses Servers}"
+  # Zweimal derselbe Sachverhalt, einmal als Nebensatz (Verb ans Ende),
+  # einmal als Hauptsatz. Mit nur einer Form kommt an einer der beiden
+  # Stellen Kauderwelsch heraus, und eine Meldung, ueber die man
+  # stolpert, wird nicht gelesen.
+  case "$WOHIN" in
+    fremd) ZIEL="auf $IP zeigt und nicht hierher"
+           ZIEL_H="zeigt auf $IP und nicht hierher" ;;
+    keine) ZIEL="ueberhaupt nicht aufloest"
+           ZIEL_H="loest ueberhaupt nicht auf" ;;
+  esac
+
+  # Der Fall, um den es geht: kein brauchbares Zertifikat - und der Grund
+  # dafuer steht in der Zelle daneben.
+  if [ -n "$ZIEL" ] && { [ "$ZERT" = keins ] || [ "$ZERT" = notbehelf ]; }; then
+    printf 'dns\n'
+    printf '%s hat kein Zertifikat, WEIL der Name %s.\n' "$NAME" "$ZIEL"
+    printf '  A-Eintrag fuer %s auf %s setzen.\n' "$NAME" "$SOLL"
+    return 0
+  fi
+
+  # Der Name zeigt woanders hin, und dort antwortet etwas mit einem
+  # gueltigen Zertifikat. Beruhigend sieht das aus und ist es nicht: das
+  # Zertifikat ist nicht unseres.
+  if [ -n "$ZIEL" ]; then
+    printf 'dns\n'
+    printf '%s %s - das Zertifikat oben stammt also von dem Server, der\n' "$NAME" "$ZIEL_H"
+    printf 'dort antwortet, nicht von diesem hier. Wer %s aufruft,\n' "$NAME"
+    printf 'landet nicht bei uns.\n'
+    printf '  A-Eintrag fuer %s auf %s setzen.\n' "$NAME" "$SOLL"
+    return 0
+  fi
+
+  # Ab hier zeigt der Name hierher - als Ursache ist er ausgeschlossen.
+  if [ "$ZERT" = keins ] || [ "$ZERT" = notbehelf ]; then
+    printf 'acme\n'
+    printf '%s zeigt hierher, und trotzdem kommt kein Zertifikat\n' "$NAME"
+    printf 'von Let'"'"'s Encrypt. Am Namen liegt es also nicht.\n'
+    return 0
+  fi
+
+  # Es gibt ein echtes Zertifikat, es laeuft nur bald ab.
+  if [ "$ZERT" = ablauf ]; then
+    printf 'ablauf\n'
+    printf '%s hat ein echtes Zertifikat, das aber bald ablaeuft.\n' "$NAME"
+    return 0
+  fi
+
+  return 1
+}
+
+# Die Erklaerung zu einer Art von Folgerung - einmal, egal wie viele
+# Namen betroffen sind. Ebenfalls ohne Netzaufruf, damit sie sich
+# einzeln pruefen laesst.
+zertifikat_rat() {
+  case "$1" in
+    dns)
+      cat <<ENDE
+Let's Encrypt prueft ueber Port 80 an genau der Adresse, auf die der Name
+zeigt. Ist das nicht dieser Server, kann hier kein Zertifikat entstehen -
+im Browser steht dann "Seite ist nicht sicher".
+Zu tun ist es beim DNS-Anbieter, nicht auf dem Server. Steht dort eine
+DynDNS-Bindung, muss die zuerst weg: sie ueberschreibt den A-Eintrag bei
+jedem Update des Routers, und das Loeschen von API-Schluesseln hilft
+dagegen NICHT - die Update-URL traegt ihr Token selbst.
+Danach holt Traefik das Zertifikat von selbst, meist in unter einer
+Minute. Sofort versuchen lassen:
+  sudo prolo start traefik
+ENDE
+      ;;
+    acme)
+      cat <<ENDE
+Haeufigste Ursache sind die Rechte an acme.json (N-05). Woran es wirklich
+liegt, sagt Traefik selbst:
+  sudo prolo protokoll traefik
+ENDE
+      ;;
+    ablauf)
+      cat <<ENDE
+Traefik erneuert bei 30 Tagen Restlaufzeit von selbst. Steht weniger da,
+hat das schon einmal nicht geklappt - und warten macht es nicht besser:
+  sudo prolo protokoll traefik
+ENDE
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 # ----------------------------------------------------------------------
 befehl_status() {
   local KURZ=0
@@ -195,43 +315,63 @@ befehl_status() {
 
   # --- Namen und Zertifikate -------------------------------------------
   abschnitt "Namen, Ziele und Zertifikate"
-  local eigene name ip z tage aus warnung=0
+  local eigene name ip z tage aus
   eigene=$(curl -s --max-time 10 https://api.ipify.org 2>/dev/null || echo "")
   [ -n "$eigene" ] && melde "  Server-IP: $eigene" || \
     melde "  Server-IP nicht ermittelbar - vergleiche nur die Zertifikate."
   melde ""
-  printf '  %-26s %-16s %s\n' "NAME" "ZEIGT AUF" "ZERTIFIKAT"
+  printf '  %-26s %-23s %s\n' "NAME" "ZEIGT AUF" "ZERTIFIKAT"
+  # Die Folgerungen werden gesammelt und UNTER der Tabelle ausgegeben -
+  # die Tabelle bleibt eine Tabelle, und was zu tun ist, steht am Stueck.
+  # Die Arten werden dabei mitgezaehlt, damit die Erklaerung dazu einmal
+  # kommt und nicht einmal je Name.
+  local folgerungen="" arten="" f art satz wohin zert
   for name in $(hostnamen); do
     ip=$(aufloesen "$name")
     local ipfeld="$ip"
-    if [ -z "$ip" ]; then ipfeld="KEINE ANTWORT"; warnung=1
-    elif [ -n "$eigene" ] && [ "$ip" != "$eigene" ]; then ipfeld="$ip (FREMD)"; warnung=1
+    wohin=hier; zert=keins
+    if [ -z "$ip" ]; then ipfeld="KEINE ANTWORT"; wohin=keine
+    elif [ -n "$eigene" ] && [ "$ip" != "$eigene" ]; then ipfeld="$ip (FREMD)"; wohin=fremd
     fi
     if z=$(zertifikat "$name"); then
       tage="${z%%|*}"; aus="${z#*|}"
       if [ "$tage" -lt 0 ]; then
-        printf '  %-26s %-16s ABGELAUFEN seit %s Tagen\n' "$name" "$ipfeld" "$(( -tage ))"; warnung=1
+        # Abgelaufen ist so gut wie keins - und wird auch so behandelt.
+        printf '  %-26s %-23s ABGELAUFEN seit %s Tagen\n' "$name" "$ipfeld" "$(( -tage ))"
       elif [ "$tage" -lt 21 ]; then
-        printf '  %-26s %-16s laeuft in %s Tagen ab (%s)\n' "$name" "$ipfeld" "$tage" "$aus"; warnung=1
+        printf '  %-26s %-23s laeuft in %s Tagen ab (%s)\n' "$name" "$ipfeld" "$tage" "$aus"
+        zert=ablauf
       elif zertifikat_notbehelf "$aus"; then
-        printf '  %-26s %-16s NOTZERTIFIKAT (%s) - kein Let'"'"'s Encrypt\n' \
-          "$name" "$ipfeld" "$aus"; warnung=1
+        printf '  %-26s %-23s NOTZERTIFIKAT (%s) - kein Let'"'"'s Encrypt\n' \
+          "$name" "$ipfeld" "$aus"
+        zert=notbehelf
       else
-        printf '  %-26s %-16s %s Tage (%s)\n' "$name" "$ipfeld" "$tage" "$aus"
+        printf '  %-26s %-23s %s Tage (%s)\n' "$name" "$ipfeld" "$tage" "$aus"
+        zert=gut
       fi
     else
-      printf '  %-26s %-16s keine Antwort auf 443\n' "$name" "$ipfeld"; warnung=1
+      printf '  %-26s %-23s keine Antwort auf 443\n' "$name" "$ipfeld"
+    fi
+    # Gibt es etwas zu folgern, ist es eine Warnung - und umgekehrt: was
+    # hier nichts sagt, war in Ordnung. Zwei Zaehlungen waeren zwei
+    # Gelegenheiten, auseinanderzulaufen.
+    if f=$(zertifikat_folgerung "$name" "$wohin" "$zert" "$ip" "$eigene"); then
+      art=$(printf '%s' "$f" | head -1)
+      satz=$(printf '%s' "$f" | tail -n +2)
+      folgerungen="$folgerungen$satz
+"
+      case " $arten " in *" $art "*) ;; *) arten="$arten $art" ;; esac
     fi
   done
-  if [ "$warnung" -eq 1 ]; then
+  if [ -n "$folgerungen" ]; then
     melde ""
-    melde "  FREMD heisst: der Name zeigt nicht auf diesen Server. Meist eine"
-    melde "  DynDNS-Bindung beim Anbieter - sie ueberschreibt den A-Eintrag"
-    melde "  bei jedem Router-Update. Das Loeschen von API-Schluesseln hilft"
-    melde "  dagegen NICHT, die Update-URL traegt ihr Token selbst."
+    melde "  Was daraus folgt:"
     melde ""
-    melde "  NOTZERTIFIKAT heisst: Traefik kommt nicht an acme.json und"
-    melde "  liefert sein eigenes aus. Meist die Dateirechte - siehe N-05."
+    printf '%s' "$folgerungen" | sed 's/^/  /'
+    for art in $arten; do
+      melde ""
+      zertifikat_rat "$art" | sed 's/^/  /'
+    done
   fi
 
   abschnitt "Sicherung"
@@ -299,6 +439,17 @@ befehl_dns() {
     melde "  des Routers. Das Loeschen von API-Schluesseln hilft dagegen"
     melde "  NICHT - die Update-URL traegt ihr Token selbst. Die Bindung"
     melde "  muss beim Anbieter entfernt werden."
+    melde ""
+    # Was daran haengt, gehoert dazu (N-69). Wer nur "zeigt woanders hin"
+    # liest, haelt es fuer eine Kleinigkeit - bis der Browser "Seite ist
+    # nicht sicher" sagt und niemand die beiden zusammenbringt.
+    melde "  Daran haengt das Zertifikat: Let's Encrypt prueft ueber Port 80"
+    melde "  an genau der Adresse, auf die der Name zeigt. Solange das nicht"
+    melde "  dieser Server ist, entsteht hier keines, und der Browser meldet"
+    melde "  \"Seite ist nicht sicher\"."
+    melde "    A-Eintrag auf ${eigene:-die IP dieses Servers} setzen,"
+    melde "    danach holt Traefik das Zertifikat von selbst. Sofort"
+    melde "    versuchen lassen: sudo prolo start traefik"
     return 1
   fi
 }
@@ -529,7 +680,7 @@ befehl_zurueckholen() {
 # gefuehrte Weg soll nur nicht der sein, auf dem man aus Versehen einen
 # Dienst ins offene Netz stellt.
 start_pruefen() {
-  local TOOL="$1" Z T D NN TN SCHUTZ PORTS GRUND FEHLT=0
+  local TOOL="$1" Z T D NN TN SCHUTZ PORTS GRUND GETEILT HOSTS FEHLT=0
 
   if grep -q 'PROLO-PLATZHALTER' "$STACK/$TOOL/docker-compose.yml" 2>/dev/null; then
     fehler "NICHT gestartet: in $TOOL/docker-compose.yml steht noch der"
@@ -542,7 +693,7 @@ start_pruefen() {
   fi
 
   [ -x "$HIER/netze.sh" ] || return 0
-  while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND; do
+  while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND GETEILT HOSTS; do
     [ "$Z" = dienst ] || continue
     if [ -n "$PORTS" ] && [ -z "$GRUND" ]; then
       fehler "NICHT gestartet: $TOOL/$D veroeffentlicht Port(s) $PORTS auf dem Host."

@@ -377,6 +377,17 @@ with tempfile.TemporaryDirectory(prefix="geheimnis-probe-") as tmp:
         sag("die Datei fehlt" in aus and ".beispiel" in aus,
             "--neu sagt bei fehlender Datei, dass sie FEHLT - und woraus",
             "'nicht lesbar' laesst einen die Rechte suchen statt die Datei")
+        # N-67: und es nennt den BEFEHL, der das erledigt, nicht die
+        # Aufgabe. "Anlegen aus .env.beispiel" schickt zum Abtippen,
+        # obwohl "prolo einrichten" genau das idempotent tut - inklusive
+        # der leeren Zeile darin.
+        sag("Das legt 'sudo prolo einrichten' an" in aus,
+            "--neu nennt beim GRUND den Befehl, der die Datei anlegt",
+            "eine Meldung, die die Aufgabe nennt statt des Befehls, der sie "
+            "erledigt, laesst einen abtippen (§7)")
+        sag("beliebig oft" in aus,
+            "--neu sagt auch, dass dieser Befehl gefahrlos zu wiederholen ist",
+            "sonst traut sich niemand, ihn auf einem laufenden Stack zu rufen")
         os.rename(os.path.join(tmp, "zwei", ".env.weg"),
                   os.path.join(tmp, "zwei", ".env"))
 
@@ -521,6 +532,39 @@ with tempfile.TemporaryDirectory(prefix="geheimnis-probe-") as tmp:
         rc, aus = lauf(prog, ["--frisch"])
         sag(rc != 0 and "--verteilen" in aus,
             "--frisch allein wird abgelehnt und sagt, wozu es gehoert")
+
+        # N-67 am Ort des Geschehens: ein frisch aus dem Git geholtes
+        # Werkzeug hat seine Vorlage, aber noch keine .env. --verteilen
+        # lief dagegen und sagte nur "die Datei fehlt".
+        for w in ("eins", "zwei"):
+            os.rename(os.path.join(tmp, w, ".env"),
+                      os.path.join(tmp, w, ".env.weg"))
+        rc, aus = lauf(prog, ["--verteilen"])
+        sag(rc != 0 and "die Datei fehlt" in aus,
+            "verteilen/Datei fehlt: es wird nichts angefasst (rc=%d)" % rc)
+        sag("Das legt 'sudo prolo einrichten' an" in aus,
+            "verteilen/Datei fehlt: der Grund nennt den Befehl dafuer",
+            "genau hier ist das Aufsetzen von n8n haengen geblieben")
+        sag("ausgelassener Schritt" in aus,
+            "verteilen/Datei fehlt: und dass es kein Fehler ist",
+            "wer einen Fehler sucht, wo ein Schritt fehlt, sucht lange")
+        for w in ("eins", "zwei"):
+            os.rename(os.path.join(tmp, w, ".env.weg"),
+                      os.path.join(tmp, w, ".env"))
+        # Gegenrichtung: klemmt es aus einem ANDEREN Grund, hat der
+        # Einrichtungshinweis dort nichts zu suchen. Genommen wird die
+        # fehlende ZEILE, nicht ein Rechtebit - als root taeuscht ein
+        # chmod 444 nichts vor, der darf trotzdem schreiben.
+        vor = env("zwei")
+        open(os.path.join(tmp, "zwei", ".env"), "w").write("VORHER=bleibt\n")
+        rc, aus = lauf(prog, ["--verteilen"])
+        open(os.path.join(tmp, "zwei", ".env"), "w").write(vor)
+        sag("keine Zeile fuer" in aus,
+            "verteilen: eine fehlende Zeile klemmt auch (rc=%d)" % rc,
+            "ohne das prueft die naechste Zeile gar nichts")
+        sag("ausgelassener Schritt" not in aus,
+            "verteilen: bei einem anderen Grund kommt der Hinweis NICHT",
+            "ein Rat, der immer danebensteht, ist nach dem dritten Mal Tapete")
 
 print("")
 print("Alles gruen." if not fehler else "%d Fehler." % fehler)

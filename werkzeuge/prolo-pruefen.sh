@@ -17,6 +17,19 @@ pruefe() {
 
 mkdir -p "$T/bin" "$T/stack/werkzeuge"
 cp "$HIER/prolo" "$HIER/neu.sh" "$HIER/netze.sh" "$T/stack/werkzeuge/"
+
+# Einstieg fuer die Mutationsprobe (werkzeuge/prolo-gegenprobe.py). Sie
+# baut ihre Fehler in die KOPIE im Wegwerfordner ein, nie in die Datei im
+# Arbeitsstand - eine Probe, die ueber "git checkout" zurueckrollen
+# muesste, loescht eine noch nicht eingecheckte Korrektur mit weg
+# (N-34, N-60).
+[ -z "${PROLO_MUTATION:-}" ] || python3 "$PROLO_MUTATION" "$T/stack/werkzeuge" || {
+  echo "FEHLER Mutation liess sich nicht einbauen" >&2; exit 3; }
+
+# Alles, was den Quelltext von prolo LIEST, liest ab hier die Kopie - sonst
+# laeuft die Mutationsprobe gegen eine Datei, die sie gar nicht veraendert
+# hat, und ist gruen aus Mangel an Gelegenheit.
+QUELLE_PROLO="$T/stack/werkzeuge/prolo"
 printf '#!/bin/bash\nexit 0\n' > "$T/stack/backup.sh"; chmod +x "$T/stack/backup.sh"
 printf '#!/bin/bash\n[ "$1" = "-u" ] && echo "${UID_VORGABE:-0}" || exec /usr/bin/id "$@"\n' \
   > "$T/bin/id"; chmod +x "$T/bin/id"
@@ -76,9 +89,9 @@ A=$(prolo neu 2>&1); R=$?
 pruefe "neu ohne Namen wird abgelehnt" "1" "$R"
 echo "$A" | grep -q "prolo neu <name>" && E=ja || E=nein
 pruefe "und sagt, wie es geht" "ja" "$E"
-grep -q 'exec "$HIER/neu.sh"' "$HIER/prolo" && E=ja || E=nein
+grep -q 'exec "$HIER/neu.sh"' "$QUELLE_PROLO" && E=ja || E=nein
 pruefe "neu reicht an werkzeuge/neu.sh weiter" "ja" "$E"
-grep -q 'exec "$HIER/netze.sh"' "$HIER/prolo" && E=ja || E=nein
+grep -q 'exec "$HIER/netze.sh"' "$QUELLE_PROLO" && E=ja || E=nein
 pruefe "netze reicht an werkzeuge/netze.sh weiter" "ja" "$E"
 [ -x "$HIER/neu-pruefen.sh" ] && E=ja || E=nein
 pruefe "und der ausfuehrende Pruefer dazu ist da" "ja" "$E"
@@ -262,7 +275,7 @@ if command -v git >/dev/null 2>&1 && [ -f "$HIER/quellstand.sh" ]; then
   echo zwei > "$T/gitfern/datei"; git -C "$T/gitfern" add -A
   git -C "$T/gitfern" commit -q -m "zwei - die neue Fassung"
   mkdir -p "$GS/werkzeuge" "$GS/probe"
-  cp "$HIER/prolo" "$HIER/quellstand.sh" "$GS/werkzeuge/"
+  cp "$QUELLE_PROLO" "$HIER/quellstand.sh" "$GS/werkzeuge/"
   printf 'services:\n  probe:\n    image: probe:1\n' > "$GS/probe/docker-compose.yml"
 
   A=$(PATH="$T/bin:$PATH" "$GS/werkzeuge/prolo" quelle 2>&1); R=$?
@@ -299,7 +312,7 @@ fi
 # Erwartungswerte von Hand, nicht aus der Ausgabe uebernommen (§13).
 DEUT="$T/deuten.sh"
 sed -n '/^zertifikat_deuten()/,/^}/p;/^zertifikat_notbehelf()/,/^}/p' \
-  "$HIER/prolo" > "$DEUT"
+  "$QUELLE_PROLO" > "$DEUT"
 # shellcheck disable=SC1090
 . "$DEUT"
 
@@ -321,6 +334,233 @@ pruefe "Let's Encrypt gilt NICHT als Notbehelf" "nein" \
 zertifikat_deuten "issuer=CN = irgendwas" >/dev/null 2>&1 && E=ja || E=nein
 pruefe "ohne notAfter meldet die Deutung einen Fehlschlag" "nein" "$E"
 
+# ----------------------------------------------------------------------
+# Ursache und Wirkung standen nebeneinander - gesagt wurde der
+# Zusammenhang nie (N-69)
+#
+# "prolo status" zeigte fuer admin.prolo.me zwei Zellen:
+#
+#   admin.prolo.me    217.160.0.1 (FREMD)   keine Antwort auf 443
+#
+# Beide Tatsachen richtig, beide im Fusstext einzeln erklaert - dass die
+# erste die URSACHE der zweiten ist, stand nirgends. Gefragt wurde genau
+# danach: "Ich weiss nicht, was da der Fix ist."
+#
+# Erst die reine Folgerung mit Eingaben von Hand (wie bei N-57), danach
+# die Wirkung im fertigen Befehl. Eine Funktion, die richtig folgert und
+# nirgends aufgerufen wird, hilft niemandem.
+FOLG="$T/folgern.sh"
+sed -n '/^zertifikat_folgerung()/,/^}/p;/^zertifikat_rat()/,/^}/p' \
+  "$QUELLE_PROLO" > "$FOLG"
+# shellcheck disable=SC1090
+. "$FOLG"
+
+folg()  { zertifikat_folgerung "n.example" "$1" "$2" "1.2.3.4" "9.9.9.9" || true; }
+art()   { printf '%s' "$(folg "$1" "$2")" | head -1; }
+satz()  { printf '%s' "$(folg "$1" "$2")" | tail -n +2; }
+hat()   { printf '%s' "$1" | grep -qF "$2" && echo ja || echo nein; }
+
+# 1. Der Fall des Nutzers: Name zeigt woanders hin, kein Zertifikat.
+A=$(satz fremd keins)
+pruefe "FREMD ohne Zertifikat: das WEIL wird ausgesprochen" "ja" \
+  "$(hat "$A" "n.example hat kein Zertifikat, WEIL der Name auf 1.2.3.4 zeigt")"
+pruefe "und der Handgriff steht da, mit der richtigen IP" "ja" \
+  "$(hat "$A" "A-Eintrag fuer n.example auf 9.9.9.9 setzen")"
+pruefe "und die Art sagt, welche Erklaerung dazugehoert" "dns" "$(art fremd keins)"
+
+# 2. Ohne bekannte eigene IP darf keine erfundene dastehen.
+A=$(zertifikat_folgerung "n.example" fremd keins "1.2.3.4" "" || true)
+pruefe "ohne bekannte Server-IP wird keine erfunden" "nein" "$(hat "$A" "auf  setzen")"
+pruefe "sondern umschrieben" "ja" "$(hat "$A" "auf die IP dieses Servers setzen")"
+
+# 3. Ein Notzertifikat ist kein Zertifikat - dieselbe Folgerung.
+pruefe "NOTZERTIFIKAT zaehlt wie keines" "ja" \
+  "$(hat "$(satz fremd notbehelf)" "hat kein Zertifikat, WEIL")"
+
+# 4. Name loest gar nicht auf: derselbe Weg, andere Begruendung.
+A=$(zertifikat_folgerung "n.example" keine keins "" "9.9.9.9" || true)
+pruefe "ein Name ohne Antwort wird als Ursache benannt" "ja" \
+  "$(hat "$A" "WEIL der Name ueberhaupt nicht aufloest")"
+
+# 5. Zeigt der Name woanders hin und dort antwortet ein gueltiges
+#    Zertifikat, ist das NICHT unseres - beruhigen waere hier falsch.
+A=$(satz fremd gut)
+pruefe "ein fremdes gueltiges Zertifikat wird als fremdes benannt" "ja" \
+  "$(hat "$A" "landet nicht bei uns")"
+pruefe "und wird nicht als fehlendes ausgegeben" "nein" "$(hat "$A" "hat kein Zertifikat")"
+pruefe "und gehoert trotzdem zur DNS-Erklaerung" "dns" "$(art fremd gut)"
+
+# 6. Zeigt der Name hierher, ist er als Ursache ausgeschlossen - dann
+#    darf die Meldung nicht zum DNS-Anbieter schicken.
+A=$(zertifikat_folgerung "n.example" hier keins "9.9.9.9" "9.9.9.9" || true)
+pruefe "zeigt der Name hierher, liegt es an uns" "ja" \
+  "$(hat "$A" "Am Namen liegt es also nicht")"
+pruefe "und es wird nicht zum DNS-Anbieter geschickt" "nein" "$(hat "$A" "A-Eintrag")"
+pruefe "die Art ist dann eine andere" "acme" "$(art hier keins)"
+
+# 7. Alles in Ordnung heisst: nichts sagen. Eine Folgerung, die immer
+#    kommt, ist Tapete und wird nach dem dritten Mal ueberlesen.
+zertifikat_folgerung "n.example" hier gut "9.9.9.9" "9.9.9.9" >/dev/null 2>&1 && E=ja || E=nein
+pruefe "bei heilem Namen und echtem Zertifikat gibt es nichts zu sagen" "nein" "$E"
+A=$(zertifikat_folgerung "n.example" hier gut "9.9.9.9" "9.9.9.9" 2>&1 || true)
+pruefe "und es kommt auch kein Text" "" "$A"
+
+# 8. Ein echtes Zertifikat, das bald ablaeuft, ist kein DNS-Problem.
+A=$(satz hier ablauf)
+pruefe "ein bald ablaufendes Zertifikat wird gemeldet" "ja" \
+  "$(hat "$A" "das aber bald ablaeuft")"
+pruefe "und nicht als fehlendes ausgegeben" "nein" "$(hat "$A" "hat kein Zertifikat")"
+pruefe "mit eigener Art" "ablauf" "$(art hier ablauf)"
+
+# 9. Die Erklaerungen selbst: jede nennt den Befehl, nicht nur die
+#    Aufgabe (N-67).
+A=$(zertifikat_rat dns)
+pruefe "die DNS-Erklaerung nennt den Ort des Handgriffs" "ja" \
+  "$(hat "$A" "beim DNS-Anbieter")"
+pruefe "und den Befehl, der es sofort versucht" "ja" "$(hat "$A" "sudo prolo start traefik")"
+pruefe "und warum der Browser meckert" "ja" "$(hat "$A" "Seite ist nicht sicher")"
+pruefe "die acme-Erklaerung nennt das Protokoll" "ja" \
+  "$(hat "$(zertifikat_rat acme)" "sudo prolo protokoll traefik")"
+pruefe "die Ablauf-Erklaerung nennt die 30 Tage" "ja" \
+  "$(hat "$(zertifikat_rat ablauf)" "30 Tagen")"
+zertifikat_rat gibtsnicht >/dev/null 2>&1 && E=ja || E=nein
+pruefe "zu einer unbekannten Art gibt es keinen Rat" "nein" "$E"
+
+# ----------------------------------------------------------------------
+# Und jetzt die Wirkung: kommt es in "prolo status" auch an?
+#
+# "Eine Meldung ist kein Beweis" gilt auch andersherum - eine Funktion,
+# die richtig folgert und nirgends aufgerufen wird, aendert nichts.
+# Darum wird der Befehl hier wirklich ausgefuehrt, mit gefaelschtem
+# getent, curl und openssl.
+mkdir -p "$T/netz"
+cat > "$T/netz/curl" <<'STUB'
+#!/bin/bash
+echo "9.9.9.9"
+STUB
+cat > "$T/netz/getent" <<'STUB'
+#!/bin/bash
+case "$2" in
+  fremd.beispiel)   echo "1.2.3.4   STREAM fremd.beispiel" ;;
+  zweit.beispiel)   echo "1.2.3.4   STREAM zweit.beispiel" ;;
+  hier.beispiel)    echo "9.9.9.9   STREAM hier.beispiel" ;;
+  notzert.beispiel) echo "9.9.9.9   STREAM notzert.beispiel" ;;
+  alt.beispiel)     echo "9.9.9.9   STREAM alt.beispiel" ;;
+  *) exit 2 ;;
+esac
+STUB
+# Die Attrappe deckt beide Aufrufe in zertifikat() ab: s_client reicht den
+# Namen weiter, x509 macht daraus die Felder, die openssl auch echt
+# liefert. fremd.beispiel antwortet gar nicht - genau der Fall von oben.
+cat > "$T/netz/openssl" <<'STUB'
+#!/bin/bash
+if [ "$1" = "s_client" ]; then
+  while [ $# -gt 0 ]; do [ "$1" = "-servername" ] && { echo "NAME=$2"; exit 0; }; shift; done
+  exit 1
+fi
+N=$(sed -n 's/^NAME=//p' | head -1)
+case "$N" in
+  hier.beispiel)
+    echo "notAfter=Sep 20 10:00:00 2027 GMT"
+    echo "issuer=C = US, O = Let's Encrypt, CN = R11" ;;
+  notzert.beispiel)
+    echo "notAfter=Sep 20 10:00:00 2027 GMT"
+    echo "issuer=CN = TRAEFIK DEFAULT CERT" ;;
+  alt.beispiel)
+    echo "notAfter=Sep 20 10:00:00 2020 GMT"
+    echo "issuer=C = US, O = Let's Encrypt, CN = R11" ;;
+  *) exit 1 ;;
+esac
+STUB
+chmod +x "$T/netz/curl" "$T/netz/getent" "$T/netz/openssl"
+printf 'fremd.beispiel\nzweit.beispiel\nhier.beispiel\nnotzert.beispiel\nalt.beispiel\n' \
+  > "$T/stack/werkzeuge/dns-namen.conf"
+A=$(PATH="$T/netz:$T/bin:$PATH" "$T/stack/werkzeuge/prolo" status 2>&1 || true)
+# Was unter der Tabelle steht - nur das ist die Folgerung. Sonst zaehlte
+# die Tabellenzeile selbst als Treffer.
+UNTEN=$(printf '%s' "$A" | sed -n '/Was daraus folgt/,$p')
+
+pruefe "status nennt den Zusammenhang beim betroffenen Namen" "ja" \
+  "$(hat "$UNTEN" "fremd.beispiel hat kein Zertifikat, WEIL der Name auf 1.2.3.4 zeigt")"
+pruefe "status nennt den A-Eintrag mit der gemessenen Server-IP" "ja" \
+  "$(hat "$UNTEN" "A-Eintrag fuer fremd.beispiel auf 9.9.9.9 setzen")"
+pruefe "status nennt fuer ein Notzertifikat die andere Ursache" "ja" \
+  "$(hat "$UNTEN" "notzert.beispiel zeigt hierher, und trotzdem kommt kein Zertifikat")"
+# Der Prueferbeweis: ein heiler Name darf UNTEN nicht auftauchen. Ohne
+# diese Zeile waere eine Folgerung, die immer kommt, gruen.
+pruefe "ein heiler Name taucht unter der Tabelle NICHT auf" "nein" \
+  "$(hat "$UNTEN" "hier.beispiel")"
+# Ein abgelaufenes Zertifikat ist so gut wie keines - und der Prueflauf
+# muss den Fall wirklich herstellen, sonst ist die Zeile darueber gruen
+# aus Mangel an Gelegenheit (N-68).
+pruefe "die Tabelle nennt das abgelaufene Zertifikat" "ja" \
+  "$(hat "$A" "alt.beispiel")"
+pruefe "ein abgelaufenes Zertifikat zaehlt wie keines" "ja" \
+  "$(hat "$UNTEN" "alt.beispiel zeigt hierher")"
+# Und die Tabelle bleibt eine Tabelle.
+pruefe "die Tabellenzeile steht trotzdem noch da" "ja" \
+  "$(hat "$A" "fremd.beispiel             1.2.3.4 (FREMD)")"
+# Die Spalte ZEIGT AUF muss "217.160.0.1 (FREMD)" fassen - 15 Zeichen
+# IPv4 plus " (FREMD)" sind 23. War sie 16 breit, schob ausgerechnet die
+# auffaellige Zeile die letzte Spalte nach rechts (N-71).
+#
+# Erwartungswert von Hand aus dem Formatstring '  %-26s %-23s %s':
+# zwei Leerzeichen + 26 + Trenner + 23 + Trenner = 53 (grep -b zaehlt ab 0).
+spalte() { printf '%s\n' "$1" | grep -F "$2" | head -1 | grep -bom1 "$3" | cut -d: -f1; }
+pruefe "die Spalte ZERTIFIKAT beginnt bei einem langen ZEIGT-AUF an Stelle 53" \
+  "53" "$(spalte "$A" "fremd.beispiel" "keine Antwort")"
+pruefe "und bei einem kurzen an derselben" \
+  "53" "$(spalte "$A" "notzert.beispiel" "NOTZERTIFIKAT")"
+# Zwei Namen mit derselben Ursache: zwei Saetze, EINE Erklaerung. Zehn
+# Zeilen, die sich je Name wiederholen, liest niemand mehr (§7).
+pruefe "beide betroffenen Namen bekommen ihren Satz" "2" \
+  "$(printf '%s\n' "$UNTEN" | grep -c 'hat kein Zertifikat, WEIL')"
+pruefe "die Erklaerung dazu steht genau einmal da" "1" \
+  "$(printf '%s\n' "$UNTEN" | grep -c 'sudo prolo start traefik')"
+pruefe "und die andere Ursache hat ihre eigene" "1" \
+  "$(printf '%s\n' "$UNTEN" | grep -c 'sudo prolo protokoll traefik')"
+
+# prolo dns kennt keine Zertifikate - aber dass eines daran haengt, weiss
+# es und sagt es jetzt auch.
+A=$(PATH="$T/netz:$T/bin:$PATH" "$T/stack/werkzeuge/prolo" dns 2>&1 || true)
+pruefe "dns sagt, dass das Zertifikat daran haengt" "ja" \
+  "$(hat "$A" "Daran haengt das Zertifikat")"
+pruefe "dns nennt die IP, auf die der A-Eintrag zeigen muss" "ja" \
+  "$(hat "$A" "A-Eintrag auf 9.9.9.9 setzen")"
+rm -f "$T/stack/werkzeuge/dns-namen.conf"
+# ----------------------------------------------------------------------
+# Ein Fremdwerkzeug traegt seinen Namen in der override-Datei (N-70)
+#
+# Seit N-61 steht bei einem Fremdwerkzeug alles von uns - Netz, Route,
+# Zertifikat - in der docker-compose.override.yml. hostnamen() las nur
+# die Herstellerdatei; der Name fiel damit aus der Aufsicht, ohne dass
+# irgendwo etwas rot wurde: die Liste wurde nur kuerzer.
+mkdir -p "$T/stack/fremdtool" "$T/stack/eigentool"
+printf 'services:\n  f:\n    image: f:1\n' > "$T/stack/fremdtool/docker-compose.yml"
+cat > "$T/stack/fremdtool/docker-compose.override.yml" <<'Y'
+services:
+  f:
+    labels:
+      - "traefik.http.routers.f.rule=Host(`fremdtool.beispiel`)"
+Y
+# Und eines, das seinen Namen wie eigener Code in der ersten Datei fuehrt.
+# Beide muessen durchkommen - sonst waere die Korrektur nur eine
+# Verschiebung derselben Luecke.
+cat > "$T/stack/eigentool/docker-compose.yml" <<'Y'
+services:
+  e:
+    image: e:1
+    labels:
+      - "traefik.http.routers.e.rule=Host(`eigentool.beispiel`)"
+Y
+A=$(PATH="$T/netz:$T/bin:$PATH" "$T/stack/werkzeuge/prolo" dns 2>&1 || true)
+pruefe "ein Name aus der override-Datei wird geprueft" "ja" \
+  "$(hat "$A" "fremdtool.beispiel")"
+pruefe "und der aus der Herstellerdatei weiterhin auch" "ja" \
+  "$(hat "$A" "eigentool.beispiel")"
+A=$(PATH="$T/netz:$T/bin:$PATH" "$T/stack/werkzeuge/prolo" status 2>&1 || true)
+pruefe "status sieht ihn ebenfalls" "ja" "$(hat "$A" "fremdtool.beispiel")"
+rm -rf "$T/stack/fremdtool" "$T/stack/eigentool"
 # ----------------------------------------------------------------------
 # Steht in den Anleitungen ein Befehl, den es gar nicht gibt? (N-51)
 #

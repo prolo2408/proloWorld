@@ -83,6 +83,21 @@ MUTATIONEN = [
      '''    if [ "$SCHUTZ" = OFFEN ]; then''',
      '''    if false; then'''),
 
+    ("ein geteiltes Netz faellt nicht auf (N-68)",
+     "netze.sh",
+     '''    if [ -n "$OHNE" ]; then''',
+     '''    if false; then'''),
+
+    ("auch ein Netz mit genau einem Gast gilt als geteilt",
+     "netze.sh",
+     '''&& $4=="extern"{print $3}' \\''',
+     '''{print $3}' \\'''),
+
+    ("ein doppelter Hostname faellt nicht auf",
+     "netze.sh",
+     '''            | sort | uniq -d)''',
+     '''            | sort -u | head -0)'''),
+
     ("prolo neu legt ueber ein Werkzeug, das im Git steht (N-66)",
      "neu.sh",
      '''if command -v git >/dev/null 2>&1 \\

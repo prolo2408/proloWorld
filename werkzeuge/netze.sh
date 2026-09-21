@@ -104,7 +104,7 @@ erklaert() {   # $1 = optionaler Filter auf ein Werkzeug
     j=$(konfig_json "$t") || true
     [ -n "$j" ] || { printf 'kaputt|%s|%s\n' "$t" "$(konfig_fehler)"; continue; }
     printf '%s' "$j" | python3 -c '
-import json, sys
+import json, re, sys
 t = sys.argv[1]
 d = json.load(sys.stdin)
 
@@ -160,8 +160,18 @@ for dienst, srv in sorted((d.get("services") or {}).items()):
         elif isinstance(pp, str) and ":" in pp:
             ports.append(pp.split(":")[0])
     grund = label.get("prolo.ports", "")
-    print("dienst|%s|%s|%s|%s|%s|%s|%s" % (
-        t, dienst, ",".join(netze), tn, schutz, ",".join(ports), grund))
+    # Wer sich ein Netz mit einem anderen Werkzeug teilt, sagt es (N-62).
+    # Und unter welchem Namen dieser Dienst erreichbar sein will: zwei
+    # Router auf demselben Hostnamen sind ein Wettlauf, den Traefik
+    # entscheidet und niemand sieht (N-68).
+    geteilt = label.get("prolo.netz.geteilt", "")
+    hosts = []
+    for k, v in sorted(label.items()):
+        if k.startswith("traefik.http.routers.") and k.endswith(".rule"):
+            hosts += re.findall(r"Host\(`([^`]+)`\)", v)
+    print("dienst|%s|%s|%s|%s|%s|%s|%s|%s|%s" % (
+        t, dienst, ",".join(netze), tn, schutz, ",".join(ports), grund,
+        geteilt, ",".join(sorted(set(hosts)))))
 ' "$t"
   done
 }
@@ -281,7 +291,7 @@ befehl_uebersicht() {
   abschnitt "Werkzeuge"
   printf '  %-13s %-15s %-24s %-11s %s\n' WERKZEUG DIENST NETZ SCHUTZ "OFFENE PORTS"
   local Z T D NN TN SCHUTZ PORTS PASST
-  while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND; do
+  while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND GETEILT HOSTS; do
     [ "$Z" = dienst ] || continue
     # Dienste ohne Traefik-Bezug (Datenbank, Worker) haben hier nichts zu
     # suchen - die sollen gerade NICHT im Werkzeugnetz haengen. Offene
@@ -329,7 +339,7 @@ befehl_uebersicht() {
     fi
   done
 
-  while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND; do
+  while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND GETEILT HOSTS; do
     [ "$Z" = dienst ] || continue
     if [ -n "$PORTS" ] && [ -z "$GRUND" ]; then
       HINWEISE="$HINWEISE
@@ -353,12 +363,66 @@ befehl_uebersicht() {
     fi
   done <<< "$DATEN"
 
+  # --- Zwei Werkzeuge, ein Netz - und keiner sagt es (N-62/N-68) --------
+  # Die Uebersicht ZEIGTE das schon ("netz-n8n  n8n,n8n_alt"), nannte es
+  # aber nicht als Problem. Eine Zeile, die man selbst deuten muss, ist
+  # keine Meldung.
+  local WER_ALLE OHNE
+  for N in $NETZE; do
+    # Gezaehlt werden nur die, die sich in ein FREMDES Netz haengen
+    # (art=extern). Wer sein Netz selbst anlegt, teilt nichts - er ist der
+    # Eigentuemer. socket ist genau dieser Fall: socket-proxy legt es an,
+    # admin haengt sich hinein. Erst ein ZWEITER Gast ist eine gemeinsame
+    # Flaeche, und die gehoert erklaert.
+    WER_ALLE=$(printf '%s\n' "$DATEN" \
+               | awk -F'|' -v n="$N" \
+                 '$1=="netz" && $2==n && $3!="traefik" && $4=="extern"{print $3}' \
+               | sort -u)
+    [ "$(printf '%s\n' "$WER_ALLE" | grep -c .)" -gt 1 ] || continue
+    OHNE=""
+    for T in $WER_ALLE; do
+      printf '%s\n' "$DATEN" \
+        | awk -F'|' -v t="$T" '$1=="dienst" && $2==t && $9!=""{print}' \
+        | grep -q . || OHNE="$OHNE $T"
+    done
+    if [ -n "$OHNE" ]; then
+      BEANSTANDET=1
+      HINWEISE="$HINWEISE
+  $N teilen sich mehrere Werkzeuge: $(printf '%s' "$WER_ALLE" | tr '\n' ' ')
+     In einem Netz erreicht jeder Container jeden anderen direkt - ohne
+     Traefik und ohne Anmeldung (N-45). Erlaubt ist das, aber als
+     Entscheidung, nicht aus Versehen. Wer teilt, sagt warum:
+       - \"prolo.netz.geteilt=<grund>\"
+     Es fehlt bei:$OHNE
+"
+    fi
+  done
+
+  # --- Zwei Router auf demselben Hostnamen (N-68) -----------------------
+  # Traefik nimmt dann einen davon, und welchen, sieht man nirgends. Das
+  # ist genau der Zustand nach einer halben Umbenennung: der alte Ordner
+  # liegt noch da und beansprucht denselben Namen wie der neue.
+  local DOPPELT H
+  DOPPELT=$(printf '%s\n' "$DATEN" \
+            | awk -F'|' '$1=="dienst" && $10!=""{n=split($10,a,","); for(i=1;i<=n;i++) print a[i]}' \
+            | sort | uniq -d)
+  for H in $DOPPELT; do
+    BEANSTANDET=1
+    HINWEISE="$HINWEISE
+  $H wird von mehreren Diensten beansprucht:
+$(printf '%s\n' "$DATEN" | awk -F'|' -v h="$H" \
+    '$1=="dienst" && index(","$10",", ","h",")>0 {print "       " $2 "/" $3}')
+     Traefik nimmt einen davon, und welchen, sieht man nirgends. Einer der
+     beiden gehoert weg oder auf einen anderen Namen.
+"
+  done
+
   # Der Fall aus N-58: die Datei sagt X, der laufende Container haengt in Y.
   # Ein Netz erreicht einen laufenden Container nicht nachtraeglich - Docker
   # verbindet beim Anlegen. Das sieht man NUR im Vergleich.
   if docker_da; then
     local ID IST
-    while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND; do
+    while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND GETEILT HOSTS; do
       [ "$Z" = dienst ] || continue
       [ -n "$TN" ] || continue
       ID=$( (cd "$STACK/$T" && docker compose ps -q "$D" 2>/dev/null) | head -1)
