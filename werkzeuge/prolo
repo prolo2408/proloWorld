@@ -320,7 +320,7 @@ befehl_status() {
   [ -n "$eigene" ] && melde "  Server-IP: $eigene" || \
     melde "  Server-IP nicht ermittelbar - vergleiche nur die Zertifikate."
   melde ""
-  printf '  %-26s %-16s %s\n' "NAME" "ZEIGT AUF" "ZERTIFIKAT"
+  printf '  %-26s %-23s %s\n' "NAME" "ZEIGT AUF" "ZERTIFIKAT"
   # Die Folgerungen werden gesammelt und UNTER der Tabelle ausgegeben -
   # die Tabelle bleibt eine Tabelle, und was zu tun ist, steht am Stueck.
   # Die Arten werden dabei mitgezaehlt, damit die Erklaerung dazu einmal
@@ -337,20 +337,20 @@ befehl_status() {
       tage="${z%%|*}"; aus="${z#*|}"
       if [ "$tage" -lt 0 ]; then
         # Abgelaufen ist so gut wie keins - und wird auch so behandelt.
-        printf '  %-26s %-16s ABGELAUFEN seit %s Tagen\n' "$name" "$ipfeld" "$(( -tage ))"
+        printf '  %-26s %-23s ABGELAUFEN seit %s Tagen\n' "$name" "$ipfeld" "$(( -tage ))"
       elif [ "$tage" -lt 21 ]; then
-        printf '  %-26s %-16s laeuft in %s Tagen ab (%s)\n' "$name" "$ipfeld" "$tage" "$aus"
+        printf '  %-26s %-23s laeuft in %s Tagen ab (%s)\n' "$name" "$ipfeld" "$tage" "$aus"
         zert=ablauf
       elif zertifikat_notbehelf "$aus"; then
-        printf '  %-26s %-16s NOTZERTIFIKAT (%s) - kein Let'"'"'s Encrypt\n' \
+        printf '  %-26s %-23s NOTZERTIFIKAT (%s) - kein Let'"'"'s Encrypt\n' \
           "$name" "$ipfeld" "$aus"
         zert=notbehelf
       else
-        printf '  %-26s %-16s %s Tage (%s)\n' "$name" "$ipfeld" "$tage" "$aus"
+        printf '  %-26s %-23s %s Tage (%s)\n' "$name" "$ipfeld" "$tage" "$aus"
         zert=gut
       fi
     else
-      printf '  %-26s %-16s keine Antwort auf 443\n' "$name" "$ipfeld"
+      printf '  %-26s %-23s keine Antwort auf 443\n' "$name" "$ipfeld"
     fi
     # Gibt es etwas zu folgern, ist es eine Warnung - und umgekehrt: was
     # hier nichts sagt, war in Ordnung. Zwei Zaehlungen waeren zwei

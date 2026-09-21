@@ -4601,3 +4601,36 @@ dazu steht in der Gegenprobe.
 
 `werkzeuge/prolo-pruefen.sh`: **90 ok**, RC=0 (vorher 87).
 `werkzeuge/prolo-gegenprobe.py`: **16 von 16 gefunden** (vorher 14).
+
+---
+
+## N-71 — Genau die auffällige Zeile sprengte die Spalte
+
+In derselben Tabelle, in derselben Ausgabe:
+
+```
+  NAME                       ZEIGT AUF        ZERTIFIKAT
+  admin.prolo.me             217.160.0.1 (FREMD) keine Antwort auf 443
+  auth.prolo.me              89.58.44.224     80 Tage (Let's Encrypt)
+```
+
+Die Spalte war `%-16s` breit. Eine IPv4 passt da hinein (15 Zeichen), das
+`(FREMD)` dahinter nicht — 19 Zeichen, und die letzte Spalte rutscht nach
+rechts. Ausgerechnet in der Zeile, auf die man schaut.
+
+> Eine Spalte wird nach ihrem längsten Wert bemessen, nicht nach ihrem
+> häufigsten. Der längste ist hier immer der Problemfall — das ist keine
+> Ausnahme, sondern der Zweck der Tabelle (§14a, Punkt 5).
+
+`%-23s`: 15 Zeichen IPv4 plus `" (FREMD)"` sind genau 23.
+
+### Prüfung
+
+`werkzeuge/prolo-pruefen.sh`: **92 ok**, RC=0 (vorher 90).
+`werkzeuge/prolo-gegenprobe.py`: **17 von 17 gefunden** (vorher 16).
+
+Die Prüfzeile misst die Stelle, an der die Spalte `ZERTIFIKAT` beginnt —
+handgerechnet aus dem Formatstring (`2 + 26 + 1 + 23 + 1 = 53`), einmal in
+einer Zeile mit langem und einmal mit kurzem Eintrag. Eine Prüfung, die
+nur die beiden Zeilen miteinander vergleicht, hielte auch eine Tabelle für
+heil, die als Ganzes verrutscht ist.

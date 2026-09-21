@@ -500,6 +500,17 @@ pruefe "ein abgelaufenes Zertifikat zaehlt wie keines" "ja" \
 # Und die Tabelle bleibt eine Tabelle.
 pruefe "die Tabellenzeile steht trotzdem noch da" "ja" \
   "$(hat "$A" "fremd.beispiel             1.2.3.4 (FREMD)")"
+# Die Spalte ZEIGT AUF muss "217.160.0.1 (FREMD)" fassen - 15 Zeichen
+# IPv4 plus " (FREMD)" sind 23. War sie 16 breit, schob ausgerechnet die
+# auffaellige Zeile die letzte Spalte nach rechts (N-71).
+#
+# Erwartungswert von Hand aus dem Formatstring '  %-26s %-23s %s':
+# zwei Leerzeichen + 26 + Trenner + 23 + Trenner = 53 (grep -b zaehlt ab 0).
+spalte() { printf '%s\n' "$1" | grep -F "$2" | head -1 | grep -bom1 "$3" | cut -d: -f1; }
+pruefe "die Spalte ZERTIFIKAT beginnt bei einem langen ZEIGT-AUF an Stelle 53" \
+  "53" "$(spalte "$A" "fremd.beispiel" "keine Antwort")"
+pruefe "und bei einem kurzen an derselben" \
+  "53" "$(spalte "$A" "notzert.beispiel" "NOTZERTIFIKAT")"
 # Zwei Namen mit derselben Ursache: zwei Saetze, EINE Erklaerung. Zehn
 # Zeilen, die sich je Name wiederholen, liest niemand mehr (§7).
 pruefe "beide betroffenen Namen bekommen ihren Satz" "2" \

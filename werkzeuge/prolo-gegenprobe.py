@@ -94,9 +94,14 @@ MUTATIONEN = [
 
     ("ein abgelaufenes Zertifikat gilt als vorhanden",
      "prolo",
-     """        printf '  %-26s %-16s ABGELAUFEN seit %s Tagen\\n' "$name" "$ipfeld" "$(( -tage ))\"""",
-     """        printf '  %-26s %-16s ABGELAUFEN seit %s Tagen\\n' "$name" "$ipfeld" "$(( -tage ))"
+     """        printf '  %-26s %-23s ABGELAUFEN seit %s Tagen\\n' "$name" "$ipfeld" "$(( -tage ))\"""",
+     """        printf '  %-26s %-23s ABGELAUFEN seit %s Tagen\\n' "$name" "$ipfeld" "$(( -tage ))"
         zert=gut"""),
+
+    ("die Spalte ZEIGT AUF ist wieder zu schmal fuer '(FREMD)' (N-71)",
+     "prolo",
+     """      printf '  %-26s %-23s keine Antwort auf 443\\n' "$name" "$ipfeld\"""",
+     """      printf '  %-26s %-16s keine Antwort auf 443\\n' "$name" "$ipfeld\""""),
 
     ("hostnamen liest wieder nur die Herstellerdatei (N-70)",
      "prolo",
