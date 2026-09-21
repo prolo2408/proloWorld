@@ -309,5 +309,37 @@ pruefe "schliessen: socket wird nie geschlossen" "1" \
        "$("$NETZE" schliessen socket >/dev/null 2>&1; echo $?)"
 
 echo
+echo "== 7. Wenn eine Konfiguration nicht lesbar ist ==========================="
+# N-64: vorher stand nur "liefert keine lesbare Konfiguration" - und der
+# Betreiber sah ein Werkzeug fehlen, ohne zu erfahren, WARUM. Die Meldung
+# von docker war da, sie wurde nur weggeworfen.
+mkdir -p "$S/verbogen"
+printf 'services:\n  verbogen:\n    image: x:1\n   schief: ja\n' \
+  > "$S/verbogen/docker-compose.yml"
+A=$("$NETZE" 2>&1); R=$?
+pruefe "kaputt: das Werkzeug wird beim Namen genannt" "ja" "$(enthaelt "verbogen:" "$A")"
+pruefe "kaputt: die Meldung von docker steht dabei" "ja" "$(enthaelt "yaml:" "$A")"
+pruefe "kaputt: und es gilt als Beanstandung" "2" "$R"
+# Der genannte Aufruf muss DERSELBE sein, den prolo gemacht hat. Ein
+# Hinweis auf einen anderen Befehl fuehrt an eine andere Stelle als die,
+# an der es geklemmt hat - und ohne --no-interpolate scheitert er auf
+# einem frischen Klon an etwas voellig anderem.
+pruefe "kaputt: der genannte Aufruf ist der, den prolo gemacht hat" "ja" \
+       "$(enthaelt "docker compose config --no-interpolate" "$A")"
+# Rechte sind etwas anderes als eine kaputte Datei - der sudo-Rat gehoert
+# nur dorthin, wo die Meldung ihn hergibt.
+pruefe "kaputt: kein sudo-Rat bei einem YAML-Fehler" "nein" "$(enthaelt "mit sudo prolo netze" "$A")"
+
+printf 'services:\n  verbogen:\n    image: x:1\n' > "$S/verbogen/docker-compose.yml"
+printf 'KAPUTTE ZEILE OHNE GLEICH\n' > "$S/verbogen/.env"
+A=$("$NETZE" 2>&1)
+pruefe "kaputt: auch eine unlesbare .env wird benannt" "ja" "$(enthaelt ".env" "$A")"
+rm -rf "$S/verbogen"
+
+A=$("$NETZE" 2>&1)
+pruefe "heil: ohne kaputte Datei kommt der Hinweis nicht" "nein" \
+       "$(enthaelt "laesst sich nicht lesen" "$A")"
+
+echo
 if [ "$FEHLER" -eq 0 ]; then echo "Alles gruen."; else echo "GEGENPROBE FEHLGESCHLAGEN." >&2; fi
 exit "$FEHLER"

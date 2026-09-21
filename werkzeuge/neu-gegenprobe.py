@@ -83,6 +83,21 @@ MUTATIONEN = [
      '''    if [ "$SCHUTZ" = OFFEN ]; then''',
      '''    if false; then'''),
 
+    ("netze wirft die Meldung von docker wieder weg (N-64)",
+     "netze.sh",
+     """   && docker compose config --no-interpolate --format json 2>"$TMP_FEHLER")""",
+     """   && docker compose config --no-interpolate --format json 2>/dev/null)"""),
+
+    ("netze nennt einen anderen Aufruf, als es selbst gemacht hat",
+     "netze.sh",
+     """konfig_befehl() { printf 'cd %s/%s && docker compose config --no-interpolate' "$STACK" "$1"; }""",
+     """konfig_befehl() { printf 'cd %s/%s && docker compose config' "$STACK" "$1"; }"""),
+
+    ("netze raet auch bei einem YAML-Fehler zu sudo",
+     "netze.sh",
+     """    if printf '%s' "$KM" | grep -qi "permission denied\\|not permitted\\|kein Zugriff"; then""",
+     """    if true; then"""),
+
     ("netze zaehlt auch erklaerte Ports als Beanstandung",
      "netze.sh",
      '''    if [ -n "$PORTS" ] && [ -z "$GRUND" ]; then

@@ -344,6 +344,16 @@ eine Falle. Und führt der genannte Weg über etwas Zerstörendes (`git
 checkout --`, ein Überschreiben), steht die **Kopie davor**, nicht
 daneben.
 
+**Und sie verschweigt nicht die Ursache, die sie in der Hand hatte**
+(`N-64`). Ein `2>/dev/null` über dem fehlgeschlagenen Aufruf macht aus
+„docker sagt: `failed to read bordbuch/.env: key cannot contain a space`"
+ein „liefert keine lesbare Konfiguration" — und aus einer Diagnose die
+Frage „wo ist das Bordbuch?". Wer zum Nachsehen auffordert, nennt
+**genau den Aufruf**, den das Werkzeug gemacht hat, nicht einen
+ähnlichen. Und ein Rat, der nur manchmal passt (*„dann mit sudo"*), kommt
+nur dann, wenn die Meldung ihn hergibt — sonst ist er nach dem dritten Mal
+Tapete.
+
 ## 8. Umsetzungsregeln
 
 - Kein Farbwert ohne Token.

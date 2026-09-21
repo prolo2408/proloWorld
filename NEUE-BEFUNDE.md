@@ -4011,3 +4011,97 @@ Scrollen und zu kleine Touchziele wurden absichtlich eingebaut — **3 von 3
 gefunden**. Die Farben kommen als `oklch()` und werden über die Leinwand des
 Browsers umgerechnet, nicht von Hand: ein Prüfer, der `oklch` als RGB liest,
 hat hier schon einmal gelogen.
+
+
+---
+
+## N-64 — „Liefert keine lesbare Konfiguration" — und das war alles
+
+Gemessen am 21.09.2026 auf dem Server, erster Lauf von `prolo netze` nach
+dem Einspielen:
+
+```
+Werkzeuge
+  WERKZEUG      DIENST          NETZ                     SCHUTZ
+  admin         admin           netz-admin,socket        authentik
+  authentik     server          internal,netz-authentik  eigene
+  n8n           n8n             netz-n8n                 eigene
+  traefik       traefik         netz-admin,netz-authen.. -
+  wiki          wiki            netz-wiki                authentik
+
+Zu klaeren
+  Diese Ordner liefern keine lesbare Konfiguration: bordbuch www
+     Nachsehen mit: cd /opt/stack/<ordner> && docker compose config
+```
+
+Die erste Frage danach war: **„Wo ist das Bordbuch?"** Genau die Frage, die
+eine Übersicht nicht auslösen darf.
+
+### Was schiefging
+
+`docker compose config` war fehlgeschlagen, und das Skript hatte die
+Meldung dazu **in der Hand**:
+
+```bash
+docker compose config --no-interpolate --format json 2>/dev/null
+```
+
+`2>/dev/null`. Der einzige Satz, der den Unterschied zwischen „die Datei ist
+kaputt", „ich darf sie nicht lesen" und „dieses docker kennt den Schalter
+nicht" ausmacht — weggeworfen, und übrig blieb, dass irgendetwas nicht geht.
+
+> **Eine Meldung, die eine Folge benennt und die Ursache verschweigt, die
+> sie gerade in der Hand hatte, ist keine Meldung.** Das ist `N-60` noch
+> einmal, an einer anderen Stelle: dort wurde das Hindernis verschwiegen,
+> das den genannten Weg versperrt, hier die Ursache des gemeldeten
+> Zustands.
+
+Jetzt steht sie da:
+
+```
+  bordbuch: die Konfiguration laesst sich nicht lesen. Docker sagt:
+     failed to read /opt/stack/bordbuch/.env: line 1: key cannot contain a space
+     Selbst nachsehen - genau diesen Aufruf macht prolo:
+       cd /opt/stack/bordbuch && docker compose config --no-interpolate
+```
+
+### Der zweite Fehler: der Hinweis führte woandershin
+
+Der alte Text riet zu `docker compose config` — **ohne** `--no-interpolate`.
+Das ist nicht derselbe Aufruf. Auf einem Stand ohne `.env` scheitert der
+Befehl aus der Anleitung an der Interpolation, während das Skript an etwas
+ganz anderem gescheitert war. Wer dem Hinweis folgt, sucht an der falschen
+Stelle.
+
+> Ein Hinweis zum Nachsehen nennt **genau den Aufruf**, den das Werkzeug
+> gemacht hat. Sonst schickt er einen an eine andere Stelle als die, an der
+> es geklemmt hat.
+
+### Der dritte: ein Rat, der immer danebensteht
+
+Die erste Korrektur hängte an jede solche Meldung „steht dort *permission
+denied*, dann mit sudo". Bei einem YAML-Fehler ist das Unsinn. Ein Rat, der
+immer danebensteht, ist nach dem dritten Mal Tapete. Jetzt kommt er nur,
+wenn die Meldung ihn hergibt.
+
+### Und der vierte, den erst der Probelauf zeigte
+
+Die erste Fassung meldete brav „Docker sagt:" — und danach eine **leere
+Zeile**. Grund: der Aufrufer schreibt
+
+```bash
+j=$(konfig_json "$t")
+```
+
+und alles, was die Funktion dabei an Variablen setzt, bleibt in der Subshell
+der Kommandoersetzung zurück. Die Meldung geht jetzt über eine Datei.
+
+Vier Anläufe für eine Fehlermeldung. Sie ist deshalb nicht überbezahlt: die
+Frage „Wo ist das Bordbuch?" war die teuerste Zeile des ganzen Laufs.
+
+### Prüfung
+
+`werkzeuge/neu-pruefen.sh`: **83 ok**, RC=0 (vorher 76). Sechs neue
+Prüflinien, drei neue Mutationen — „die Meldung wird wieder weggeworfen",
+„es wird ein anderer Aufruf genannt als der gemachte", „der sudo-Rat kommt
+auch bei einem YAML-Fehler".
