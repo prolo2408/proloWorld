@@ -4272,3 +4272,157 @@ ganz neuen Namen"* muss auffallen.
 `werkzeuge/prolo-pruefen.sh`: **51 ok**, RC=0 (vorher 47) — darunter
 „ohne Git kommt der Hinweis nicht", damit aus dem Hinweis keine Tapete wird.
 `werkzeuge/neu-gegenprobe.py`: **18 Mutationen** (vorher 15).
+
+
+---
+
+## N-67 — Die Meldung nannte die Aufgabe, nicht den Befehl, der sie erledigt
+
+Gemessen am 21.09.2026, beim Aufsetzen von n8n nach `N-65`. Die Frage kam
+richtig, die Antwort war „j" — und dann:
+
+```
+  Frisch aufgesetzt, also noch kein alter Wert irgendwo? [j/N] j
+    NICHT angefasst - an 2 von 2 Stellen ginge es nicht:
+      /opt/stack/n8n/.env
+        die Datei fehlt. Anlegen aus .env.beispiel, dann noch einmal.
+```
+
+Wieder eine Sackgasse, und diesmal eine besonders ärgerliche: **es gibt
+einen Befehl, der genau das tut.** `prolo einrichten` legt jede fehlende
+Geheimnisdatei aus ihrer Vorlage an, ergänzt die leere Zeile darin, und ist
+idempotent — Schritt 6 seit `N-54`. Die Meldung wusste nur nichts davon und
+schickte zum Abtippen.
+
+> Eine Meldung, die die **Aufgabe** nennt statt des **Befehls**, der sie
+> erledigt, ist eine halbe Meldung. `§7` verlangt, dass sie sagt, was zu tun
+> ist — und „was zu tun ist" heißt hier: dieser eine Befehl.
+
+Jetzt:
+
+```
+        die Datei fehlt. Das legt 'sudo prolo einrichten' an (aus
+        .env.beispiel, mit der leeren Zeile darin) - danach noch einmal.
+
+    Das ist kein Fehler, sondern ein ausgelassener Schritt:
+      sudo prolo einrichten
+    legt jede fehlende Geheimnisdatei aus ihrer Vorlage an.
+    Er laeuft beliebig oft; beim zweiten Mal passiert nichts.
+```
+
+Der gebündelte Hinweis kommt **nur**, wenn ausschließlich Dateien fehlen.
+Klemmt es aus einem anderen Grund, hat er dort nichts zu suchen — ein Rat,
+der immer danebensteht, ist nach dem dritten Mal Tapete (`N-64`).
+
+### Warum der Schritt ausgelassen war
+
+n8n kam per `git pull` dazu, nicht über `prolo neu`. Ein Werkzeug, das so
+in den Stack kommt, bringt seine `.env.beispiel` mit, aber keine `.env` —
+und niemand sagt einem, dass `prolo einrichten` noch einmal laufen will.
+Jetzt sagt es die Stelle, an der es auffällt.
+
+### Und die Mutationsprobe fand ihre eigene Lücke
+
+Zwei Stück:
+
+- Die Prüfzeile `"prolo einrichten" in aus` war grün, obwohl die Mutation
+  den Befehl aus der **Grund**-Meldung entfernt hatte — er stand ja noch im
+  gebündelten Hinweis darunter. Eine Prüfung auf „steht irgendwo in der
+  Ausgabe" lässt eine von zwei Stellen verschwinden. Jetzt ist jede Zeile
+  an ihre eigene Stelle gebunden.
+- Die Mutation *„eine fehlende Datei fällt nicht auf"* traf die **falsche
+  Funktion**: `os.path.exists(self.pfad)` steht zweimal in der Datei, in
+  `lesen()` und in `schreibbar()`, und ersetzt wurde die erste. Sie bewies
+  damit gar nichts. Dasselbe war in dieser Sitzung schon einmal passiert —
+  **ein Mutationsmuster muss eindeutig sein, und das prüft niemand für
+  einen.**
+
+### Prüfung
+
+`werkzeuge/geheimnisse-pruefen.sh`: **156 ok**, RC=0 (vorher 149).
+`--gegenprobe`: **45 von 45 gefunden** (vorher 42).
+
+---
+
+## N-68 — Die Übersicht zeigte die Kollision und nannte sie nicht
+
+Derselbe Lauf. Auf dem Server lag neben `n8n/` noch ein `n8n_alt/` — eine
+Kopie von vor dem Umbau. `prolo netze` zeigte das brav:
+
+```
+  netz-n8n             n8n,n8n_alt              ja       ?       ?
+
+  WERKZEUG      DIENST          NETZ             SCHUTZ      OFFENE PORTS
+  n8n_alt       n8n             netz-n8n         eigene      -
+  n8n           n8n             netz-n8n         eigene      -
+```
+
+Und sagte dazu: nichts. Kein Wort unter „Zu klären".
+
+Dabei stehen da zwei Dinge, die beide falsch sind:
+
+1. **Zwei Werkzeuge in einem Netz.** In einem Docker-Netz erreicht jeder
+   Container jeden anderen direkt, ohne Traefik und ohne Anmeldung — das
+   ist `N-45`, die teuerste Narbe im ganzen Stack.
+2. **Zwei Router auf demselben Hostnamen.** Beide beanspruchten
+   `n8n.prolo.me`. Traefik nimmt einen davon, und welchen, sieht man
+   nirgends.
+
+> Eine Zeile, die man selbst deuten muss, ist keine Meldung. Die Übersicht
+> hatte beides vor Augen und hat es als Datenzeile behandelt.
+
+### Was jetzt kommt
+
+```
+  netz-x teilen sich mehrere Werkzeuge: a b
+     In einem Netz erreicht jeder Container jeden anderen direkt - ohne
+     Traefik und ohne Anmeldung (N-45). Erlaubt ist das, aber als
+     Entscheidung, nicht aus Versehen. Wer teilt, sagt warum:
+       - "prolo.netz.geteilt=<grund>"
+     Es fehlt bei: a b
+
+  gleich.prolo.me wird von mehreren Diensten beansprucht:
+       a/a
+       b/b
+     Traefik nimmt einen davon, und welchen, sieht man nirgends.
+```
+
+`netze-pruefen.sh` kannte die Regel für geteilte Netze seit `N-62` — aber
+nur als **statische** Prüfung über das Repository. Auf dem Server, wo ein
+Ordner auch ohne Git entstehen kann, sah sie niemand.
+
+### Gast ist nicht gleich Eigentümer
+
+Die erste Fassung beanstandete `socket` — Traefik, socket-proxy und admin
+hängen dort gemeinsam drin, und das ist so gebaut. Die Regel war zu grob.
+
+> Wer sein Netz **selbst anlegt**, teilt nichts; er ist der Eigentümer. Erst
+> ein **zweiter Gast** macht daraus eine gemeinsame Fläche.
+
+Gezählt werden darum nur die Werkzeuge, die sich in ein *fremdes* Netz
+hängen (`external: true`). socket-proxy legt `socket` an, admin ist der eine
+Gast — kein Fund. Kämen zwei Gäste dazu, wäre es einer.
+
+Und die beiden Beanstandungen schalten sich nicht gegenseitig stumm: wer
+das geteilte Netz erklärt, wird den doppelten Hostnamen trotzdem nicht los.
+Eigene Prüflinie dafür.
+
+### Prüfung
+
+`werkzeuge/neu-pruefen.sh`: **99 ok**, RC=0 (vorher 91).
+`werkzeuge/neu-gegenprobe.py`: **21 von 21 gefunden** (vorher 18).
+
+Und genau diese Mutation — *„auch ein Netz mit genau einem Gast gilt als
+geteilt"* — **entwischte im ersten Lauf**. Nicht, weil die Prüfzeile falsch
+war, sondern weil der Fall im Wegwerfstack **gar nicht vorkam**: es gab dort
+kein Netz mit Eigentümer und genau einem Gast, also änderte die Mutation
+nichts, was jemand hätte sehen können.
+
+> Eine Prüfzeile über einen Fall, den der Prüfstand nicht herstellt, ist
+> grün aus Mangel an Gelegenheit. Der Stand muss den Fall **haben**, nicht
+> nur die Zeile darüber.
+
+Jetzt legt der Prüfstand ihn an (ein `vermittler`, der ein Netz mit festem
+Namen erzeugt, und ein `gast`, der sich hineinhängt) — und daneben steht die
+Zeile „mit einem **zweiten** Gast wird es einer", damit die erste nicht
+grün bleiben kann, wenn gar nichts mehr geprüft wird.

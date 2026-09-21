@@ -276,6 +276,72 @@ pruefe "netze: und sagt, wer" "ja" "$(enthaelt "fremd1" "$A")"
 pruefe "netze: das Netz steht danach noch in der Traefik-Datei" "ja" \
        "$(passt "^  netz-fremd1:$" "$(cat "$S/traefik/docker-compose.yml")")"
 
+
+# N-68: zwei Werkzeuge in einem Netz und zwei Router auf demselben Namen.
+# Beides ZEIGTE die Uebersicht schon ("netz-n8n  n8n,n8n_alt"), nannte es
+# aber nicht als Problem. Eine Zeile, die man selbst deuten muss, ist keine
+# Meldung.
+zwilling() {   # $1 = Ordner, $2 = geteilt-Grund (leer = keiner)
+  mkdir -p "$S/$1"
+  { printf 'services:\n  %s:\n    image: x:1\n    networks:\n      - netz-alt\n' "$1"
+    printf '    labels:\n      - "traefik.enable=true"\n'
+    printf '      - "traefik.docker.network=netz-alt"\n'
+    printf '      - "traefik.http.routers.%s.rule=Host(`zwilling.prolo.me`)"\n' "$1"
+    printf '      - "traefik.http.routers.%s.middlewares=authentik@file"\n' "$1"
+    [ -z "${2:-}" ] || printf '      - "prolo.netz.geteilt=%s"\n' "$2"
+    printf 'networks:\n  netz-alt:\n    external: true\n'
+  } > "$S/$1/docker-compose.yml"
+}
+# offen1 haengt seit Abschnitt 4 ebenfalls in netz-alt und hat seine
+# Schuldigkeit getan. Bleibt es liegen, sind es DREI Werkzeuge in einem
+# Netz, und die Pruefzeile unten misst etwas anderes, als sie glaubt.
+rm -rf "$S/offen1"
+zwilling zwilling-a; zwilling zwilling-b
+A=$("$NETZE" 2>&1); R=$?
+pruefe "geteiltes Netz: faellt als Beanstandung auf" "2" "$R"
+pruefe "geteiltes Netz: wird benannt" "ja" "$(enthaelt "teilen sich mehrere Werkzeuge" "$A")"
+pruefe "geteiltes Netz: beide Werkzeuge stehen dabei" "ja" \
+       "$([ "$(enthaelt "zwilling-a" "$A")" = ja ] && [ "$(enthaelt "zwilling-b" "$A")" = ja ] \
+          && echo ja || echo nein)"
+pruefe "geteiltes Netz: das Label wird genannt" "ja" \
+       "$(enthaelt "prolo.netz.geteilt" "$A")"
+pruefe "doppelter Hostname: faellt auf" "ja" \
+       "$(enthaelt "zwilling.prolo.me wird von mehreren Diensten" "$A")"
+
+# Erklaert: das geteilte Netz ist in Ordnung, der doppelte Name bleibt es
+# nicht. Zwei Beanstandungen, die sich nicht gegenseitig stumm schalten.
+zwilling zwilling-a "Testbereich"; zwilling zwilling-b "Testbereich"
+A=$("$NETZE" 2>&1)
+pruefe "erklaert: das geteilte Netz wird nicht mehr beanstandet" "nein" \
+       "$(enthaelt "teilen sich mehrere Werkzeuge" "$A")"
+pruefe "erklaert: der doppelte Hostname sehr wohl" "ja" \
+       "$(enthaelt "zwilling.prolo.me wird von mehreren Diensten" "$A")"
+rm -rf "$S/zwilling-a" "$S/zwilling-b"
+
+# Gegenrichtung: ein Netz mit genau einem Gast ist keine gemeinsame
+# Flaeche - sonst wuerde socket (socket-proxy legt es an, admin haengt
+# sich hinein) jeden Tag denselben Fehlalarm geben. Dieser Fall muss im
+# Wegwerfstack WIRKLICH vorkommen, sonst prueft die Zeile nichts: eine
+# Mutationsprobe hat genau das gezeigt.
+mkdir -p "$S/vermittler" "$S/gast"
+printf 'services:\n  vermittler:\n    image: x:1\n    networks:\n      - draht\nnetworks:\n  draht:\n    name: draht\n    internal: true\n' \
+  > "$S/vermittler/docker-compose.yml"
+printf 'services:\n  gast:\n    image: x:1\n    networks:\n      - draht\nnetworks:\n  draht:\n    external: true\n' \
+  > "$S/gast/docker-compose.yml"
+A=$("$NETZE" 2>&1)
+pruefe "der Fall kommt im Wegwerfstack vor (Eigentuemer + ein Gast)" "ja" \
+       "$(enthaelt "draht" "$A")"
+pruefe "ein Gast allein: keine Beanstandung" "nein" \
+       "$(enthaelt "teilen sich mehrere Werkzeuge" "$A")"
+# Und mit einem ZWEITEN Gast wird es einer - sonst waere die Zeile darueber
+# auch dann gruen, wenn gar nichts mehr geprueft wird.
+mkdir -p "$S/gast2"
+sed 's/gast/gast2/' "$S/gast/docker-compose.yml" > "$S/gast2/docker-compose.yml"
+A=$("$NETZE" 2>&1)
+pruefe "zwei Gaeste: jetzt ist es eine Beanstandung" "ja" \
+       "$(enthaelt "draht teilen sich mehrere Werkzeuge" "$A")"
+rm -rf "$S/vermittler" "$S/gast" "$S/gast2"
+
 echo
 echo "== 6. umziehen ==========================================================="
 A=$("$NETZE" umziehen fremd1 netz-gibtsnicht 2>&1); R=$?

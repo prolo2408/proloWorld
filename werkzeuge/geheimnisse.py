@@ -98,8 +98,15 @@ class Geheimnis:
         Werkzeuge erwarten - und das heisst 401 auf jede Anfrage.
         """
         if not os.path.exists(self.pfad):
-            return ("die Datei fehlt. Anlegen aus %s.beispiel, dann noch "
-                    "einmal." % self.datei)
+            # Es gibt einen Befehl, der genau das tut - und er ist
+            # idempotent, laeuft also beliebig oft. Eine Meldung, die die
+            # AUFGABE nennt statt des Befehls, der sie erledigt, schickt
+            # einen zum Abtippen (N-67). Genau der Fall, in den ein frisch
+            # aus dem Git geholtes Werkzeug laeuft: die Vorlage liegt da,
+            # die Datei noch nicht.
+            return ("die Datei fehlt. Das legt 'sudo prolo einrichten' an "
+                    "(aus %s.beispiel, mit der leeren Zeile darin) - danach "
+                    "noch einmal." % self.datei)
         try:
             with open(self.pfad, encoding="utf-8", errors="replace") as f:
                 inhalt = f.read()
@@ -330,6 +337,16 @@ def klemmen_melden(stellen, klemmt):
     for g, grund in klemmt:
         print(rot("      %s" % g.pfad))
         print("        %s" % grund)
+    # Fehlen nur Dateien, ist das kein Fehler, sondern ein ausgelassener
+    # Einrichtungsschritt - und dafuer gibt es genau einen Befehl. Der
+    # Hinweis steht hier gebuendelt, damit er nicht in einer Liste aus
+    # acht Zeilen untergeht.
+    if all("die Datei fehlt" in grund for _, grund in klemmt):
+        print("")
+        print("    Das ist kein Fehler, sondern ein ausgelassener Schritt:")
+        print("      sudo prolo einrichten")
+        print("    legt jede fehlende Geheimnisdatei aus ihrer Vorlage an.")
+        print("    Er laeuft beliebig oft; beim zweiten Mal passiert nichts.")
 
 
 def verteilen(frisch=False):

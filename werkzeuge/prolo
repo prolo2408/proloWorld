@@ -529,7 +529,7 @@ befehl_zurueckholen() {
 # gefuehrte Weg soll nur nicht der sein, auf dem man aus Versehen einen
 # Dienst ins offene Netz stellt.
 start_pruefen() {
-  local TOOL="$1" Z T D NN TN SCHUTZ PORTS GRUND FEHLT=0
+  local TOOL="$1" Z T D NN TN SCHUTZ PORTS GRUND GETEILT HOSTS FEHLT=0
 
   if grep -q 'PROLO-PLATZHALTER' "$STACK/$TOOL/docker-compose.yml" 2>/dev/null; then
     fehler "NICHT gestartet: in $TOOL/docker-compose.yml steht noch der"
@@ -542,7 +542,7 @@ start_pruefen() {
   fi
 
   [ -x "$HIER/netze.sh" ] || return 0
-  while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND; do
+  while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND GETEILT HOSTS; do
     [ "$Z" = dienst ] || continue
     if [ -n "$PORTS" ] && [ -z "$GRUND" ]; then
       fehler "NICHT gestartet: $TOOL/$D veroeffentlicht Port(s) $PORTS auf dem Host."

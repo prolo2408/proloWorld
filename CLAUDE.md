@@ -354,6 +354,12 @@ Frage „wo ist das Bordbuch?". Wer zum Nachsehen auffordert, nennt
 nur dann, wenn die Meldung ihn hergibt — sonst ist er nach dem dritten Mal
 Tapete.
 
+**Und sie nennt den Befehl, nicht die Aufgabe** (`N-67`). „Anlegen aus
+`.env.beispiel`" schickt zum Abtippen, obwohl `prolo einrichten` genau das
+idempotent tut. Gibt es einen Befehl, der die Sache erledigt, steht er in
+der Meldung — samt der Bemerkung, dass er gefahrlos zu wiederholen ist,
+sonst traut ihn sich niemand auf einem laufenden Stack.
+
 ## 8. Umsetzungsregeln
 
 - Kein Farbwert ohne Token.
@@ -743,7 +749,17 @@ Verbindlich in jeder `docker-compose.yml`:
   diesen Werkzeugen auf. Das darf eine Entscheidung sein und keine
   Bequemlichkeit: wer teilt, schreibt `prolo.netz.geteilt=<grund>` an
   seinen Dienst. `werkzeuge/netze-pruefen.sh` verlangt es von allen
-  Beteiligten.
+  Beteiligten, und `prolo netze` nennt es auf dem Server als Beanstandung
+  (`N-68`) — dort entsteht ein Ordner auch ohne Git.
+
+  **Gast ist nicht gleich Eigentümer.** Wer sein Netz selbst anlegt, teilt
+  nichts; erst ein **zweiter Gast** macht daraus eine gemeinsame Fläche.
+  Darum zählen nur die Werkzeuge, die sich in ein fremdes Netz hängen
+  (`external: true`) — sonst gäbe `socket` jeden Tag denselben Fehlalarm.
+
+  **Zwei Router auf demselben Hostnamen** sind ebenfalls ein Fund: Traefik
+  nimmt einen davon, und welchen, sieht man nirgends. Der Normalfall dafür
+  ist ein halb umbenanntes Werkzeug, dessen alter Ordner noch danebenliegt.
 
   Jedes Werkzeug nennt sein Netz **selbst** im Label
   `traefik.docker.network` — seit `N-45` gibt es keine Vorgabe mehr, auf die
