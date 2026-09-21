@@ -979,6 +979,18 @@ ist mit demselben `age`-Schlüssel verschlüsselt wie die Sicherung.
 
 **Die Wiederherstellung wird geübt**, solange nur Testdaten drin sind. Das
 ist der Schritt, den fast alle überspringen, und der einzige, der zählt.
+Dafür gibt es `prolo wiederherstellen --probe` (`N-77`): sie entschlüsselt,
+packt aus und **liest jedes Stück wirklich** — `tar tzf`, `gzip -t` und
+für jede SQLite-Datei ein `PRAGMA integrity_check` —, fasst aber nichts
+an. Dass eine Datei da ist, ist noch keine Sicherung.
+
+Drei Dinge zerstören beim Zurückspielen still, und alle drei sind
+eingebaut: das `-wal`/`-shm` aus dem Archiv muss **weg** (sonst spielt
+SQLite ein Journal auf eine Datenbank, zu der es nicht gehört), die heile
+Einzelkopie gehört **zuletzt** über den Volume-Stand, und ein Volume wird
+**ersetzt, nicht ergänzt**. Der bisherige Stand wandert vorher nach
+`/opt/backups/.vor-wiederherstellung-<zeit>` und wird nie überschrieben
+(§15).
 
 ## 24. Aktualisierung
 

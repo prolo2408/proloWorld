@@ -5107,3 +5107,117 @@ kommt jetzt vor.
 > Prüfstand nicht herstellt, ist grün aus Mangel an Gelegenheit. Beim
 > Schreiben einer Prüfzeile gehört die Frage dazu: **kommt dieser Fall im
 > Stand überhaupt vor?**
+
+---
+
+## N-77 — Es gab keinen Weg zurück
+
+§23 steht seit Anfang an so da:
+
+> **Die Wiederherstellung wird geübt**, solange nur Testdaten drin sind.
+> Das ist der Schritt, den fast alle überspringen, und der einzige, der
+> zählt.
+
+Übersprungen hatten wir ihn auch. Es gab schlicht **keinen Befehl**.
+`prolo zurueckholen` holt ein Werkzeug aus dem Archiv zurück, nachdem man
+es mit `prolo entfernen` weggeräumt hat — mit der täglichen Sicherung unter
+`/opt/backups` hat das nichts zu tun. Wer von dort etwas gebraucht hätte,
+hätte sich die Schritte selbst zusammensuchen müssen: entschlüsseln,
+auspacken, den richtigen Ordner finden, Volumes per `docker run … tar`
+füllen, Datenbanken einspielen — und dabei jeden der Stolpersteine selbst
+finden, die weiter unten stehen.
+
+> Eine Sicherung, die nie zurückgespielt wurde, ist eine Vermutung. Und
+> eine Vermutung merkt man sich als Gewissheit.
+
+### `prolo wiederherstellen`
+
+```
+prolo wiederherstellen --probe                 üben, ohne etwas anzufassen
+prolo wiederherstellen [--stand JJJJ-MM-TT] [--schluessel <datei>] [tool …]
+```
+
+**`--probe` ist der eigentliche Punkt.** Sie entschlüsselt, packt aus,
+vergleicht den Inhalt gegen die `sicherung.conf` jedes Werkzeugs und liest
+**jedes einzelne Stück wirklich**: `tar tzf` für Archive, `gzip -t` für
+Dumps, und für jede SQLite-Datei ein `PRAGMA integrity_check`. Sie fasst
+nichts an und lässt sich darum jeden Tag laufen.
+
+Dass eine Datei *da* ist, ist eben noch keine Sicherung. Ob
+`sqlite3.backup()` beim Sichern wirklich einen geschlossenen Stand
+erwischt hat, sieht man erst, wenn jemand nachsieht.
+
+Der geheime `age`-Schlüssel liegt nach §23 auf dem **Arbeitsrechner**,
+nicht auf dem Server. Darum nimmt der Befehl beides: ein verschlüsseltes
+Archiv samt `--schluessel` (die Datei wird gelesen, nie gespeichert), oder
+ein bereits entschlüsseltes `.tar.gz`. Fehlt der Schlüssel, sagt die
+Meldung beide Wege — samt dem fertigen `age -d`-Aufruf für den anderen
+Rechner.
+
+### Drei Dinge, die still zerstört hätten
+
+**1. Das fremde Journal.** Erwischt die Sicherung ein Volume, während
+geschrieben wird, liegt neben der Datenbank ein `-wal` im Archiv. Beim
+Einspielen kommt es zurück — und obendrauf kommt die *heile* Kopie, die
+`sqlite3.backup()` gezogen hat. Beim nächsten Öffnen spielt SQLite dann
+ein Journal auf eine Datenbank, zu der es nicht gehört. Die Datei sieht
+heil aus und ist es nicht. `-wal` und `-shm` werden darum gezielt
+entfernt.
+
+**2. Die Reihenfolge.** Das Volume-Archiv enthält die Datenbank auch — nur
+eben möglicherweise zerrissen. Die heile Einzelkopie muss also **zuletzt**
+darüber, nicht davor.
+
+**3. Ersetzen, nicht ergänzen.** Ein Volume wird leergeräumt, bevor das
+Archiv hineingeht. Sonst überlebt genau das, was man loswerden wollte.
+
+Und für §15: der jetzige Stand wandert **vorher** nach
+`/opt/backups/.vor-wiederherstellung-<zeitstempel>`. Der Ordner trägt die
+Uhrzeit und wird nie überschrieben — auch ein zweiter, ebenfalls
+schiefgegangener Lauf nimmt einem den ersten Rückweg nicht weg. Ohne
+Terminal und ohne `--ja` passiert gar nichts; von Hand muss man die Anzahl
+der betroffenen Werkzeuge eintippen.
+
+### Prüfung
+
+| | |
+|---|---|
+| `werkzeuge/wiederherstellen-pruefen.sh` (neu) | **31 ok**, RC=0 |
+| `werkzeuge/wiederherstellen-gegenprobe.py` (neu) | **12 von 12 gefunden** |
+| prolo / sicherung / netze / grenze / neu | 92 / 12 / 42 / 62 / 101, RC=0 |
+| `www/tests/alle.sh` | 45 Tests, RC=0 |
+
+Der Kern des Prüfers ist kein Einzeltest, sondern ein **Rundlauf**:
+sichern, die Daten wirklich vernichten, zurückspielen, und danach die
+**Inhalte** vergleichen. „Der Befehl lief durch" ist kein Beweis. Docker
+ist dabei gefälscht, bewegt aber echte Archive — eine Attrappe, die nur
+`exit 0` sagt, besteht jeden Rundlauf, ohne ein Byte anzufassen. Und
+`docker compose config` wird gar nicht gefälscht, sondern durchgereicht:
+es braucht keinen Daemon, und eine Attrappe, die auch das erfindet, prüft
+am Ende nur sich selbst.
+
+### Vier Lügen beim Bauen, alle durch Hinsehen gefunden
+
+**Der erste Lauf meldete „vollständig und lesbar" über einen leeren
+Plan.** `"${TOOLS[@]-}"` ergibt bei einem leeren Feld *ein leeres
+Element* — der Befehl suchte nach einem Werkzeug namens `""`, fand nichts,
+und nannte das Erfolg. Dieselbe Lüge wie „Backup fertig" in `N-76`, nur
+von der anderen Seite. Ein leerer Plan ist jetzt ausdrücklich ein Fehler.
+
+**Der Auspackordner wurde nie gelöscht.** `AUSPACK` wurde in einer
+Subshell gesetzt (`$( )`), der `trap` im Elternprozess sah eine leere
+Variable. Darin liegen `.env`-Dateien und Datenbanken im Klartext (§21).
+
+**Der Rundlauf bewies den SQLite-Schritt nicht.** Die Datenbank kam über
+das *Volume-Archiv* zurück und sah damit richtig aus — der eigentliche
+Schritt war nie geprüft. Jetzt steht im Volume absichtlich eine **alte**
+Datenbank und daneben die heile: kommt `VOLUME-DB-ALT` heraus, lief der
+Schritt nicht.
+
+**Und die schönste:** die Prüfzeile *„das fremde `-wal` ist entfernt"* war
+immer grün — weil die Zeile **darüber** die Datenbank öffnete. SQLite
+spielt beim Öffnen ein vorhandenes Journal ein und löscht es danach. Der
+Test hat also genau den Schaden weggeräumt, den er nachweisen sollte.
+
+> Ein Test, der seinen eigenen Beweis anfasst, misst sich selbst. Die
+> Reihenfolge der Prüfzeilen ist Teil der Prüfung.
