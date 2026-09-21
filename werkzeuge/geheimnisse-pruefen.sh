@@ -478,6 +478,50 @@ with tempfile.TemporaryDirectory(prefix="geheimnis-probe-") as tmp:
             "--verteilen schreibt auch beim blossen Weitergeben einen Zettel",
             "sonst steht der Wert in vier Dateien und in keinem Passwortmanager")
 
+        # --- Ein "haende"-Geheimnis, das NIRGENDS steht (N-65) ----------
+        # "haende" heisst: ein neuer Wert macht etwas kaputt, das den alten
+        # haelt. Fehlt der alte ueberall, gibt es vielleicht gar keinen -
+        # und dann ist Fuellen genau das, wofuer --verteilen da ist. Die
+        # Dateien koennen es nicht beweisen, also wird gefragt. Was NICHT
+        # passieren darf: eine Sackgasse ohne Weg heraus.
+        open(os.path.join(tmp, "drei", ".env"), "w").write("UNBERUEHRBAR=\n")
+        rc, aus = lauf(prog, ["--verteilen"])
+        sag("UNBERUEHRBAR=\n" in env("drei") or
+            re.search(r"^UNBERUEHRBAR=\s*$", env("drei"), re.M) is not None,
+            "haende/leer: ohne Nachfrage wird NICHT gewuerfelt")
+        sag(rc != 0, "haende/leer: und der Lauf gilt als unerledigt (rc=%d)" % rc)
+        sag("openssl rand" in aus,
+            "haende/leer: die Meldung sagt, WIE man einen Wert herstellt",
+            "'von Hand eintragen' ohne das ist eine Sackgasse (§7)")
+        sag("UNBERUEHRBAR=<wert>" in aus,
+            "haende/leer: und welche Zeile in welche Datei gehoert")
+        sag("--frisch" in aus,
+            "haende/leer: und den Weg fuer einen frischen Aufbau")
+        sag("Steht auch in der Datenbank" in aus,
+            "haende/leer: der Grund aus der geheimnisse.conf steht dabei",
+            "genau dort steht, was ein neuer Wert kostet")
+
+        rc, aus = lauf(prog, ["--verteilen", "--frisch"])
+        neu3 = re.search(r"^UNBERUEHRBAR=(.+)$", env("drei"), re.M)
+        sag(neu3 is not None and len(neu3.group(1)) >= 40,
+            "haende/leer: mit --frisch wird gefuellt",
+            "sonst bleibt ein frischer Aufbau an dieser Stelle stehen")
+
+        # Und die Gegenrichtung, die wichtigere: --frisch ist KEIN
+        # Generalschluessel. Steht der Wert schon irgendwo, wird er nicht
+        # angefasst - sonst waere aus der Bremse ein Schalter geworden, der
+        # genau das tut, wovor "haende" schuetzen soll.
+        open(os.path.join(tmp, "drei", ".env"), "w").write(
+            "UNBERUEHRBAR=DER-ALTE-WERT\n")
+        rc, aus = lauf(prog, ["--verteilen", "--frisch"])
+        sag("UNBERUEHRBAR=DER-ALTE-WERT" in env("drei"),
+            "--frisch fasst einen vorhandenen haende-Wert NICHT an",
+            "aus der Bremse duerfte kein Generalschluessel werden")
+
+        rc, aus = lauf(prog, ["--frisch"])
+        sag(rc != 0 and "--verteilen" in aus,
+            "--frisch allein wird abgelehnt und sagt, wozu es gehoert")
+
 print("")
 print("Alles gruen." if not fehler else "%d Fehler." % fehler)
 sys.exit(1 if fehler else 0)

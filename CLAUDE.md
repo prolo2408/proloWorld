@@ -912,6 +912,14 @@ Werkzeugs:
 | `sitzungen` | darf auch, aber alle müssen sich neu anmelden |
 | `haende` | **nur von Hand** — das Werkzeug zeigt ihn und rührt ihn nicht an |
 
+**`haende` heißt „nicht wechseln", nicht „nie anfassen"** (`N-65`). Fehlt
+so ein Wert in **allen** Dateien, gibt es vielleicht gar keinen alten, den
+ein neuer kaputtmachen könnte — dann ist Füllen genau das, wofür
+`--verteilen` da ist. Beweisen können die Dateien es nicht, also wird
+**gefragt** (`--frisch` antwortet dasselbe ohne Terminal). Ein vorhandener
+Wert wird auch damit nicht angefasst: aus der Bremse darf kein
+Generalschlüssel werden.
+
 **Steht ein Wert auch außerhalb seiner Datei, ist er `haende`.** `PG_PASS`
 steht zusätzlich in PostgreSQL selbst: wer nur die Datei ändert, sperrt
 Authentik aus seiner eigenen Datenbank aus — und damit den ganzen Stack aus

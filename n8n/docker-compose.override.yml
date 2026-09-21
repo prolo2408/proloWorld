@@ -36,9 +36,13 @@ services:
       #
       # Der Wert steht in n8n/.env und kommt aus
       #   sudo prolo geheimnisse --verteilen
-      # Er gehoert in den Passwortmanager (siehe geheimnisse.conf,
-      # WECHSEL=haende: ein neuer Wert ist ein Datenverlust, kein Wechsel).
-      N8N_ENCRYPTION_KEY: "${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY fehlt in n8n/.env - anlegen mit - sudo prolo geheimnisse --verteilen}"
+      # Weil er WECHSEL=haende ist, fragt der Befehl einmal nach, ob das
+      # ein frischer Aufbau ist - denn einen NEUEN Schluessel auf ein n8n
+      # zu setzen, das schon Zugangsdaten verschluesselt hat, macht sie
+      # alle unlesbar. Bei einem frischen n8n ist die Antwort ja; ohne
+      # Terminal geht es mit "--frisch".
+      # Er gehoert in den Passwortmanager (siehe geheimnisse.conf).
+      N8N_ENCRYPTION_KEY: "${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY fehlt in n8n/.env. Bei einem frischen n8n anlegen mit - sudo prolo geheimnisse --verteilen --frisch}"
 
     networks:
       - netz-n8n
