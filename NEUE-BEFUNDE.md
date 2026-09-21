@@ -4806,3 +4806,304 @@ eingesetzt und ein zweiter Dienst daneben gestartet.
 Die Fassung bleibt `1.1.0`: zwischen den beiden Befunden wurde nichts
 veröffentlicht, also gibt es kein Abbild, das die alte Nummer trüge. Im
 CHANGELOG steht es unter derselben Fassung.
+
+---
+
+## N-74 — Die erste Tür stand an der falschen Wand
+
+Die Verwaltung von `www` hat noch nie funktioniert. Wer sie öffnete, sah
+die Seite — und darunter ein rotes Band:
+
+> Die Liste kam nicht — bist du noch angemeldet?
+
+Die Anmeldung war es nicht. Dieses Werkzeug hat **zwei Router** auf
+demselben Hostnamen (§19), und der geschützte trifft genau einen Pfad:
+
+```
+(Host(`prolo.me`) || Host(`www.prolo.me`)) && PathPrefix(`/verwaltung`)
+```
+
+Die Aufrufe der Verwaltung lagen aber unter `/api/` — `/api/verwaltung`,
+`/api/hochladen`, `/api/freigabe`, `/api/zustand`, `/api/passwort`,
+`/api/loeschen`, seit `N-72` auch `/api/startseite`. **Kein einziger**
+davon wird von `PathPrefix(`/verwaltung`)` getroffen. Sie liefen alle über
+den **öffentlichen** Router, der kein `authentik@file` hat — und Traefik
+setzt die Identitätskopfzeilen nur dort, wo die Middleware läuft.
+
+Also kam jeder dieser Aufrufe ohne `X-Authentik-Username` an, und
+`verwalter()` hat ihn mit 401 abgewiesen. Vollkommen richtig.
+
+> Offen gestanden hat nichts. Die zweite Tür — die Prüfung im Werkzeug
+> selbst (§17, `N-44`) — hat jeden einzelnen Aufruf gehalten, obwohl die
+> erste gar nicht im Weg stand. Das ist der Tag, an dem sich die Regel
+> „eine Kopfzeile ist nur so viel wert wie die Gewissheit, dass sie von
+> Traefik kommt" bezahlt gemacht hat: derselbe Fehler ohne sie wäre eine
+> offene Verwaltung im Netz gewesen.
+
+Und die Meldung führte in die Irre: „bist du noch angemeldet?" war eine
+Vermutung, und bei 401 war sie falsch — angemeldet war man, der Weg war
+der falsche. Das ist `N-75`.
+
+### Was jetzt kommt
+
+Alles, was Verwalterrechte braucht, liegt unter **einem** Präfix:
+
+| vorher | jetzt |
+|---|---|
+| `/api/verwaltung` | `/verwaltung/api/daten` |
+| `/api/hochladen` | `/verwaltung/api/hochladen` |
+| `/api/freigabe` | `/verwaltung/api/freigabe` |
+| `/api/zustand` | `/verwaltung/api/zustand` |
+| `/api/passwort` | `/verwaltung/api/passwort` |
+| `/api/loeschen` | `/verwaltung/api/loeschen` |
+| `/api/startseite` | `/verwaltung/api/startseite` |
+
+Die Router-Regel bleibt unverändert — sie stimmt jetzt von selbst.
+
+**Eine Ausnahmeliste wäre der nächste Fehler gewesen.** `PathPrefix(`/api/`)`
+dazuzunehmen hätte `/api/version` mitgeschützt, und das ist die
+`PRUEF_URL`-Nachbarschaft, die absichtlich ohne Anmeldung erreichbar sein
+muss (§17). Dann stünde dort `/api/ ausser /api/version` — eine Regel mit
+einer Ausnahme, und bei der nächsten Erweiterung zwei. Ein Präfix, der
+**geschützt** bedeutet, braucht keine: was öffentlich bleiben muss, liegt
+nicht darunter.
+
+### Die Prüfzeile, die den Rückfall unmöglich macht
+
+Der Fehler war nicht, dass jemand falsch gedacht hat — es war, dass
+**zwei Dateien dasselbe wissen mussten** und niemand sie verglichen hat.
+Also vergleicht sie jetzt ein Test:
+
+- alle Wege aus `server.py` einsammeln; jeder, der nicht in der
+  ausdrücklichen Liste der öffentlichen steht, **muss** unter
+  `/verwaltung` liegen;
+- die Compose-Datei muss genau diesen Präfix treffen, mit
+  `authentik@file` und der höheren `priority`;
+- und beides wird zusätzlich **gemessen**: jeder Weg der Verwaltung
+  antwortet ohne Kopfzeile mit 401, jeder öffentliche mit 200.
+
+Dazu ein Prüferbeweis in der Prüfzeile selbst: findet die Suche weniger
+als acht Wege, ist sie kaputt und nicht der Code heil.
+
+### Prüfung
+
+| | |
+|---|---|
+| `www/tests/alle.sh` | **44 Tests**, RC=0 (vorher 40) |
+| `www/tests/gegenprobe.py` | **16 von 16 gefunden** (vorher 13) |
+
+Die Gegenprobe mutiert ab jetzt **jede** Datei des Werkzeugs, nicht nur
+`server.py` — die Router-Regel steht in der Compose-Datei, und eine Probe,
+die dort nicht hinkommt, kann die Hälfte dieses Befunds nicht prüfen.
+
+Gemessen am laufenden Dienst, mit und ohne Kopfzeilen:
+
+```
+=== Mit Kopfzeilen ===            === OHNE Kopfzeilen ===
+/verwaltung            200        /verwaltung            401
+/verwaltung/api/daten  200        /verwaltung/api/daten  401
+
+=== Oeffentlich bleibt oeffentlich ===   === Die alten Wege ===
+/            200   /api/version  200     /api/verwaltung  404
+/gesundheit  200   /robots.txt   200     /api/startseite  404
+```
+
+**Im Browser geladen**: `artur · Fassung 1.1.0` oben rechts, kein
+Fehlerband, die Liste gefüllt, die Auswahl der Startseite gefüllt, keine
+Konsolenfehler. Vorher stand dort das rote Band und sonst nichts.
+
+---
+
+## N-75 — Die Meldung riet, und lag daneben
+
+Unter der Verwaltung stand, zwei Tage lang, genau dieser Satz:
+
+> Die Liste kam nicht — bist du noch angemeldet?
+
+Angemeldet war man. Der Fehler war `N-74`: der Aufruf lief über den
+falschen Router. Die Meldung hat also nicht nur nichts gesagt — sie hat in
+die **falsche** Richtung gezeigt, und zwar mit einer Frage, die man
+gutgläubig mit „ja, bin ich" beantwortet und dann ratlos dasteht.
+
+Dabei lag die Antwort im selben Codeblock:
+
+```js
+const a = await fetch('/api/verwaltung');
+if(!a.ok){ melden('Die Liste kam nicht — bist du noch angemeldet?', 'fehler');
+           return; }
+```
+
+`a.status` war da. Der JSON-Körper mit dem Satz des Werkzeugs war da.
+Beides wurde weggeworfen und durch eine Vermutung ersetzt.
+
+> Das ist `N-64` im Browser. Wer eine Ursache in der Hand hat und
+> stattdessen rät, macht aus einer Diagnose eine Suche — und die beginnt
+> dann an der Stelle, auf die geraten wurde.
+
+### Was jetzt kommt
+
+Gemessen im Browser, mit abgefangener Antwort:
+
+| Antwort | Meldung |
+|---|---|
+| `503` + Grund | Die Liste kam nicht (HTTP 503): Die Datenbank ist gerade nicht erreichbar. |
+| `302`, kein JSON | Die Liste kam nicht (HTTP 302). Der Server hat keine Erklärung mitgeschickt — dann kam die Antwort nicht von diesem Werkzeug, sondern vom Zugang davor. |
+| `401` | Die Liste kam nicht (HTTP 401): Nicht angemeldet. … Melde dich neu an; bleibt es dabei, sieh im Protokoll nach: `sudo prolo protokoll www` |
+
+Die mittlere Zeile ist die wichtigste: **kommt kein JSON zurück, hat nicht
+das Werkzeug geantwortet.** Genau das war bei `N-74` der Fall, und genau
+das hätte den Befund in zwei Minuten statt zwei Tagen gestellt. Die
+Vermutung „bist du angemeldet" bleibt erhalten — aber nur bei 401/403, wo
+sie hingehört, und zusammen mit dem Befund, nicht an seiner Stelle.
+
+### Prüfung
+
+`www/tests/alle.sh`: **45 Tests**, RC=0.
+`www/tests/gegenprobe.py`: **17 von 17 gefunden**.
+
+Und auch hier hat der erste Messlauf gelogen: die drei Fälle zeigten noch
+den alten Satz, weil der Probedienst seit **vor** der Änderung lief. Eine
+Codeänderung ist kein Beweis, solange der Prozess sie nicht geladen hat
+(§ TEIL 0). Nach dem Neustart standen die Sätze oben.
+
+---
+
+## N-76 — Ein Werkzeug konnte laufen und ungesichert sein, und die Sicherung meldete Erfolg
+
+Im Sicherungsprotokoll eines ganz normalen Laufs stand das hier:
+
+```
+Sichere bitwarden
+  Hinweis: /opt/stack/bitwarden/.env gibt es nicht - uebersprungen.
+...
+Verschluesselt: /opt/backups/2026-09-21.tar.gz.age
+Backup fertig: 2026-09-21
+```
+
+„Backup fertig." Von bitwarden war **nichts** darin. Kein Tresor, kein
+Schlüssel, keine Datei — der Container lief und legte Daten ab, und die
+Sicherung ging an ihm vorbei, ohne zu stolpern.
+
+Der Grund ist banal und deshalb gefährlich: `prolo neu` schreibt die
+`sicherung.conf`, **bevor** es die Datei des Herstellers gibt. `VOLUMES`
+bleibt leer, weil es zu dem Zeitpunkt nichts einzutragen gibt. Und danach
+hat nie jemand nachgesehen.
+
+> §25 sagt: „Eine Sicherung, deren Scheitern niemand merkt, ist keine
+> Sicherung." Dieser Fall ist die schlimmere Schwester davon — eine
+> Sicherung, die **nicht scheitert**, weil sie gar nicht weiß, dass sie
+> etwas übersehen hat.
+
+### Was der Prüfer beim ersten Lauf sofort fand
+
+Nicht nur bitwarden. Auf dem gepflegten Arbeitsstand:
+
+```
+authentik|bind|custom-templates|FEHLT
+traefik|bind|traefik.yml|FEHLT
+traefik|bind|dynamic|FEHLT
+traefik|bind|acme.json|FEHLT
+traefik|bind|log|FEHLT
+```
+
+**`traefik` hatte als einziges Werkzeug gar keine `sicherung.conf`.**
+`backup.sh` geht die `sicherung.conf`-Dateien durch — ohne eine wurde
+traefik schlicht übersprungen. Was von ihm gesichert wurde, stand als
+**fester Block mit Toolnamen** im zentralen Skript, und der deckte genau
+eine Datei ab: `acme.json`.
+
+Nicht gesichert war damit `dynamic/` — und darin liegt `einlass.yml` mit
+der Marke der Vertrauensgrenze (`N-44`). Die Datei ist bewusst nicht im
+Git (§21). Nach einem Verlust gibt es sie nur neu, und dann muss sie in
+jedes Werkzeug nachgezogen werden, wobei alle Sitzungen ablaufen.
+
+### Was jetzt kommt
+
+**`werkzeuge/volumes.py`** misst, was ein Werkzeug wirklich ablegt:
+
+```
+$ python3 werkzeuge/volumes.py /opt/stack
+admin|volume|admin_admin_daten|gesichert
+traefik|bind|acme.json|gesichert
+traefik|bind|log|erklaert|Betriebsprotokoll - faengt nach einer Wiederherstellung neu an
+bitwarden|volume|bitwarden_bw-data|FEHLT
+```
+
+Drei Entscheidungen darin:
+
+1. **Gemessen wird die zusammengesetzte Konfiguration**, nicht eine
+   Datei. Bei einem Fremdwerkzeug steht die Hälfte im Overlay (§16), und
+   ein Prüfer, der nur eine der beiden liest, sieht die Hälfte — dieselbe
+   Narbe wie `N-70`.
+2. **Der Laufzeitname kommt von `docker compose config`**, nicht aus einer
+   Rechnung. Er lautet `<ordner>_<schlüssel>` und nicht `<schlüssel>` —
+   genau daran vertippt man sich beim Eintragen von Hand. Die Meldung
+   schreibt ihn aus. (Und `config` braucht dafür keinen laufenden Docker.)
+3. **Bind-Mounts zählen mit.** Die sieht `docker volume ls` gar nicht, und
+   bei authentik und traefik lag genau dort das Unbewachte.
+
+**Die Sicherung bricht jetzt ab**, wenn etwas fehlt — kein `.letzter-erfolg`,
+Rückgabewert 1, also stoppt auch `prolo aktualisieren`, bevor es etwas
+anfasst. Das ist die richtige Reihenfolge: nichts aktualisieren, dessen
+Daten nicht gesichert sind. Und die Meldung nennt die Zeile, nicht die
+Aufgabe (§7, `N-67`):
+
+```
+ACHTUNG: hier entstehen Daten, die NICHT gesichert werden.
+
+  bitwarden      volume  bitwarden_bw-data
+
+  Das ist keine Warnung, sondern eine Luecke: was hier nicht steht,
+  ist nach einem Verlust weg. Je Zeile EINE der beiden Zeilen in
+  die sicherung.conf des Werkzeugs:
+
+    VOLUMES="... <name>"          # es wird gesichert
+    VOLUMES_OHNE="<name>|<warum>" # es braucht keine Sicherung
+```
+
+**`VOLUMES_OHNE` ist der ehrliche Ausweg.** Nicht jedes Volume braucht
+eine Sicherung — ein Zwischenspeicher nicht, ein Protokoll nicht. Aber
+das ist eine **Entscheidung**, und sie wird hingeschrieben, wie
+`prolo.ports=` und `prolo.netz.geteilt=` auch. Stillschweigen zählt nicht.
+
+**`prolo start` warnt, blockiert aber nicht.** Starten muss man ein
+Werkzeug auch, bevor die Sicherung steht — sonst wird aus „einfach mal
+ausprobieren" eine Hürde. Der Hinweis steht an der Stelle, an der man noch
+etwas dagegen tun kann; das Abbrechen macht die Sicherung selbst.
+
+**`prolo neu`** nennt den Schritt jetzt in seiner Liste — nach dem
+Einsetzen der Herstellerdatei, weil es vorher nichts zu messen gibt, und
+vor dem Starten, weil danach Daten entstehen.
+
+Der feste `acme.json`-Block in `backup.sh` ist weg: traefik hat jetzt eine
+eigene `sicherung.conf`. Ein Toolname im zentralen Skript war genau das,
+was der Grundsatz verbietet.
+
+### Prüfung
+
+| | |
+|---|---|
+| `werkzeuge/sicherung-pruefen.sh` (neu) | **12 ok**, RC=0 |
+| `werkzeuge/sicherung-gegenprobe.py` (neu) | **8 von 8 gefunden** |
+| prolo / netze / grenze / neu | 92 / 42 / 62 / 101, alle RC=0 |
+| einrichten / regeln / dockerfile | 12 / 6 / 4, alle RC=0 |
+| `python3 werkzeuge/volumes.py .` | RC=**0** — vorher 5 Lücken |
+
+Zwei Dinge sind beim Bauen schiefgegangen, beide durch Hinsehen gefunden:
+
+**Der Prüfer gab Falschalarm.** Er meldete `authentik/custom-templates`
+als Lücke, obwohl der Eintrag längst dastand — er zog das führende `?`
+(„darf fehlen") nur bei `DATEIEN` ab, nicht bei `ORDNER`. Ein Prüfer, der
+Falschalarm gibt, wird nach dem zweiten Mal weggeklickt und ist dann
+schlimmer als keiner.
+
+**Und eine Mutation entwischte**, zum wiederholten Mal aus demselben
+Grund wie in `N-68` und `N-72`: *„liest nur die Herstellerdatei"* änderte
+nichts, weil im Prüfstand **jedes** Volume in der Herstellerdatei stand.
+Der Fall „ein Volume kommt erst im Overlay dazu" kam gar nicht vor. Er
+kommt jetzt vor.
+
+> Zum dritten Mal dieselbe Lehre: eine Prüfzeile über einen Fall, den der
+> Prüfstand nicht herstellt, ist grün aus Mangel an Gelegenheit. Beim
+> Schreiben einer Prüfzeile gehört die Frage dazu: **kommt dieser Fall im
+> Stand überhaupt vor?**

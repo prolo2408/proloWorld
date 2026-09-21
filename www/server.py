@@ -38,7 +38,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 
 EIGENER_ORDNER = os.path.dirname(os.path.abspath(__file__))
 DATEN = os.environ.get("WWW_DATEN", os.path.join(EIGENER_ORDNER, "daten"))
@@ -70,6 +70,21 @@ KEKS_DAUER_S = 12 * 3600
 EINLASS_KOPF = "X-Prolo-Einlass"
 EINLASS = os.environ.get("PROLO_EINLASS", "")
 EINLASS_B = EINLASS.encode("utf-8")
+# Alles, was die Verwaltung tut, liegt unter EINEM Praefix (N-74).
+#
+# Vorher lagen die Aufrufe unter /api/, und der geschuetzte Router traf
+# nur PathPrefix(`/verwaltung`) - also lief jeder einzelne davon ueber
+# den OEFFENTLICHEN Router dieses Werkzeugs, ohne authentik@file und
+# damit ohne Identitaetskopfzeile. Die eigene Pruefung (§17, N-44) hat
+# gehalten und alles mit 401 abgewiesen; die Verwaltung war dadurch
+# vollstaendig unbenutzbar, ohne dass irgendwo etwas offen stand.
+#
+# Eine Ausnahmeliste im Router waere der naechste Fehler gewesen
+# ("/api/ ausser /api/version"). Ein Praefix, der GESCHUETZT bedeutet,
+# braucht keine: was oeffentlich bleiben muss, liegt einfach nicht
+# darunter.
+VERWALTUNG_API = "/verwaltung/api/"
+
 EINLASS_FREI = ("/gesundheit", "/api/version")
 
 # Eine hochgeladene Seite ist fremder Code. Sie laeuft ohne Verbindung nach
@@ -383,7 +398,10 @@ class Handler(BaseHTTPRequestHandler):
                     "application/json; charset=utf-8")
 
     def fehler(self, code, text):
-        if self.path.startswith("/api/"):
+        # Beide Praefixe: sonst bekommt ein Aufruf der Verwaltung eine
+        # HTML-Seite als Antwort, und im Browser steht "Unexpected token
+        # '<'" statt dem Satz, der dort drin steht.
+        if self.path.startswith(("/api/", VERWALTUNG_API)):
             return self.json_senden({"fehler": text}, code)
         self.senden(code, seite_meldung(code, text))
 
@@ -535,7 +553,7 @@ class Handler(BaseHTTPRequestHandler):
         if pfad == "/verwaltung":
             self.verwalter()
             return self.senden(200, seite_verwaltung())
-        if pfad == "/api/verwaltung":
+        if pfad == "/verwaltung/api/daten":
             return self.json_senden(verwaltung_daten(self.verwalter()))
 
         raise Antwort(404, "Diese Adresse gibt es hier nicht.")
@@ -666,7 +684,7 @@ class Handler(BaseHTTPRequestHandler):
         if len(teile) == 2 and teile[0] == "z":
             return self.passwort_pruefen(teile[1])
 
-        if not pfad.startswith("/api/"):
+        if not pfad.startswith(VERWALTUNG_API):
             raise Antwort(404, "Diese Adresse gibt es hier nicht.")
 
         # Der Riegel gegen Formularangriffe von fremden Seiten: ein
@@ -677,19 +695,19 @@ class Handler(BaseHTTPRequestHandler):
             raise Antwort(403, "Diese Anfrage kam von einer fremden Seite.")
 
         nutzer = self.verwalter()
-        if pfad == "/api/hochladen":
+        if pfad == VERWALTUNG_API + "hochladen":
             return self.hochladen(nutzer)
 
         daten = json.loads(self.koerper_lesen() or b"{}")
-        if pfad == "/api/freigabe":
+        if pfad == VERWALTUNG_API + "freigabe":
             return self.freigabe_anlegen(nutzer, daten)
-        if pfad == "/api/zustand":
+        if pfad == VERWALTUNG_API + "zustand":
             return self.zustand_setzen(nutzer, daten)
-        if pfad == "/api/passwort":
+        if pfad == VERWALTUNG_API + "passwort":
             return self.passwort_setzen(nutzer, daten)
-        if pfad == "/api/loeschen":
+        if pfad == VERWALTUNG_API + "loeschen":
             return self.seite_loeschen(nutzer, daten)
-        if pfad == "/api/startseite":
+        if pfad == VERWALTUNG_API + "startseite":
             return self.startseite_setzen(nutzer, daten)
         raise Antwort(404, "Unbekannter Aufruf.")
 
@@ -1162,9 +1180,21 @@ async function ruf(weg, daten){
   return j;
 }
 async function laden(){
-  const a = await fetch('/api/verwaltung');
-  if(!a.ok){ melden('Die Liste kam nicht — bist du noch angemeldet?', 'fehler');
-             return; }
+  const a = await fetch('/verwaltung/api/daten');
+  if(!a.ok){
+    // Nicht raten (N-75). Der Status steht hier, und die Meldung des
+    // Servers auch - "bist du noch angemeldet?" war eine Vermutung, und
+    // bei 401 stimmte sie nicht einmal: da lag es am Router, nicht an
+    // der Anmeldung. Wer zum Nachsehen auffordert, nennt den Befund.
+    const j = await a.json().catch(() => ({}));
+    melden('Die Liste kam nicht (HTTP ' + a.status + ')' +
+      (j.fehler ? ': ' + j.fehler : '. Der Server hat keine Erklärung ' +
+       'mitgeschickt — dann kam die Antwort nicht von diesem Werkzeug, ' +
+       'sondern vom Zugang davor.') +
+      (a.status === 401 || a.status === 403
+        ? ' Melde dich neu an; bleibt es dabei, sieh im Protokoll nach: ' +
+          'sudo prolo protokoll www' : ''), 'fehler');
+    return; }
   const d = await a.json();
   $('wer').textContent = d.nutzer + ' · Fassung ' + d.version;
   startseite_zeigen(d);
@@ -1259,7 +1289,7 @@ document.addEventListener('click', async (e) => {
     if(tun === 'freigabe'){
       const et = $('et-' + k.dataset.kennung).value.trim();
       const tg = $('tg-' + k.dataset.kennung).value;
-      const a = await ruf('/api/freigabe',
+      const a = await ruf('/verwaltung/api/freigabe',
         {kennung: k.dataset.kennung, etikett: et, tage: tg});
       const url = location.origin + '/z/' + a.marke;
       $('bericht').innerHTML = '<div class="meldung gut"><strong>Der Link — ' +
@@ -1270,7 +1300,7 @@ document.addEventListener('click', async (e) => {
         '</div>';
       $('bericht').querySelector('input').select();
     } else if(tun === 'zustand'){
-      await ruf('/api/zustand', {id: +k.dataset.id, zustand: k.dataset.ziel});
+      await ruf('/verwaltung/api/zustand', {id: +k.dataset.id, zustand: k.dataset.ziel});
       melden(k.dataset.ziel === 'aktiv' ? 'Der Link gilt wieder.'
                                         : 'Der Link gilt nicht mehr.', 'gut');
     } else if(tun === 'passwort'){
@@ -1279,7 +1309,7 @@ document.addEventListener('click', async (e) => {
         pw = prompt('Passwort für diesen Link (mindestens acht Zeichen):');
         if(pw === null){ k.disabled = false; return; }
       }
-      await ruf('/api/passwort', {id: +k.dataset.id, passwort: pw});
+      await ruf('/verwaltung/api/passwort', {id: +k.dataset.id, passwort: pw});
       melden(pw ? 'Der Link fragt jetzt nach dem Passwort.'
                 : 'Der Link fragt nicht mehr nach einem Passwort.', 'gut');
     } else if(tun === 'start'){
@@ -1287,7 +1317,7 @@ document.addEventListener('click', async (e) => {
       if(wahl && !confirm('Die Seite wird damit für JEDEN sichtbar, der die ' +
         'Adresse aufruft — ohne Link und ohne Anmeldung, und Suchmaschinen ' +
         'dürfen sie finden. Wirklich?')){ k.disabled = false; return; }
-      await ruf('/api/startseite', {kennung: wahl});
+      await ruf('/verwaltung/api/startseite', {kennung: wahl});
       melden(wahl ? 'Die Seite steht jetzt unter der nackten Adresse.'
                   : 'Dort steht wieder das leere Schild. Die Seite selbst ' +
                     'bleibt liegen.', 'gut');
@@ -1298,7 +1328,7 @@ document.addEventListener('click', async (e) => {
                   ? ' Sie ist die Startseite — die Adresse zeigt danach '
                     + 'wieder das leere Schild.' : ''))){
         k.disabled = false; return; }
-      const a = await ruf('/api/loeschen',
+      const a = await ruf('/verwaltung/api/loeschen',
         {kennung: k.dataset.kennung, bestaetigt: true});
       melden('Die Seite ist aus der Liste. Die Datei liegt noch auf dem ' +
              'Server, bis jemand sie dort entfernt.' + (a.war_startseite
@@ -1318,7 +1348,7 @@ $('datei').addEventListener('change', async (e) => {
   melden('Wird abgelegt …');
   try {
     const titel = encodeURIComponent($('titel').value.trim());
-    const a = await fetch('/api/hochladen?titel=' + titel,
+    const a = await fetch('/verwaltung/api/hochladen?titel=' + titel,
       {method:'POST', headers:{'Content-Type':'text/html'}, body: d});
     const j = await a.json().catch(() => ({}));
     if(!a.ok) throw new Error(j.fehler || ('Der Server hat mit ' + a.status +

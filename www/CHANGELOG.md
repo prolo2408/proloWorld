@@ -5,6 +5,39 @@ Geschrieben für den Nutzer, nicht für Entwickler. Neueste Fassung oben.
 Fassungsnummern: letzte Stelle = Fehlerbehebung, mittlere = neue Funktion,
 erste = etwas Bestehendes bricht.
 
+## Fassung 1.1.1
+
+**Die Verwaltung ging gar nicht.** Wer sie öffnete, sah die Seite, aber
+darunter nur „Die Liste kam nicht — bist du noch angemeldet?". Hochladen,
+Links ausgeben, Startseite setzen: nichts davon hat funktioniert.
+
+Der Grund lag nicht an der Anmeldung. Traefik schützt an diesem Werkzeug
+genau einen Pfad — `/verwaltung` —, und die Aufrufe der Verwaltung lagen
+darunter nicht, sondern unter `/api/`. Sie liefen damit über den
+**öffentlichen** Router, bekamen nie eine Identitätskopfzeile, und das
+Werkzeug wies sie zu Recht ab.
+
+Offen gestanden hat dabei nichts: die eigene Prüfung im Werkzeug hat
+gehalten und jeden Aufruf abgelehnt. Genau dafür gibt es sie.
+
+Jetzt liegt alles, was die Verwaltung braucht, unter `/verwaltung/…` —
+ein Pfad, der „geschützt" bedeutet. Was öffentlich bleiben muss (die
+Startseite, die Zugangslinks, `/gesundheit`, `/api/version`), liegt
+einfach nicht darunter.
+
+**Für dich ändert sich nichts** außer dass es geht. Lesezeichen auf
+`/verwaltung` bleiben gültig.
+
+Und die Meldung rät nicht mehr. „Bist du noch angemeldet?" war eine
+Vermutung — und bei diesem Fehler die falsche. Jetzt steht da, was
+wirklich zurückkam:
+
+> Die Liste kam nicht (HTTP 503): Die Datenbank ist gerade nicht erreichbar.
+
+Kommt gar keine Erklärung mit, sagt sie auch das — dann hat nicht das
+Werkzeug geantwortet, sondern der Zugang davor, und man sucht an der
+richtigen Stelle weiter.
+
 ## Fassung 1.1.0
 
 Die nackte Adresse zeigte bisher immer dasselbe Schild: „Hier liegt

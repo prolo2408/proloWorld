@@ -5,7 +5,7 @@ services:
     # aktualisieren.sh liest genau diese Zeile, um sich die bisherige
     # Fassung zu merken - ohne sie gibt es keinen Rueckweg.
     # Die Fassung passt zum CHANGELOG.md und wird dort mitgezogen.
-    image: www:1.1.0
+    image: www:1.1.1
     container_name: www
     # Grenzen nach CLAUDE.md §19.
     mem_limit: 512m
@@ -57,6 +57,20 @@ services:
       #    die hoehere Zahl gewaenne der Router oben, weil er dieselbe
       #    Regel breiter fasst - und die Verwaltung staende offen.
       #    Das Werkzeug prueft die Gruppe ZUSAETZLICH selbst (§17).
+      #
+      #    Dieser Praefix ist die Grenze (N-74): ALLES, was Verwalter-
+      #    rechte braucht, liegt unter /verwaltung - die Seite und jeder
+      #    Aufruf darunter (/verwaltung/api/...). Vorher lagen die
+      #    Aufrufe unter /api/ und wurden von dieser Regel nicht
+      #    getroffen; sie liefen ueber den oeffentlichen Router und
+      #    bekamen nie eine Identitaetskopfzeile. Offen stand dadurch
+      #    nichts - die eigene Pruefung hat alles mit 401 abgewiesen -,
+      #    aber die Verwaltung war unbenutzbar.
+      #
+      #    Wer hier einen Aufruf dazunimmt, legt ihn unter den Praefix.
+      #    Eine Ausnahmeliste ("/api/ ausser /api/version") waere der
+      #    naechste Fehler. www/tests/test_freigabe.py haelt beide
+      #    Seiten zusammen.
       - "traefik.http.routers.www-verwaltung.rule=(Host(`prolo.me`) || Host(`www.prolo.me`)) && PathPrefix(`/verwaltung`)"
       - "traefik.http.routers.www-verwaltung.entrypoints=websecure"
       - "traefik.http.routers.www-verwaltung.tls.certresolver=letsencrypt"

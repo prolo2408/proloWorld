@@ -722,6 +722,32 @@ start_pruefen() {
   return "$FEHLT"
 }
 
+# Legt dieses Werkzeug Daten ab, die in keiner sicherung.conf stehen?
+#
+# Das BLOCKIERT nicht: starten koennen muss man ein Werkzeug auch, bevor
+# die Sicherung steht - sonst wird aus "einfach mal ausprobieren" eine
+# Huerde. Aber ab dem Start entstehen Daten, und ab da ist es eine Luecke.
+# Die Sicherung selbst bricht deswegen ab (N-76); hier steht der Hinweis
+# an der Stelle, an der man noch etwas dagegen tun kann.
+sicherung_hinweis() {
+  local TOOL="$1" LUECKEN=""
+  [ -x "$HIER/volumes.py" ] || return 0
+  LUECKEN=$(python3 "$HIER/volumes.py" "$STACK" "$TOOL" 2>/dev/null \
+            | grep '|FEHLT$' || true)
+  [ -n "$LUECKEN" ] || return 0
+  melde ""
+  melde "  HINWEIS: $TOOL legt Daten ab, die NICHT gesichert werden:"
+  printf '%s\n' "$LUECKEN" | while IFS='|' read -r _ ART NAME _; do
+    melde "    $ART  $NAME"
+  done
+  melde ""
+  melde "  Je Zeile eine der beiden in $TOOL/sicherung.conf:"
+  melde "    VOLUMES=\"... <name>\"          # wird gesichert"
+  melde "    VOLUMES_OHNE=\"<name>|<warum>\"  # braucht keine Sicherung"
+  melde ""
+  melde "  Solange etwas fehlt, bricht 'prolo sichern' ab und nennt es."
+}
+
 befehl_compose() {
   local WAS="$1" TOOL="${2:-}"
   [ -n "$TOOL" ] || { fehler "Aufruf: prolo $WAS <tool>"; exit 1; }
@@ -734,6 +760,11 @@ befehl_compose() {
     start)    docker compose up -d ;;
     stop)     docker compose down ;;
     neustart) docker compose restart ;;
+  esac
+  # NACH dem Start, nicht davor: es ist ein Hinweis, kein Hindernis, und
+  # was danach schiefgeht, ist kein Fehlschlag des Starts (§12).
+  case "$WAS" in
+    start|neustart) sicherung_hinweis "$TOOL" || true ;;
   esac
 }
 

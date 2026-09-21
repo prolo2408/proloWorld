@@ -6,8 +6,10 @@ loeschen. Und die Rechte: wer ohne die Gruppe kommt, sieht nichts.
 
 Aufruf:  python3 -m unittest discover -s tests -t tests
 """
+import io
 import json
 import os
+import re
 import shutil
 import socket
 import sqlite3
@@ -120,13 +122,13 @@ class Dienst(unittest.TestCase):
             return code, roh
 
     def seite_ablegen(self, titel="Lebenslauf lang"):
-        code, antwort = self.js("/api/hochladen?titel=" + titel.replace(" ", "%20"),
+        code, antwort = self.js("/verwaltung/api/hochladen?titel=" + titel.replace(" ", "%20"),
                                 daten=SEITE.encode(), typ="text/html")
         self.assertEqual(code, 200, antwort)
         return antwort["kennung"]
 
     def link_ausgeben(self, kennung, etikett="Bewerbung Probe", tage=90):
-        code, antwort = self.js("/api/freigabe",
+        code, antwort = self.js("/verwaltung/api/freigabe",
                                 daten={"kennung": kennung, "etikett": etikett,
                                        "tage": tage})
         self.assertEqual(code, 200, antwort)
@@ -161,7 +163,7 @@ class DerWegEinesLinks(Dienst):
 
         # Zurueckziehen - der Link gilt nicht mehr, die Seite bleibt.
         nummer = self.freigabe_nummer(kennung)
-        code, _ = self.js("/api/zustand", daten={"id": nummer,
+        code, _ = self.js("/verwaltung/api/zustand", daten={"id": nummer,
                                                  "zustand": "gesperrt"})
         self.assertEqual(code, 200)
         code, _, _ = self.ruf("/z/" + marke, nutzer="", gruppen="")
@@ -172,14 +174,14 @@ class DerWegEinesLinks(Dienst):
         self.assertEqual(code, 403)
 
         # Und wieder freischalten: DERSELBE Link geht wieder.
-        code, _ = self.js("/api/zustand", daten={"id": nummer,
+        code, _ = self.js("/verwaltung/api/zustand", daten={"id": nummer,
                                                  "zustand": "aktiv"})
         self.assertEqual(code, 200)
         keks2, ziel2 = self.keks_holen(marke)
         self.assertEqual(ziel2, "/s/lebenslauf-lang")
 
     def freigabe_nummer(self, kennung, nr=0):
-        _, d = self.js("/api/verwaltung")
+        _, d = self.js("/verwaltung/api/daten")
         for s in d["seiten"]:
             if s["kennung"] == kennung:
                 return s["freigaben"][nr]["id"]
@@ -188,7 +190,7 @@ class DerWegEinesLinks(Dienst):
     def test_die_marke_steht_nirgends_gespeichert(self):
         kennung = self.seite_ablegen("Nur Abdruck")
         marke = self.link_ausgeben(kennung, "Probe Abdruck")
-        _, d = self.js("/api/verwaltung")
+        _, d = self.js("/verwaltung/api/daten")
         self.assertNotIn(marke, json.dumps(d),
                          "die Marke steht in der Verwaltungsauskunft")
         pfad = os.path.join(self.ordner, "daten", "www.db")
@@ -245,18 +247,18 @@ class DerWegEinesLinks(Dienst):
         marke = self.link_ausgeben(kennung, "Probe Zaehler")
         for _ in range(3):
             self.keks_holen(marke)
-        _, d = self.js("/api/verwaltung")
+        _, d = self.js("/verwaltung/api/daten")
         s = [x for x in d["seiten"] if x["kennung"] == kennung][0]
         self.assertEqual(s["freigaben"][0]["aufrufe"], 3)
 
     def test_ein_abgelaufener_link_traegt_nicht(self):
         kennung = self.seite_ablegen("Abgelaufen")
-        code, antwort = self.js("/api/freigabe",
+        code, antwort = self.js("/verwaltung/api/freigabe",
                                 daten={"kennung": kennung, "etikett": "X",
                                        "tage": 0})
         self.assertEqual(code, 200, antwort)   # 0 = ohne Ablauf
         self.assertIsNone(antwort["laeuft_ab"])
-        code, antwort = self.js("/api/freigabe",
+        code, antwort = self.js("/verwaltung/api/freigabe",
                                 daten={"kennung": kennung, "etikett": "Y",
                                        "tage": 4000})
         self.assertEqual(code, 400, "4000 Tage muessen abgewiesen werden")
@@ -266,7 +268,7 @@ class Passwort(Dienst):
     """Ein Passwort laesst sich zuschalten und wieder wegnehmen."""
 
     def nummer(self, kennung):
-        _, d = self.js("/api/verwaltung")
+        _, d = self.js("/verwaltung/api/daten")
         for s in d["seiten"]:
             if s["kennung"] == kennung:
                 return s["freigaben"][0]["id"]
@@ -276,7 +278,7 @@ class Passwort(Dienst):
         kennung = self.seite_ablegen("Mit Passwort")
         marke = self.link_ausgeben(kennung, "Probe Passwort")
         nummer = self.nummer(kennung)
-        code, _ = self.js("/api/passwort", daten={"id": nummer,
+        code, _ = self.js("/verwaltung/api/passwort", daten={"id": nummer,
                                                   "passwort": "gutes-passwort"})
         self.assertEqual(code, 200)
 
@@ -302,7 +304,7 @@ class Passwort(Dienst):
         self.assertIn("prolo_einlass=", kopf.get("Set-Cookie", ""))
 
         # Wieder wegnehmen: der Link fuehrt ohne Umweg zur Seite.
-        code, _ = self.js("/api/passwort", daten={"id": nummer, "passwort": ""})
+        code, _ = self.js("/verwaltung/api/passwort", daten={"id": nummer, "passwort": ""})
         self.assertEqual(code, 200)
         code, _, kopf = self.ruf("/z/" + marke, nutzer="", gruppen="")
         self.assertEqual(code, 302)
@@ -310,7 +312,7 @@ class Passwort(Dienst):
     def test_ein_zu_kurzes_passwort_wird_abgewiesen(self):
         kennung = self.seite_ablegen("Kurzes Passwort")
         self.link_ausgeben(kennung, "Probe")
-        code, antwort = self.js("/api/passwort",
+        code, antwort = self.js("/verwaltung/api/passwort",
                                 daten={"id": self.nummer(kennung),
                                        "passwort": "kurz"})
         self.assertEqual(code, 400, antwort)
@@ -318,7 +320,7 @@ class Passwort(Dienst):
     def test_das_passwort_steht_nicht_im_klartext(self):
         kennung = self.seite_ablegen("Geheim abgelegt")
         self.link_ausgeben(kennung, "Probe")
-        self.js("/api/passwort", daten={"id": self.nummer(kennung),
+        self.js("/verwaltung/api/passwort", daten={"id": self.nummer(kennung),
                                         "passwort": "sehr-geheim-123"})
         with open(os.path.join(self.ordner, "daten", "www.db"), "rb") as f:
             roh = f.read()
@@ -390,11 +392,11 @@ class Rechte(Dienst):
     }
     WEGE = [
         ("GET", "/verwaltung", None),
-        ("GET", "/api/verwaltung", None),
-        ("POST", "/api/freigabe", {"kennung": "x", "etikett": "y"}),
-        ("POST", "/api/zustand", {"id": 1, "zustand": "gesperrt"}),
-        ("POST", "/api/passwort", {"id": 1, "passwort": "achtzeichen"}),
-        ("POST", "/api/loeschen", {"kennung": "x", "bestaetigt": True}),
+        ("GET", "/verwaltung/api/daten", None),
+        ("POST", "/verwaltung/api/freigabe", {"kennung": "x", "etikett": "y"}),
+        ("POST", "/verwaltung/api/zustand", {"id": 1, "zustand": "gesperrt"}),
+        ("POST", "/verwaltung/api/passwort", {"id": 1, "passwort": "achtzeichen"}),
+        ("POST", "/verwaltung/api/loeschen", {"kennung": "x", "bestaetigt": True}),
     ]
     # Von Hand: ohne Anmeldung 401, angemeldet aber ohne Gruppe 403 - auch
     # mit den Verwaltungsgruppen ANDERER Werkzeuge.
@@ -421,7 +423,7 @@ class Rechte(Dienst):
             if rolle == "verwalter":
                 continue
             with self.subTest(rolle=rolle):
-                code, _, _ = self.ruf("/api/hochladen", nutzer=nutzer,
+                code, _, _ = self.ruf("/verwaltung/api/hochladen", nutzer=nutzer,
                                       gruppen=gruppen, daten=SEITE.encode(),
                                       typ="text/html")
                 self.assertEqual(code, self.SOLL[rolle])
@@ -429,7 +431,7 @@ class Rechte(Dienst):
     def test_eine_fremde_seite_kommt_nicht_durch(self):
         # Sec-Fetch-Site: cross-site ist ein Formular von woanders.
         import urllib.request as u
-        a = u.Request("http://127.0.0.1:%d/api/loeschen" % self.port,
+        a = u.Request("http://127.0.0.1:%d/verwaltung/api/loeschen" % self.port,
                       data=b'{"kennung":"x","bestaetigt":true}', method="POST")
         a.add_header("X-Prolo-Einlass", EINLASS)
         a.add_header("X-Authentik-Username", "artur")
@@ -443,11 +445,98 @@ class Rechte(Dienst):
             self.assertEqual(e.code, 403)
 
 
+class DieGrenzeDerVerwaltung(Dienst):
+    """Was Verwalterrechte braucht, muss der Router auch treffen (N-74).
+
+    Traefik schuetzt an diesem Werkzeug genau einen Praefix:
+
+        PathPrefix(`/verwaltung`)
+
+    Vorher lagen die Aufrufe der Verwaltung unter /api/ und liefen damit
+    ueber den OEFFENTLICHEN Router - ohne authentik@file, also ohne
+    Identitaetskopfzeile. Die eigene Pruefung (§17, N-44) hat gehalten
+    und alles mit 401 abgewiesen; offen stand nichts, benutzbar war die
+    Verwaltung aber auch nicht.
+
+    Diese Klasse haelt die beiden Seiten zusammen - die Datei mit den
+    Wegen und die Datei mit der Router-Regel.
+    """
+
+    # Was mit ABSICHT ohne Anmeldung erreichbar ist (§19). Wer hier etwas
+    # eintraegt, trifft eine Entscheidung; wer einen Weg vergisst, faellt
+    # unten durch.
+    OEFFENTLICH = {"/", "/gesundheit", "/api/version", "/favicon.ico",
+                   "/robots.txt"}
+
+    def lies(self, name):
+        with io.open(os.path.join(WURZEL, name), encoding="utf-8") as f:
+            return f.read()
+
+    def test_kein_weg_der_verwaltung_liegt_ausserhalb_des_praefix(self):
+        q = self.lies("server.py")
+        wege = set(re.findall(r'pfad == "(/[^"]*)"', q))
+        wege |= {"/verwaltung/api/" + m
+                 for m in re.findall(r'VERWALTUNG_API \+ "([^"]+)"', q)}
+        # Der Prueferbeweis: findet die Suche ueberhaupt etwas?
+        self.assertGreaterEqual(len(wege), 8, wege)
+        self.assertIn("/verwaltung", wege)
+        draussen = sorted(w for w in wege if w not in self.OEFFENTLICH
+                          and not w.startswith("/verwaltung"))
+        self.assertEqual(draussen, [],
+                         "Diese Wege liegen ausserhalb von PathPrefix(/verwaltung) "
+                         "und damit hinter dem OEFFENTLICHEN Router: %s" % draussen)
+
+    def test_die_router_regel_trifft_diesen_praefix(self):
+        """Die andere Seite: steht es auch wirklich so in der Compose-Datei?"""
+        y = self.lies("docker-compose.yml")
+        zeile = [z for z in y.splitlines()
+                 if "routers.www-verwaltung.rule" in z]
+        self.assertEqual(len(zeile), 1, zeile)
+        self.assertIn("PathPrefix(`/verwaltung`)", zeile[0])
+        # Und der geschuetzte Router muss gewinnen, sonst greift die
+        # breitere oeffentliche Regel (§19).
+        self.assertIn("traefik.http.routers.www-verwaltung.middlewares=authentik@file", y)
+        self.assertIn("traefik.http.routers.www-verwaltung.priority=100", y)
+
+    def test_jeder_weg_der_verwaltung_weist_ohne_kopfzeile_ab(self):
+        """Die zweite Tuer, gemessen statt behauptet."""
+        for methode, weg, daten in (
+                ("GET", "/verwaltung", None),
+                ("GET", "/verwaltung/api/daten", None),
+                ("POST", "/verwaltung/api/freigabe", {"kennung": "x", "etikett": "y"}),
+                ("POST", "/verwaltung/api/startseite", {"kennung": ""}),
+                ("POST", "/verwaltung/api/loeschen", {"kennung": "x", "bestaetigt": True})):
+            with self.subTest(weg=weg):
+                code, _, _ = self.ruf(weg, nutzer="", gruppen="",
+                                      daten=daten, methode=methode)
+                self.assertEqual(code, 401)
+
+    def test_die_meldung_raet_nicht_mehr(self, ):
+        """N-75. Der Beweis ist der Browserlauf; das hier haelt ihn fest.
+
+        Der Status und die Meldung des Servers liegen im Browser vor -
+        sie wegzuwerfen und dafuer eine Vermutung hinzuschreiben war
+        genau der Grund, warum dieser Befund zwei Tage lang nicht zu
+        stellen war.
+        """
+        q = self.lies("server.py")
+        self.assertNotIn("kam nicht \u2014 bist du noch angemeldet?", q)
+        self.assertIn("'Die Liste kam nicht (HTTP ' + a.status", q)
+        # Und die Meldung des Servers wird mit ausgegeben, nicht nur die Zahl.
+        self.assertIn("j.fehler ? ': ' + j.fehler", q)
+
+    def test_die_oeffentlichen_wege_bleiben_oeffentlich(self):
+        for weg in ("/", "/gesundheit", "/api/version", "/robots.txt"):
+            with self.subTest(weg=weg):
+                code, _, _ = self.ruf(weg, nutzer="", gruppen="")
+                self.assertEqual(code, 200)
+
+
 class Vertrauensgrenze(Dienst):
     """N-44 - auch die oeffentlichen Pfade liegen dahinter."""
 
     def test_ohne_marke_kommt_niemand_durch(self):
-        for weg in ("/", "/verwaltung", "/api/verwaltung", "/z/" + "A" * 32,
+        for weg in ("/", "/verwaltung", "/verwaltung/api/daten", "/z/" + "A" * 32,
                     "/s/irgendwas"):
             with self.subTest(weg=weg):
                 code, _, _ = self.ruf(weg, nutzer="artur", gruppen=ADMIN,
@@ -455,7 +544,7 @@ class Vertrauensgrenze(Dienst):
                 self.assertEqual(code, 401)
 
     def test_auch_schreibende_aufrufe_brauchen_die_marke(self):
-        code, _, _ = self.ruf("/api/freigabe", daten={"kennung": "x",
+        code, _, _ = self.ruf("/verwaltung/api/freigabe", daten={"kennung": "x",
                                                       "etikett": "y"},
                               einlass=False)
         self.assertEqual(code, 401)
@@ -471,31 +560,31 @@ class Eingaben(Dienst):
     """Was hochgeladen wird, ist grundsaetzlich falsch (§11)."""
 
     def test_keine_html_datei(self):
-        code, antwort = self.js("/api/hochladen", daten=b"nur text",
+        code, antwort = self.js("/verwaltung/api/hochladen", daten=b"nur text",
                                 typ="text/html")
         self.assertEqual(code, 400)
         self.assertIn("HTML", antwort["fehler"])
 
     def test_leere_datei(self):
-        code, antwort = self.js("/api/hochladen", daten=b"   ", typ="text/html")
+        code, antwort = self.js("/verwaltung/api/hochladen", daten=b"   ", typ="text/html")
         self.assertEqual(code, 400)
 
     def test_kein_utf8(self):
-        code, antwort = self.js("/api/hochladen", daten=b"<html>\xff\xfe</html>",
+        code, antwort = self.js("/verwaltung/api/hochladen", daten=b"<html>\xff\xfe</html>",
                                 typ="text/html")
         self.assertEqual(code, 400)
         self.assertIn("UTF-8", antwort["fehler"])
 
     def test_eine_freigabe_ohne_etikett_wird_abgewiesen(self):
         kennung = self.seite_ablegen("Ohne Etikett")
-        code, antwort = self.js("/api/freigabe",
+        code, antwort = self.js("/verwaltung/api/freigabe",
                                 daten={"kennung": kennung, "etikett": "  "})
         self.assertEqual(code, 400)
         self.assertIn("Etikett", antwort["fehler"])
 
     def test_boeser_titel_bleibt_harmlos(self):
         böse = "</title><script>alert(1)</script>"
-        code, antwort = self.js("/api/hochladen", daten=SEITE.encode(),
+        code, antwort = self.js("/verwaltung/api/hochladen", daten=SEITE.encode(),
                                 typ="text/html")
         self.assertEqual(code, 200)
         # Der Titel aus der Datei wird gelesen, nicht ausgefuehrt: die
@@ -504,18 +593,18 @@ class Eingaben(Dienst):
 
     def test_loeschen_ohne_bestaetigung_passiert_nicht(self):
         kennung = self.seite_ablegen("Nicht loeschen")
-        code, _ = self.js("/api/loeschen", daten={"kennung": kennung})
+        code, _ = self.js("/verwaltung/api/loeschen", daten={"kennung": kennung})
         self.assertEqual(code, 400)
-        _, d = self.js("/api/verwaltung")
+        _, d = self.js("/verwaltung/api/daten")
         self.assertIn(kennung, [s["kennung"] for s in d["seiten"]])
 
     def test_geloeschte_seite_ist_weg_und_ihre_links_tot(self):
         kennung = self.seite_ablegen("Wird geloescht")
         marke = self.link_ausgeben(kennung, "Probe")
-        code, _ = self.js("/api/loeschen", daten={"kennung": kennung,
+        code, _ = self.js("/verwaltung/api/loeschen", daten={"kennung": kennung,
                                                   "bestaetigt": True})
         self.assertEqual(code, 200)
-        _, d = self.js("/api/verwaltung")
+        _, d = self.js("/verwaltung/api/daten")
         self.assertNotIn(kennung, [s["kennung"] for s in d["seiten"]])
         code, _, _ = self.ruf("/z/" + marke, nutzer="", gruppen="")
         self.assertEqual(code, 404)
@@ -539,13 +628,13 @@ class DieStartseite(Dienst):
 
     def start_ablegen(self, titel="Prolo Startseite"):
         code, antwort = self.js(
-            "/api/hochladen?titel=" + titel.replace(" ", "%20"),
+            "/verwaltung/api/hochladen?titel=" + titel.replace(" ", "%20"),
             daten=self.START.encode(), typ="text/html")
         self.assertEqual(code, 200, antwort)
         return antwort["kennung"]
 
     def aufraeumen(self):
-        self.js("/api/startseite", daten={"kennung": ""})
+        self.js("/verwaltung/api/startseite", daten={"kennung": ""})
 
     # ------------------------------------------------------------------
     def test_ohne_markierung_steht_dort_das_schild(self):
@@ -559,7 +648,7 @@ class DieStartseite(Dienst):
     def test_markierte_seite_steht_unter_der_nackten_adresse(self):
         self.aufraeumen()
         kennung = self.start_ablegen()
-        code, antwort = self.js("/api/startseite", daten={"kennung": kennung})
+        code, antwort = self.js("/verwaltung/api/startseite", daten={"kennung": kennung})
         self.assertEqual(code, 200, antwort)
         self.assertEqual(antwort["startseite"], kennung)
 
@@ -584,7 +673,7 @@ class DieStartseite(Dienst):
         """
         start = self.start_ablegen("Oeffentlich")
         geheim = self.seite_ablegen("Streng geheim")
-        self.js("/api/startseite", daten={"kennung": start})
+        self.js("/verwaltung/api/startseite", daten={"kennung": start})
 
         # Die freigegebene Seite bleibt ohne Plaetzchen verschlossen.
         code, _, _ = self.ruf("/s/" + geheim, nutzer="", gruppen="")
@@ -606,7 +695,7 @@ class DieStartseite(Dienst):
         self.assertEqual(roh.decode(), "User-agent: *\nDisallow: /\n")
 
         kennung = self.start_ablegen("Robots Probe")
-        self.js("/api/startseite", daten={"kennung": kennung})
+        self.js("/verwaltung/api/startseite", daten={"kennung": kennung})
         code, roh, _ = self.ruf("/robots.txt", nutzer="", gruppen="")
         self.assertEqual(roh.decode(),
                          "User-agent: *\nAllow: /$\nDisallow: /\n")
@@ -614,14 +703,14 @@ class DieStartseite(Dienst):
 
     def test_markierung_wieder_abnehmen(self):
         kennung = self.start_ablegen("Nur kurz")
-        self.js("/api/startseite", daten={"kennung": kennung})
-        code, antwort = self.js("/api/startseite", daten={"kennung": ""})
+        self.js("/verwaltung/api/startseite", daten={"kennung": kennung})
+        code, antwort = self.js("/verwaltung/api/startseite", daten={"kennung": ""})
         self.assertEqual(code, 200)
         self.assertIsNone(antwort["startseite"])
         code, roh, _ = self.ruf("/", nutzer="", gruppen="")
         self.assertIn("Hier liegt nichts offen herum", roh.decode())
         # Die Seite selbst bleibt liegen - abnehmen ist kein Loeschen.
-        _, d = self.js("/api/verwaltung")
+        _, d = self.js("/verwaltung/api/daten")
         self.assertIn(kennung, [s["kennung"] for s in d["seiten"]])
         self.aufraeumen()
 
@@ -629,15 +718,15 @@ class DieStartseite(Dienst):
         self.aufraeumen()
         a = self.start_ablegen("Erste Wahl")
         b = self.start_ablegen("Zweite Wahl")
-        self.js("/api/startseite", daten={"kennung": a})
-        self.js("/api/startseite", daten={"kennung": b})
-        _, d = self.js("/api/verwaltung")
+        self.js("/verwaltung/api/startseite", daten={"kennung": a})
+        self.js("/verwaltung/api/startseite", daten={"kennung": b})
+        _, d = self.js("/verwaltung/api/daten")
         self.assertEqual(d["startseite"], b)
         self.aufraeumen()
 
     def test_eine_unbekannte_seite_wird_abgewiesen(self):
         self.aufraeumen()
-        code, antwort = self.js("/api/startseite",
+        code, antwort = self.js("/verwaltung/api/startseite",
                                 daten={"kennung": "gibt-es-nicht"})
         self.assertEqual(code, 404)
         self.assertIn("gibt es nicht", antwort["fehler"])
@@ -645,21 +734,21 @@ class DieStartseite(Dienst):
     def test_wer_nicht_darf_kann_es_nicht_setzen(self):
         self.aufraeumen()
         kennung = self.start_ablegen("Fremde Hand")
-        code, _ = self.js("/api/startseite", daten={"kennung": kennung},
+        code, _ = self.js("/verwaltung/api/startseite", daten={"kennung": kennung},
                           gruppen="irgendwas")
         self.assertEqual(code, 403)
-        code, _ = self.js("/api/startseite", daten={"kennung": kennung},
+        code, _ = self.js("/verwaltung/api/startseite", daten={"kennung": kennung},
                           nutzer="", gruppen="")
         self.assertEqual(code, 401)
         # Und nichts davon ist angekommen.
-        _, d = self.js("/api/verwaltung")
+        _, d = self.js("/verwaltung/api/daten")
         self.assertIsNone(d["startseite"])
 
     def test_die_geloeschte_startseite_faellt_auf_das_schild_zurueck(self):
         self.aufraeumen()
         kennung = self.start_ablegen("Wird geloescht")
-        self.js("/api/startseite", daten={"kennung": kennung})
-        code, antwort = self.js("/api/loeschen",
+        self.js("/verwaltung/api/startseite", daten={"kennung": kennung})
+        code, antwort = self.js("/verwaltung/api/loeschen",
                                 daten={"kennung": kennung, "bestaetigt": True})
         self.assertEqual(code, 200)
         self.assertTrue(antwort["war_startseite"])
@@ -668,7 +757,7 @@ class DieStartseite(Dienst):
         self.assertIn("Hier liegt nichts offen herum", roh.decode())
         self.assertIn("noindex", kopf.get("X-Robots-Tag", ""))
         # Und die Zeile ist wirklich weg, nicht nur wirkungslos.
-        _, d = self.js("/api/verwaltung")
+        _, d = self.js("/verwaltung/api/daten")
         self.assertIsNone(d["startseite"])
 
     def db(self):
@@ -687,12 +776,12 @@ class DieStartseite(Dienst):
     def test_die_markierung_ist_nach_dem_loeschen_wirklich_weg(self):
         self.aufraeumen()
         kennung = self.start_ablegen("Spurlos")
-        self.js("/api/startseite", daten={"kennung": kennung})
+        self.js("/verwaltung/api/startseite", daten={"kennung": kennung})
         with self.db() as con:
             self.assertEqual(con.execute(
                 "SELECT count(*) FROM einstellung WHERE schluessel='startseite'"
             ).fetchone()[0], 1)
-        self.js("/api/loeschen", daten={"kennung": kennung, "bestaetigt": True})
+        self.js("/verwaltung/api/loeschen", daten={"kennung": kennung, "bestaetigt": True})
         # Nicht "wirkt nicht mehr", sondern "steht nicht mehr da". Eine
         # Zeile, die auf eine geloeschte Seite zeigt, ist eine Zeile ins
         # Leere - und die naechste Sicherung traegt sie mit (§12).
@@ -711,7 +800,7 @@ class DieStartseite(Dienst):
         """
         self.aufraeumen()
         kennung = self.start_ablegen("Heimlich geloescht")
-        self.js("/api/startseite", daten={"kennung": kennung})
+        self.js("/verwaltung/api/startseite", daten={"kennung": kennung})
         with self.db() as con:
             con.execute("UPDATE seite SET geloescht=1 WHERE kennung=?",
                         (kennung,))
@@ -731,7 +820,7 @@ class DieStartseite(Dienst):
     def test_eine_datei_die_verschwunden_ist_ergibt_das_schild(self):
         """Nicht 500. Der Besucher kann daran nichts aendern (§12)."""
         kennung = self.start_ablegen("Datei weg")
-        self.js("/api/startseite", daten={"kennung": kennung})
+        self.js("/verwaltung/api/startseite", daten={"kennung": kennung})
         os.remove(os.path.join(self.ordner, "seiten", kennung + ".html"))
         code, roh, _ = self.ruf("/", nutzer="", gruppen="")
         self.assertEqual(code, 200)
