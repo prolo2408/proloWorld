@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -521,3 +522,218 @@ class Eingaben(Dienst):
         # Die Datei liegt noch da (§15): erst markieren, dann irgendwann weg.
         self.assertTrue(os.path.exists(
             os.path.join(self.ordner, "seiten", kennung + ".html")))
+
+
+class DieStartseite(Dienst):
+    """Was unter "/" steht - das Schild, oder eine abgelegte Seite.
+
+    Der heikle Teil ist nicht das Ausliefern, sondern die Grenze drumherum:
+    eine Startseite ist oeffentlich, alles andere bleibt es nicht. Darum
+    wird hier jedes Mal beides geprueft - dass sie erscheint UND dass die
+    Freigaben davon nichts abbekommen.
+    """
+
+    START = ("<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"utf-8\">"
+             "<title>Prolo Startseite</title></head><body>"
+             "<h1>Willkommen</h1><p>Kennwort Sonnenblume.</p></body></html>")
+
+    def start_ablegen(self, titel="Prolo Startseite"):
+        code, antwort = self.js(
+            "/api/hochladen?titel=" + titel.replace(" ", "%20"),
+            daten=self.START.encode(), typ="text/html")
+        self.assertEqual(code, 200, antwort)
+        return antwort["kennung"]
+
+    def aufraeumen(self):
+        self.js("/api/startseite", daten={"kennung": ""})
+
+    # ------------------------------------------------------------------
+    def test_ohne_markierung_steht_dort_das_schild(self):
+        self.aufraeumen()
+        code, roh, kopf = self.ruf("/", nutzer="", gruppen="")
+        self.assertEqual(code, 200)
+        self.assertIn("Hier liegt nichts offen herum", roh.decode())
+        # Das Schild ist kein oeffentlicher Inhalt: es bleibt draussen.
+        self.assertIn("noindex", kopf.get("X-Robots-Tag", ""))
+
+    def test_markierte_seite_steht_unter_der_nackten_adresse(self):
+        self.aufraeumen()
+        kennung = self.start_ablegen()
+        code, antwort = self.js("/api/startseite", daten={"kennung": kennung})
+        self.assertEqual(code, 200, antwort)
+        self.assertEqual(antwort["startseite"], kennung)
+
+        # OHNE Anmeldung, OHNE Plaetzchen - genau das ist der Punkt.
+        code, roh, kopf = self.ruf("/", nutzer="", gruppen="")
+        self.assertEqual(code, 200)
+        self.assertIn(b"Kennwort Sonnenblume", roh)
+        self.assertNotIn(b"Hier liegt nichts offen herum", roh)
+        # Sie darf gefunden werden - und nur sie.
+        self.assertEqual(kopf.get("X-Robots-Tag"), "all")
+        # Fremder Code bleibt fremder Code: derselbe Riegel wie bei einer
+        # freigegebenen Seite.
+        self.assertIn("default-src 'none'", kopf.get("Content-Security-Policy", ""))
+        self.assertIn("frame-ancestors 'none'", kopf.get("Content-Security-Policy", ""))
+        self.aufraeumen()
+
+    def test_eine_startseite_oeffnet_die_freigaben_nicht(self):
+        """Der eigentliche Prueferbeweis.
+
+        Eine oeffentliche Startseite ist genau eine Adresse. Waere sie
+        versehentlich ein Generalschluessel, faende man es nur hier.
+        """
+        start = self.start_ablegen("Oeffentlich")
+        geheim = self.seite_ablegen("Streng geheim")
+        self.js("/api/startseite", daten={"kennung": start})
+
+        # Die freigegebene Seite bleibt ohne Plaetzchen verschlossen.
+        code, _, _ = self.ruf("/s/" + geheim, nutzer="", gruppen="")
+        self.assertEqual(code, 403)
+        # Auch die Startseite selbst ist unter ihrer eigenen Kennung nicht
+        # frei - oeffentlich ist die Wurzel, nicht die Seite.
+        code, _, _ = self.ruf("/s/" + start, nutzer="", gruppen="")
+        self.assertEqual(code, 403)
+        # Und die Verwaltung erst recht nicht.
+        code, _, _ = self.ruf("/verwaltung", nutzer="", gruppen="")
+        self.assertEqual(code, 401)
+        self.aufraeumen()
+
+    def test_robots_erlaubt_genau_die_wurzel(self):
+        self.aufraeumen()
+        code, roh, _ = self.ruf("/robots.txt", nutzer="", gruppen="")
+        self.assertEqual(code, 200)
+        # Handgerechnet: ohne Startseite ist alles gesperrt, ohne Ausnahme.
+        self.assertEqual(roh.decode(), "User-agent: *\nDisallow: /\n")
+
+        kennung = self.start_ablegen("Robots Probe")
+        self.js("/api/startseite", daten={"kennung": kennung})
+        code, roh, _ = self.ruf("/robots.txt", nutzer="", gruppen="")
+        self.assertEqual(roh.decode(),
+                         "User-agent: *\nAllow: /$\nDisallow: /\n")
+        self.aufraeumen()
+
+    def test_markierung_wieder_abnehmen(self):
+        kennung = self.start_ablegen("Nur kurz")
+        self.js("/api/startseite", daten={"kennung": kennung})
+        code, antwort = self.js("/api/startseite", daten={"kennung": ""})
+        self.assertEqual(code, 200)
+        self.assertIsNone(antwort["startseite"])
+        code, roh, _ = self.ruf("/", nutzer="", gruppen="")
+        self.assertIn("Hier liegt nichts offen herum", roh.decode())
+        # Die Seite selbst bleibt liegen - abnehmen ist kein Loeschen.
+        _, d = self.js("/api/verwaltung")
+        self.assertIn(kennung, [s["kennung"] for s in d["seiten"]])
+        self.aufraeumen()
+
+    def test_es_gibt_immer_hoechstens_eine(self):
+        self.aufraeumen()
+        a = self.start_ablegen("Erste Wahl")
+        b = self.start_ablegen("Zweite Wahl")
+        self.js("/api/startseite", daten={"kennung": a})
+        self.js("/api/startseite", daten={"kennung": b})
+        _, d = self.js("/api/verwaltung")
+        self.assertEqual(d["startseite"], b)
+        self.aufraeumen()
+
+    def test_eine_unbekannte_seite_wird_abgewiesen(self):
+        self.aufraeumen()
+        code, antwort = self.js("/api/startseite",
+                                daten={"kennung": "gibt-es-nicht"})
+        self.assertEqual(code, 404)
+        self.assertIn("gibt es nicht", antwort["fehler"])
+
+    def test_wer_nicht_darf_kann_es_nicht_setzen(self):
+        self.aufraeumen()
+        kennung = self.start_ablegen("Fremde Hand")
+        code, _ = self.js("/api/startseite", daten={"kennung": kennung},
+                          gruppen="irgendwas")
+        self.assertEqual(code, 403)
+        code, _ = self.js("/api/startseite", daten={"kennung": kennung},
+                          nutzer="", gruppen="")
+        self.assertEqual(code, 401)
+        # Und nichts davon ist angekommen.
+        _, d = self.js("/api/verwaltung")
+        self.assertIsNone(d["startseite"])
+
+    def test_die_geloeschte_startseite_faellt_auf_das_schild_zurueck(self):
+        self.aufraeumen()
+        kennung = self.start_ablegen("Wird geloescht")
+        self.js("/api/startseite", daten={"kennung": kennung})
+        code, antwort = self.js("/api/loeschen",
+                                daten={"kennung": kennung, "bestaetigt": True})
+        self.assertEqual(code, 200)
+        self.assertTrue(antwort["war_startseite"])
+        code, roh, kopf = self.ruf("/", nutzer="", gruppen="")
+        self.assertEqual(code, 200)
+        self.assertIn("Hier liegt nichts offen herum", roh.decode())
+        self.assertIn("noindex", kopf.get("X-Robots-Tag", ""))
+        # Und die Zeile ist wirklich weg, nicht nur wirkungslos.
+        _, d = self.js("/api/verwaltung")
+        self.assertIsNone(d["startseite"])
+
+    def db(self):
+        """Die Datenbank des Dienstes, zum Nachsehen und zum Stellen.
+
+        Zwei Faelle lassen sich ueber die Schnittstelle gar nicht
+        beobachten: ob eine Zeile WIRKLICH weg ist (statt nur wirkungslos)
+        und was passiert, wenn eine Markierung auf eine geloeschte Seite
+        zeigt. Beides deckt im Code je eine eigene Sicherung ab - und die
+        eine hat die andere in der Mutationsprobe zugedeckt, bis diese
+        beiden Tests dazukamen (N-68: zwei Riegel, eine Pruefzeile, also
+        ein blinder Fleck).
+        """
+        return sqlite3.connect(os.path.join(self.ordner, "daten", "www.db"))
+
+    def test_die_markierung_ist_nach_dem_loeschen_wirklich_weg(self):
+        self.aufraeumen()
+        kennung = self.start_ablegen("Spurlos")
+        self.js("/api/startseite", daten={"kennung": kennung})
+        with self.db() as con:
+            self.assertEqual(con.execute(
+                "SELECT count(*) FROM einstellung WHERE schluessel='startseite'"
+            ).fetchone()[0], 1)
+        self.js("/api/loeschen", daten={"kennung": kennung, "bestaetigt": True})
+        # Nicht "wirkt nicht mehr", sondern "steht nicht mehr da". Eine
+        # Zeile, die auf eine geloeschte Seite zeigt, ist eine Zeile ins
+        # Leere - und die naechste Sicherung traegt sie mit (§12).
+        with self.db() as con:
+            self.assertEqual(con.execute(
+                "SELECT count(*) FROM einstellung WHERE schluessel='startseite'"
+            ).fetchone()[0], 0)
+
+    def test_eine_markierung_auf_eine_geloeschte_seite_wirkt_nicht(self):
+        """Der zweite Riegel, fuer sich allein geprueft.
+
+        Der Zustand wird hier von Hand hergestellt - ueber die
+        Schnittstelle kann er nicht entstehen, weil das Loeschen die
+        Markierung mitnimmt. Genau darum braucht es ihn: was oeffentlich
+        ist, haengt nicht an einer einzigen Stelle.
+        """
+        self.aufraeumen()
+        kennung = self.start_ablegen("Heimlich geloescht")
+        self.js("/api/startseite", daten={"kennung": kennung})
+        with self.db() as con:
+            con.execute("UPDATE seite SET geloescht=1 WHERE kennung=?",
+                        (kennung,))
+            con.commit()
+        code, roh, kopf = self.ruf("/", nutzer="", gruppen="")
+        self.assertEqual(code, 200)
+        self.assertIn("Hier liegt nichts offen herum", roh.decode())
+        self.assertNotIn(b"Kennwort Sonnenblume", roh)
+        # Und die Suchmaschinen bleiben damit auch wieder draussen.
+        self.assertIn("noindex", kopf.get("X-Robots-Tag", ""))
+        code, roh, _ = self.ruf("/robots.txt", nutzer="", gruppen="")
+        self.assertEqual(roh.decode(), "User-agent: *\nDisallow: /\n")
+        with self.db() as con:
+            con.execute("DELETE FROM einstellung WHERE schluessel='startseite'")
+            con.commit()
+
+    def test_eine_datei_die_verschwunden_ist_ergibt_das_schild(self):
+        """Nicht 500. Der Besucher kann daran nichts aendern (§12)."""
+        kennung = self.start_ablegen("Datei weg")
+        self.js("/api/startseite", daten={"kennung": kennung})
+        os.remove(os.path.join(self.ordner, "seiten", kennung + ".html"))
+        code, roh, _ = self.ruf("/", nutzer="", gruppen="")
+        self.assertEqual(code, 200)
+        self.assertIn("Hier liegt nichts offen herum", roh.decode())
+        self.aufraeumen()
