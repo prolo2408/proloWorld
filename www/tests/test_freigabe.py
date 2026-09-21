@@ -511,6 +511,20 @@ class DieGrenzeDerVerwaltung(Dienst):
                                       daten=daten, methode=methode)
                 self.assertEqual(code, 401)
 
+    def test_die_meldung_raet_nicht_mehr(self, ):
+        """N-75. Der Beweis ist der Browserlauf; das hier haelt ihn fest.
+
+        Der Status und die Meldung des Servers liegen im Browser vor -
+        sie wegzuwerfen und dafuer eine Vermutung hinzuschreiben war
+        genau der Grund, warum dieser Befund zwei Tage lang nicht zu
+        stellen war.
+        """
+        q = self.lies("server.py")
+        self.assertNotIn("kam nicht \u2014 bist du noch angemeldet?", q)
+        self.assertIn("'Die Liste kam nicht (HTTP ' + a.status", q)
+        # Und die Meldung des Servers wird mit ausgegeben, nicht nur die Zahl.
+        self.assertIn("j.fehler ? ': ' + j.fehler", q)
+
     def test_die_oeffentlichen_wege_bleiben_oeffentlich(self):
         for weg in ("/", "/gesundheit", "/api/version", "/robots.txt"):
             with self.subTest(weg=weg):

@@ -1181,8 +1181,20 @@ async function ruf(weg, daten){
 }
 async function laden(){
   const a = await fetch('/verwaltung/api/daten');
-  if(!a.ok){ melden('Die Liste kam nicht — bist du noch angemeldet?', 'fehler');
-             return; }
+  if(!a.ok){
+    // Nicht raten (N-75). Der Status steht hier, und die Meldung des
+    // Servers auch - "bist du noch angemeldet?" war eine Vermutung, und
+    // bei 401 stimmte sie nicht einmal: da lag es am Router, nicht an
+    // der Anmeldung. Wer zum Nachsehen auffordert, nennt den Befund.
+    const j = await a.json().catch(() => ({}));
+    melden('Die Liste kam nicht (HTTP ' + a.status + ')' +
+      (j.fehler ? ': ' + j.fehler : '. Der Server hat keine Erklärung ' +
+       'mitgeschickt — dann kam die Antwort nicht von diesem Werkzeug, ' +
+       'sondern vom Zugang davor.') +
+      (a.status === 401 || a.status === 403
+        ? ' Melde dich neu an; bleibt es dabei, sieh im Protokoll nach: ' +
+          'sudo prolo protokoll www' : ''), 'fehler');
+    return; }
   const d = await a.json();
   $('wer').textContent = d.nutzer + ' · Fassung ' + d.version;
   startseite_zeigen(d);

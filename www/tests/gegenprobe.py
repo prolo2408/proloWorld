@@ -108,6 +108,10 @@ MUTATIONEN = [
      '        if pfad == VERWALTUNG_API + "startseite":',
      '        if pfad == "/api/startseite":'),
 
+    ("die Meldung raet wieder, statt den Status zu nennen (N-75)", "server.py",
+     "'Die Liste kam nicht (HTTP ' + a.status",
+     "'Die Liste kam nicht \u2014 bist du noch angemeldet?' + (0 ? a.status"),
+
     ("die Router-Regel trifft den Praefix nicht mehr", "docker-compose.yml",
      "&& PathPrefix(`/verwaltung`)",
      "&& PathPrefix(`/nirgendwo`)"),

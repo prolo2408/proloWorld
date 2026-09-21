@@ -4911,3 +4911,57 @@ Gemessen am laufenden Dienst, mit und ohne Kopfzeilen:
 **Im Browser geladen**: `artur · Fassung 1.1.0` oben rechts, kein
 Fehlerband, die Liste gefüllt, die Auswahl der Startseite gefüllt, keine
 Konsolenfehler. Vorher stand dort das rote Band und sonst nichts.
+
+---
+
+## N-75 — Die Meldung riet, und lag daneben
+
+Unter der Verwaltung stand, zwei Tage lang, genau dieser Satz:
+
+> Die Liste kam nicht — bist du noch angemeldet?
+
+Angemeldet war man. Der Fehler war `N-74`: der Aufruf lief über den
+falschen Router. Die Meldung hat also nicht nur nichts gesagt — sie hat in
+die **falsche** Richtung gezeigt, und zwar mit einer Frage, die man
+gutgläubig mit „ja, bin ich" beantwortet und dann ratlos dasteht.
+
+Dabei lag die Antwort im selben Codeblock:
+
+```js
+const a = await fetch('/api/verwaltung');
+if(!a.ok){ melden('Die Liste kam nicht — bist du noch angemeldet?', 'fehler');
+           return; }
+```
+
+`a.status` war da. Der JSON-Körper mit dem Satz des Werkzeugs war da.
+Beides wurde weggeworfen und durch eine Vermutung ersetzt.
+
+> Das ist `N-64` im Browser. Wer eine Ursache in der Hand hat und
+> stattdessen rät, macht aus einer Diagnose eine Suche — und die beginnt
+> dann an der Stelle, auf die geraten wurde.
+
+### Was jetzt kommt
+
+Gemessen im Browser, mit abgefangener Antwort:
+
+| Antwort | Meldung |
+|---|---|
+| `503` + Grund | Die Liste kam nicht (HTTP 503): Die Datenbank ist gerade nicht erreichbar. |
+| `302`, kein JSON | Die Liste kam nicht (HTTP 302). Der Server hat keine Erklärung mitgeschickt — dann kam die Antwort nicht von diesem Werkzeug, sondern vom Zugang davor. |
+| `401` | Die Liste kam nicht (HTTP 401): Nicht angemeldet. … Melde dich neu an; bleibt es dabei, sieh im Protokoll nach: `sudo prolo protokoll www` |
+
+Die mittlere Zeile ist die wichtigste: **kommt kein JSON zurück, hat nicht
+das Werkzeug geantwortet.** Genau das war bei `N-74` der Fall, und genau
+das hätte den Befund in zwei Minuten statt zwei Tagen gestellt. Die
+Vermutung „bist du angemeldet" bleibt erhalten — aber nur bei 401/403, wo
+sie hingehört, und zusammen mit dem Befund, nicht an seiner Stelle.
+
+### Prüfung
+
+`www/tests/alle.sh`: **45 Tests**, RC=0.
+`www/tests/gegenprobe.py`: **17 von 17 gefunden**.
+
+Und auch hier hat der erste Messlauf gelogen: die drei Fälle zeigten noch
+den alten Satz, weil der Probedienst seit **vor** der Änderung lief. Eine
+Codeänderung ist kein Beweis, solange der Prozess sie nicht geladen hat
+(§ TEIL 0). Nach dem Neustart standen die Sätze oben.

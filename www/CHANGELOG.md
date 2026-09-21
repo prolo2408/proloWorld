@@ -28,6 +28,16 @@ einfach nicht darunter.
 **Für dich ändert sich nichts** außer dass es geht. Lesezeichen auf
 `/verwaltung` bleiben gültig.
 
+Und die Meldung rät nicht mehr. „Bist du noch angemeldet?" war eine
+Vermutung — und bei diesem Fehler die falsche. Jetzt steht da, was
+wirklich zurückkam:
+
+> Die Liste kam nicht (HTTP 503): Die Datenbank ist gerade nicht erreichbar.
+
+Kommt gar keine Erklärung mit, sagt sie auch das — dann hat nicht das
+Werkzeug geantwortet, sondern der Zugang davor, und man sucht an der
+richtigen Stelle weiter.
+
 ## Fassung 1.1.0
 
 Die nackte Adresse zeigte bisher immer dasselbe Schild: „Hier liegt
