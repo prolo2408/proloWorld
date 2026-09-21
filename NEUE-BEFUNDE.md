@@ -4806,3 +4806,108 @@ eingesetzt und ein zweiter Dienst daneben gestartet.
 Die Fassung bleibt `1.1.0`: zwischen den beiden Befunden wurde nichts
 veröffentlicht, also gibt es kein Abbild, das die alte Nummer trüge. Im
 CHANGELOG steht es unter derselben Fassung.
+
+---
+
+## N-74 — Die erste Tür stand an der falschen Wand
+
+Die Verwaltung von `www` hat noch nie funktioniert. Wer sie öffnete, sah
+die Seite — und darunter ein rotes Band:
+
+> Die Liste kam nicht — bist du noch angemeldet?
+
+Die Anmeldung war es nicht. Dieses Werkzeug hat **zwei Router** auf
+demselben Hostnamen (§19), und der geschützte trifft genau einen Pfad:
+
+```
+(Host(`prolo.me`) || Host(`www.prolo.me`)) && PathPrefix(`/verwaltung`)
+```
+
+Die Aufrufe der Verwaltung lagen aber unter `/api/` — `/api/verwaltung`,
+`/api/hochladen`, `/api/freigabe`, `/api/zustand`, `/api/passwort`,
+`/api/loeschen`, seit `N-72` auch `/api/startseite`. **Kein einziger**
+davon wird von `PathPrefix(`/verwaltung`)` getroffen. Sie liefen alle über
+den **öffentlichen** Router, der kein `authentik@file` hat — und Traefik
+setzt die Identitätskopfzeilen nur dort, wo die Middleware läuft.
+
+Also kam jeder dieser Aufrufe ohne `X-Authentik-Username` an, und
+`verwalter()` hat ihn mit 401 abgewiesen. Vollkommen richtig.
+
+> Offen gestanden hat nichts. Die zweite Tür — die Prüfung im Werkzeug
+> selbst (§17, `N-44`) — hat jeden einzelnen Aufruf gehalten, obwohl die
+> erste gar nicht im Weg stand. Das ist der Tag, an dem sich die Regel
+> „eine Kopfzeile ist nur so viel wert wie die Gewissheit, dass sie von
+> Traefik kommt" bezahlt gemacht hat: derselbe Fehler ohne sie wäre eine
+> offene Verwaltung im Netz gewesen.
+
+Und die Meldung führte in die Irre: „bist du noch angemeldet?" war eine
+Vermutung, und bei 401 war sie falsch — angemeldet war man, der Weg war
+der falsche. Das ist `N-75`.
+
+### Was jetzt kommt
+
+Alles, was Verwalterrechte braucht, liegt unter **einem** Präfix:
+
+| vorher | jetzt |
+|---|---|
+| `/api/verwaltung` | `/verwaltung/api/daten` |
+| `/api/hochladen` | `/verwaltung/api/hochladen` |
+| `/api/freigabe` | `/verwaltung/api/freigabe` |
+| `/api/zustand` | `/verwaltung/api/zustand` |
+| `/api/passwort` | `/verwaltung/api/passwort` |
+| `/api/loeschen` | `/verwaltung/api/loeschen` |
+| `/api/startseite` | `/verwaltung/api/startseite` |
+
+Die Router-Regel bleibt unverändert — sie stimmt jetzt von selbst.
+
+**Eine Ausnahmeliste wäre der nächste Fehler gewesen.** `PathPrefix(`/api/`)`
+dazuzunehmen hätte `/api/version` mitgeschützt, und das ist die
+`PRUEF_URL`-Nachbarschaft, die absichtlich ohne Anmeldung erreichbar sein
+muss (§17). Dann stünde dort `/api/ ausser /api/version` — eine Regel mit
+einer Ausnahme, und bei der nächsten Erweiterung zwei. Ein Präfix, der
+**geschützt** bedeutet, braucht keine: was öffentlich bleiben muss, liegt
+nicht darunter.
+
+### Die Prüfzeile, die den Rückfall unmöglich macht
+
+Der Fehler war nicht, dass jemand falsch gedacht hat — es war, dass
+**zwei Dateien dasselbe wissen mussten** und niemand sie verglichen hat.
+Also vergleicht sie jetzt ein Test:
+
+- alle Wege aus `server.py` einsammeln; jeder, der nicht in der
+  ausdrücklichen Liste der öffentlichen steht, **muss** unter
+  `/verwaltung` liegen;
+- die Compose-Datei muss genau diesen Präfix treffen, mit
+  `authentik@file` und der höheren `priority`;
+- und beides wird zusätzlich **gemessen**: jeder Weg der Verwaltung
+  antwortet ohne Kopfzeile mit 401, jeder öffentliche mit 200.
+
+Dazu ein Prüferbeweis in der Prüfzeile selbst: findet die Suche weniger
+als acht Wege, ist sie kaputt und nicht der Code heil.
+
+### Prüfung
+
+| | |
+|---|---|
+| `www/tests/alle.sh` | **44 Tests**, RC=0 (vorher 40) |
+| `www/tests/gegenprobe.py` | **16 von 16 gefunden** (vorher 13) |
+
+Die Gegenprobe mutiert ab jetzt **jede** Datei des Werkzeugs, nicht nur
+`server.py` — die Router-Regel steht in der Compose-Datei, und eine Probe,
+die dort nicht hinkommt, kann die Hälfte dieses Befunds nicht prüfen.
+
+Gemessen am laufenden Dienst, mit und ohne Kopfzeilen:
+
+```
+=== Mit Kopfzeilen ===            === OHNE Kopfzeilen ===
+/verwaltung            200        /verwaltung            401
+/verwaltung/api/daten  200        /verwaltung/api/daten  401
+
+=== Oeffentlich bleibt oeffentlich ===   === Die alten Wege ===
+/            200   /api/version  200     /api/verwaltung  404
+/gesundheit  200   /robots.txt   200     /api/startseite  404
+```
+
+**Im Browser geladen**: `artur · Fassung 1.1.0` oben rechts, kein
+Fehlerband, die Liste gefüllt, die Auswahl der Startseite gefüllt, keine
+Konsolenfehler. Vorher stand dort das rote Band und sonst nichts.

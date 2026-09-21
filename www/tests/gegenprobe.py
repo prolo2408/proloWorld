@@ -25,9 +25,9 @@ import tempfile
 HIER = os.path.dirname(os.path.abspath(__file__))
 WURZEL = os.path.dirname(HIER)
 
-# (Name, alt, neu)
+# (Name, Datei, alt, neu)
 MUTATIONEN = [
-    ("die nackte Adresse zeigt immer das Schild",
+    ("die nackte Adresse zeigt immer das Schild", "server.py",
      '''        z = startseite_finden()
         if z is None:
             return self.senden(200, seite_start())''',
@@ -35,31 +35,31 @@ MUTATIONEN = [
         if z is None:
             return self.senden(200, seite_start())'''),
 
-    ("die Startseite kommt ohne den Riegel gegen fremden Code",
+    ("die Startseite kommt ohne den Riegel gegen fremden Code", "server.py",
      '''                "Content-Security-Policy": CSP_SEITE,
                 # Kein Zwischenspeicher''',
      '''                "X-Prolo-Nichts": "hier stand mal die CSP",
                 # Kein Zwischenspeicher'''),
 
-    ("auch die oeffentliche Startseite bleibt auf noindex",
+    ("auch die oeffentliche Startseite bleibt auf noindex", "server.py",
      '''                "X-Robots-Tag": "all",''',
      '''                "X-Robots-Tag": "noindex",'''),
 
-    ("eine geloeschte Seite bleibt oeffentlich stehen",
+    ("eine geloeschte Seite bleibt oeffentlich stehen", "server.py",
      '''        "WHERE e.schluessel = 'startseite' AND s.geloescht = 0").fetchone()''',
      '''        "WHERE e.schluessel = 'startseite'").fetchone()'''),
 
-    ("robots.txt gibt die Wurzel auch ohne Startseite frei",
+    ("robots.txt gibt die Wurzel auch ohne Startseite frei", "server.py",
      '''            if startseite_finden() is None:
                 regeln = "User-agent: *\\nDisallow: /\\n"''',
      '''            if False:
                 regeln = "User-agent: *\\nDisallow: /\\n"'''),
 
-    ("robots.txt sperrt auch die eingerichtete Startseite aus",
+    ("robots.txt sperrt auch die eingerichtete Startseite aus", "server.py",
      '''                regeln = "User-agent: *\\nAllow: /$\\nDisallow: /\\n"''',
      '''                regeln = "User-agent: *\\nDisallow: /\\n"'''),
 
-    ("eine unbekannte Kennung wird als Startseite angenommen",
+    ("eine unbekannte Kennung wird als Startseite angenommen", "server.py",
      '''        if s is None:
             raise Antwort(404, "Diese Seite gibt es nicht.")
         db().execute(
@@ -69,54 +69,66 @@ MUTATIONEN = [
         db().execute(
             "INSERT INTO einstellung(schluessel,wert,geaendert,nutzer_id) "'''),
 
-    ("die zweite Wahl ersetzt die erste nicht",
+    ("die zweite Wahl ersetzt die erste nicht", "server.py",
      '''            "ON CONFLICT(schluessel) DO UPDATE SET wert=excluded.wert, "
             "geaendert=excluded.geaendert, nutzer_id=excluded.nutzer_id",''',
      '''            "ON CONFLICT(schluessel) DO NOTHING",'''),
 
-    ("die Markierung laesst sich nicht wieder abnehmen",
+    ("die Markierung laesst sich nicht wieder abnehmen", "server.py",
      '''            db().execute("DELETE FROM einstellung WHERE schluessel='startseite'")
             db().commit()
             return self.json_senden({"ok": True, "startseite": None})''',
      '''            db().commit()
             return self.json_senden({"ok": True, "startseite": None})'''),
 
-    ("das Loeschen laesst die Markierung stehen",
+    ("das Loeschen laesst die Markierung stehen", "server.py",
      '''        if war_start:
             db().execute("DELETE FROM einstellung WHERE schluessel='startseite'")''',
      '''        if False:
             db().execute("DELETE FROM einstellung WHERE schluessel='startseite'")'''),
 
-    ("eine verschwundene Datei wird zum Serverfehler",
+    ("eine verschwundene Datei wird zum Serverfehler", "server.py",
      '''        p = os.path.join(SEITEN, z["datei"])
         if not os.path.exists(p):''',
      '''        p = os.path.join(SEITEN, z["datei"])
         if False:'''),
 
-    ("wer nicht in der Gruppe ist, darf die Startseite setzen",
+    ("wer nicht in der Gruppe ist, darf die Startseite setzen", "server.py",
      '''        if ADMIN_GRUPPE not in gruppen:
             raise Antwort(403, "Dafuer braucht es die Gruppe '%s'." % ADMIN_GRUPPE)''',
      '''        if False:
             raise Antwort(403, "Dafuer braucht es die Gruppe '%s'." % ADMIN_GRUPPE)'''),
 
-    ("die Verwaltung verschweigt, welche Seite oeffentlich ist",
+    ("die Verwaltung verschweigt, welche Seite oeffentlich ist", "server.py",
      '''    return {"nutzer": nutzer, "seiten": seiten, "version": VERSION,
             "startseite": z["kennung"] if z else None}''',
      '''    return {"nutzer": nutzer, "seiten": seiten, "version": VERSION,
             "startseite": None}'''),
+    ("ein Aufruf der Verwaltung liegt wieder unter /api/ (N-74)", "server.py",
+     '        if pfad == VERWALTUNG_API + "startseite":',
+     '        if pfad == "/api/startseite":'),
+
+    ("die Router-Regel trifft den Praefix nicht mehr", "docker-compose.yml",
+     "&& PathPrefix(`/verwaltung`)",
+     "&& PathPrefix(`/nirgendwo`)"),
+
+    ("der geschuetzte Router verliert seine Anmeldung", "docker-compose.yml",
+     "traefik.http.routers.www-verwaltung.middlewares=authentik@file",
+     "traefik.http.routers.www-verwaltung.x-weg=authentik@file"),
+
 ]
 
 
 def main():
     gefunden = entwischt = 0
-    for name, alt, neu in MUTATIONEN:
+    for name, datei, alt, neu in MUTATIONEN:
         ordner = tempfile.mkdtemp(prefix="www-gegenprobe-")
         try:
             ziel = os.path.join(ordner, "www")
             shutil.copytree(WURZEL, ziel,
                             ignore=shutil.ignore_patterns("__pycache__",
                                                           "daten", "seiten"))
-            quelle = os.path.join(ziel, "server.py")
+            quelle = os.path.join(ziel, datei)
             with open(quelle, encoding="utf-8") as f:
                 text = f.read()
             if text.count(alt) != 1:
