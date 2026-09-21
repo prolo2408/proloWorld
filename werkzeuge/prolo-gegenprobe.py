@@ -98,6 +98,16 @@ MUTATIONEN = [
      """        printf '  %-26s %-16s ABGELAUFEN seit %s Tagen\\n' "$name" "$ipfeld" "$(( -tage ))"
         zert=gut"""),
 
+    ("hostnamen liest wieder nur die Herstellerdatei (N-70)",
+     "prolo",
+     """      "$STACK"/*/docker-compose.yml \\\n      "$STACK"/*/docker-compose.override.yml 2>/dev/null \\""",
+     """      "$STACK"/*/docker-compose.yml 2>/dev/null \\"""),
+
+    ("hostnamen liest nur noch die override-Datei",
+     "prolo",
+     """      "$STACK"/*/docker-compose.yml \\\n      "$STACK"/*/docker-compose.override.yml 2>/dev/null \\""",
+     """      "$STACK"/*/docker-compose.override.yml 2>/dev/null \\"""),
+
     ("ein fremdes Zertifikat wird als unseres ausgegeben",
      "prolo",
      """    printf 'dort antwortet, nicht von diesem hier. Wer %s aufruft,\\n' "$NAME"

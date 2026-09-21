@@ -83,7 +83,15 @@ hostnamen() {
   # Jede Stufe mit "|| true": ein grep ohne Treffer gibt 1 zurueck, und
   # unter set -euo pipefail reisst das die Funktion ab - dann wuerde die
   # Zusatzdatei unten nie gelesen. Genau so ist sie zuerst stumm geblieben.
-  { grep -ho 'Host(`[^`]*`)' "$STACK"/*/docker-compose.yml 2>/dev/null \
+  #
+  # BEIDE Dateien, nicht nur die des Herstellers (N-70): seit N-61 steht
+  # bei einem Fremdwerkzeug alles von uns - Netz, Route, Zertifikat - in
+  # der docker-compose.override.yml. Wer nur die erste liest, verliert
+  # genau die Namen der Werkzeuge, die gerade erst dazugekommen sind, und
+  # merkt nichts davon: die Liste wird kuerzer, nicht rot.
+  { grep -ho 'Host(`[^`]*`)' \
+      "$STACK"/*/docker-compose.yml \
+      "$STACK"/*/docker-compose.override.yml 2>/dev/null \
     | sed 's/Host(`//; s/`)//' | sort -u; } || true
   # Dazu Namen, die zum Server gehoeren, aber in keiner Regel stehen -
   # eine Subdomain, die noch eingerichtet wird, oder eine, die jemand

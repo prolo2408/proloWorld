@@ -621,7 +621,11 @@ steht daneben in `docker-compose.override.yml`. `docker compose` liest beide
 von selbst — bei einer neuen Fassung ersetzt man nur die Herstellerdatei.
 Was dabei herauskommt, zeigt `docker compose config`; **das** ist die
 Wahrheit über ein Werkzeug, nicht eine einzelne Datei. Jeder Prüfer, der
-nur `docker-compose.yml` liest, sieht bei einem Fremdwerkzeug die Hälfte.
+nur `docker-compose.yml` liest, sieht bei einem Fremdwerkzeug die Hälfte —
+und das gilt nicht nur für die Prüfskripte, sondern für **jede** Stelle,
+die Compose-Dateien liest. `prolo status` und `prolo dns` fanden so den
+Namen von n8n nicht mehr und wurden dadurch nicht rot, sondern kürzer
+(`N-70`).
 
 Daneben liegt, was **allen** gemeinsam ist — und das ist kein Werkzeug, also
 ohne `sicherung.conf` und `aktualisierung.conf`: `backup.sh`, `werkzeuge/`

@@ -518,6 +518,39 @@ pruefe "dns nennt die IP, auf die der A-Eintrag zeigen muss" "ja" \
   "$(hat "$A" "A-Eintrag auf 9.9.9.9 setzen")"
 rm -f "$T/stack/werkzeuge/dns-namen.conf"
 # ----------------------------------------------------------------------
+# Ein Fremdwerkzeug traegt seinen Namen in der override-Datei (N-70)
+#
+# Seit N-61 steht bei einem Fremdwerkzeug alles von uns - Netz, Route,
+# Zertifikat - in der docker-compose.override.yml. hostnamen() las nur
+# die Herstellerdatei; der Name fiel damit aus der Aufsicht, ohne dass
+# irgendwo etwas rot wurde: die Liste wurde nur kuerzer.
+mkdir -p "$T/stack/fremdtool" "$T/stack/eigentool"
+printf 'services:\n  f:\n    image: f:1\n' > "$T/stack/fremdtool/docker-compose.yml"
+cat > "$T/stack/fremdtool/docker-compose.override.yml" <<'Y'
+services:
+  f:
+    labels:
+      - "traefik.http.routers.f.rule=Host(`fremdtool.beispiel`)"
+Y
+# Und eines, das seinen Namen wie eigener Code in der ersten Datei fuehrt.
+# Beide muessen durchkommen - sonst waere die Korrektur nur eine
+# Verschiebung derselben Luecke.
+cat > "$T/stack/eigentool/docker-compose.yml" <<'Y'
+services:
+  e:
+    image: e:1
+    labels:
+      - "traefik.http.routers.e.rule=Host(`eigentool.beispiel`)"
+Y
+A=$(PATH="$T/netz:$T/bin:$PATH" "$T/stack/werkzeuge/prolo" dns 2>&1 || true)
+pruefe "ein Name aus der override-Datei wird geprueft" "ja" \
+  "$(hat "$A" "fremdtool.beispiel")"
+pruefe "und der aus der Herstellerdatei weiterhin auch" "ja" \
+  "$(hat "$A" "eigentool.beispiel")"
+A=$(PATH="$T/netz:$T/bin:$PATH" "$T/stack/werkzeuge/prolo" status 2>&1 || true)
+pruefe "status sieht ihn ebenfalls" "ja" "$(hat "$A" "fremdtool.beispiel")"
+rm -rf "$T/stack/fremdtool" "$T/stack/eigentool"
+# ----------------------------------------------------------------------
 # Steht in den Anleitungen ein Befehl, den es gar nicht gibt? (N-51)
 #
 # Ein erfundener Unterbefehl (compose) stand in der Bedienungsseite, in dem

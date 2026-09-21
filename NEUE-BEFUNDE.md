@@ -4544,3 +4544,60 @@ riss die ganze Attrappe syntaktisch auf — woraufhin *jeder* Name als „kein
 Zertifikat" galt und der heile Name mit in der Liste stand. Eine kaputte
 Attrappe fällt auf, wenn eine Prüfzeile verlangt, dass ein heiler Fall
 **nichts** meldet. Ohne diese Zeile wäre der Fehler durchgelaufen.
+
+---
+
+## N-70 — Der Name von n8n stand unter keiner Aufsicht mehr
+
+Im Status des Servers fehlte etwas, was niemandem auffiel, weil nichts rot
+wurde — die Liste war nur kürzer:
+
+```
+  NAME                       ZEIGT AUF        ZERTIFIKAT
+  admin.prolo.me             217.160.0.1 (FREMD) keine Antwort auf 443
+  auth.prolo.me              89.58.44.224     80 Tage (Let's Encrypt)
+  bordbuch.prolo.me          89.58.44.224     80 Tage (Let's Encrypt)
+  …
+```
+
+`n8n.prolo.me` kam nicht vor. Nicht, weil es den Namen nicht gäbe — der
+Browser erreicht ihn —, sondern weil `hostnamen()` ihn nicht mehr fand:
+
+```bash
+grep -ho 'Host(`[^`]*`)' "$STACK"/*/docker-compose.yml
+```
+
+Seit `N-61` steht bei einem Fremdwerkzeug **alles von uns** in der
+`docker-compose.override.yml` — Netz, Route, Zertifikat. Die
+Herstellerdatei bleibt unberührt, und genau sie war die einzige, die hier
+gelesen wurde. Mit dem Umbau auf die saubere Trennung ist der Name aus der
+Aufsicht gefallen: kein Zertifikatsalter, keine DNS-Prüfung, kein
+`prolo dns`.
+
+> Eine Aufsicht, die leiser wird, sieht aus wie eine Aufsicht, die nichts
+> zu beanstanden hat. Das ist dieselbe Narbe wie bei
+> `grenze-pruefen.sh`, das beim selben Umbau von 61 auf 57 Prüfungen fiel
+> und grün blieb.
+
+Die Regel dagegen stand zu dem Zeitpunkt schon in `CLAUDE.md` §16 — „jeder
+Prüfer, der nur `docker-compose.yml` liest, sieht bei einem Fremdwerkzeug
+die Hälfte". `prolo` selbst hat sie gebrochen. Eine Regel, die nur für die
+Prüfskripte gilt, ist halb geschrieben; sie steht jetzt für jede Stelle
+da, die Compose-Dateien liest.
+
+### Was jetzt kommt
+
+`hostnamen()` liest beide Dateien und vereinigt sie (`sort -u`, ein Name
+in beiden zählt einmal). Auf dem Arbeitsstand sind es damit sieben Namen
+statt sechs; `n8n.prolo.me` ist wieder dabei.
+
+Und die Prüfung dazu fragt **beide** Richtungen ab: ein Name aus der
+override-Datei muss durchkommen, und einer aus der Herstellerdatei muss es
+weiterhin. Ohne die zweite Zeile wäre „lies nur noch die override-Datei"
+eine Korrektur gewesen, die dieselbe Lücke nur verschiebt — die Mutation
+dazu steht in der Gegenprobe.
+
+### Prüfung
+
+`werkzeuge/prolo-pruefen.sh`: **90 ok**, RC=0 (vorher 87).
+`werkzeuge/prolo-gegenprobe.py`: **16 von 16 gefunden** (vorher 14).
