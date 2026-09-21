@@ -83,6 +83,22 @@ MUTATIONEN = [
      '''    if [ "$SCHUTZ" = OFFEN ]; then''',
      '''    if false; then'''),
 
+    ("prolo neu legt ueber ein Werkzeug, das im Git steht (N-66)",
+     "neu.sh",
+     '''if command -v git >/dev/null 2>&1 \\
+   && git -C "$STACK" ls-files --error-unmatch "$NAME" >/dev/null 2>&1; then''',
+     '''if false; then'''),
+
+    ("die Git-Bremse greift auch bei einem ganz neuen Namen",
+     "neu.sh",
+     '''   && git -C "$STACK" ls-files --error-unmatch "$NAME" >/dev/null 2>&1; then''',
+     '''   && git -C "$STACK" rev-parse --git-dir >/dev/null 2>&1; then'''),
+
+    ("die Meldung zum Abbild nennt kein Beispiel mehr",
+     "neu.sh",
+     '''       fehler "  docker.n8n.io/n8nio/n8n:1.121.0, nicht n8n."''',
+     '''       fehler "  anders."'''),
+
     ("netze wirft die Meldung von docker wieder weg (N-64)",
      "netze.sh",
      """   && docker compose config --no-interpolate --format json 2>"$TMP_FEHLER")""",

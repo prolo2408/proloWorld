@@ -309,6 +309,44 @@ pruefe "schliessen: socket wird nie geschlossen" "1" \
        "$("$NETZE" schliessen socket >/dev/null 2>&1; echo $?)"
 
 echo
+echo "== 6b. Ein Werkzeug, das im Git steht, aber nicht auf der Platte ========"
+# N-66: n8n wurde auf dem Server entfernt, lag aber weiter im Repository -
+# und der naechste Griff war "prolo neu n8n". Ein Geruest darueber haette
+# die Datei verdraengt, die laengst richtig war.
+if command -v git >/dev/null 2>&1; then
+  (cd "$S" && git init -q -b haupt && git config user.email t@t \
+   && git config user.name t && git add -A && git commit -q -m stand) || true
+  rm -rf "$S/fremd1"
+  A=$("$NEU" fremd1 --art fremd --abbild a:1 --netz netz-alt \
+        --anmeldung authentik </dev/null 2>&1); R=$?
+  pruefe "im Git, nicht ausgecheckt: Rueckgabe 1" "1" "$R"
+  pruefe "im Git: kein Geruest darueber" "nein" \
+         "$([ -f "$S/fremd1/docker-compose.override.yml" ] && echo ja || echo nein)"
+  pruefe "im Git: der Weg zurueck wird genannt" "ja" \
+         "$(enthaelt "git checkout -- fremd1/" "$A")"
+  pruefe "im Git: und der Weg, es wirklich loszuwerden" "ja" \
+         "$(enthaelt "git rm -r fremd1" "$A")"
+  # Und die Gegenrichtung: ein Name, den das Git nicht kennt, wird normal
+  # angelegt. Sonst waere aus der Bremse eine Sperre fuer alles geworden.
+  A=$("$NEU" ganzneu --art fremd --abbild a:1 --netz netz-alt \
+        --anmeldung authentik </dev/null 2>&1); R=$?
+  pruefe "nicht im Git: wird normal angelegt" "0" "$R"
+  rm -rf "$S/.git" "$S/ganzneu"
+  (cd "$S" && git checkout -- . 2>/dev/null) || true
+else
+  echo "uebersprungen  git fehlt"
+fi
+
+# Ein Abbild ohne Fassung: die Meldung muss sagen, WO der volle Name steht -
+# "n8n" ist nicht der Name des Abbilds, und das weiss man nicht von selbst.
+A=$("$NEU" ohnefassung2 --art fremd --abbild n8n --netz netz-alt \
+      --anmeldung authentik </dev/null 2>&1); R=$?
+pruefe "ohne Fassung: Rueckgabe 1" "1" "$R"
+pruefe "ohne Fassung: der volle Name wird erklaert" "ja" \
+       "$(enthaelt "docker.n8n.io/n8nio/n8n" "$A")"
+pruefe "ohne Fassung: und wie man ihn findet" "ja" "$(enthaelt "prolo suchen" "$A")"
+
+echo
 echo "== 7. Wenn eine Konfiguration nicht lesbar ist ==========================="
 # N-64: vorher stand nur "liefert keine lesbare Konfiguration" - und der
 # Betreiber sah ein Werkzeug fehlen, ohne zu erfahren, WARUM. Die Meldung

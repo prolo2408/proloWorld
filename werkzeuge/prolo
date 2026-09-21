@@ -340,6 +340,20 @@ befehl_entfernen() {
       exit 1 ;;
   esac
 
+  # Steht das Werkzeug im Git, ist "entfernen" nur die halbe Miete: der
+  # Ordner ist gleich weg, die Dateien stehen aber weiter im Repository.
+  # Der naechste "git pull" holt sie zurueck oder bricht an den geloeschten
+  # Dateien ab - beides sieht aus wie ein Fehler des Werkzeugs (N-66).
+  local IM_GIT=0
+  if command -v git >/dev/null 2>&1 \
+     && git -C "$STACK" ls-files --error-unmatch "$TOOL" >/dev/null 2>&1; then
+    IM_GIT=1
+    melde ""
+    melde "  ACHTUNG: $TOOL steht im Git. Der Ordner verschwindet gleich von"
+    melde "  der Platte, die Dateien bleiben aber im Repository."
+    melde "  Was danach zu tun ist, steht am Ende dieser Ausgabe."
+  fi
+
   local ZIEL="$ARCHIV/$TOOL"
   mkdir -p "$ZIEL"; chmod 700 "$ARCHIV" "$ZIEL"
 
@@ -395,6 +409,21 @@ INFO
   melde "Zurueck damit:  sudo prolo zurueckholen $TOOL"
   melde "Die Volumes im Docker sind NICHT geloescht - falls sie weg sollen:"
   melde "  docker volume ls | grep $TOOL"
+  if [ "$IM_GIT" -eq 1 ]; then
+    melde ""
+    melde "Und weil $TOOL im Git steht, fehlt noch eine Entscheidung:"
+    melde ""
+    melde "  nur hier weg, im Repository bleiben (Rueckweg offen):"
+    melde "    cd $STACK && git checkout -- $TOOL/"
+    melde "    - holt den Ordner zurueck, als waere nichts gewesen"
+    melde ""
+    melde "  ueberall weg:"
+    melde "    cd $STACK && git rm -r $TOOL && git commit -m \"$TOOL entfernt\""
+    melde ""
+    melde "Solange weder das eine noch das andere passiert ist, steht der"
+    melde "Arbeitsstand auf geloeschten Dateien - und der naechste"
+    melde "'git pull' bricht daran ab (prolo status sagt es)."
+  fi
 }
 
 # ----------------------------------------------------------------------

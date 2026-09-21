@@ -150,6 +150,30 @@ A=$(printf '\n' | prolo zurueckholen pdfeditor 2>&1)
 echo "$A" | grep -q "Mehrere Staende" && E=ja || E=nein
 pruefe "bei mehreren Staenden wird gefragt" "ja" "$E"
 
+# 7b. Entfernen sagt, dass der Ordner auch im Git steht (N-66)
+# Sonst holt der naechste Pull ihn zurueck oder bricht an den geloeschten
+# Dateien ab - und beides sieht aus wie ein Fehler des Werkzeugs.
+if command -v git >/dev/null 2>&1; then
+  pdfeditor_anlegen
+  (cd "$T/stack" && git init -q -b haupt && git config user.email t@t \
+   && git config user.name t && git add -A && git commit -q -m stand) || true
+  A=$(prolo entfernen pdfeditor 2>&1)
+  echo "$A" | grep -q "steht im Git" && E=ja || E=nein
+  pruefe "entfernen sagt, dass das Werkzeug im Git steht" "ja" "$E"
+  echo "$A" | grep -q "git checkout -- pdfeditor/" && E=ja || E=nein
+  pruefe "entfernen nennt den Weg zurueck" "ja" "$E"
+  echo "$A" | grep -q "git rm -r pdfeditor" && E=ja || E=nein
+  pruefe "entfernen nennt den Weg, es wirklich loszuwerden" "ja" "$E"
+  # Und die Gegenrichtung: ohne Git kein Hinweis, sonst ist er Tapete.
+  rm -rf "$T/stack/.git"
+  pdfeditor_anlegen
+  A=$(prolo entfernen pdfeditor 2>&1)
+  echo "$A" | grep -q "steht im Git" && E=ja || E=nein
+  pruefe "ohne Git kommt der Hinweis nicht" "nein" "$E"
+fi
+# Wieder hinstellen: die naechsten Abschnitte brauchen das Tool.
+pdfeditor_anlegen
+
 # 8. Unbekanntes Tool
 A=$(prolo zurueckholen gibtsnicht 2>&1); echo "$A" | grep -q "Nichts im Archiv" && E=ja || E=nein
 pruefe "unbekanntes Tool im Archiv wird benannt" "ja" "$E"
