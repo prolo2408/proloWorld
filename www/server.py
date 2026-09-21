@@ -935,7 +935,7 @@ h1,h2,h3,.zahl{font-family:Sora,'Instrument Sans',sans-serif;font-weight:600;
 a{color:var(--accent-ink);text-underline-offset:2px}
 a:hover{color:var(--accent)}
 .mitte{max-width:1280px;margin:0 auto;padding:32px 20px}
-.marke{display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit}
+.marke{display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit;min-height:44px}
 .marke b{width:30px;height:30px;border-radius:8px;background:var(--accent);
   color:var(--on-accent);display:grid;place-items:center;font-family:Sora;font-size:16px}
 .marke span{font-family:Sora;font-size:14px;color:var(--ink)}
@@ -1212,11 +1212,11 @@ function bauen(s){
       <td style="white-space:nowrap">
         <button class="knopf rahmen" data-tun="zustand" data-id="${f.id}"
           data-ziel="${f.zustand === 'aktiv' ? 'gesperrt' : 'aktiv'}"
-          style="min-height:36px;padding:0 10px">${
+          style="padding:0 10px">${
             f.zustand === 'aktiv' ? 'Zurückziehen' : 'Wieder freischalten'}</button>
         <button class="knopf rahmen" data-tun="passwort" data-id="${f.id}"
           data-an="${f.passwort ? '0' : '1'}"
-          style="min-height:36px;padding:0 10px">${
+          style="padding:0 10px">${
             f.passwort ? 'Passwort weg' : 'Passwort setzen'}</button>
       </td>
     </tr>`).join('');
@@ -1226,7 +1226,7 @@ function bauen(s){
       <span class="kontext mono">${schuetzen(s.kennung)} · ${bytes(s.groesse_b)}
         · ${datum(s.hochgeladen)}</span>
       <button class="knopf gefahr" data-tun="loeschen" data-kennung="${schuetzen(s.kennung)}"
-        style="margin-left:auto;min-height:36px;padding:0 12px">Seite löschen</button>
+        style="margin-left:auto;padding:0 12px">Seite löschen</button>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;align-items:end">
       <div style="flex:1 1 220px;min-width:0">

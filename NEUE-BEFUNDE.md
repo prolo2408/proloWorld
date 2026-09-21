@@ -4755,3 +4755,54 @@ Schnittstelle (ist die Zeile wirklich weg, nicht nur wirkungslos?), und
 ein zweiter stellt von Hand einen Zustand her, den die Schnittstelle gar
 nicht erzeugen kann (Markierung auf eine gelöschte Seite). Danach: 13 von
 13.
+
+---
+
+## N-73 — Vier Klickflächen, die für einen Daumen zu klein waren
+
+Beim Browserdurchgang zu `N-72` meldete die Messung fünf Elemente unter
+44 Pixel — und keines davon war neu:
+
+```
+A "PProloFreigabe" 37
+BUTTON "Seite löschen" 36
+BUTTON "Seite löschen" 36
+BUTTON "Zurückziehen" 36
+BUTTON "Passwort setzen" 36
+```
+
+`.knopf` ist 44 hoch, wie §9 es verlangt. Drei Stellen in der Verwaltung
+haben das mit einem `min-height:36px` im Stil-Attribut überschrieben,
+damit die Tabellenzeilen kompakt bleiben. Und die Marke oben links ist ein
+Verweis auf die Startseite, also ein Bedienelement — ihre Höhe ergab sich
+aus der 30-Pixel-Kachel plus Text: 37.
+
+> „Nicht verhandelbar" (§9) heißt: auch dann nicht, wenn es enger besser
+> aussieht. Diese Werkzeuge werden am Handy benutzt, mit Daumen und teils
+> mit Handschuhen — drei Knöpfe, bei denen man danebentrifft, sind teurer
+> als eine Tabelle, die zwölf Pixel höher ist.
+
+Die Überschreiber sind weg; die schmale Polsterung (`padding:0 10px`)
+bleibt, eng ist erlaubt, flach nicht. Die Marke bekommt `min-height:44px`,
+die Kachel bleibt bei 30 (§5).
+
+### Prüfung
+
+Gemessen im Browser, beide Themen, 360 / 768 / 1920 px: **kein Element
+unter 44 px mehr**, in allen sechs Läufen. Vorher fünf.
+
+**Und der Prüfer wurde gegengeprobt** (§14a). „Nichts gefunden" heißt
+nichts, solange nicht gezeigt ist, dass der Prüfer etwas finden *kann*:
+in einer Kopie im Kratzblock wurde ein `min-height:36px` wieder
+eingesetzt und ein zweiter Dienst daneben gestartet.
+
+```
+8112 ["Seite löschen=36"]     <- die Kopie mit dem Fehler
+8111 []                       <- der Arbeitsstand
+```
+
+`www/tests/alle.sh`: 40 Tests, RC=0.
+
+Die Fassung bleibt `1.1.0`: zwischen den beiden Befunden wurde nichts
+veröffentlicht, also gibt es kein Abbild, das die alte Nummer trüge. Im
+CHANGELOG steht es unter derselben Fassung.

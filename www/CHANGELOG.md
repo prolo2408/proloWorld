@@ -29,6 +29,11 @@ löschst du die Seite, die gerade Startseite ist, fällt die Adresse von
 allein auf das Schild zurück — der Löschdialog sagt dir vorher, dass es
 diese Seite ist.
 
+Nebenbei zwei Dinge, die schon vorher nicht stimmten: die Knöpfe
+„Seite löschen", „Zurückziehen" und „Passwort setzen" waren 36 Pixel
+hoch statt der 44, die es am Handy braucht, und die Marke oben links
+37 — mit dem Daumen traf man daneben. Alle vier sind jetzt 44.
+
 ## Fassung 1.0.1
 
 Die Meldung beim Start ohne Einlassmarke schickte in den nächsten
