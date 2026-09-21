@@ -4011,3 +4011,184 @@ Scrollen und zu kleine Touchziele wurden absichtlich eingebaut — **3 von 3
 gefunden**. Die Farben kommen als `oklch()` und werden über die Leinwand des
 Browsers umgerechnet, nicht von Hand: ein Prüfer, der `oklch` als RGB liest,
 hat hier schon einmal gelogen.
+
+
+---
+
+## N-64 — „Liefert keine lesbare Konfiguration" — und das war alles
+
+Gemessen am 21.09.2026 auf dem Server, erster Lauf von `prolo netze` nach
+dem Einspielen:
+
+```
+Werkzeuge
+  WERKZEUG      DIENST          NETZ                     SCHUTZ
+  admin         admin           netz-admin,socket        authentik
+  authentik     server          internal,netz-authentik  eigene
+  n8n           n8n             netz-n8n                 eigene
+  traefik       traefik         netz-admin,netz-authen.. -
+  wiki          wiki            netz-wiki                authentik
+
+Zu klaeren
+  Diese Ordner liefern keine lesbare Konfiguration: bordbuch www
+     Nachsehen mit: cd /opt/stack/<ordner> && docker compose config
+```
+
+Die erste Frage danach war: **„Wo ist das Bordbuch?"** Genau die Frage, die
+eine Übersicht nicht auslösen darf.
+
+### Was schiefging
+
+`docker compose config` war fehlgeschlagen, und das Skript hatte die
+Meldung dazu **in der Hand**:
+
+```bash
+docker compose config --no-interpolate --format json 2>/dev/null
+```
+
+`2>/dev/null`. Der einzige Satz, der den Unterschied zwischen „die Datei ist
+kaputt", „ich darf sie nicht lesen" und „dieses docker kennt den Schalter
+nicht" ausmacht — weggeworfen, und übrig blieb, dass irgendetwas nicht geht.
+
+> **Eine Meldung, die eine Folge benennt und die Ursache verschweigt, die
+> sie gerade in der Hand hatte, ist keine Meldung.** Das ist `N-60` noch
+> einmal, an einer anderen Stelle: dort wurde das Hindernis verschwiegen,
+> das den genannten Weg versperrt, hier die Ursache des gemeldeten
+> Zustands.
+
+Jetzt steht sie da:
+
+```
+  bordbuch: die Konfiguration laesst sich nicht lesen. Docker sagt:
+     failed to read /opt/stack/bordbuch/.env: line 1: key cannot contain a space
+     Selbst nachsehen - genau diesen Aufruf macht prolo:
+       cd /opt/stack/bordbuch && docker compose config --no-interpolate
+```
+
+### Der zweite Fehler: der Hinweis führte woandershin
+
+Der alte Text riet zu `docker compose config` — **ohne** `--no-interpolate`.
+Das ist nicht derselbe Aufruf. Auf einem Stand ohne `.env` scheitert der
+Befehl aus der Anleitung an der Interpolation, während das Skript an etwas
+ganz anderem gescheitert war. Wer dem Hinweis folgt, sucht an der falschen
+Stelle.
+
+> Ein Hinweis zum Nachsehen nennt **genau den Aufruf**, den das Werkzeug
+> gemacht hat. Sonst schickt er einen an eine andere Stelle als die, an der
+> es geklemmt hat.
+
+### Der dritte: ein Rat, der immer danebensteht
+
+Die erste Korrektur hängte an jede solche Meldung „steht dort *permission
+denied*, dann mit sudo". Bei einem YAML-Fehler ist das Unsinn. Ein Rat, der
+immer danebensteht, ist nach dem dritten Mal Tapete. Jetzt kommt er nur,
+wenn die Meldung ihn hergibt.
+
+### Und der vierte, den erst der Probelauf zeigte
+
+Die erste Fassung meldete brav „Docker sagt:" — und danach eine **leere
+Zeile**. Grund: der Aufrufer schreibt
+
+```bash
+j=$(konfig_json "$t")
+```
+
+und alles, was die Funktion dabei an Variablen setzt, bleibt in der Subshell
+der Kommandoersetzung zurück. Die Meldung geht jetzt über eine Datei.
+
+Vier Anläufe für eine Fehlermeldung. Sie ist deshalb nicht überbezahlt: die
+Frage „Wo ist das Bordbuch?" war die teuerste Zeile des ganzen Laufs.
+
+### Prüfung
+
+`werkzeuge/neu-pruefen.sh`: **83 ok**, RC=0 (vorher 76). Sechs neue
+Prüflinien, drei neue Mutationen — „die Meldung wird wieder weggeworfen",
+„es wird ein anderer Aufruf genannt als der gemachte", „der sudo-Rat kommt
+auch bei einem YAML-Fehler".
+
+
+---
+
+## N-65 — „Von Hand eintragen" war eine Sackgasse
+
+Gemessen am 21.09.2026 beim Aufsetzen von n8n:
+
+```
+  N8N_ENCRYPTION_KEY
+    Fehlt ueberall - und dieses Geheimnis wuerfelt das
+    Werkzeug NICHT (es steht auch ausserhalb seiner Datei).
+    Von Hand eintragen: /opt/stack/n8n/.env
+
+  Nichts zu verteilen.
+```
+
+Drei Dinge daran waren falsch.
+
+### 1. Die Begründung stimmte nicht
+
+*„Es steht auch außerhalb seiner Datei"* — für ein n8n, das gerade frisch
+aufgesetzt wird, steht es **nirgends**. Es gab keinen alten Wert, den ein
+neuer hätte kaputtmachen können.
+
+`WECHSEL=haende` heißt: ein **neuer** Wert macht etwas kaputt, das den
+**alten** hält. Das Werkzeug hat daraus „niemals anfassen" gemacht und
+damit zwei verschiedene Dinge verwechselt:
+
+| | |
+|---|---|
+| **wechseln** | einen vorhandenen Wert ersetzen — bei `haende` gefährlich |
+| **füllen** | eine leere Stelle besetzen, wo es keinen alten gibt — genau wofür `--verteilen` da ist |
+
+Beweisen können die Dateien es nicht: `PG_PASS` steht auch in PostgreSQL,
+der Schlüssel von n8n auch im Volume. „Fehlt in allen Dateien" heißt nicht
+„es gibt ihn nirgends". Also wird **gefragt**, statt zu verweigern oder
+blind zu würfeln:
+
+```
+Frisch aufgesetzt, also noch kein alter Wert irgendwo? [j/N]
+```
+
+Ohne Terminal antwortet `--frisch` dasselbe. Und `--frisch` ist **kein**
+Generalschlüssel: steht der Wert schon irgendwo, wird er auch damit nicht
+angefasst — sonst wäre aus der Bremse ein Schalter geworden, der genau das
+tut, wovor `haende` schützen soll. Dafür gibt es eine eigene Prüflinie.
+
+### 2. Die Meldung sagte nicht, wie
+
+*„Von Hand eintragen: /opt/stack/n8n/.env"* — und dann? Womit? Welche
+Zeile? Das ist `§7` verfehlt: eine Meldung sagt, **was zu tun ist**. Jetzt:
+
+```
+    Nicht gewuerfelt. Von Hand:
+      /opt/stack/n8n/.env
+        Zeile:  N8N_ENCRYPTION_KEY=<wert>
+      Einen Wert herstellen:  openssl rand -base64 33
+
+    Oder, wenn es wirklich ein frischer Aufbau ist:
+      sudo prolo geheimnisse --verteilen --frisch
+```
+
+Dazu die Erklärung aus der `geheimnisse.conf` — dort steht ja, was ein
+neuer Wert kostet, und genau das gehört an diese Stelle.
+
+### 3. Die Anleitung daneben versprach das Gegenteil
+
+`n8n/docker-compose.override.yml`, `werkzeuge/ANLEITUNG.md` und die
+`${…:?}`-Meldung sagten alle: *„kommt aus `sudo prolo geheimnisse
+--verteilen`"*. Das tat es nicht.
+
+> Eine Anleitung, die etwas verspricht, was das Werkzeug verweigert, ist
+> schlimmer als keine: man glaubt ihr und sucht den Fehler bei sich. Beide
+> gehören in **denselben** Arbeitsschritt.
+
+### Prüfung
+
+`werkzeuge/geheimnisse-pruefen.sh`: **149 ok**, RC=0 (vorher 140). Neun
+neue Prüflinien, darunter „`--frisch` fasst einen vorhandenen
+`haende`-Wert NICHT an" — die wichtigere Richtung.
+
+`werkzeuge/geheimnisse-pruefen.sh --gegenprobe`: **42 von 42 gefunden**
+(vorher 37). Neu unter anderem „ein `haende`-Geheimnis wird blind
+gewürfelt", „die Meldung sagt nicht, WIE man einen Wert macht" und
+„`--frisch` tut gar nichts" — ein Schalter, der nichts tut, ist schlimmer
+als keiner.

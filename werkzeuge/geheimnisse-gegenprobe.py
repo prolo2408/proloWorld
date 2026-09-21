@@ -299,6 +299,45 @@ def m_verteilen_ohne_zettel(w):
            '        print("  den Passwortmanager ein:")\n')
 
 
+def m_haende_wird_blind_gewuerfelt(w):
+    """Der teuerste Fehler an dieser Stelle: ein 'haende'-Geheimnis, das
+    nirgends steht, wird einfach neu gewuerfelt. Haelt das Werkzeug
+    ausserhalb seiner Datei noch einen alten (PostgreSQL, ein Volume),
+    sperrt es sich damit selbst aus."""
+    tausch(w, "werkzeuge/geheimnisse.py",
+           '        if stellen[0].wechsel == "haende" and not verschieden:\n',
+           '        if False:\n')
+
+
+def m_haende_sagt_nicht_wie(w):
+    """'Von Hand eintragen' ohne zu sagen, wie man einen Wert herstellt,
+    ist eine Sackgasse (§7). Genau daran ist der Aufbau von n8n haengen
+    geblieben (N-65)."""
+    tausch(w, "werkzeuge/geheimnisse.py",
+           '                print("      Einen Wert herstellen:  openssl rand -base64 33")\n',
+           "")
+
+
+def m_haende_nennt_den_ausweg_nicht(w):
+    tausch(w, "werkzeuge/geheimnisse.py",
+           '                print("      sudo prolo geheimnisse --verteilen --frisch")\n',
+           "")
+
+
+def m_frisch_ohne_verteilen_erlaubt(w):
+    tausch(w, "werkzeuge/geheimnisse.py",
+           "    if a.frisch and not a.verteilen:\n",
+           "    if False:\n")
+
+
+def m_frisch_tut_nichts(w):
+    """Ein Schalter, der nichts tut, ist schlimmer als keiner: der frische
+    Aufbau bleibt stehen, und niemand sieht warum."""
+    tausch(w, "werkzeuge/geheimnisse.py",
+           "        return verteilen(frisch=a.frisch)",
+           "        return verteilen(frisch=False)")
+
+
 MUTATIONEN = [
     ("conf-Zeile hat nur vier Felder",              m_conf_vier_felder),
     ("conf nennt eine erfundene FORM",              m_conf_form_erfunden),
@@ -337,6 +376,11 @@ MUTATIONEN = [
     ("--verteilen entscheidet bei Uneinigkeit",     m_verteilen_entscheidet_selbst),
     ("--verteilen wuerfelt je Stelle einzeln",      m_verteilen_wuerfelt_je_stelle),
     ("--verteilen schreibt keinen Zettel",         m_verteilen_ohne_zettel),
+    ("ein haende-Geheimnis wird blind gewuerfelt",  m_haende_wird_blind_gewuerfelt),
+    ("die Meldung sagt nicht, WIE man einen Wert macht", m_haende_sagt_nicht_wie),
+    ("die Meldung nennt den Ausweg --frisch nicht", m_haende_nennt_den_ausweg_nicht),
+    ("--frisch ist auch ohne --verteilen erlaubt",  m_frisch_ohne_verteilen_erlaubt),
+    ("--frisch tut gar nichts",                     m_frisch_tut_nichts),
 ]
 
 

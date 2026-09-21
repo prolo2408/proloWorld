@@ -344,6 +344,16 @@ eine Falle. Und führt der genannte Weg über etwas Zerstörendes (`git
 checkout --`, ein Überschreiben), steht die **Kopie davor**, nicht
 daneben.
 
+**Und sie verschweigt nicht die Ursache, die sie in der Hand hatte**
+(`N-64`). Ein `2>/dev/null` über dem fehlgeschlagenen Aufruf macht aus
+„docker sagt: `failed to read bordbuch/.env: key cannot contain a space`"
+ein „liefert keine lesbare Konfiguration" — und aus einer Diagnose die
+Frage „wo ist das Bordbuch?". Wer zum Nachsehen auffordert, nennt
+**genau den Aufruf**, den das Werkzeug gemacht hat, nicht einen
+ähnlichen. Und ein Rat, der nur manchmal passt (*„dann mit sudo"*), kommt
+nur dann, wenn die Meldung ihn hergibt — sonst ist er nach dem dritten Mal
+Tapete.
+
 ## 8. Umsetzungsregeln
 
 - Kein Farbwert ohne Token.
@@ -901,6 +911,14 @@ Werkzeugs:
 | `harmlos` | darf neu gewürfelt werden, niemand merkt etwas |
 | `sitzungen` | darf auch, aber alle müssen sich neu anmelden |
 | `haende` | **nur von Hand** — das Werkzeug zeigt ihn und rührt ihn nicht an |
+
+**`haende` heißt „nicht wechseln", nicht „nie anfassen"** (`N-65`). Fehlt
+so ein Wert in **allen** Dateien, gibt es vielleicht gar keinen alten, den
+ein neuer kaputtmachen könnte — dann ist Füllen genau das, wofür
+`--verteilen` da ist. Beweisen können die Dateien es nicht, also wird
+**gefragt** (`--frisch` antwortet dasselbe ohne Terminal). Ein vorhandener
+Wert wird auch damit nicht angefasst: aus der Bremse darf kein
+Generalschlüssel werden.
 
 **Steht ein Wert auch außerhalb seiner Datei, ist er `haende`.** `PG_PASS`
 steht zusätzlich in PostgreSQL selbst: wer nur die Datei ändert, sperrt

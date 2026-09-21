@@ -332,7 +332,7 @@ def klemmen_melden(stellen, klemmt):
         print("        %s" % grund)
 
 
-def verteilen():
+def verteilen(frisch=False):
     """Luecken fuellen, ohne zu wechseln.
 
     Der haeufigste Fall beim Aufsetzen: ein Wert steht schon an einer
@@ -379,11 +379,43 @@ def verteilen():
             print("    steht schon an allen %d Stellen." % len(stellen))
             continue
         if stellen[0].wechsel == "haende" and not verschieden:
-            print(rot("    Fehlt ueberall - und dieses Geheimnis wuerfelt das"))
-            print("    Werkzeug NICHT (es steht auch ausserhalb seiner Datei).")
-            print("    Von Hand eintragen: %s" % ", ".join(g.pfad for g in leer))
-            gestockt = True
-            continue
+            # "haende" heisst: ein NEUER Wert macht etwas kaputt, das den
+            # ALTEN haelt. PG_PASS steht auch in PostgreSQL, der Schluessel
+            # von n8n auch im Volume. Fehlt der Wert aber in ALLEN Dateien,
+            # gibt es vielleicht gar keinen alten - dann ist Fuellen genau
+            # das, wofuer --verteilen da ist.
+            #
+            # Beweisen koennen die Dateien das nicht. Also wird gefragt,
+            # statt stumpf zu verweigern: die erste Fassung schickte einen
+            # frischen Aufbau in eine Sackgasse ("Von Hand eintragen"), ohne
+            # zu sagen, WIE man einen Wert herstellt - und die Anleitung
+            # daneben versprach, dass --verteilen es tut (N-65).
+            print(rot("    Fehlt ueberall."))
+            print("    %s" % stellen[0].erklaerung)
+            print("")
+            print("    Ein neuer Wert ist nur dann harmlos, wenn ausser der")
+            print("    Datei noch niemand einen alten haelt:")
+            print("      frisch aufgesetzt, noch keine Daten -> wuerfeln ist richtig")
+            print("      laeuft schon             -> der ALTE Wert muss her,")
+            print("                                  ein neuer sperrt aus")
+            if frisch:
+                print("    --frisch ist angegeben: es wird gewuerfelt.")
+            elif sys.stdin.isatty() and fragen(
+                    "Frisch aufgesetzt, also noch kein alter Wert irgendwo?"):
+                pass
+            else:
+                print("")
+                print("    Nicht gewuerfelt. Von Hand:")
+                for g in leer:
+                    print("      %s" % g.pfad)
+                    if g.form == "env":
+                        print("        Zeile:  %s=<wert>" % g.name)
+                print("      Einen Wert herstellen:  openssl rand -base64 33")
+                print("")
+                print("    Oder, wenn es wirklich ein frischer Aufbau ist:")
+                print("      sudo prolo geheimnisse --verteilen --frisch")
+                gestockt = True
+                continue
 
         klemmt = klemmen(leer)
         if klemmt:
@@ -630,15 +662,25 @@ def main():
                    help="leere Stellen fuellen, vorhandene Werte behalten")
     p.add_argument("--merkzettel", action="store_true",
                    help="den verschluesselten Zettel schreiben, ohne zu aendern")
+    p.add_argument("--frisch", action="store_true",
+                   help="nur mit --verteilen: dieser Stack ist frisch "
+                        "aufgesetzt, es haelt noch niemand einen alten Wert. "
+                        "Damit werden auch 'haende'-Geheimnisse gefuellt, "
+                        "die nirgends stehen")
     a = p.parse_args()
     if sum([a.neu, a.verteilen, a.merkzettel]) > 1:
         raise SystemExit("Nur eins auf einmal: --neu, --verteilen oder "
                          "--merkzettel. Die ersten beiden schreiben den "
                          "Zettel ohnehin.")
+    if a.frisch and not a.verteilen:
+        raise SystemExit("--frisch gibt es nur zusammen mit --verteilen. "
+                         "Es sagt: 'hier haelt noch niemand einen alten "
+                         "Wert' - bei --neu waere das sinnlos, der wechselt "
+                         "ja gerade einen vorhandenen.")
     if a.neu:
         return wechseln()
     if a.verteilen:
-        return verteilen()
+        return verteilen(frisch=a.frisch)
     if a.merkzettel:
         pfad = merkzettel_schreiben()
         print("Merkzettel: %s" % pfad)

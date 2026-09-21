@@ -45,6 +45,9 @@ root_noetig() {
 # angelegt oder geschlossen.
 DOCKER_EIGEN="bridge host none"
 
+TMP_FEHLER=$(mktemp)
+trap 'rm -f "$TMP_FEHLER"' EXIT
+
 # ----------------------------------------------------------------------
 # Die Wahrheit ueber ein Werkzeug steht in seiner ZUSAMMENGESETZTEN
 # Konfiguration, nicht in einer einzelnen Datei: seit N-61 liegt neben der
@@ -65,9 +68,27 @@ tools() {
 # ${...} aus einer .env, die es gerade nicht gibt - auf einem frischen Klon
 # also an fast allem. Netze und Labels benutzen keine Variablen; die
 # Interpolation waere hier nur eine zusaetzliche Fehlerquelle.
-konfig_json() {   # $1 = Werkzeug
-  (cd "$STACK/$1" 2>/dev/null && docker compose config --no-interpolate --format json 2>/dev/null)
+konfig_json() {   # $1 = Werkzeug; die Meldung landet in $TMP_FEHLER
+  # Die Meldung geht ueber eine DATEI, nicht ueber eine Variable: der
+  # Aufrufer schreibt "j=$(konfig_json x)", und alles, was dabei an
+  # Variablen gesetzt wird, bleibt in der Subshell der Ersetzung zurueck.
+  # Genau daran ist die erste Fassung gescheitert - sie meldete brav
+  # "Docker sagt:" und danach eine leere Zeile (N-64).
+  : > "$TMP_FEHLER"
+  (cd "$STACK/$1" 2>/dev/null \
+   && docker compose config --no-interpolate --format json 2>"$TMP_FEHLER")
 }
+
+# Die Meldung des letzten konfig_json-Aufrufs, eine Zeile, ohne "|" (das
+# trennt hier die Felder) und auf eine lesbare Laenge gekuerzt.
+konfig_fehler() {
+  local m
+  m=$(grep -v '^[[:space:]]*$' "$TMP_FEHLER" 2>/dev/null | head -1 \
+      | tr -d '|' | cut -c1-160)
+  printf '%s' "${m:-docker compose hat ohne Meldung abgebrochen}"
+}
+
+konfig_befehl() { printf 'cd %s/%s && docker compose config --no-interpolate' "$STACK" "$1"; }
 
 docker_da() { docker network ls >/dev/null 2>&1; }
 
@@ -81,7 +102,7 @@ erklaert() {   # $1 = optionaler Filter auf ein Werkzeug
   for t in $(tools); do
     [ -z "${1:-}" ] || [ "$t" = "$1" ] || continue
     j=$(konfig_json "$t") || true
-    [ -n "$j" ] || { printf 'kaputt|%s\n' "$t"; continue; }
+    [ -n "$j" ] || { printf 'kaputt|%s|%s\n' "$t" "$(konfig_fehler)"; continue; }
     printf '%s' "$j" | python3 -c '
 import json, sys
 t = sys.argv[1]
@@ -222,7 +243,7 @@ befehl_uebersicht() {
   local DATEN TF KAPUTT
   DATEN=$(erklaert)
   TF=$(traefik_netze)
-  KAPUTT=$(printf '%s\n' "$DATEN" | sed -n 's/^kaputt|//p' | paste -sd' ' -)
+  KAPUTT=$(printf '%s\n' "$DATEN" | awk -F'|' '$1=="kaputt"{print $2}' | paste -sd' ' -)
   [ -n "$KAPUTT" ] && BEANSTANDET=1
 
   abschnitt "Netze"
@@ -277,11 +298,22 @@ befehl_uebersicht() {
   done <<< "$DATEN"
 
   # --- Was nicht stimmt -------------------------------------------------
-  local HINWEISE=""
-  [ -n "$KAPUTT" ] && HINWEISE="$HINWEISE
-  Diese Ordner liefern keine lesbare Konfiguration: $KAPUTT
-     Nachsehen mit: cd $STACK/<ordner> && docker compose config
+  local HINWEISE="" KT KM
+  while IFS='|' read -r Z KT KM; do
+    [ "$Z" = kaputt ] || continue
+    HINWEISE="$HINWEISE
+  $KT: die Konfiguration laesst sich nicht lesen. Docker sagt:
+     $KM
+     Selbst nachsehen - genau diesen Aufruf macht prolo:
+       $(konfig_befehl "$KT")"
+    if printf '%s' "$KM" | grep -qi "permission denied\|not permitted\|kein Zugriff"; then
+      HINWEISE="$HINWEISE
+     Das ist kein kaputtes Werkzeug, das sind Rechte: die Dateien unter
+     $STACK gehoeren root. Noch einmal mit sudo prolo netze."
+    fi
+    HINWEISE="$HINWEISE
 "
+  done <<< "$DATEN"
   for N in $NETZE; do
     WER=$(printf '%s\n' "$DATEN" | awk -F'|' -v n="$N" '$1=="netz" && $2==n{print $3}' | sort -u)
     [ -n "$WER" ] || continue

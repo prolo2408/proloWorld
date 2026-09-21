@@ -201,6 +201,32 @@ sudo prolo start traefik
 sudo prolo aktualisieren admin
 ```
 
+### Wenn `--verteilen` nach einem frischen Aufbau fragt
+
+Manche Geheimnisse stehen **auch außerhalb ihrer Datei** — `PG_PASS` in
+PostgreSQL selbst, `N8N_ENCRYPTION_KEY` im Volume von n8n. Die sind in der
+`geheimnisse.conf` als `WECHSEL=haende` markiert: ein *neuer* Wert sperrt
+das Werkzeug aus seinen eigenen Daten aus.
+
+Fehlt so ein Wert in **allen** Dateien, kann das zweierlei heißen — es ist
+ein frischer Aufbau (dann ist Würfeln genau richtig), oder das Werkzeug
+läuft schon und hält den alten woanders. Die Dateien können das nicht
+unterscheiden, also fragt `--verteilen` einmal nach:
+
+```
+Frisch aufgesetzt, also noch kein alter Wert irgendwo? [j/N]
+```
+
+Ohne Terminal — im Skript, über `ssh <host> "…"` — antwortet `--frisch`
+dasselbe:
+
+```bash
+sudo prolo geheimnisse --verteilen --frisch
+```
+
+`--frisch` ist **kein** Generalschlüssel: steht der Wert schon irgendwo,
+wird er auch damit nicht angefasst.
+
 Dazu in Authentik: eine Anwendung für `admin.prolo.me` anlegen **und dem
 Outpost zuweisen**, und eine Gruppe `admin` mit den Menschen darin, die
 hineindürfen. Ohne die Zuweisung antwortet die Anmeldung mit 403, und das
