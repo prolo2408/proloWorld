@@ -92,6 +92,35 @@ sudo prolo neu vaultwarden \
 4. Die Zeile `PROLO-PLATZHALTER` löschen.
 5. `sudo prolo start <name>`
 
+### Ein Werkzeug wieder loswerden
+
+```bash
+sudo prolo entfernen <name>
+```
+
+Das **löscht nicht**: es hält den Container an und legt den ganzen Ordner
+samt Volume-Inhalten ins Archiv unter `/opt/stack/.archiv/`.
+`sudo prolo zurueckholen <name>` holt ihn zurück.
+
+**Steht das Werkzeug im Git** — und das tun alle, die hier entstanden sind —,
+fehlt danach noch eine Entscheidung. Der Ordner ist von der Platte weg, die
+Dateien stehen weiter im Repository:
+
+```bash
+cd /opt/stack
+git checkout -- <name>/                      # doch behalten: alles zurück
+# oder
+git rm -r <name> && git commit -m "<name> entfernt"    # überall weg
+```
+
+Solange weder das eine noch das andere passiert ist, steht der Arbeitsstand
+auf gelöschten Dateien, und der nächste `git pull` bricht daran ab.
+`prolo entfernen` sagt das beim Entfernen, und `prolo status` sagt es danach.
+
+> **„Nicht auf der Platte" heißt nicht „gibt es nicht".** Fehlt ein Ordner,
+> der im Git steht, will er **zurückgeholt** werden, nicht neu angelegt —
+> `prolo neu` lehnt das ab und nennt den Weg.
+
 ---
 
 ## 3. Die zwei Sperren in `prolo start`

@@ -4192,3 +4192,83 @@ neue Prüflinien, darunter „`--frisch` fasst einen vorhandenen
 gewürfelt", „die Meldung sagt nicht, WIE man einen Wert macht" und
 „`--frisch` tut gar nichts" — ein Schalter, der nichts tut, ist schlimmer
 als keiner.
+
+
+---
+
+## N-66 — Ein Werkzeug, das im Git steht, wurde neu angelegt statt zurückgeholt
+
+Gemessen am 21.09.2026. n8n war auf dem Server entfernt worden, lag aber
+weiter im Repository — es ist ja versioniert wie alles andere. Der nächste
+Griff war der naheliegende:
+
+```
+prolo@…:/opt/stack$ sudo prolo neu n8n
+
+  Was fuer ein Werkzeug?
+  Wahl [1]: 1
+  Abbild des Herstellers (z. B. vaultwarden/server:1.34.1): n8n
+Ohne Fassung nicht erlaubt (§19: nie latest, immer fest).
+Beispiel: n8n:1.2.3
+```
+
+Zwei Fehler in fünf Zeilen.
+
+### 1. Es hätte gar nicht fragen dürfen
+
+`prolo neu` prüfte nur, ob der **Ordner** da ist. Er war es nicht — aber die
+Dateien standen im Git, fertig und richtig. Wäre der Abbildname durchgegangen,
+hätte das Gerüst genau die `docker-compose.override.yml` verdrängt, die
+längst stimmte, und der nächste `git pull` hätte einen Konflikt geliefert.
+
+> **„Nicht auf der Platte" heißt nicht „gibt es nicht".** In einem
+> versionierten Stack ist die Platte nur eine Auslage; das Repository ist
+> der Bestand.
+
+Jetzt:
+
+```
+Es gibt n8n schon - im Git, nur hier nicht ausgecheckt:
+  n8n/docker-compose.yml
+  n8n/docker-compose.override.yml
+  …
+  Das will ZURUECKGEHOLT werden, nicht neu angelegt:
+    cd /opt/stack && git checkout -- n8n/
+
+  Soll es wirklich weg, gehoert es auch im Git weg - sonst holt
+  der naechste Pull es zurueck oder bricht daran ab:
+    cd /opt/stack && git rm -r n8n && git commit -m "n8n entfernt"
+```
+
+Und `prolo entfernen` sagt dasselbe **vorher** und noch einmal am Ende:
+solange die Entscheidung nicht getroffen ist, steht der Arbeitsstand auf
+gelöschten Dateien — und der nächste `git pull` bricht daran ab. Dass er
+das tut, sagt seit `N-60` immerhin die Standmeldung; **warum** er es tut,
+sagt jetzt der Befehl, der es verursacht hat.
+
+### 2. „Beispiel: n8n:1.2.3" war schlicht falsch
+
+Das Abbild von n8n heißt `docker.n8n.io/n8nio/n8n`. Die Meldung nahm die
+Eingabe des Menschen und hängte eine Fassung an — und schlug damit einen
+Namen vor, den es nicht gibt. Eine Fehlermeldung, die rät, ist schlimmer
+als eine, die nur tadelt: man tippt den Vorschlag ab und läuft in den
+nächsten Fehler.
+
+Jetzt nennt die Frage schon vorher drei echte Namen und `prolo suchen`, und
+die Fehlermeldung wiederholt den echten n8n-Namen als Gegenbeispiel zum
+eingetippten.
+
+### Die Gegenrichtung ist die wichtigere Prüflinie
+
+Eine Bremse, die bei **jedem** Namen greift, wäre schlimmer als keine —
+dann ließe sich gar kein Werkzeug mehr anlegen. Darum steht neben
+„im Git, nicht ausgecheckt → abgelehnt" die Zeile „nicht im Git → wird
+normal angelegt", und die Mutation *„die Git-Bremse greift auch bei einem
+ganz neuen Namen"* muss auffallen.
+
+### Prüfung
+
+`werkzeuge/neu-pruefen.sh`: **91 ok**, RC=0 (vorher 83).
+`werkzeuge/prolo-pruefen.sh`: **51 ok**, RC=0 (vorher 47) — darunter
+„ohne Git kommt der Hinweis nicht", damit aus dem Hinweis keine Tapete wird.
+`werkzeuge/neu-gegenprobe.py`: **18 Mutationen** (vorher 15).

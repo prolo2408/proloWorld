@@ -65,6 +65,26 @@ case "$NAME" in
 esac
 [ -e "$STACK/$NAME" ] && { fehler "$STACK/$NAME gibt es schon."; exit 1; }
 
+# Der Ordner ist nicht da - aber steht er im Git? Dann ist er nicht neu
+# anzulegen, sondern zurueckzuholen (N-66). Genau das ist passiert: n8n
+# wurde auf dem Server entfernt, lag aber weiter im Repository, und der
+# naechste Griff war "prolo neu n8n". Ein Geruest darueberzuschreiben
+# haette die Datei verdraengt, die laengst richtig war - und beim naechsten
+# Holen einen Konflikt gegeben.
+if command -v git >/dev/null 2>&1 \
+   && git -C "$STACK" ls-files --error-unmatch "$NAME" >/dev/null 2>&1; then
+  fehler "Es gibt $NAME schon - im Git, nur hier nicht ausgecheckt:"
+  git -C "$STACK" ls-files "$NAME" | sed 's/^/  /' >&2
+  fehler ""
+  fehler "  Das will ZURUECKGEHOLT werden, nicht neu angelegt:"
+  fehler "    cd $STACK && git checkout -- $NAME/"
+  fehler ""
+  fehler "  Soll es wirklich weg, gehoert es auch im Git weg - sonst holt"
+  fehler "  der naechste Pull es zurueck oder bricht daran ab:"
+  fehler "    cd $STACK && git rm -r $NAME && git commit -m \"$NAME entfernt\""
+  exit 1
+fi
+
 # Fragen nur, wenn jemand da ist, der antworten kann. Sonst ist ein
 # fehlender Wert ein Fehler und keine stille Vorgabe (CLAUDE.md §11).
 fragbar() { [ -t 0 ]; }
@@ -101,14 +121,29 @@ case "$ART" in fremd|eigen) : ;; *) fehler "--art ist fremd oder eigen."; exit 1
 
 # --- 2. Abbild --------------------------------------------------------
 if [ "$ART" = fremd ]; then
-  [ -n "$ABBILD" ] || ABBILD=$(frage "Abbild des Herstellers (z. B. vaultwarden/server:1.34.1)")
+  if [ -z "$ABBILD" ]; then
+    melde ""
+    melde "  Der volle Name des Abbilds steht in der Doku des Herstellers -"
+    melde "  er ist selten nur der Werkzeugname. Beispiele:"
+    melde "    docker.n8n.io/n8nio/n8n:1.121.0"
+    melde "    vaultwarden/server:1.34.1"
+    melde "    seafileltd/seafile-mc:11.0.13"
+    melde "  Suchen geht auch:  prolo suchen $NAME"
+    ABBILD=$(frage "Abbild des Herstellers, mit Fassung")
+  fi
 else
   [ -n "$ABBILD" ] || ABBILD="$NAME:0.1.0"
 fi
 [ -n "$ABBILD" ] || { fehler "Ohne Abbild geht es nicht."; exit 1; }
 printf '%s' "$ABBILD" | grep -q ':' \
-  || { fehler "Ohne Fassung nicht erlaubt (§19: nie latest, immer fest)."
-       fehler "Beispiel: ${ABBILD}:1.2.3"; exit 1; }
+  || { fehler "'$ABBILD' hat keine Fassung, und ohne die geht es nicht"
+       fehler "(§19: nie latest, immer fest - Datenbankmigrationen bei"
+       fehler "Hauptversionen sind nicht umkehrbar)."
+       fehler ""
+       fehler "  Der volle Name steht in der Doku des Herstellers und ist"
+       fehler "  selten nur der Werkzeugname. n8n heisst zum Beispiel"
+       fehler "  docker.n8n.io/n8nio/n8n:1.121.0, nicht n8n."
+       fehler "  Suchen:  prolo suchen $ABBILD"; exit 1; }
 printf '%s' "$ABBILD" | grep -q ':latest$' \
   && { fehler "'latest' ist verboten (§19). Datenbankmigrationen bei"
        fehler "Hauptversionen sind nicht umkehrbar - die Fassung gehoert fest."; exit 1; }
