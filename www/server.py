@@ -38,7 +38,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 
 EIGENER_ORDNER = os.path.dirname(os.path.abspath(__file__))
 DATEN = os.environ.get("WWW_DATEN", os.path.join(EIGENER_ORDNER, "daten"))
@@ -71,6 +71,15 @@ EINLASS_KOPF = "X-Prolo-Einlass"
 EINLASS = os.environ.get("PROLO_EINLASS", "")
 EINLASS_B = EINLASS.encode("utf-8")
 EINLASS_FREI = ("/gesundheit", "/api/version")
+
+# Eine hochgeladene Seite ist fremder Code. Sie laeuft ohne Verbindung nach
+# draussen und darf nichts nachladen. Derselbe Riegel fuer eine freigegebene
+# Seite wie fuer die Startseite: zwei Fassungen waeren zwei Gelegenheiten,
+# auseinanderzulaufen - und die oeffentliche waere die laschere.
+CSP_SEITE = ("default-src 'none'; img-src 'self' data:; "
+             "style-src 'self' 'unsafe-inline'; font-src 'self'; "
+             "script-src 'unsafe-inline'; form-action 'none'; "
+             "base-uri 'none'; frame-ancestors 'none'")
 
 
 def keks_schluessel():
@@ -117,6 +126,12 @@ CREATE TABLE IF NOT EXISTS fehlversuch (
   wann   REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS fehlversuch_quelle ON fehlversuch(quelle, wann);
+CREATE TABLE IF NOT EXISTS einstellung (
+  schluessel TEXT PRIMARY KEY,
+  wert       TEXT NOT NULL,
+  geaendert  TEXT NOT NULL,
+  nutzer_id  TEXT NOT NULL
+);
 """
 
 _lokal = threading.local()
@@ -142,6 +157,20 @@ def datenbank_anlegen():
 
 def jetzt():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def startseite_finden():
+    """Die Seite, die unter "/" steht - oder None.
+
+    Der JOIN auf seite und das "geloescht = 0" sind der Kern: eine
+    Markierung, die auf eine geloeschte oder gar nicht mehr vorhandene
+    Seite zeigt, ergibt None und damit wieder das leere Schild. Kein 500,
+    und vor allem keine Adresse, die ins Nichts zeigt, nur weil jemand
+    aufgeraeumt hat (§12).
+    """
+    return db().execute(
+        "SELECT s.* FROM einstellung e JOIN seite s ON s.kennung = e.wert "
+        "WHERE e.schluessel = 'startseite' AND s.geloescht = 0").fetchone()
 
 
 class Antwort(Exception):
@@ -334,9 +363,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", typ)
         self.send_header("Content-Length", str(len(koerper)))
-        # Nichts von hier gehoert in eine Suchmaschine.
-        self.send_header("X-Robots-Tag", "noindex, nofollow, noarchive")
-        for k, v in (extra or {}).items():
+        # Nichts von hier gehoert in eine Suchmaschine - ausser einer
+        # Startseite, die jemand ausdruecklich als oeffentlich markiert hat.
+        # Die MUSS den Kopf ueberschreiben koennen: zweimal X-Robots-Tag
+        # senden hilft nicht, Suchmaschinen fassen beide zusammen und das
+        # strengere gewinnt. Also gar nicht erst setzen, wenn der Aufrufer
+        # etwas anderes sagt.
+        extra = extra or {}
+        if "X-Robots-Tag" not in extra:
+            self.send_header("X-Robots-Tag", "noindex, nofollow, noarchive")
+        for k, v in extra.items():
             self.send_header(k, v)
         self.end_headers()
         if self.command != "HEAD":
@@ -465,7 +501,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_senden({"version": VERSION})
 
         if pfad == "/":
-            return self.senden(200, seite_start())
+            return self.startseite()
         if pfad == "/favicon.ico":
             # Ohne diese Zeile holt sich JEDER Seitenaufruf ein 404 - im
             # Tab steht das Standardsymbol, und im Protokoll steht eine
@@ -474,10 +510,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.senden(200, SYMBOL, "image/svg+xml",
                                {"Cache-Control": "public, max-age=86400"})
         if pfad == "/robots.txt":
-            # Was hier liegt, gehoert in keine Suchmaschine - auch die
-            # Startseite nicht, solange sie nur ein Schild ist.
-            return self.senden(200, "User-agent: *\nDisallow: /\n",
-                               "text/plain; charset=utf-8")
+            # Was hier liegt, gehoert in keine Suchmaschine. Die Startseite
+            # schon - aber nur, wenn jemand ausdruecklich eine hingelegt
+            # hat. Solange sie das leere Schild ist, bleibt auch sie
+            # draussen. "Allow: /$" trifft genau die Wurzel und nichts
+            # darunter; die Freigaben unter /s/ und /z/ bleiben gesperrt.
+            if startseite_finden() is None:
+                regeln = "User-agent: *\nDisallow: /\n"
+            else:
+                regeln = "User-agent: *\nAllow: /$\nDisallow: /\n"
+            return self.senden(200, regeln, "text/plain; charset=utf-8")
 
         if len(teile) == 2 and teile[0] == "schriften":
             return self.schrift_senden(teile[1])
@@ -509,6 +551,33 @@ class Handler(BaseHTTPRequestHandler):
         with open(p, "rb") as f:
             self.senden(200, f.read(), typ,
                         {"Cache-Control": "public, max-age=31536000, immutable"})
+
+    def startseite(self):
+        """Was unter "/" steht: eine abgelegte Seite, sonst das Schild.
+
+        Diese eine Seite sieht JEDER - ohne Link, ohne Anmeldung. Sie ist
+        trotzdem fremder Code und bekommt genau denselben Riegel wie eine
+        freigegebene Seite (CSP_SEITE). Was sich unterscheidet, sind nur
+        zwei Koepfe: sie darf zwischengespeichert und gefunden werden.
+        """
+        z = startseite_finden()
+        if z is None:
+            return self.senden(200, seite_start())
+        p = os.path.join(SEITEN, z["datei"])
+        if not os.path.exists(p):
+            # Lieber das Schild als ein 500. Dass die Markierung ins Leere
+            # zeigt, sieht der Verwalter in der Verwaltung - der Besucher
+            # kann daran nichts aendern (§12).
+            return self.senden(200, seite_start())
+        with open(p, "rb") as f:
+            self.senden(200, f.read(), "text/html; charset=utf-8", {
+                "Content-Security-Policy": CSP_SEITE,
+                # Kein Zwischenspeicher: wer die Startseite austauscht,
+                # will sie sofort sehen und nicht erst nach einer Stunde
+                # raten, ob es am Browser liegt.
+                "Cache-Control": "public, no-store",
+                "X-Robots-Tag": "all",
+            })
 
     # -------------------------------------------------- Der Einlass
     def einlass(self, marke):
@@ -583,13 +652,7 @@ class Handler(BaseHTTPRequestHandler):
             raise Antwort(404, "Die Seite ist nicht mehr da.")
         with open(p, "rb") as f:
             self.senden(200, f.read(), "text/html; charset=utf-8", {
-                # Eine hochgeladene Seite ist fremder Code. Sie laeuft ohne
-                # Verbindung nach draussen und darf nichts nachladen.
-                "Content-Security-Policy":
-                    "default-src 'none'; img-src 'self' data:; "
-                    "style-src 'self' 'unsafe-inline'; font-src 'self'; "
-                    "script-src 'unsafe-inline'; form-action 'none'; "
-                    "base-uri 'none'; frame-ancestors 'none'",
+                "Content-Security-Policy": CSP_SEITE,
                 "Cache-Control": "private, no-store",
             })
 
@@ -626,6 +689,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.passwort_setzen(nutzer, daten)
         if pfad == "/api/loeschen":
             return self.seite_loeschen(nutzer, daten)
+        if pfad == "/api/startseite":
+            return self.startseite_setzen(nutzer, daten)
         raise Antwort(404, "Unbekannter Aufruf.")
 
     def passwort_pruefen(self, marke):
@@ -739,6 +804,31 @@ class Handler(BaseHTTPRequestHandler):
         db().commit()
         return self.json_senden({"ok": True, "passwort": True})
 
+    def startseite_setzen(self, nutzer, daten):
+        """Eine Seite als Startseite markieren - oder die Markierung weg.
+
+        Der Primaerschluessel auf schluessel sorgt dafuer, dass es immer
+        HOECHSTENS eine gibt. Zwei Startseiten waeren keine Einstellung,
+        sondern ein Zustand, den niemand aufloesen kann.
+        """
+        kennung = (daten.get("kennung") or "").strip()
+        if not kennung:
+            db().execute("DELETE FROM einstellung WHERE schluessel='startseite'")
+            db().commit()
+            return self.json_senden({"ok": True, "startseite": None})
+        s = db().execute("SELECT * FROM seite WHERE kennung=? AND geloescht=0",
+                         (kennung,)).fetchone()
+        if s is None:
+            raise Antwort(404, "Diese Seite gibt es nicht.")
+        db().execute(
+            "INSERT INTO einstellung(schluessel,wert,geaendert,nutzer_id) "
+            "VALUES('startseite',?,?,?) "
+            "ON CONFLICT(schluessel) DO UPDATE SET wert=excluded.wert, "
+            "geaendert=excluded.geaendert, nutzer_id=excluded.nutzer_id",
+            (kennung, jetzt(), nutzer))
+        db().commit()
+        return self.json_senden({"ok": True, "startseite": kennung})
+
     def seite_loeschen(self, nutzer, daten):
         kennung = (daten.get("kennung") or "").strip()
         if not daten.get("bestaetigt"):
@@ -753,8 +843,18 @@ class Handler(BaseHTTPRequestHandler):
         db().execute("UPDATE seite SET geloescht=1 WHERE id=?", (s["id"],))
         db().execute("UPDATE freigabe SET zustand='gesperrt' WHERE seite_id=?",
                      (s["id"],))
+        # War sie die Startseite, ist sie es jetzt nicht mehr. In DERSELBEN
+        # Transaktion: eine Markierung, die eine geloeschte Seite meint,
+        # waere eine Zeile, die ins Leere zeigt (§12). Ausgeliefert wuerde
+        # sie ohnehin nicht - aber "wirkt nicht" ist kein Grund, sie
+        # stehen zu lassen.
+        war_start = db().execute(
+            "SELECT 1 FROM einstellung WHERE schluessel='startseite' AND wert=?",
+            (kennung,)).fetchone() is not None
+        if war_start:
+            db().execute("DELETE FROM einstellung WHERE schluessel='startseite'")
         db().commit()
-        return self.json_senden({"ok": True})
+        return self.json_senden({"ok": True, "war_startseite": war_start})
 
 
 # ------------------------------------------------------------ Oberflaeche
@@ -828,6 +928,12 @@ body{margin:0;background:var(--bg);color:var(--ink-2);
 h1,h2,h3,.zahl{font-family:Sora,'Instrument Sans',sans-serif;font-weight:600;
   color:var(--ink);letter-spacing:-0.02em;margin:0}
 .mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+/* Ohne diese Regel bekommt ein Verweis im Fliesstext die Vorgabe des
+   Browsers - dunkelblau. Auf --surface im dunklen Thema ist das nicht zu
+   lesen, und ein Farbwert ohne Token waere es ohnehin (§2, §8). .marke
+   hat ihre eigene Farbe und gewinnt ueber die Klasse. */
+a{color:var(--accent-ink);text-underline-offset:2px}
+a:hover{color:var(--accent)}
 .mitte{max-width:1280px;margin:0 auto;padding:32px 20px}
 .marke{display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit}
 .marke b{width:30px;height:30px;border-radius:8px;background:var(--accent);
@@ -846,7 +952,7 @@ h1,h2,h3,.zahl{font-family:Sora,'Instrument Sans',sans-serif;font-weight:600;
 .knopf.rahmen:hover{background:var(--hover);color:var(--ink)}
 .knopf.gefahr{background:transparent;color:var(--ink-2);border:1px solid var(--line)}
 .knopf.gefahr:hover{border-color:var(--danger);color:var(--danger)}
-input[type=text],input[type=password],input[type=number]{width:100%;min-height:44px;
+input[type=text],input[type=password],input[type=number],select{width:100%;min-height:44px;
   padding:0 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);
   color:var(--ink);font:400 14px 'Instrument Sans',sans-serif}
 .label{display:block;font-size:12px;color:var(--ink-3);margin-bottom:4px}
@@ -977,7 +1083,9 @@ def verwaltung_daten(nutzer):
         seiten.append({"kennung": s["kennung"], "titel": s["titel"],
                        "groesse_b": s["groesse_b"],
                        "hochgeladen": s["hochgeladen"], "freigaben": frei})
-    return {"nutzer": nutzer, "seiten": seiten, "version": VERSION}
+    z = startseite_finden()
+    return {"nutzer": nutzer, "seiten": seiten, "version": VERSION,
+            "startseite": z["kennung"] if z else None}
 
 
 def seite_verwaltung():
@@ -1007,6 +1115,23 @@ def seite_verwaltung():
       <input type="file" id="datei" accept=".html,text/html"
              style="position:absolute;left:-9999px" aria-label="HTML-Datei auswählen">
     </div>
+  </div>
+
+  <div class="karte" style="margin-top:14px">
+    <h2 style="font-size:15px">Die Startseite</h2>
+    <div class="kontext" style="margin:4px 0 14px">Was jeder sieht, der die
+    nackte Adresse aufruft — ohne Link, ohne Anmeldung.</div>
+    <div class="meldung warn">Eine Startseite ist wirklich öffentlich:
+    Suchmaschinen dürfen sie finden, alles andere hier bleibt für sie
+    gesperrt. Lege nur hin, was jeder lesen darf.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
+      <div style="flex:1 1 260px;min-width:0">
+        <label class="label" for="startwahl">Welche der abgelegten Seiten?</label>
+        <select id="startwahl"></select>
+      </div>
+      <button class="knopf rahmen" data-tun="start">Übernehmen</button>
+    </div>
+    <div class="kontext" id="startlage" style="margin-top:10px"></div>
   </div>
 
   <div id="bericht"></div>
@@ -1042,6 +1167,7 @@ async function laden(){
              return; }
   const d = await a.json();
   $('wer').textContent = d.nutzer + ' · Fassung ' + d.version;
+  startseite_zeigen(d);
   if(!d.seiten.length){
     $('liste').innerHTML = '<div class="karte"><h2 style="font-size:15px">' +
       'Noch nichts abgelegt</h2><div class="kontext" style="margin-top:4px">' +
@@ -1050,6 +1176,28 @@ async function laden(){
     return;
   }
   $('liste').innerHTML = d.seiten.map(bauen).join('');
+}
+function startseite_zeigen(d){
+  const w = $('startwahl');
+  w.innerHTML = '<option value="">— keine, die Adresse zeigt das leere ' +
+    'Schild —</option>' + d.seiten.map(s =>
+      '<option value="' + schuetzen(s.kennung) + '"' +
+      (s.kennung === d.startseite ? ' selected' : '') + '>' +
+      schuetzen(s.titel) + '</option>').join('');
+  // Der Zustand wird BENANNT, nicht nur durch das ausgewaehlte Element
+  // angedeutet: wer die Karte aufschlaegt, soll in einem Satz lesen, was
+  // gerade oeffentlich ist. Und mit dem Link dorthin - eine Meldung, die
+  // einen Ort nennt, fuehrt auch hin (§7).
+  if(d.startseite){
+    const t = (d.seiten.find(s => s.kennung === d.startseite) || {}).titel || '';
+    $('startlage').innerHTML = 'Öffentlich sichtbar ist zurzeit <strong>' +
+      schuetzen(t) + '</strong> — <a href="/" target="_blank" rel="noopener">' +
+      'ansehen</a>.';
+  } else {
+    $('startlage').textContent = 'Zurzeit liegt dort nichts. Wer die Adresse ' +
+      'ohne Link aufruft, sieht nur den Hinweis, dass es hier nichts offen ' +
+      'zu sehen gibt.';
+  }
 }
 function bauen(s){
   const zeilen = s.freigaben.map(f => `
@@ -1134,12 +1282,28 @@ document.addEventListener('click', async (e) => {
       await ruf('/api/passwort', {id: +k.dataset.id, passwort: pw});
       melden(pw ? 'Der Link fragt jetzt nach dem Passwort.'
                 : 'Der Link fragt nicht mehr nach einem Passwort.', 'gut');
+    } else if(tun === 'start'){
+      const wahl = $('startwahl').value;
+      if(wahl && !confirm('Die Seite wird damit für JEDEN sichtbar, der die ' +
+        'Adresse aufruft — ohne Link und ohne Anmeldung, und Suchmaschinen ' +
+        'dürfen sie finden. Wirklich?')){ k.disabled = false; return; }
+      await ruf('/api/startseite', {kennung: wahl});
+      melden(wahl ? 'Die Seite steht jetzt unter der nackten Adresse.'
+                  : 'Dort steht wieder das leere Schild. Die Seite selbst ' +
+                    'bleibt liegen.', 'gut');
     } else if(tun === 'loeschen'){
+      const ist_start = k.dataset.kennung === $('startwahl').value;
       if(!confirm('Die Seite "' + k.dataset.kennung + '" löschen? Alle Links ' +
-                  'darauf gelten danach nicht mehr.')){ k.disabled = false; return; }
-      await ruf('/api/loeschen', {kennung: k.dataset.kennung, bestaetigt: true});
+                  'darauf gelten danach nicht mehr.' + (ist_start
+                  ? ' Sie ist die Startseite — die Adresse zeigt danach '
+                    + 'wieder das leere Schild.' : ''))){
+        k.disabled = false; return; }
+      const a = await ruf('/api/loeschen',
+        {kennung: k.dataset.kennung, bestaetigt: true});
       melden('Die Seite ist aus der Liste. Die Datei liegt noch auf dem ' +
-             'Server, bis jemand sie dort entfernt.', 'gut');
+             'Server, bis jemand sie dort entfernt.' + (a.war_startseite
+             ? ' Sie war die Startseite — dort steht jetzt wieder das leere '
+               + 'Schild.' : ''), 'gut');
     }
     await laden();
   } catch(err){

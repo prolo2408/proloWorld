@@ -4634,3 +4634,124 @@ handgerechnet aus dem Formatstring (`2 + 26 + 1 + 23 + 1 = 53`), einmal in
 einer Zeile mit langem und einmal mit kurzem Eintrag. Eine Prüfung, die
 nur die beiden Zeilen miteinander vergleicht, hielte auch eine Tabelle für
 heil, die als Ganzes verrutscht ist.
+
+---
+
+## N-72 — Die Startseite stand im Quelltext, nicht im Werkzeug
+
+Gefragt wurde: „Wie setze ich jetzt eine Webseite auf prolo.me?"
+
+Die ehrliche Antwort war bis hierher: gar nicht. `prolo.me` zeigte
+jedem, der ohne Link vorbeikam, denselben Satz — „Hier liegt nichts offen
+herum." Das war richtig gedacht: was hier liegt, gehört niemandem in die
+Hände, der keinen Zugangslink hat. Nur ließ es sich nicht ändern, ohne
+`seite_start()` in `server.py` anzufassen und das Abbild neu zu bauen.
+
+> Ein Werkzeug, das Seiten ablegt und ausliefert, sollte auch die Seite
+> ablegen und ausliefern können, die ganz vorne steht. Dass ausgerechnet
+> die einzige öffentliche Adresse fest verdrahtet war, ist keine
+> Sicherheitsentscheidung gewesen, sondern eine, die nie jemand getroffen
+> hat.
+
+### Was jetzt kommt
+
+In der Verwaltung gibt es die Karte **„Die Startseite"**: eine der
+abgelegten Seiten auswählen, Übernehmen. Wer `prolo.me` ohne Link
+aufruft, sieht ab dann diese Seite. „keine" wählen stellt das Schild
+wieder her — die Seite selbst bleibt liegen.
+
+Vier Dinge, die daran wichtiger sind als die Funktion selbst:
+
+1. **Es wird gesagt, was es bedeutet.** Die Karte trägt eine Warnung,
+   und beim Übernehmen fragt das Werkzeug nach: *„Die Seite wird damit für
+   JEDEN sichtbar, der die Adresse aufruft — ohne Link und ohne Anmeldung,
+   und Suchmaschinen dürfen sie finden."* Wer hier aus Versehen den
+   Lebenslauf hinlegt, soll es vorher lesen und nicht hinterher merken.
+2. **Der Riegel bleibt derselbe.** Eine Startseite ist fremder Code wie
+   jede andere abgelegte Seite und bekommt dieselbe CSP. Die stand vorher
+   nur an einer Stelle im Quelltext; sie heißt jetzt `CSP_SEITE` und wird
+   von beiden benutzt. Zwei Fassungen wären zwei Gelegenheiten,
+   auseinanderzulaufen — und die öffentliche wäre die laschere gewesen.
+3. **`robots.txt` sagt die Wahrheit.** Ohne Startseite: `Disallow: /`,
+   wie bisher. Mit: `Allow: /$` und darunter weiter `Disallow: /` — genau
+   die Wurzel, nichts darunter. Die freigegebenen Seiten unter `/s/` und
+   die Links unter `/z/` bleiben draußen.
+4. **Die Markierung kann nicht ins Leere zeigen.** Wird die Seite
+   gelöscht, verschwindet die Markierung in derselben Transaktion (§12),
+   und der Löschdialog sagt vorher, dass es diese Seite ist. Zeigt sie
+   trotzdem einmal auf etwas Gelöschtes oder auf eine verschwundene Datei,
+   steht dort wieder das Schild — kein 500, denn der Besucher kann daran
+   nichts ändern.
+
+### Der Prüfer hat gelogen, und zwar genau so wie angekündigt
+
+Im Browserdurchgang fiel ein echter Fehler auf, den kein Test gefunden
+hätte: der Verweis „ansehen" in der neuen Karte bekam die Vorgabe des
+Browsers — Dunkelblau. Auf `--surface` im dunklen Thema ist das nicht zu
+lesen, und ein Farbwert ohne Token wäre es ohnehin nicht gewesen (§2).
+Das Werkzeug hatte bis dahin gar keine Regel für einen Verweis im
+Fließtext; jetzt hat es eine, über `--accent-ink`.
+
+Und beim Nachmessen fiel der **Messende** hinein:
+
+```
+"ansehen-Link": 1.02,   "Zustandszeile": 1.04,   "Label": 1.04
+```
+
+Alles um 1, also unsichtbarer Text — auf einem Bildschirmfoto, auf dem
+man ihn deutlich liest. `getComputedStyle().color` gibt bei einem
+`oklch()`-Wert **`oklch()` zurück**, und die drei Zahlen daraus als R, G, B
+zu lesen ergibt Unsinn. Das ist wörtlich die erste der drei Lügen aus
+§14a — aufgeschrieben, gelesen, und trotzdem hineingelaufen.
+
+Der Prüfer rechnet jetzt nicht mehr selbst, sondern lässt den Browser
+umrechnen (Leinwand, sRGB), erkennt einen abgelehnten Farbwert an einer
+Kennfarbe statt still die vorige zu messen, und sucht zu einer
+durchsichtigen Fläche den ersten undurchsichtigen Vorfahren, statt gegen
+Schwarz zu messen. Dazu vier Gegenproben mit von Hand bekanntem Ergebnis:
+
+| Probe | erwartet | gemessen |
+|---|---|---|
+| Schwarz auf Weiß | 21 | 21 |
+| dieselbe Farbe auf sich selbst | 1 | 1 |
+| `oklch(0 0 0)` auf `oklch(1 0 0)` | 21 | 21 |
+| `oklch(0 0 0)` auf `rgb(255,255,255)` | 21 | 21 |
+
+Die dritte Zeile ist die eigentliche: sie beweist, dass der oklch-Weg
+trägt. Ohne sie wäre der Prüfer wieder nur grün gewesen.
+
+### Prüfung
+
+**Im Browser geladen**, Chromium, beide Themen, 360 / 768 / 1920 px:
+kein seitliches Scrollen (`quer = 0` in allen sechs Läufen), kein
+Überlauf aus einer Karte, keine Fehler auf der Konsole. Bildschirmfotos
+liegen im Kratzblock.
+
+Kontrast nach der Korrektur, gemessen: „ansehen" **10,49** (dunkel) und
+**10,24** (hell), Zustandszeile 6,04 / 5,52, Warnung 7,95 / 6,38,
+Auswahlfeld 14,91 / 18,14 — alles über 4,5:1.
+
+Touchziele: das neue Auswahlfeld und „Übernehmen" sind 44 px. Fünf
+**bestehende** Elemente sind es nicht (36 px bzw. 37 px) — eigener Befund,
+nicht still nebenbei.
+
+| | |
+|---|---|
+| `www/tests/alle.sh` | **40 Tests**, RC=0 (vorher 27) |
+| `www/tests/gegenprobe.py` (neu) | **13 von 13 gefunden** |
+
+Die Gegenprobe gab es für dieses Werkzeug noch nicht. Zwei Mutationen
+entwischten im ersten Lauf — *„eine gelöschte Seite bleibt öffentlich
+stehen"* und *„das Löschen lässt die Markierung stehen"* —, und zwar
+**beide aus demselben Grund**: gegen diesen Fall sichern zwei Stellen
+gleichzeitig (der Filter `geloescht = 0` und das `DELETE` beim Löschen),
+und solange eine steht, merkt der Test von der anderen nichts.
+
+> Zwei Riegel und eine Prüfzeile ergeben einen blinden Fleck. Jeder
+> Riegel braucht einen Test, der ihn **allein** trägt.
+
+Dafür schaut ein Test jetzt in die Datenbank statt durch die
+Schnittstelle (ist die Zeile wirklich weg, nicht nur wirkungslos?), und
+ein zweiter stellt von Hand einen Zustand her, den die Schnittstelle gar
+nicht erzeugen kann (Markierung auf eine gelöschte Seite). Danach: 13 von
+13.

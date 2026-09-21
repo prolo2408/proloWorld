@@ -5,6 +5,30 @@ Geschrieben für den Nutzer, nicht für Entwickler. Neueste Fassung oben.
 Fassungsnummern: letzte Stelle = Fehlerbehebung, mittlere = neue Funktion,
 erste = etwas Bestehendes bricht.
 
+## Fassung 1.1.0
+
+Die nackte Adresse zeigte bisher immer dasselbe Schild: „Hier liegt
+nichts offen herum." Das war richtig, solange es hier nur um
+Zugangslinks ging — aber es ließ sich nicht ändern, ohne den Text im
+Quelltext zu ändern und neu zu bauen.
+
+Jetzt kannst du **eine der abgelegten Seiten zur Startseite machen**.
+In der Verwaltung gibt es dafür die Karte „Die Startseite": Seite
+auswählen, Übernehmen. Wer die Adresse ohne Link aufruft, sieht ab dann
+diese Seite.
+
+Was dabei wichtig ist, und was das Werkzeug dir auch sagt, bevor du es
+tust: **eine Startseite ist wirklich öffentlich.** Jeder sieht sie, ohne
+Link und ohne Anmeldung, und Suchmaschinen dürfen sie finden. Alles
+andere hier bleibt für sie gesperrt — die freigegebenen Seiten unter
+`/s/` und die Links unter `/z/` genauso wie vorher.
+
+Rückgängig ist es jederzeit: in derselben Karte „keine" wählen, dann
+steht dort wieder das Schild. Die Seite selbst bleibt dabei liegen. Und
+löschst du die Seite, die gerade Startseite ist, fällt die Adresse von
+allein auf das Schild zurück — der Löschdialog sagt dir vorher, dass es
+diese Seite ist.
+
 ## Fassung 1.0.1
 
 Die Meldung beim Start ohne Einlassmarke schickte in den nächsten

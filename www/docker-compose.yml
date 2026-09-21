@@ -5,7 +5,7 @@ services:
     # aktualisieren.sh liest genau diese Zeile, um sich die bisherige
     # Fassung zu merken - ohne sie gibt es keinen Rueckweg.
     # Die Fassung passt zum CHANGELOG.md und wird dort mitgezogen.
-    image: www:1.0.1
+    image: www:1.1.0
     container_name: www
     # Grenzen nach CLAUDE.md §19.
     mem_limit: 512m
