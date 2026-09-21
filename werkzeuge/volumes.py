@@ -22,7 +22,7 @@ braucht dafuer nicht einmal einen laufenden Docker-Dienst.
 
 Aufruf:   volumes.py <stack> [werkzeug ...]
 Ausgabe:  <werkzeug>|<art>|<name>|<lage>[|<grund>]
-            art   volume | bind
+            art   volume | bind | binddatei
             lage  gesichert | erklaert | FEHLT | unlesbar
 Rueckgabe 1, sobald ein FEHLT dabei ist.
 """
@@ -124,12 +124,21 @@ def pruefen(stack, werkzeuge):
                 if rel in gesehen:
                     continue
                 gesehen.add(rel)
+                # Ordner und Datei werden UNTERSCHIEDEN, weil sie in
+                # verschiedene Zeilen der sicherung.conf gehoeren: ORDNER
+                # wird eingepackt, DATEIEN wird kopiert. Wer das nicht
+                # trennt, nennt in der Meldung die falsche Zeile - und
+                # genau das ist passiert (N-78).
+                #
+                # Gibt es den Pfad noch nicht, ist es ein Ordner: Docker
+                # legt einen an, wenn ein Bind-Mount ins Leere zeigt.
+                art = "binddatei" if os.path.isfile(quelle) else "bind"
                 if rel in ordner or rel in dateien:
-                    zeilen.append("%s|bind|%s|gesichert" % (w, rel))
+                    zeilen.append("%s|%s|%s|gesichert" % (w, art, rel))
                 elif rel in erklaert:
-                    zeilen.append("%s|bind|%s|erklaert|%s" % (w, rel, erklaert[rel]))
+                    zeilen.append("%s|%s|%s|erklaert|%s" % (w, art, rel, erklaert[rel]))
                 else:
-                    zeilen.append("%s|bind|%s|FEHLT" % (w, rel))
+                    zeilen.append("%s|%s|%s|FEHLT" % (w, art, rel))
                     luecke = True
     return zeilen, luecke
 

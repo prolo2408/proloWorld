@@ -105,6 +105,7 @@ printf 'VOLUMES=""\nORDNER=""\nDATEIEN="?.env"\n' > "$S/fremd/sicherung.conf"
 # --- 5. bind: ein Bind-Mount aus dem Werkzeugordner ------------------
 werkzeug bind
 mkdir -p "$S/bind/daten" "$S/bind/egal"
+printf 'geheim\n' > "$S/bind/eine.conf"
 cat > "$S/bind/docker-compose.yml" <<'Y'
 services:
   bind:
@@ -112,6 +113,7 @@ services:
     volumes:
       - ./daten:/daten
       - ./egal:/egal
+      - ./eine.conf:/etc/eine.conf:ro
       - /etc/localtime:/etc/localtime:ro
 Y
 printf 'VOLUMES=""\nORDNER="?egal"\nDATEIEN=""\n' > "$S/bind/sicherung.conf"
@@ -144,6 +146,13 @@ pruefe "ein Volume, das erst im Overlay dazukommt, wird gesehen" "FEHLT" \
 
 pruefe "ein Bind-Mount ohne Eintrag ist eine Luecke" "FEHLT" "$(lage bind bind daten)"
 pruefe "ein Bind-Mount mit ?-Eintrag gilt als gesichert" "gesichert" "$(lage bind bind egal)"
+# Ordner und Datei gehoeren in VERSCHIEDENE Zeilen der sicherung.conf
+# (ORDNER bzw. DATEIEN). Wer das nicht unterscheidet, nennt in der
+# Meldung die falsche - genau das ist bei bitwarden passiert (N-78).
+pruefe "eine gebundene DATEI wird als solche gemeldet" "FEHLT" \
+  "$(lage bind binddatei eine.conf)"
+printf '%s\n' "$A" | grep -q 'bind|bind|eine.conf' && E=ja || E=nein
+pruefe "und nicht als Ordner" "nein" "$E"
 printf '%s\n' "$A" | grep -q 'localtime' && E=ja || E=nein
 pruefe "ein Bind-Mount von ausserhalb des Werkzeugs zaehlt nicht" "nein" "$E"
 
@@ -154,7 +163,7 @@ pruefe "bei einer Luecke ist der Rueckgabewert 1" "1" "$R"
 # Mal wegklickt.
 printf 'VOLUMES="luecke_daten"\nORDNER=""\nDATEIEN=""\n' > "$S/luecke/sicherung.conf"
 printf 'VOLUMES="fremd_fremd_data fremd_unseres"\nORDNER=""\nDATEIEN="?.env"\n' > "$S/fremd/sicherung.conf"
-printf 'VOLUMES=""\nORDNER="daten ?egal"\nDATEIEN=""\n' > "$S/bind/sicherung.conf"
+printf 'VOLUMES=""\nORDNER="daten ?egal"\nDATEIEN="eine.conf"\n' > "$S/bind/sicherung.conf"
 python3 "$PRUEFLING" "$S" >/dev/null 2>&1; R=$?
 pruefe "ohne Luecke ist der Rueckgabewert 0" "0" "$R"
 

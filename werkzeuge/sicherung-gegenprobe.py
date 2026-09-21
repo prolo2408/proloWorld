@@ -32,6 +32,10 @@ MUTATIONEN = [
      'erklaert = erklaert_lesen(s.get("VOLUMES_OHNE", ""))',
      'erklaert = {}'),
 
+    ("unterscheidet Ordner und Datei nicht (N-78)",
+     'art = "binddatei" if os.path.isfile(quelle) else "bind"',
+     'art = "bind"'),
+
     ("zaehlt Bind-Mounts gar nicht mit",
      'if not isinstance(m, dict) or m.get("type") != "bind":',
      'if True:'),

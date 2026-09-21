@@ -737,14 +737,20 @@ sicherung_hinweis() {
             | grep '|FEHLT$' || true)
   [ -n "$LUECKEN" ] || return 0
   melde ""
-  melde "  HINWEIS: $TOOL legt Daten ab, die NICHT gesichert werden:"
-  printf '%s\n' "$LUECKEN" | while IFS='|' read -r _ ART NAME _; do
-    melde "    $ART  $NAME"
-  done
+  melde "  HINWEIS: $TOOL legt Daten ab, die NICHT gesichert werden."
+  melde "  Je Zeile die genannte in $TOOL/sicherung.conf:"
   melde ""
-  melde "  Je Zeile eine der beiden in $TOOL/sicherung.conf:"
-  melde "    VOLUMES=\"... <name>\"          # wird gesichert"
-  melde "    VOLUMES_OHNE=\"<name>|<warum>\"  # braucht keine Sicherung"
+  # Welche Zeile es ist, haengt von der Art ab: ein Bind-Mount gehoert
+  # nicht in VOLUMES (N-78).
+  printf '%s\n' "$LUECKEN" | while IFS='|' read -r _ ART NAME _; do
+    case "$ART" in
+      volume)    melde "    VOLUMES=\"... $NAME\"" ;;
+      bind)      melde "    ORDNER=\"... $NAME\"" ;;
+      binddatei) melde "    DATEIEN=\"... $NAME\"" ;;
+      *)         melde "    VOLUMES_OHNE=\"$NAME|<warum>\"" ;;
+    esac
+    melde "      oder  VOLUMES_OHNE=\"$NAME|<warum>\"   # braucht keine"
+  done
   melde ""
   melde "  Solange etwas fehlt, bricht 'prolo sichern' ab und nennt es."
 }

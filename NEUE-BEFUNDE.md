@@ -5221,3 +5221,79 @@ Test hat also genau den Schaden weggeräumt, den er nachweisen sollte.
 
 > Ein Test, der seinen eigenen Beweis anfasst, misst sich selbst. Die
 > Reihenfolge der Prüfzeilen ist Teil der Prüfung.
+
+---
+
+## N-78 — Die Meldung nannte die Zeile, die nicht passt
+
+`N-76` hatte gerade erst dafür gesorgt, dass die Sicherung ihre Lücken
+benennt. Beim ersten echten Einsatz auf dem Server sah das so aus:
+
+```
+ACHTUNG: hier entstehen Daten, die NICHT gesichert werden.
+
+  bitwarden      bind    vw-data
+
+  … Je Zeile EINE der beiden Zeilen in die sicherung.conf des Werkzeugs:
+
+    VOLUMES="... <name>"          # es wird gesichert
+    VOLUMES_OHNE="<name>|<warum>" # es braucht keine Sicherung
+```
+
+Die Diagnose stimmte. Der Rat nicht. `vw-data` ist ein **Bind-Mount** —
+Vaultwarden bindet `./vw-data` aus dem Werkzeugordner ein —, und in
+`VOLUMES` gehören ausschließlich **benannte Docker-Volumes**. Wer der
+Meldung folgt, trägt es dort ein, und beim nächsten Lauf steht dieselbe
+Beanstandung wieder da: `VOLUMES` schickt `backup.sh` in ein
+`docker run -v vw-data:/daten`, und ein Volume dieses Namens gibt es nicht.
+
+Die Spalte daneben sagte es sogar — `bind` stand da. Die Meldung hat ihre
+eigene Ausgabe nicht gelesen.
+
+> Eine Meldung, die einen Weg nennt, muss den Weg nennen, der zum Ziel
+> führt (§7). Ein Rat, der sich beim Befolgen als falsch herausstellt, ist
+> teurer als gar keiner: beim ersten Mal sucht man den Fehler bei sich.
+
+### Was jetzt kommt
+
+Die Zeile hängt an der Art, und `werkzeuge/volumes.py` unterscheidet sie
+jetzt auch: ein Bind-Mount auf einen **Ordner** gehört in `ORDNER`, auf
+eine **Datei** in `DATEIEN`, ein benanntes Volume in `VOLUMES`.
+
+```
+  bitwarden/vw-data  (Ordner im Werkzeugordner)
+      ORDNER="... vw-data"
+      oder  VOLUMES_OHNE="vw-data|<warum>"
+
+  n8n/n8n_n8n_data  (benanntes Docker-Volume)
+      VOLUMES="... n8n_n8n_data"
+      oder  VOLUMES_OHNE="n8n_n8n_data|<warum>"
+
+  traefik/acme.json  (Datei im Werkzeugordner)
+      DATEIEN="... acme.json"
+      oder  VOLUMES_OHNE="acme.json|<warum>"
+```
+
+Gibt es den Pfad noch nicht, gilt er als Ordner — das ist, was Docker bei
+einem Bind-Mount ins Leere anlegt.
+
+### Prüfung
+
+| | |
+|---|---|
+| `werkzeuge/prolo-pruefen.sh` | **96 ok**, RC=0 (vorher 92) |
+| `werkzeuge/prolo-gegenprobe.py` | **18 von 18** (vorher 17) |
+| `werkzeuge/sicherung-pruefen.sh` | **14 ok**, RC=0 (vorher 12) |
+| `werkzeuge/sicherung-gegenprobe.py` | **9 von 9** (vorher 8) |
+| wiederherstellen / netze / grenze / neu | 31 / 42 / 62 / 101, RC=0 |
+
+Geprüft wird nicht der Text, sondern die **Wirkung**: `prolo start` läuft
+gegen ein Werkzeug mit einem ungesicherten Bind-Ordner, und die Ausgabe
+muss `ORDNER="... vw-data"` enthalten und `VOLUMES="... vw-data"` **nicht**.
+Dazu der Prüferbeweis: ist es eingetragen, schweigt der Hinweis — sonst
+wäre eine Zeile grün, die immer meckert.
+
+Dafür reicht der bisherige Docker-Ersatz in `prolo-pruefen.sh` nicht: er
+beantwortete `compose config` mit nichts, also sah `volumes.py` gar keine
+Bind-Mounts. `compose config` braucht keinen Daemon und wird darum
+durchgereicht statt erfunden — wie im Prüfer für die Wiederherstellung.
