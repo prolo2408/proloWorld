@@ -4426,3 +4426,121 @@ Jetzt legt der Prüfstand ihn an (ein `vermittler`, der ein Netz mit festem
 Namen erzeugt, und ein `gast`, der sich hineinhängt) — und daneben steht die
 Zeile „mit einem **zweiten** Gast wird es einer", damit die erste nicht
 grün bleiben kann, wenn gar nichts mehr geprüft wird.
+
+---
+
+## N-69 — Ursache und Wirkung standen nebeneinander, gesagt wurde es nie
+
+`admin.prolo.me` ließ sich im Browser nicht öffnen: „Seite ist nicht
+sicher". `prolo status` hatte den Grund längst gemessen — in zwei Zellen
+derselben Zeile:
+
+```
+  NAME                       ZEIGT AUF        ZERTIFIKAT
+  admin.prolo.me             217.160.0.1 (FREMD) keine Antwort auf 443
+  auth.prolo.me              89.58.44.224     80 Tage (Let's Encrypt)
+```
+
+Beide Angaben stimmen. Der Fußtext erklärte auch beide — `FREMD` in einem
+Absatz, `NOTZERTIFIKAT` in einem zweiten. Nur das Wort dazwischen fehlte:
+**weil**. Der Name zeigt nicht hierher, also erreicht die Prüfung von
+Let's Encrypt diesen Server nie, also entsteht kein Zertifikat, also
+meckert der Browser. Vier Glieder, drei davon im Werkzeug, keines
+verbunden.
+
+Gefragt wurde genau danach:
+
+> „Das Problem mit dem Nicht sichere Verbindung hatten wir schonmal. Ich
+> weiß nicht, was da der Fix ist, aber kann man das nicht automatisch
+> machen lassen?"
+
+Die Antwort auf die zweite Hälfte ist: das Zertifikat **ist** automatisch.
+Traefik holt es von selbst, sobald der Name hierher zeigt. Automatisieren
+lässt sich nur der A-Eintrag beim DNS-Anbieter nicht — dafür bräuchte der
+Server dessen API-Schlüssel, und der hätte auf einer Maschine, die im Netz
+steht, nichts verloren (§21). Was das Werkzeug also schuldig blieb, ist
+**nicht die Tat, sondern der Satz**.
+
+> Zwei richtige Zellen nebeneinander sind keine Diagnose. Wer die Ursache
+> und die Wirkung beide gemessen hat, sagt auch, dass die eine die andere
+> ist — sonst verlangt er vom Menschen genau die Arbeit, für die es ihn
+> gibt. Dieselbe Narbe wie `N-60` und `N-64`, nur eine Zeile weiter rechts.
+
+### Was jetzt kommt
+
+```
+  NAME                       ZEIGT AUF        ZERTIFIKAT
+  admin.beispiel             217.160.0.1 (FREMD) keine Antwort auf 443
+  n8n.beispiel               217.160.0.1 (FREMD) keine Antwort auf 443
+  auth.beispiel              9.9.9.9          80 Tage (Let's Encrypt)
+  notzert.beispiel           9.9.9.9          NOTZERTIFIKAT (…) - kein Let's Encrypt
+
+  Was daraus folgt:
+
+  admin.beispiel hat kein Zertifikat, WEIL der Name auf 217.160.0.1 zeigt und nicht hierher.
+    A-Eintrag fuer admin.beispiel auf 9.9.9.9 setzen.
+  n8n.beispiel hat kein Zertifikat, WEIL der Name auf 217.160.0.1 zeigt und nicht hierher.
+    A-Eintrag fuer n8n.beispiel auf 9.9.9.9 setzen.
+  notzert.beispiel zeigt hierher, und trotzdem kommt kein Zertifikat
+  von Let's Encrypt. Am Namen liegt es also nicht.
+
+  Let's Encrypt prueft ueber Port 80 an genau der Adresse, auf die der Name
+  zeigt. Ist das nicht dieser Server, kann hier kein Zertifikat entstehen -
+  im Browser steht dann "Seite ist nicht sicher".
+  Zu tun ist es beim DNS-Anbieter, nicht auf dem Server. […]
+  Danach holt Traefik das Zertifikat von selbst, meist in unter einer
+  Minute. Sofort versuchen lassen:
+    sudo prolo start traefik
+
+  Haeufigste Ursache sind die Rechte an acme.json (N-05). Woran es wirklich
+  liegt, sagt Traefik selbst:
+    sudo prolo protokoll traefik
+```
+
+Vier Lagen, und jede hat einen Grund:
+
+1. **Der Satz nennt das Warum** und die IP, auf die der A-Eintrag zeigen
+   muss — nicht „richtig setzen", sondern `auf 9.9.9.9`.
+2. **Zeigt der Name hierher, wird das ausdrücklich gesagt.** „Am Namen
+   liegt es also nicht" schließt die halbe Fehlersuche, bevor sie anfängt.
+   Eine Meldung, die in beiden Fällen gleich klingt, schickt in einem der
+   beiden in die Irre.
+3. **Die Erklärung kommt einmal je Art, nicht einmal je Name.** Bei drei
+   betroffenen Namen wären es dreimal dieselben zehn Zeilen gewesen — nach
+   dem zweiten Mal Tapete (§7).
+4. **Wo alles heil ist, steht nichts.** Eine Folgerung, die immer kommt,
+   wird überlesen.
+
+`prolo dns` kennt keine Zertifikate, weiß aber, dass eines daran hängt —
+und sagt es jetzt, samt Ziel-IP und `sudo prolo start traefik`.
+
+### Was sich NICHT automatisieren lässt — und warum das in Ordnung ist
+
+Der A-Eintrag liegt beim DNS-Anbieter. Ihn vom Server aus zu setzen hieße,
+dessen API-Schlüssel dort zu hinterlegen: ein Wert, mit dem man jede
+Subdomain auf jeden Rechner der Welt zeigen lassen kann, auf der Maschine,
+die direkt am Netz hängt. Das ist der Handgriff, der ein Mensch bleibt.
+Alles danach läuft von selbst.
+
+### Prüfung
+
+`werkzeuge/prolo-pruefen.sh`: **87 ok**, RC=0 (vorher 41).
+`werkzeuge/prolo-gegenprobe.py` (neu): **14 von 14 gefunden**.
+
+Die Gegenprobe gab es für `prolo` bis jetzt nicht — geprüft wurde die
+Datei im Arbeitsstand, mutiert hätte sich nur die Kopie im Wegwerfordner.
+Beides zeigt jetzt auf dieselbe Kopie (`QUELLE_PROLO`), sonst wäre die
+Probe grün gewesen, ohne je etwas verändert zu haben.
+
+Und eine Mutation **entwischte** im ersten Lauf: *„ein abgelaufenes
+Zertifikat gilt als vorhanden"*. Nicht weil die Prüfzeile fehlte, sondern
+weil der Prüfstand keinen Namen mit abgelaufenem Zertifikat hatte — wieder
+`N-68`: grün aus Mangel an Gelegenheit. Der Stand hat jetzt einen.
+
+Dazu ein eigener Stolperstein: die Attrappe für `openssl` steht in einem
+`<<'STUB'`-Block, in dem nichts ausgewertet wird. Das übliche
+`'"'"'`-Geflecht für ein Apostroph wurde dort **wörtlich** übernommen und
+riss die ganze Attrappe syntaktisch auf — woraufhin *jeder* Name als „kein
+Zertifikat" galt und der heile Name mit in der Liste stand. Eine kaputte
+Attrappe fällt auf, wenn eine Prüfzeile verlangt, dass ein heiler Fall
+**nichts** meldet. Ohne diese Zeile wäre der Fehler durchgelaufen.

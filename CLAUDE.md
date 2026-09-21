@@ -360,6 +360,15 @@ idempotent tut. Gibt es einen Befehl, der die Sache erledigt, steht er in
 der Meldung — samt der Bemerkung, dass er gefahrlos zu wiederholen ist,
 sonst traut ihn sich niemand auf einem laufenden Stack.
 
+**Und sie verbindet, was sie beides gemessen hat** (`N-69`). „zeigt auf
+217.160.0.1 (FREMD)" und „keine Antwort auf 443" standen als zwei Zellen
+derselben Zeile, jede für sich im Fußtext erklärt — das Wort **weil**
+dazwischen fehlte, und damit die ganze Diagnose. Wer Ursache und Wirkung
+beide in der Hand hat, sagt auch, dass die eine die andere ist. Und wo
+nichts folgt, steht nichts: eine Folgerung, die immer kommt, wird
+überlesen, und dieselben zehn Zeilen je Name sind nach dem zweiten Mal
+Tapete. Die Erklärung kommt **einmal je Ursache**, der Satz je Name.
+
 ## 8. Umsetzungsregeln
 
 - Kein Farbwert ohne Token.
