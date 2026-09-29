@@ -830,11 +830,24 @@ Verbindlich in jeder `docker-compose.yml`:
   öffentlichem Router kein Nachweis.
 - **Eine Ratenbremse am Eingang** (`N-46`), vor allem anderen: wer zu schnell
   oder zu oft gleichzeitig anklopft, kommt gar nicht erst bis zur Anmeldung.
-  Gemessen je Quelladresse. Der Wert muss **beides** können — einen Menschen
-  durchlassen (ein Seitenaufruf des Wikis sind rund 15 Anfragen; bei 24/s
-  null Abweisungen) und ein Skript bremsen (bei 302/s wurden 558 von 800
-  abgewiesen). Sie hilft **nicht** gegen verteiltes Raten von vielen
-  Adressen; dagegen hilft nur, dass es nichts zu raten gibt.
+  Gemessen je Quelladresse — und das steht **ausdrücklich** in der
+  Middleware, nicht als Vorgabe, auf die man sich verlässt (`N-79`).
+  Sie hilft **nicht** gegen verteiltes Raten von vielen Adressen; dagegen
+  hilft nur, dass es nichts zu raten gibt.
+
+  **Bemessen wird an der schwersten Seite, nicht an der leichtesten**
+  (`N-79`). Beide Werte stammten vom Wiki — einer Seite, die fertig vom
+  Server kommt und rund 15 Anfragen braucht. Eine Anwendung, die ihre
+  Oberfläche erst im Browser zusammenbaut (n8n, Vaultwarden, die Anmeldung
+  von Authentik), holt ein paar hundert Teile auf einmal und feuert dabei
+  in der Spitze **134 Anfragen je Sekunde**. Vier abgewiesene von 300
+  genügen, damit die Oberfläche gar nicht erst entsteht.
+
+  Möglich ist beides, weil `burst` und `average` verschiedene Dinge sind:
+  `burst` ist der **einmalige** Vorrat für einen Seitenaufbau (700),
+  `average` die **Dauerbremse** für den, der in Schleife anklopft (50 je
+  Sekunde, unverändert seit `N-46`). Wer den Vorrat aufbraucht, hängt
+  danach genau wie vorher fest.
 
 ## 20. Benennung
 

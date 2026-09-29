@@ -82,27 +82,63 @@ http:
 # Was sie leistet und was nicht, damit niemand sich auf das Falsche
 # verlaesst:
 #
-#   SIE BREMST   eine einzelne Quelle. 50 Anfragen je Sekunde sind fuer
-#                einen Menschen mehr als genug (ein Seitenaufruf des Wikis
-#                sind etwa 15 mit Schriften und Schnittstelle), fuer ein
-#                Skript in Schleife aber eine Grenze.
-#   SIE BREMST   gleichzeitige Verbindungen: 40 je Quelle. Ein Browser
-#                oeffnet sechs. Das haelt einen kleinen Server davon ab,
-#                an offenen Verbindungen zu ersticken.
+#   SIE BREMST   eine einzelne Quelle auf DAUER: 50 Anfragen je Sekunde.
+#                Das ist der Wert, der ein Skript in Schleife ausbremst,
+#                und er ist seit N-46 unveraendert.
+#   SIE LAESST   einen einzelnen Seitenaufbau durch: burst ist der Vorrat
+#                fuer den Moment, in dem ein Browser eine ganze Oberflaeche
+#                auf einmal holt. 700 statt 150 (N-79).
+#   SIE BREMST   gleichzeitige Anfragen je Quelle. 200 statt 40 (N-79).
 #   SIE BREMST NICHT ein verteiltes Raten von vielen Adressen aus. Dagegen
 #                hilft nur, dass es nichts zu raten gibt: die Anmeldung
 #                macht Authentik, und Zugangslinks sind 192 Bit lang.
 #
-# Gemessen wird je Quelladresse. Traefik steht am aeusseren Rand, also ist
-# die Quelle der echte Aufrufer und nicht ein vorgelagerter Proxy.
+# Warum burst und amount so viel groesser sind als frueher (N-79): beide
+# Werte waren am Wiki bemessen - einer Seite, die fertig vom Server kommt
+# und rund 15 Anfragen braucht. n8n, Vaultwarden und die Anmeldeoberflaeche
+# von Authentik bauen ihre Oberflaeche dagegen erst im Browser zusammen und
+# holen dafuer ein paar hundert Teile auf einmal. Gemessen mit einem
+# echten Chromium gegen einen Nachbau dieser beiden Middlewares:
+#
+#   Seite mit 200 Teilen  ->   0 abgewiesen, Oberflaeche nach 1,6s da
+#   Seite mit 300 Teilen  ->  28 abgewiesen, Oberflaeche SCHWARZ
+#   Seite mit 400 Teilen  ->  97 abgewiesen, Oberflaeche SCHWARZ
+#   Seite mit 600 Teilen  -> 219 abgewiesen, Oberflaeche SCHWARZ
+#
+# und in der Spitze feuert ein einzelner Browser dabei 134 Anfragen in
+# einer Sekunde. Vier abgewiesene von 300 genuegen schon: fehlt ein Teil,
+# wird die Oberflaeche nicht gebaut. Beim zweiten Aufruf liegt alles im
+# Browserspeicher, es kommen kaum noch Anfragen an - darum sah es aus, als
+# helfe "einmal neu laden".
+#
+# Mit burst 700 kamen dieselben vier Seiten ohne eine einzige Abweisung
+# durch (1,7s / 2,4s / 3,2s / 4,9s bis zur Oberflaeche).
+#
+# average bleibt bei 50, und das ist der Punkt: burst ist ein EINMALIGER
+# Vorrat, der sich mit average wieder fuellt. Wer in Schleife anklopft,
+# haengt danach genau wie vorher bei 50 Anfragen je Sekunde fest - die
+# Dauerbremse ist unveraendert, nur der erste Schwung ist groesser.
+#
+# sourceCriterion steht ausdruecklich da und nicht als Vorgabe (wie bei
+# traefik.docker.network seit N-45): dass "je Quelladresse" gemessen wird,
+# stand vorher nur im Kommentar. Eine Vorgabe, auf die man sich verlaesst,
+# ohne sie hinzuschreiben, ist eine Annahme. depth 0 heisst: die echte
+# Gegenstelle, nicht eine Kopfzeile, die der Aufrufer selbst mitschickt
+# (dieselbe Falle wie X-Forwarded-For, §11 und N-48).
     ratenbremse:
       rateLimit:
         average: 50
-        burst: 150
+        burst: 700
         period: 1s
+        sourceCriterion:
+          ipStrategy:
+            depth: 0
     gleichzeitig:
       inFlightReq:
-        amount: 40
+        amount: 200
+        sourceCriterion:
+          ipStrategy:
+            depth: 0
 
 tls:
   options:
