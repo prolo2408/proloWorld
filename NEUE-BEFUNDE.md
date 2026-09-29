@@ -6276,3 +6276,64 @@ Option mehr (`tls: {}`).
 | `werkzeuge/grenze-pruefen.sh` | 2 neue Prüflinien, grün |
 | `werkzeuge/grenze-gegenprobe.py` | **14 von 14** (1 neue, muss genau an dieser Zeile rot werden) |
 | echter Traefik, vorher/nachher | siehe Tabelle |
+
+## N-94 — `prolo geheimnisse` startete, was nie lief, und an der Sperre vorbei
+
+Beim ersten echten Lauf von `prolo einrichten` gefunden. Schritt 7
+verteilt die Geheimnisse und startete danach die betroffenen Dienste
+„neu":
+
+```
+PROLO_EINLASS
+  neu gewuerfelt: admin/.env
+  ...
+  traefik neu starten ...
+  FEHLGESCHLAGEN: Image traefik:v3.6.13 Pulling
+   7e8a8ec6ab16 Pulling fs layer 0B
+   8213dc07c4f6 Pulling fs layer 0B
+   ...
+```
+
+Drei Fehler in einer Meldung:
+
+1. **Es startete, was nie lief.** `dienste_neu()` rief `docker compose up
+   -d` für jedes Werkzeug, dessen Datei es angefasst hatte. Auf einem
+   frischen Server heißt das: Traefik wird mitten in Schritt 7 zum ersten
+   Mal gestartet — vor socket-proxy, dessen Netz er braucht, und zwei
+   Schritte vor dem Schritt, der die Reihenfolge kennt.
+2. **Die Ursache war abgeschnitten.** Gezeigt wurden die ersten 300
+   Zeichen von stderr — dort schreibt docker seinen Fortschritt. Was
+   wirklich schiefging, stand darunter und fehlte.
+3. **Die vierte Tür ohne Sperre.** `up -d` legt neu an, mit der
+   Konfiguration von jetzt. `N-85` hat die Startsperre an drei Türen
+   gestellt; diese war die vierte.
+
+### Behoben
+
+Neu gestartet wird nur, was läuft; was nicht läuft, liest den neuen Wert
+beim nächsten Start von selbst, und das steht so da. Vor dem Neustart
+steht dieselbe Sperre wie bei `prolo start`. Scheitert er, stehen die
+letzten Zeilen von docker ohne Fortschritt da.
+
+### Probe
+
+Die Probe baut einen Mini-Stapel mit drei Werkzeugen — `halt` (läuft
+nicht), `laeuft`, `offenport` (läuft, mit unerklärtem Port) — und eine
+Docker-Attrappe, die jeden Aufruf mitschreibt und `compose config` an das
+echte docker durchreicht.
+
+Beim Schreiben ist mir die Reihenfolge fast durchgerutscht: die Schleife
+geht alphabetisch und bricht nach einer Sperre ab. Hieß das nicht
+laufende Werkzeug `steht`, kam es **nach** `offenport` und wurde nie
+erreicht — seine Prüflinie wäre grün gewesen, aus Mangel an
+Gelegenheit. Es heißt darum `halt`, und die Prüflinie verlangt
+zusätzlich, dass „halt laeuft nicht" in der Ausgabe steht.
+
+| | |
+|---|---|
+| `werkzeuge/geheimnisse-pruefen.sh` | **160 ok** (4 neue) |
+| `… --gegenprobe` | **48 von 48** (3 neue) |
+
+Der Vorlauf der Mutationsprobe war zuerst rot: ihre Kopie des Stapels
+kannte `startsperre.sh` und `netze.sh` nicht. Genau dafür gibt es den
+Vorlauf — ohne ihn wäre jede Mutation „gefunden" gewesen.
