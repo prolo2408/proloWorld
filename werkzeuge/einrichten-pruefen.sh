@@ -56,7 +56,15 @@ if [ "$1" = "compose" ]; then
   case " $* " in
     *" ps "*) grep -qx "$(basename "$DIR")" "$L" && echo "c-$(basename "$DIR")"; exit 0 ;;
     *" up "*)
-      W=$(basename "$DIR"); grep -qx "$W" "$L" || echo "$W" >> "$L"
+      W=$(basename "$DIR")
+      # N-90: so scheitert ein echtes "up" beim ersten Start - erst
+      # Fortschritt, ganz unten die Ursache.
+      if [ "$W" = "ohnesocket" ]; then
+        printf ' Image fremd/x:1 Pulling \n 7e8a Pulling fs layer\n 7e8a Download complete\n' >&2
+        echo "network socket declared as external, but could not be found" >&2
+        exit 1
+      fi
+      grep -qx "$W" "$L" || echo "$W" >> "$L"
       # "up -d" verbindet den Container mit allen erklaerten Netzen -
       # genau das, was echtes compose tut, wenn sich die Netze geaendert haben.
       sed -i "/^$W /d" "$V"
@@ -115,6 +123,9 @@ networks:
   netz-fremdprobe:
     external: true
 YML
+  # Ein Werkzeug, dessen Start an einem fehlenden Netz scheitert (N-90).
+  mkdir -p "$Z/ohnesocket"
+  printf 'services:\n  ohnesocket:\n    image: fremd/x:1\n' > "$Z/ohnesocket/docker-compose.yml"
   # Ein Werkzeug mit einem unerklaerten offenen Port (N-85). Die Sperre
   # aus "prolo start" muss auch beim Einrichten greifen.
   mkdir -p "$Z/offenport"
@@ -226,6 +237,19 @@ pruefen_einmal() {
     && sag ok "und es wird gesagt, warum - mit dem Port" \
     || sag FEHLER "der Grund fuer das Nicht-Starten fehlt in der Ausgabe"
 
+  # N-90: warum etwas nicht hochkam, steht da - im Wortlaut von docker,
+  # ohne das Rauschen davor, und mit dem Weg daraus.
+  grep -q "network socket declared as external, but could not be found" "$W/lauf1.txt" \
+    && sag ok "der Grund steht im Wortlaut von docker da (N-90)" \
+    || sag FEHLER "der Grund, warum ein Dienst nicht hochkam, fehlt" \
+           "vorher: 'sudo prolo protokoll' - das zeigt bei einem nie angelegten Container nichts"
+  grep -q "fs layer" "$W/lauf1.txt" \
+    && sag FEHLER "der Fortschritt von docker steht in der Meldung" "Rauschen verdeckt die Ursache" \
+    || sag ok "und ohne den Fortschritt davor"
+  grep -q "muss socket-proxy zuerst" "$W/lauf1.txt" \
+    && sag ok "und mit dem Weg daraus" \
+    || sag FEHLER "der Weg aus einem fehlenden Netz fehlt"
+
   # N-83: was nur in der override-Datei steht, zaehlt genauso.
   grep -qx "netz-fremdprobe" "$DOCKER_ATTRAPPE/netze" \
     && sag ok "ein Netz aus der override-Datei wird angelegt (N-83)" \
@@ -329,6 +353,24 @@ sperrprobe() {
 }
 sperrprobe "einrichten startet ohne die Sperre" \
   '0,/if ! SPERRE=$(start_pruefen "$T" 2>\&1); then/! s|if ! SPERRE=$(start_pruefen "$T" 2>\&1); then|if false; then|'
+
+# N-90: der Grund wird wieder verschluckt.
+meldeprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/g$((++GEFUNDEN))" A
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  A=$(lauf "$W")
+  if grep -q "network socket declared as external" <<<"$A" && ! grep -q "fs layer" <<<"$A"; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+}
+meldeprobe "die Meldung von docker wird verschluckt" \
+  's|^    docker_sagt "$T" "$AUSGABE"$|    :|'
+meldeprobe "das Rauschen wird nicht herausgefiltert" \
+  "s#^RAUSCHEN=.*#RAUSCHEN='NIEMALS-SO-EINE-ZEILE'#"
 
 overrideprobe() {
   local NAME="$1" AUSDRUCK="$2" W="$T/o$((++GEFUNDEN))" A

@@ -6069,3 +6069,67 @@ Zähler bei jeder Abfrage, und der feste Wert heißt `frueher`.
 |---|---|
 | `werkzeuge/aktualisieren-pruefen.sh` | **85 ok** (3 neue) |
 | `… --gegenprobe` | **5 von 5** (1 neue: Zählung über die Lebenszeit) |
+
+## N-90 — „kam nicht hoch: sudo prolo protokoll …" — und das Protokoll war leer
+
+Gefunden beim ersten echten Lauf von `prolo einrichten` auf einem frischen
+Stapel mit echtem Docker (in dieser Arbeitsumgebung ließ sich zum ersten
+Mal ein Docker-Dienst starten). Schritt 9 meldete:
+
+```
+FEHLER  socket-proxy kam nicht hoch:  sudo prolo protokoll socket-proxy
+FEHLER  traefik kam nicht hoch:  sudo prolo protokoll traefik
+FEHLER  authentik kam nicht hoch:  sudo prolo protokoll authentik
+FEHLER  admin kam nicht hoch:  sudo prolo protokoll admin
+FEHLER  n8n kam nicht hoch:  sudo prolo protokoll n8n
+FEHLER  wiki kam nicht hoch:  sudo prolo protokoll wiki
+```
+
+Sechs Fehler, sechs Verweise auf `prolo protokoll` — und das zeigt bei
+einem Container, der nie angelegt wurde, **nichts**. Die Ursache hatte
+das Skript in der Hand: `docker compose up -d >/dev/null 2>&1`. Wörtlich
+`N-64` und `N-81`, in der dritten Datei.
+
+Was docker tatsächlich gesagt hätte (nachgeholt, von Hand):
+
+| Werkzeug | Ursache |
+|---|---|
+| socket-proxy | das Abbild ließ sich nicht laden (hier: Netzsperre der Arbeitsumgebung) |
+| traefik, admin | `network socket declared as external, but could not be found` — Folge von socket-proxy |
+| authentik | `required variable PG_PASS is missing a value` — Schritt 7 hat ihn offen gelassen |
+| n8n | `required variable N8N_ENCRYPTION_KEY is missing a value` — ebenso |
+| wiki | der Bau scheiterte an `apt-get` (hier: Netzsperre der Arbeitsumgebung) |
+
+Jede dieser Zeilen führt direkt zur Abhilfe. Keine davon stand da.
+
+### Behoben
+
+Die Ausgabe von `docker compose up -d` wird aufgehoben. Scheitert es,
+stehen die letzten Zeilen **ohne** den Fortschritt davor da (beim ersten
+Start schreibt docker seitenweise „Pulling fs layer" — die Ursache steht
+darunter). Für die beiden häufigen Ursachen beim Einrichten kommt der Weg
+daraus dazu, und nur dann, wenn die Meldung ihn hergibt:
+
+```
+FEHLER  authentik kam nicht hoch:
+        docker sagt:
+          error while interpolating services.postgresql.environment.POSTGRES_PASSWORD:
+          required variable PG_PASS is missing a value: database password required
+        Ein Wert fehlt in authentik/.env - Schritt 7 hat ihn offen gelassen.
+        Bei einem frischen Aufbau (noch keine Daten) fuellt ihn:
+          sudo prolo geheimnisse --verteilen --frisch
+        Beliebig oft aufrufbar - vorhandene Werte bleiben stehen.
+```
+
+Das ist die echte Ausgabe aus dem zweiten Lauf auf dem Wegwerf-Server.
+
+### Probe
+
+| | |
+|---|---|
+| `werkzeuge/einrichten-pruefen.sh` | **20 ok** (3 neue) |
+| `… --gegenprobe` | **9 von 9** (2 neue: Meldung verschluckt; Rauschen nicht gefiltert) |
+
+Die zweite Mutation ist mir zuerst falsch geraten: sie nahm `tail -4` weg
+und ließ den Filter stehen — sie blieb grün, zu Recht. Der Filter steht
+jetzt in einer eigenen Variable, die Mutation leert sie.

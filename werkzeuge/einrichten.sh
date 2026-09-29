@@ -295,8 +295,34 @@ netze_fehlen() {
   done
 }
 
+# Was docker gesagt hat, ohne das Rauschen (N-90). "docker compose up"
+# schreibt beim ersten Start seitenweise Fortschritt nach stderr - die
+# eigentliche Ursache steht in den letzten Zeilen. Vorher lief alles nach
+# /dev/null, und die Meldung verwies auf "prolo protokoll": das zeigt bei
+# einem Container, der nie angelegt wurde, gar nichts.
+RAUSCHEN='Pulling|Pulled|Download|Extracting|Waiting|Verifying|Pull complete|Already exists|fs layer|Building|Built|Creating|Created|Starting|Started|Running|^ *#[0-9]|^ *$'
+docker_sagt() {   # $1 = Werkzeug, $2 = Ausgabe von docker compose
+  local T="$1" A="$2" KERN
+  KERN=$(printf '%s\n' "$A" | grep -v -E "$RAUSCHEN" | tail -4)
+  printf '          docker sagt:\n'
+  printf '%s\n' "${KERN:-(keine Meldung)}" | sed 's/^/            /'
+  # Die zwei haeufigen Ursachen beim Einrichten, mit dem Weg daraus. Die
+  # Folgerung kommt nur, wenn die Meldung sie hergibt (§7, N-64).
+  case "$KERN" in
+    *"declared as external, but could not be found"*)
+      printf '          Ein Netz fehlt. Ist es "socket", muss socket-proxy zuerst\n'
+      printf '          laufen - steht es oben als Fehler, ist das die Ursache.\n'
+      printf '          Sonst:  sudo prolo netze anlegen <netz>\n' ;;
+    *"fehlt in"*|*"required variable"*|*"is missing a value"*|*"required"*)
+      printf '          Ein Wert fehlt in %s/.env - Schritt 7 hat ihn offen gelassen.\n' "$T"
+      printf '          Bei einem frischen Aufbau (noch keine Daten) fuellt ihn:\n'
+      printf '            sudo prolo geheimnisse --verteilen --frisch\n'
+      printf '          Beliebig oft aufrufbar - vorhandene Werte bleiben stehen.\n' ;;
+  esac
+}
+
 starten() {
-  local T="$1"
+  local T="$1" AUSGABE
   [ -f "$STACK/$T/docker-compose.yml" ] || return 0
   local LAUFEN FEHLT
   LAUFEN=$(docker compose --project-directory "$STACK/$T" ps -q 2>/dev/null | grep -c .)
@@ -318,12 +344,13 @@ starten() {
       printf '%s\n' "$SPERRE" | sed 's/^/          /'
       return 0
     fi
-    if (cd "$STACK/$T" && docker compose up -d >/dev/null 2>&1); then
+    if AUSGABE=$(cd "$STACK/$T" && docker compose up -d 2>&1); then
       FEHLT=$(netze_fehlen "$T")
       if [ -z "$FEHLT" ]; then f_tat "$T neu verbunden"
       else f_bad "$T haengt weiter nicht in: $FEHLT"; fi
     else
-      f_bad "$T liess sich nicht neu verbinden:  sudo prolo protokoll $T"
+      f_bad "$T liess sich nicht neu verbinden:"
+      docker_sagt "$T" "$AUSGABE"
     fi
     return 0
   fi
@@ -334,10 +361,11 @@ starten() {
     printf '%s\n' "$SPERRE" | sed 's/^/          /'
     return 0
   fi
-  if (cd "$STACK/$T" && docker compose up -d >/dev/null 2>&1); then
+  if AUSGABE=$(cd "$STACK/$T" && docker compose up -d 2>&1); then
     f_tat "$T gestartet"
   else
-    f_bad "$T kam nicht hoch:  sudo prolo protokoll $T"
+    f_bad "$T kam nicht hoch:"
+    docker_sagt "$T" "$AUSGABE"
   fi
 }
 for T in $ZUERST; do starten "$T"; done
