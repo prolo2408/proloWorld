@@ -25,10 +25,16 @@ FEHLER=0
 TOOLS=$(for D in */schriften; do [ -d "$D" ] && dirname "$D"; done | sort)
 ERSTES=$(echo "$TOOLS" | head -1)
 echo "Verglichen wird gegen $ERSTES:$(echo "$TOOLS" | tr '\n' ' ')"
-if [ "$(echo "$TOOLS" | grep -c .)" -lt 2 ]; then
-  echo "FEHLER  weniger als zwei Tools mit Schriften - nichts zu vergleichen" >&2
-  FEHLER=1
-fi
+# Seit wiki, bordbuch und www in eigenen Repositorys liegen (U-02), kann
+# hier genau EIN Werkzeug Schriften haben (admin). Dann gibt es nichts zu
+# vergleichen - wohl aber zu pruefen, dass jede Regel ihre Datei hat.
+# Keines ist ein Fehler: dann prueft der Rest dieses Skripts nichts.
+case "$(echo "$TOOLS" | grep -c .)" in
+  0) echo "FEHLER  kein Werkzeug mit Schriften gefunden - nichts zu pruefen" >&2
+     FEHLER=1 ;;
+  1) echo "        nur ein Werkzeug mit Schriften - verglichen wird nichts,"
+     echo "        geprueft wird, dass jede @font-face-Regel ihre Datei hat" ;;
+esac
 
 for DATEI in $ERWARTET; do
   A="$ERSTES/schriften/$DATEI"
@@ -66,7 +72,7 @@ done
 
 echo
 if [ "$FEHLER" -eq 0 ]; then
-  echo "Beide Tools liefern dieselben Schriften aus, und jede Regel hat ihre Datei."
+  echo "Die Werkzeuge liefern dieselben Schriften aus, und jede Regel hat ihre Datei."
 else
   echo "SCHRIFTEN-PRUEFUNG FEHLGESCHLAGEN." >&2
 fi

@@ -6606,3 +6606,56 @@ Fassung **2.6.1 → 2.6.2** an allen drei Stellen.
 | `bordbuch/tests/alle.sh` | **138** Python-Tests grün (2 neue), Node grün |
 | `bordbuch/tests/gegenprobe.sh` | alle gefunden, 1 neue Mutation (Gesundheit wieder hinter der Marke) |
 | Abbild 2.6.2 mit echtem Docker, nur `PROLO_EINLASS` gesetzt | `healthy` |
+
+## U-02 — Die Prüfungen von proloWorld hängen nicht mehr an den Werkzeugquellen
+
+Nach dem Umzug liegt in `wiki/`, `bordbuch/` und `www/` nur noch, was dem
+Betrieb gehört. Drei Prüfungen hätten das nicht überstanden — und zwei
+davon **still**, genau die Falle aus `N-70`:
+
+| Prüfung | hing an | nach dem Umzug |
+|---|---|---|
+| `grenze-pruefen.sh` | `server.py` mit `PROLO_EINLASS` | drei Werkzeuge fallen aus der Liste, **grün** |
+| `schriften-pruefen.sh` | mindestens zwei `*/schriften/` | rot („weniger als zwei") |
+| `prolo-befehle-pruefen.py` | Mutationen in `wiki/server.py`, `bordbuch/CHANGELOG.md` | Gegenprobe rot („nicht einbaubar") |
+
+### Was daraus wurde
+
+- **`grenze-pruefen.sh`** erkennt ein eigenes Werkzeug an etwas, das nicht
+  von der Prüfung selbst abhängt: `server.py` hier **oder** ein Abbild aus
+  `ghcr.io/prolo2408/`. Wer `PROLO_EINLASS` aus einer Compose-Datei nimmt,
+  wird rot, statt aus der Liste zu fallen — die erste Fassung dieser
+  Änderung hätte genau das nicht getan (69 statt 73 Prüflinien, beim
+  Nachzählen bemerkt). Was nur am Code prüfbar ist (Grenze in
+  `do_GET`/`do_POST`, Wurzel nicht frei, Gruppen im Label), wird geprüft,
+  wo der Code hier liegt — und für die ausgelagerten im Werkzeug selbst
+  (`U-03`).
+- **`schriften-pruefen.sh`** vergleicht, wenn es etwas zu vergleichen gibt;
+  bei einem Werkzeug prüft es nur, dass jede Regel ihre Datei hat.
+- **`prolo-befehle-pruefen.py`** findet das Bedienhandbuch in
+  `wiki/vorlagen/` oder `doku/`, und seine Mutationen zielen nur noch auf
+  Dateien, die in proloWorld bleiben (`admin/server.py`,
+  `werkzeuge/ANLEITUNG.md`).
+
+### Ausgeführt
+
+Heute: `grenze-pruefen.sh` **73 ok**, Gegenprobe **17 von 17** (neu: das
+Wiki reicht die Marke nicht mehr durch); `prolo-befehle-pruefen.py
+--gegenprobe` **8 von 8**; `schriften-pruefen.sh` grün.
+
+Und der Zustand **nach** dem Umzug, simuliert in einer Kopie, in der von
+den drei Werkzeugen nur die Betriebsdateien liegen: `grenze-pruefen.sh`
+grün mit 61 ok und denselben **4** Werkzeugen (admin, bordbuch, wiki,
+www); weggefallen sind genau die 12 Code-Prüfungen, die in den
+Werkzeug-Repos weiterlaufen. `schriften`, `dockerfile`, `regeln`,
+`sicherung`, `netze`, `geheimnisse` und die Befehlsprüfung: grün.
+
+### Ein eigener Fehler dabei
+
+Der Befehl, der die Simulation baute, hat `prolo-bedienen.html` aus dem
+**echten** Arbeitsstand in die Kopie *verschoben* — `mv … || cp …`, und
+das `mv` gelang. Bemerkt in `git status` (` D wiki/vorlagen/…`), die Datei
+aus der Kopie zurückgeholt, nicht per `git checkout` (`N-34`): 0
+Unterschiede zum Git-Stand. Die Regel dazu steht in `TEIL 0` schon — eine
+Probe darf nichts im Arbeitsstand bewegen —, und ich habe sie mit einem
+Rückfallpfad unterlaufen, der nur im Fehlerfall kopiert.

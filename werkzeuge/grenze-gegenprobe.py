@@ -26,6 +26,12 @@ STACK = os.path.dirname(HIER)
 
 # (Name, Datei, alt, neu, in welcher Pruefzeile es auffallen MUSS)
 MUTATIONEN = [
+    ("das Wiki reicht die Marke nicht mehr durch - und faellt aus der Liste (U-02)",
+     "wiki/docker-compose.yml",
+     '      PROLO_EINLASS: "${PROLO_EINLASS:?PROLO_EINLASS fehlt in wiki/.env - sudo prolo geheimnisse --verteilen}"\n',
+     "",
+     "wiki: die Compose-Dateien reichen PROLO_EINLASS durch"),
+
     ("die Admin-Seite nennt ihre Gruppe nicht mehr (N-95)",
      "admin/docker-compose.yml",
      '      - "prolo.gruppen=admin=die Stack-Uebersicht sehen"\n', "",
