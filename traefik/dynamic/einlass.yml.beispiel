@@ -12,34 +12,36 @@
 # Darum setzt Traefik am Eingang eine Marke, die nur er und die Werkzeuge
 # kennen. Ohne sie antwortet ein Werkzeug gar nicht erst.
 #
-# ANLEGEN, einmalig je Server:
+# ANLEGEN - ein Befehl, beliebig oft aufrufbar (N-96, N-67):
 #
-#   1. Wert wuerfeln:
-#        openssl rand -base64 33
+#   sudo prolo geheimnisse --verteilen
 #
-#   2. Diese Datei kopieren und den Wert eintragen:
-#        cd /opt/stack/traefik/dynamic
-#        sudo cp einlass.yml.beispiel einlass.yml
-#        sudo nano einlass.yml          # HIER-EINEN-GEWUERFELTEN-WERT ersetzen
-#        sudo chown root:root einlass.yml && sudo chmod 600 einlass.yml
+# Er wuerfelt den Wert, schreibt ihn hierher UND in die .env jedes
+# Werkzeugs, das ihn prueft (welche das sind, sagt deren geheimnisse.conf),
+# und startet danach, was laeuft, neu - erst Traefik, dann die Werkzeuge.
+# Ein vorhandener Wert bleibt stehen. "sudo prolo einrichten" ruft ihn auf
+# einem neuen Server von selbst auf.
 #
-#   3. DENSELBEN Wert in die .env JEDES Werkzeugs, das ihn prueft:
-#        /opt/stack/wiki/.env       PROLO_EINLASS=<derselbe Wert>
-#        /opt/stack/bordbuch/.env   PROLO_EINLASS=<derselbe Wert>
+# Die Reihenfolge ist wichtig, und der Befehl haelt sie ein: startet ein
+# Werkzeug vor Traefik mit dem neuen Wert, kommen die Anfragen mit der
+# alten Marke an und es antwortet mit 401 - bis Traefik nachzieht. Ohne
+# den Wert in seiner .env startet ein Werkzeug ueberhaupt nicht und sagt
+# im Protokoll, was fehlt.
 #
-#   4. Erst Traefik, dann die Werkzeuge:
-#        sudo prolo compose traefik  up -d
-#        sudo prolo compose wiki     up -d
-#        sudo prolo compose bordbuch up -d
+# VON HAND, nur wenn der Befehl nicht geht (der Wert ist ein Geheimnis wie
+# ein Passwort - nicht in Git, nicht in einen Chat, §21/§22):
+#   1. openssl rand -base64 33
+#   2. sudo cp einlass.yml.beispiel einlass.yml, den Platzhalter unten
+#      ersetzen, dann: sudo chown root:root einlass.yml && sudo chmod 600 einlass.yml
+#   3. denselben Wert als PROLO_EINLASS=<wert> in die .env jedes Werkzeugs
+#   4. erst Traefik, dann die Werkzeuge:
+#        sudo prolo start traefik
+#        sudo prolo start <werkzeug>
 #
-#      Diese Reihenfolge ist wichtig. Startet ein Werkzeug vor Traefik neu,
-#      kommen die Anfragen ohne Marke an und es antwortet mit 401 - bis
-#      Traefik nachzieht. Ohne den Wert in seiner .env startet ein Werkzeug
-#      ueberhaupt nicht und sagt im Protokoll, was fehlt.
-#
-# WECHSELN: neuen Wert wuerfeln, erst hier eintragen und Traefik neu laden,
-# dann die .env-Dateien und die Werkzeuge. Dazwischen liegen ein paar
-# Sekunden 401 - das ist der Preis und kein Datenverlust.
+# WECHSELN:  sudo prolo geheimnisse --neu
+# Er fragt nach, legt einen Merkzettel mit altem und neuem Wert an und
+# haelt dieselbe Reihenfolge ein. Dazwischen liegen ein paar Sekunden 401 -
+# das ist der Preis und kein Datenverlust.
 
 http:
   middlewares:

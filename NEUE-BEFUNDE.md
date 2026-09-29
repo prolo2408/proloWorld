@@ -6397,3 +6397,48 @@ braucht.
 Dort stand „`geheimnisse-pruefen.sh` 160 ok (4 neue)". Gezählt: **161,
 5 neue** — die fünfte ist die Prüflinie zur abgeschnittenen Ursache, die
 ich nachträglich dazugeschrieben und in der Summe vergessen hatte.
+
+## N-96 — Die Vorlage nannte einen Befehl, den es nie gab
+
+Beim Durchsehen gefunden. `traefik/dynamic/einlass.yml.beispiel` —
+die Datei, die man abschreibt, um die Vertrauensgrenze (`N-44`)
+einzurichten — sagte unter „ANLEGEN":
+
+```
+#   4. Erst Traefik, dann die Werkzeuge:
+#        sudo prolo compose traefik  up -d
+#        sudo prolo compose wiki     up -d
+#        sudo prolo compose bordbuch up -d
+```
+
+`prolo compose` gibt es nicht; `N-51` und `N-56` haben genau diesen
+erfundenen Befehl schon zweimal aus Anleitungen und Fehlermeldungen
+geholt. Die Prüfung aus `N-51` las alle Dateien auf `.md .html .py .sh
+.mjs .yml .conf` — eine **Vorlage** endet auf `.beispiel`, und die sah
+sie nie. Gemessen: mit `.beispiel` in der Liste meldet sie sofort
+`traefik/dynamic/einlass.yml.beispiel nennt "prolo compose"`.
+
+Und die Vorlage beschrieb vier Handgriffe — würfeln, kopieren, in jede
+`.env` eintragen, in der richtigen Reihenfolge neu starten —, die seit
+`N-50` ein einziger Befehl erledigt, idempotent. `§7` (`N-67`): die
+Meldung nennt den Befehl, nicht die Aufgabe.
+
+### Behoben
+
+- Die Befehlsprüfung liest auch `.beispiel`-Dateien.
+- Die Vorlage nennt `sudo prolo geheimnisse --verteilen` (anlegen) und
+  `--neu` (wechseln), mit dem Hinweis, dass er beliebig oft aufrufbar ist;
+  der Weg von Hand steht darunter, mit echten Befehlen (`prolo start`).
+
+### Probe
+
+| | |
+|---|---|
+| `prolo-befehle-pruefen.py .` | ok, 42 bekannte Befehle (vorher mit `.beispiel`: 1 FEHLER) |
+| `… --gegenprobe` | neue Mutation „eine Vorlage nennt einen erfundenen Befehl" **gefunden** |
+
+Beim Lauf der Gegenprobe fiel auf, dass eine **andere**, ältere Mutation
+sich seit `N-61` nicht mehr einbauen lässt — sie zielt auf einen
+Kommentar, den es seitdem nicht mehr gibt. Die Gegenprobe war damit seit
+Wochen rot, ohne dass es jemand gemerkt hat. Das ist ein eigener Befund:
+`N-97`.

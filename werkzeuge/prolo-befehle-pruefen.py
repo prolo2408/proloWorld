@@ -57,7 +57,7 @@ assert len(AUSGENOMMEN) == 2, "die Ausnahmen duerfen nicht wachsen"
 # up -d" stand in dem Text, den das Wiki ausgibt, wenn es nicht startet.
 # Eine Anleitung liest man in Ruhe; eine Fehlermeldung liest man, wenn
 # gerade etwas kaputt ist - dort schadet ein falscher Befehl am meisten.
-ENDUNGEN = (".md", ".html", ".py", ".sh", ".mjs", ".yml", ".conf")
+ENDUNGEN = (".md", ".html", ".py", ".sh", ".mjs", ".yml", ".conf", ".beispiel")
 
 
 def pruefen(wurzel):
@@ -98,7 +98,7 @@ def melden(wurzel):
 
 DATEIEN = ["werkzeuge/prolo", "wiki/vorlagen/prolo-bedienen.html",
            "bordbuch/CHANGELOG.md", "CLAUDE.md", NARBENBUCH,
-           "wiki/server.py"]
+           "wiki/server.py", "traefik/dynamic/einlass.yml.beispiel"]
 
 
 def _tausch(w, rel, alt, neu):
@@ -135,6 +135,12 @@ MUTATIONEN = [
      lambda w: _tausch(w, "wiki/server.py",
                        '"  3. sudo prolo start wiki\\n\\n"',
                        '"  3. sudo prolo compose wiki up -d\\n\\n"')),
+    # N-96: eine Vorlage, die man abschreibt, nennt einen erfundenen
+    # Befehl. Vorlagen enden auf .beispiel - die las die Pruefung nicht.
+    ("eine Vorlage nennt einen erfundenen Befehl (N-96)",
+     lambda w: _tausch(w, "traefik/dynamic/einlass.yml.beispiel",
+                       "#        sudo prolo start traefik\n",
+                       "#        sudo prolo compose traefik up -d\n")),
     # Der Fall, um dessentwillen es die Pruefung gibt: jemand benennt einen
     # Befehl um oder wirft ihn weg, und die Anleitungen nennen ihn weiter.
     ("ein Befehl faellt aus dem Verteiler",
