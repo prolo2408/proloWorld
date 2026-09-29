@@ -26,6 +26,17 @@ STACK = os.path.dirname(HIER)
 
 # (Name, Datei, alt, neu, in welcher Pruefzeile es auffallen MUSS)
 MUTATIONEN = [
+    ("die Admin-Seite nennt ihre Gruppe nicht mehr (N-95)",
+     "admin/docker-compose.yml",
+     '      - "prolo.gruppen=admin=die Stack-Uebersicht sehen"\n', "",
+     "admin: jede gepruefte Gruppe steht in prolo.gruppen"),
+
+    ("das Wiki nennt nur eine seiner zwei Gruppen (N-95)",
+     "wiki/docker-compose.yml",
+     "prolo.gruppen=wiki-editor=Seiten anlegen und die eigenen bearbeiten; wiki-admin=das Wiki verwalten",
+     "prolo.gruppen=wiki-admin=das Wiki verwalten",
+     "wiki: jede gepruefte Gruppe steht in prolo.gruppen"),
+
     ("sniStrict steht wieder in einer eigenen Option (N-93)",
      "traefik/dynamic/sicherheit.yml", "    default:\n      minVersion: VersionTLS12",
      "    streng:\n      minVersion: VersionTLS12",

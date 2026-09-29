@@ -6331,9 +6331,69 @@ zusätzlich, dass „halt laeuft nicht" in der Ausgabe steht.
 
 | | |
 |---|---|
-| `werkzeuge/geheimnisse-pruefen.sh` | **160 ok** (4 neue) |
+| `werkzeuge/geheimnisse-pruefen.sh` | **161 ok** (5 neue) — *berichtigt in `N-95`: zuerst stand hier 160/4* |
 | `… --gegenprobe` | **48 von 48** (3 neue) |
 
 Der Vorlauf der Mutationsprobe war zuerst rot: ihre Kopie des Stapels
 kannte `startsperre.sh` und `netze.sh` nicht. Genau dafür gibt es den
 Vorlauf — ohne ihn wäre jede Mutation „gefunden" gewesen.
+
+## N-95 — Die Gruppe, ohne die die Admin-Seite 403 sagt, stand nirgends
+
+Beim ersten echten Lauf gefunden. `prolo einrichten` endet mit einer
+Liste der Gruppen, die man in Authentik anlegen soll:
+
+```
+  Gruppen in Authentik anlegen und sich selbst zuweisen:
+    wiki-editor, wiki-admin   Wiki: schreiben bzw. verwalten
+    stack-admin               Verwaltung auf prolo.me
+```
+
+Die Liste stand **fest im Skript** — genau die Sorte zweite Liste, die
+veraltet, und `§16` sagt: im zentralen Skript steht kein Werkzeugname.
+Veraltet war sie: die Admin-Seite (seit `N-63`) verlangt die Gruppe
+`admin`, das Bordbuch `bordbuch-admin` für die Gesamtsicherung. Beide
+fehlten. Wer nach dieser Liste einrichtet, bekommt auf `admin.prolo.me`
+eine 403 und weiß nicht, dass die Liste unvollständig war.
+
+### Behoben
+
+Jedes Werkzeug nennt seine Gruppen selbst, als Label an seinem Dienst:
+
+```yaml
+- "prolo.gruppen=wiki-editor=Seiten anlegen und die eigenen bearbeiten; wiki-admin=das Wiki verwalten"
+```
+
+`prolo einrichten` liest sie aus beiden Compose-Dateien (`N-83`) und
+listet sie mit dem Werkzeug dazu. Auf dem Wegwerf-Server:
+
+```
+  Gruppen in Authentik anlegen und sich selbst zuweisen:
+    admin            admin        die Stack-Uebersicht sehen
+    bordbuch-admin   bordbuch     alle Fahrtenbuecher sichern und zurueckspielen
+    stack-admin      www          Seiten und Zugangslinks auf prolo.me verwalten
+    wiki-admin       wiki         das Wiki verwalten
+    wiki-editor      wiki         Seiten anlegen und die eigenen bearbeiten
+```
+
+Damit das Label nicht selbst die nächste veraltete Liste wird, prüft
+`grenze-pruefen.sh` je Werkzeug: jede Gruppe, die der Code **wirklich**
+prüft (Vorgabe im Code, überschrieben von der Compose-Datei), steht im
+Label. Nach der Aufteilung in eigene Repositorys gehört das Label in die
+Compose-Datei, die das Werkzeug mitbringt — das Werkzeug sagt, was es
+braucht.
+
+### Probe
+
+| | |
+|---|---|
+| `werkzeuge/grenze-pruefen.sh` | **73 ok** (4 neue, je Werkzeug eine) |
+| `werkzeuge/grenze-gegenprobe.py` | **16 von 16** (2 neue: Admin nennt seine Gruppe nicht; Wiki nennt nur eine von zwei) |
+| `werkzeuge/einrichten-pruefen.sh` | **28 ok** (2 neue: `admin` steht da; alle 5 erklärten Gruppen stehen da) |
+| `… --gegenprobe` | **13 von 13** (2 neue) |
+
+### Berichtigung zu `N-94`
+
+Dort stand „`geheimnisse-pruefen.sh` 160 ok (4 neue)". Gezählt: **161,
+5 neue** — die fünfte ist die Prüflinie zur abgeschnittenen Ursache, die
+ich nachträglich dazugeschrieben und in der Summe vergessen hatte.

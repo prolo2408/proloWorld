@@ -46,6 +46,11 @@ services:
     networks:
       - netz-wiki
     labels:
+      # Welche Gruppen dieses Werkzeug in Authentik erwartet (N-95). Das
+      # Werkzeug sagt es selbst - "prolo einrichten" liest es von hier,
+      # statt eine eigene Liste zu fuehren, die veraltet.
+      # Form: <gruppe>=<wozu>; <gruppe>=<wozu>
+      - "prolo.gruppen=wiki-editor=Seiten anlegen und die eigenen bearbeiten; wiki-admin=das Wiki verwalten"
       - "traefik.enable=true"
       - "traefik.docker.network=netz-wiki"
       - "traefik.http.services.wiki.loadbalancer.server.port=8080"

@@ -345,6 +345,33 @@ sag(not uebersehen,
     "kein Werkzeug mit Router blieb ungeprueft (%d angesehen)" % len(geprueft),
     "uebersehen: %s" % ", ".join(uebersehen))
 
+# --- 4a. Jede Gruppe, die ein Werkzeug prueft, nennt es auch (N-95) ----
+# "prolo einrichten" liest die Gruppen aus dem Label prolo.gruppen. Prueft
+# ein Werkzeug eine Gruppe, die dort nicht steht, legt niemand sie an - und
+# das Werkzeug weist jeden mit 403 ab. Gelesen wird, was WIRKLICH gilt:
+# die Vorgabe im Code, ueberschrieben von der Compose-Datei.
+for werkzeug in werkzeuge:
+    code = lies(werkzeug, "server.py") or ""
+    compose = compose_alles(werkzeug)
+    gilt = {}
+    for m in re.finditer(r'os\.environ\.get\("([A-Z_]*_GRUPPE)",\s*"([^"]+)"\)', code):
+        gilt[m.group(1)] = m.group(2)
+    for var in list(gilt):
+        kurz = var.split("_", 1)[1] if var.count("_") > 1 else var
+        for name in (var, kurz):
+            u = re.search(r"^\s+%s:\s*\"?(?:\$\{%s:-)?([A-Za-z0-9_.-]+)" % (name, name), compose, re.M)
+            if u:
+                gilt[var] = u.group(1)
+    genannt = set()
+    for m in re.finditer(r"prolo\.gruppen=([^\"\n]+)", compose):
+        genannt |= {t.strip().partition("=")[0].strip() for t in m.group(1).split(";")}
+    fehlt = sorted(set(gilt.values()) - genannt)
+    sag(gilt and not fehlt,
+        "%s: jede gepruefte Gruppe steht in prolo.gruppen (%s)"
+        % (werkzeug, ", ".join(sorted(set(gilt.values()))) or "keine gefunden"),
+        "fehlt: %s - 'prolo einrichten' nennt sie dann nicht, und niemand legt sie an"
+        % ", ".join(fehlt))
+
 # --- 4b. sniStrict steht dort, wo Traefik es liest (N-93) --------------
 # Fuer einen UNBEKANNTEN Namen gibt es keinen Router, also nur die Option
 # "default". Unter einem anderen Namen galt sniStrict nur fuer Namen, die

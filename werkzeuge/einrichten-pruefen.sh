@@ -286,6 +286,19 @@ pruefen_einmal() {
     && sag ok "und mit dem Weg daraus" \
     || sag FEHLER "der Weg aus einem fehlenden Netz fehlt"
 
+  # N-95: die Gruppen kommen aus den Werkzeugen - auch "admin", die in der
+  # alten, festen Liste fehlte.
+  grep -qE "^    admin +admin " "$W/lauf1.txt" \
+    && sag ok "die Gruppe der Admin-Seite wird genannt (N-95)" \
+    || sag FEHLER "die Gruppe 'admin' fehlt in der Liste" \
+           "dann legt sie niemand an, und die Admin-Seite weist mit 403 ab"
+  N_SOLL=$(grep -ho 'prolo\.gruppen=[^"]*' "$W"/*/docker-compose.yml "$W"/*/docker-compose.override.yml 2>/dev/null \
+           | sed 's/^prolo\.gruppen=//' | tr ';' '\n' | grep -c '=')
+  N_IST=$(sed -n '/Gruppen in Authentik anlegen/,/Ohne die Gruppe/p' "$W/lauf1.txt" | grep -cE '^    [a-z0-9-]+ ')
+  [ "$N_SOLL" -gt 0 ] && [ "$N_SOLL" -eq "$N_IST" ] \
+    && sag ok "alle $N_SOLL erklaerten Gruppen stehen in der Liste" \
+    || sag FEHLER "die Liste nennt $N_IST von $N_SOLL erklaerten Gruppen"
+
   # N-83: was nur in der override-Datei steht, zaehlt genauso.
   grep -qx "netz-fremdprobe" "$DOCKER_ATTRAPPE/netze" \
     && sag ok "ein Netz aus der override-Datei wird angelegt (N-83)" \
@@ -426,6 +439,24 @@ acmeprobe "der leere Ordner acme.json bleibt stehen (N-91)" \
   's#^    elif \[ -d "$Z" \] \&\& \[ -z "$(ls -A "$Z")" \]; then$#    elif false; then#'
 acmeprobe "acme.json wird ohne 0600 angelegt (N-91)" \
   's#: > "$Z" \&\& chmod 600 "$Z" \&\& f_tat "$W/$P angelegt#: > "$Z" \&\& f_tat "$W/$P angelegt#; s#rmdir "$Z" \&\& : > "$Z" \&\& chmod 600 "$Z"#rmdir "$Z" \&\& : > "$Z"#'
+
+# N-95: die Gruppen kommen nicht aus den Werkzeugen.
+gruppenprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/r$((++GEFUNDEN))" A
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  A=$(lauf "$W")
+  if grep -qE "^    admin +admin " <<<"$A"; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+}
+gruppenprobe "die Gruppen stehen nicht mehr in der Liste (N-95)" \
+  's#^if zeilen:$#if False:#'
+gruppenprobe "das Label prolo.gruppen wird nicht gelesen (N-95)" \
+  's#for m in re.finditer(r"prolo\\.gruppen=#for m in [] or re.finditer(r"NIE-prolo\\.gruppen=#'
 
 overrideprobe() {
   local NAME="$1" AUSDRUCK="$2" W="$T/o$((++GEFUNDEN))" A

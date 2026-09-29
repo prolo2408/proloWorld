@@ -32,6 +32,11 @@ services:
     networks:
       - netz-www
     labels:
+      # Welche Gruppen dieses Werkzeug in Authentik erwartet (N-95). Das
+      # Werkzeug sagt es selbst - "prolo einrichten" liest es von hier,
+      # statt eine eigene Liste zu fuehren, die veraltet.
+      # Form: <gruppe>=<wozu>; <gruppe>=<wozu>
+      - "prolo.gruppen=stack-admin=Seiten und Zugangslinks auf prolo.me verwalten"
       - "traefik.enable=true"
       - "traefik.docker.network=netz-www"
       - "traefik.http.services.www.loadbalancer.server.port=8080"

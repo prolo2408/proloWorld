@@ -492,10 +492,36 @@ cat <<'HINWEIS'
     Schritt 3 wird am haeufigsten vergessen. Ohne ihn antwortet Authentik
     mit "Not Found", und man sucht den Fehler ueberall, nur nicht dort.
 
-  Gruppen in Authentik anlegen und sich selbst zuweisen:
-    wiki-editor, wiki-admin   Wiki: schreiben bzw. verwalten
-    stack-admin               Verwaltung auf prolo.me
 HINWEIS
+
+# Die Gruppen sagt jedes Werkzeug selbst, im Label prolo.gruppen (N-95).
+# Vorher stand hier eine feste Liste - und in ihr fehlte "admin", ohne die
+# die Admin-Seite jeden mit 403 abweist. Beide Compose-Dateien (N-83).
+python3 - "$STACK" <<'PY'
+import os, re, sys
+stack = sys.argv[1]
+zeilen = []
+for d in sorted(os.listdir(stack)):
+    if not os.path.isfile(os.path.join(stack, d, "docker-compose.yml")):
+        continue
+    for datei in ("docker-compose.yml", "docker-compose.override.yml"):
+        p = os.path.join(stack, d, datei)
+        if not os.path.isfile(p):
+            continue
+        t = open(p, encoding="utf-8", errors="replace").read()
+        for m in re.finditer(r"prolo\.gruppen=([^\"\n]+)", t):
+            for teil in m.group(1).split(";"):
+                gruppe, _, wozu = teil.strip().partition("=")
+                if gruppe:
+                    zeilen.append((gruppe.strip(), wozu.strip(), d))
+if zeilen:
+    print("")
+    print("  Gruppen in Authentik anlegen und sich selbst zuweisen:")
+    for gruppe, wozu, werkzeug in sorted(set(zeilen)):
+        print("    %-16s %-12s %s" % (gruppe, werkzeug, wozu))
+    print("  Ohne die Gruppe weist das Werkzeug mit 403 ab - mit der")
+    print("  Gruppe im Namen, damit man weiss, welche fehlt.")
+PY
 
 # -----------------------------------------------------------------
 schritt "Stand"

@@ -60,6 +60,11 @@ services:
       - netz-bordbuch
 
     labels:
+      # Welche Gruppen dieses Werkzeug in Authentik erwartet (N-95). Das
+      # Werkzeug sagt es selbst - "prolo einrichten" liest es von hier,
+      # statt eine eigene Liste zu fuehren, die veraltet.
+      # Form: <gruppe>=<wozu>; <gruppe>=<wozu>
+      - "prolo.gruppen=bordbuch-admin=alle Fahrtenbuecher sichern und zurueckspielen"
       - "traefik.enable=true"
       - "traefik.docker.network=netz-bordbuch"
       - "traefik.http.services.bordbuch.loadbalancer.server.port=8080"
