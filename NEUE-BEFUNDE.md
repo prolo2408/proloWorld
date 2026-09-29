@@ -5905,3 +5905,57 @@ nach dem halben Lauf, und den entschlüsselten Inhalt der Datenbankdatei —
 nicht die Meldung „UNVOLLSTAENDIG", die nur zusätzlich gesucht wird
 (`N-38`). Die Mutationsprobe verweigert eine Mutation, die sich nicht
 einbauen lässt, statt sie als „gefunden" zu zählen.
+
+## N-87 — Die Sicherung wusste, was ein Werkzeug speichert, aber nicht, was es ist
+
+Beim Durchsehen gefunden. `backup.sh` sichert je Werkzeug genau das, was
+seine `sicherung.conf` nennt: Volumes, Datenbanken, `.env`, einzelne
+Ordner. Die **Compose-Dateien** und die `conf`-Dateien selbst nicht — die
+lagen im Git (`socket-proxy/sicherung.conf`: „die Datei docker-compose.yml
+liegt im Git").
+
+Das stimmt nur für Werkzeuge, die im Git **stehen**. `prolo neu` legt
+Werkzeuge auf dem Server an (`N-61`), und dort entsteht ein Ordner ohne
+Git (`N-68`). Nach einem Serververlust wären seine Daten in der Sicherung
+— und niemand wüsste mehr, zu welchem Abbild, welchem Netz, welcher
+Route sie gehören. `prolo wiederherstellen` meldete für so ein Werkzeug
+`OHNE-CONF` und spielte gar nichts ein: ohne `sicherung.conf` auf dem
+Server weiß es nicht einmal, was im Archiv zu wem gehört.
+
+Mit einer Oberfläche, in die man eine Compose-Datei hineinwirft, wird
+das der Normalfall, nicht die Ausnahme.
+
+### Behoben
+
+**Sichern:** je Werkzeug zusätzlich `werkzeug.tar.gz` — der Ordner, ohne
+die `ORDNER`, die ohnehin einzeln gesichert werden, und ohne Ordner aus
+`VOLUMES_OHNE` (Traefiks Zugriffsprotokolle können groß werden und
+gehören nicht in eine Konfiguration). Dateien aus `VOLUMES_OHNE` bleiben
+drin: „braucht keine Datensicherung" heißt nicht „gehört nicht zur
+Konfiguration". `VOLUMES_OHNE` wurde vorher zwischen zwei Werkzeugen nicht
+zurückgesetzt; das ist mit behoben, weil es jetzt gelesen wird.
+
+**Einspielen:** fehlt ein Werkzeugordner auf dem Server und liegt er in
+der Sicherung, liest `wiederherstellen.sh` die `sicherung.conf` aus dem
+Archiv, sagt bei `--probe`, dass der Ordner angelegt würde — und legt ihn
+erst beim echten Lauf an. Ein **vorhandener** Ordner wird nie
+überschrieben (`§15`): dort liegt, was nach der Sicherung geändert wurde,
+und für die Konfiguration ist das Git der bessere Rückweg.
+
+Ältere Sicherungen ohne `werkzeug.tar.gz` bleiben einspielbar — das Stück
+darf fehlen.
+
+### Probe
+
+| | |
+|---|---|
+| `werkzeuge/sicherung-lauf-pruefen.sh` | **24 ok** (6 neue) |
+| `… --gegenprobe` | **7 von 7** (3 neue) |
+| `werkzeuge/wiederherstellen-pruefen.sh` | **38 ok** (7 neue, Abschnitt 8c) |
+| `werkzeuge/wiederherstellen-gegenprobe.py` | **16 von 16** (4 neue) |
+
+Der Rundlauf in 8c: ein Archiv mit einem Werkzeug `neuling`, das es im
+Wegwerfstack nicht gibt, und einem `werkzeug.tar.gz` für `probe`, dessen
+Compose-Datei ein anderes Abbild nennt. Nach dem Einspielen muss
+`neuling` mit Compose-Datei **und** Daten dastehen und `probe` seine
+eigene Compose-Datei behalten haben.

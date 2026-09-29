@@ -41,8 +41,19 @@ cp "$WURZEL/backup.sh" "$S/backup.sh"
 [ -z "${SICHERUNG_MUTATION:-}" ] || sed -i "$SICHERUNG_MUTATION" "$S/backup.sh"
 
 printf 'VOLUMES=""\nDB_CONTAINER="db"\nDB_USER="u"\nDB_NAME="n"\n' > "$S/dbtool/sicherung.conf"
-printf 'DATEIEN="eine.conf"\nORDNER=""\nSQLITE=""\nHINWEIS=""\n' >> "$S/dbtool/sicherung.conf"
+printf 'DATEIEN="eine.conf"\nORDNER="daten"\nSQLITE=""\nHINWEIS=""\n' >> "$S/dbtool/sicherung.conf"
+printf 'VOLUMES_OHNE="log|Protokoll\nnotiz.md|liegt im Git"\n' >> "$S/dbtool/sicherung.conf"
 echo "inhalt" > "$S/dbtool/eine.conf"
+# Der Werkzeugordner selbst (N-87): Compose-Datei, ein Ordner, der einzeln
+# gesichert wird, ein Protokollordner, der gar nicht gesichert wird, und
+# eine Datei, die in VOLUMES_OHNE steht - die gehoert trotzdem in die
+# Konfiguration, nur ORDNER werden ausgenommen.
+printf 'services:\n  dbtool:\n    image: x:1\n' > "$S/dbtool/docker-compose.yml"
+printf 'services:\n  dbtool:\n    networks: [netz-dbtool]\n' > "$S/dbtool/docker-compose.override.yml"
+mkdir -p "$S/dbtool/daten" "$S/dbtool/log"
+echo "gross" > "$S/dbtool/daten/viel.bin"
+echo "zugriff" > "$S/dbtool/log/zugriff.log"
+echo "notiz" > "$S/dbtool/notiz.md"
 
 age-keygen -o "$T/geheim.key" 2>/dev/null
 grep '^# public key:' "$T/geheim.key" | cut -d' ' -f4 > "$S/.backup-schluessel.pub"
@@ -82,6 +93,23 @@ pruefe "guter Lauf: das Archiv des Tages liegt da" "ja" \
 pruefe "guter Lauf: der Erfolgsvermerk ist gesetzt" "ja" \
   "$([ -f "$B/.letzter-erfolg" ] && echo ja || echo nein)"
 MORGEN=$(pruefsumme "$B/$D.tar.gz.age")
+
+# Der Werkzeugordner steht in der Sicherung (N-87) - mit dem, was ihn
+# startbar macht, und ohne das, was einzeln oder gar nicht gesichert wird.
+W=$(age -d -i "$T/geheim.key" "$B/$D.tar.gz.age" | tar xzOf - "$D/dbtool/werkzeug.tar.gz" 2>/dev/null \
+    | tar tzf - 2>/dev/null | sort)
+pruefe "Werkzeugordner: die Compose-Datei ist drin (N-87)" "ja" \
+  "$(printf '%s\n' "$W" | grep -qx 'dbtool/docker-compose.yml' && echo ja || echo nein)"
+pruefe "Werkzeugordner: die override-Datei auch" "ja" \
+  "$(printf '%s\n' "$W" | grep -qx 'dbtool/docker-compose.override.yml' && echo ja || echo nein)"
+pruefe "Werkzeugordner: die sicherung.conf auch" "ja" \
+  "$(printf '%s\n' "$W" | grep -qx 'dbtool/sicherung.conf' && echo ja || echo nein)"
+pruefe "Werkzeugordner: ein ORDNER steht nicht doppelt drin" "nein" \
+  "$(printf '%s\n' "$W" | grep -q 'dbtool/daten' && echo ja || echo nein)"
+pruefe "Werkzeugordner: ein Protokollordner aus VOLUMES_OHNE nicht" "nein" \
+  "$(printf '%s\n' "$W" | grep -q 'dbtool/log' && echo ja || echo nein)"
+pruefe "Werkzeugordner: eine DATEI aus VOLUMES_OHNE schon" "ja" \
+  "$(printf '%s\n' "$W" | grep -qx 'dbtool/notiz.md' && echo ja || echo nein)"
 
 # 2. Derselbe Tag, der Lauf scheitert (N-86) -----------------------------
 rm -f "$B/.letzter-erfolg"
@@ -155,6 +183,9 @@ if [ "${1:-}" = "--gegenprobe" ] && [ -z "${SICHERUNG_MUTATION:-}" ]; then
 ein halber Lauf ueberschreibt den Stand des Tages (N-86)|s/if \[ "\$FEHLER" -ne 0 \] \&\& \[ -f "\$ARCHIV" \]; then/if false; then/
 eine gescheiterte Datenbanksicherung bleibt als leere Datei liegen|s/^      rm -f "\$ZIEL\/\$TOOL\/datenbank.sql.gz"$/      :/
 das halbe Archiv sortiert hinter den vollstaendigen|s/\$DATUM-unvollstaendig-/$DATUM.zz-unvollstaendig-/
+der Werkzeugordner wird nicht gesichert (N-87)|s/^  if ! tar czf "\$ZIEL\/\$TOOL\/werkzeug.tar.gz" -C "\$STACK" \\$/  if false \&\& tar czf "$ZIEL\/$TOOL\/werkzeug.tar.gz" -C "$STACK" \\/
+ein ORDNER landet doppelt im Werkzeugordner (N-87)|s/^  for O in \${ORDNER:-}; do AUSNAHMEN+=/  for O in ; do AUSNAHMEN+=/
+ein Protokollordner landet im Werkzeugordner (N-87)|s/\&\& \[ -d "\$STACK\/\$TOOL\/\$NAME" \] \&\& AUSNAHMEN+=/\&\& false \&\& AUSNAHMEN+=/
 ein guter Lauf ersetzt den Stand des Tages nicht|s/^      mv "\$NEU" "\$ARCHIV"$/      [ -f "$ARCHIV" ] || mv "$NEU" "$ARCHIV"/
 MUT
   echo "gefunden: $((N - DURCH))   entwischt: $DURCH"

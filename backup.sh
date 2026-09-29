@@ -91,7 +91,7 @@ for KONF in "$STACK"/*/sicherung.conf; do
   TOOL=$(basename "$(dirname "$KONF")")
 
   VOLUMES=""; DB_CONTAINER=""; DB_USER=""; DB_NAME=""; DATEIEN=""
-  ORDNER=""; SQLITE=""; HINWEIS=""
+  ORDNER=""; SQLITE=""; HINWEIS=""; VOLUMES_OHNE=""
   # shellcheck disable=SC1090
   . "$KONF"
 
@@ -194,6 +194,28 @@ rm -f "$2"
       FEHLER=1
     fi
   done
+
+  # Der Werkzeugordner selbst (N-87): Compose-Dateien, conf-Dateien,
+  # LIESMICH. Bisher verliess sich die Sicherung dafuer aufs Git - aber
+  # "prolo neu" legt Werkzeuge auf dem Server an, und die stehen in keinem
+  # Git. Nach einem Serververlust waeren ihre Daten da und niemand wuesste
+  # mehr, wie man sie startet.
+  #
+  # Ausgenommen: was ohnehin einzeln gesichert wird (ORDNER), und Ordner,
+  # die ausdruecklich keine Sicherung brauchen (VOLUMES_OHNE, z. B. die
+  # Zugriffsprotokolle von Traefik) - die koennen gross werden und gehoeren
+  # nicht in eine Konfiguration.
+  AUSNAHMEN=()
+  for O in ${ORDNER:-}; do AUSNAHMEN+=("--exclude=$TOOL/${O#\?}"); done
+  while IFS='|' read -r NAME _; do
+    [ -n "$NAME" ] && [ -d "$STACK/$TOOL/$NAME" ] && AUSNAHMEN+=("--exclude=$TOOL/$NAME")
+  done <<< "${VOLUMES_OHNE:-}"
+  if ! tar czf "$ZIEL/$TOOL/werkzeug.tar.gz" -C "$STACK" \
+         ${AUSNAHMEN[@]+"${AUSNAHMEN[@]}"} "$TOOL"; then
+    echo "  WARNUNG: der Werkzeugordner $TOOL liess sich nicht sichern" >&2
+    rm -f "$ZIEL/$TOOL/werkzeug.tar.gz"
+    FEHLER=1
+  fi
 done
 
 # --- Rechte VOR dem Verschluesseln ----------------------------------

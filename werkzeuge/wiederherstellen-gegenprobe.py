@@ -21,6 +21,23 @@ HIER = os.path.dirname(os.path.abspath(__file__))
 PRUEFER = os.path.join(HIER, "wiederherstellen-pruefen.sh")
 
 MUTATIONEN = [
+    # N-87: ein Werkzeug, dessen Ordner hier fehlt, kommt aus der Sicherung.
+    ("ein fehlender Werkzeugordner wird nicht aus der Sicherung gelesen (N-87)",
+     '    if [ ! -e "$STACK/$t" ] && [ -f "$STANDORDNER/$t/werkzeug.tar.gz" ]; then\n      mkdir -p "$AUSPACK/ordner"',
+     '    if false; then\n      mkdir -p "$AUSPACK/ordner"'),
+
+    ("der fehlende Werkzeugordner wird beim Einspielen nicht angelegt (N-87)",
+     '  if [ ! -e "$STACK/$t" ] && [ -f "$STANDORDNER/$t/werkzeug.tar.gz" ]; then\n    if tar xzf',
+     '  if false; then\n    if tar xzf'),
+
+    ("ein vorhandener Werkzeugordner wird ueberschrieben (N-87)",
+     '  if [ ! -e "$STACK/$t" ] && [ -f "$STANDORDNER/$t/werkzeug.tar.gz" ]; then\n    if tar xzf',
+     '  if [ -f "$STANDORDNER/$t/werkzeug.tar.gz" ]; then\n    if tar xzf'),
+
+    ("die Probe legt den fehlenden Ordner schon an (N-87)",
+     '        conf="$AUSPACK/ordner/$t/sicherung.conf"',
+     '        conf="$AUSPACK/ordner/$t/sicherung.conf"; tar xzf "$STANDORDNER/$t/werkzeug.tar.gz" -C "$STACK"'),
+
     ("der SQLite-Schritt entfaellt - der Stand aus dem Volume gewinnt",
      '  for eintrag in $S; do\n    name=$(basename "${eintrag#*:}")',
      '  for eintrag in ""; do\n    name=$(basename "${eintrag#*:}")'),

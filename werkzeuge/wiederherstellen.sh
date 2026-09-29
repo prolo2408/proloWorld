@@ -178,8 +178,22 @@ plan_bauen() {
     for d in "$STANDORDNER"/*/; do [ -d "$d" ] && liste+=("$(basename "$d")"); done
   fi
   STUECKE=""
+  NEU_ANLEGEN=""
   for t in "${liste[@]}"; do
     conf="$STACK/$t/sicherung.conf"
+    # Das Werkzeug gibt es hier nicht - aber sein Ordner liegt in der
+    # Sicherung (N-87). Das ist der Fall nach einem Serververlust fuer
+    # alles, was "prolo neu" angelegt hat und nie im Git stand. Gelesen
+    # wird seine sicherung.conf aus dem Archiv; angelegt wird der Ordner
+    # erst beim Einspielen, nie bei --probe.
+    if [ ! -e "$STACK/$t" ] && [ -f "$STANDORDNER/$t/werkzeug.tar.gz" ]; then
+      mkdir -p "$AUSPACK/ordner"
+      if tar xzf "$STANDORDNER/$t/werkzeug.tar.gz" -C "$AUSPACK/ordner" \
+           "$t/sicherung.conf" 2>/dev/null; then
+        conf="$AUSPACK/ordner/$t/sicherung.conf"
+        NEU_ANLEGEN="$NEU_ANLEGEN $t"
+      fi
+    fi
     if [ ! -f "$conf" ]; then
       STUECKE="$STUECKE$t|-|-|OHNE-CONF"$'\n'
       continue
@@ -196,6 +210,9 @@ plan_bauen() {
     for x in $D2; do stueck "$t" datei    "${x#\?}"        "$STANDORDNER" "${x:0:1}"; done
     for x in $S;  do stueck "$t" sqlite   "$(basename "${x#*:}")" "$STANDORDNER"; done
     [ -n "$DB" ] && stueck "$t" datenbank "datenbank.sql.gz" "$STANDORDNER"
+    # Der Werkzeugordner (N-87). Aeltere Sicherungen haben ihn nicht -
+    # darum darf er fehlen.
+    stueck "$t" werkzeug "werkzeug.tar.gz" "$STANDORDNER" "?"
   done
 }
 
@@ -219,7 +236,7 @@ pruefen_lesbar() {
     [ "$lage" = "da" ] || continue
     p="$STANDORDNER/$t/$datei"
     case "$art" in
-      volume|ordner)
+      volume|ordner|werkzeug)
         if ! tar tzf "$p" >/dev/null 2>&1; then
           melde "  KAPUTT  $t/$datei - laesst sich nicht lesen"; kaputt=1; fi ;;
       datenbank)
@@ -272,6 +289,11 @@ plan_bauen "$STANDORDNER" ${TOOLS[@]+"${TOOLS[@]}"}
 
 blau "Was im Archiv liegt"
 bericht; VOLLSTAENDIG=$?
+if [ -n "$NEU_ANLEGEN" ]; then
+  melde ""
+  melde "  Hier nicht vorhanden, der Ordner liegt aber in der Sicherung und"
+  melde "  wird beim Einspielen angelegt:$NEU_ANLEGEN"
+fi
 # Nichts zu tun heisst hier NICHT "alles in Ordnung". Ein leerer Plan
 # bedeutet: im Archiv steht kein Werkzeug, das heute noch eine
 # sicherung.conf hat. Das als "vollstaendig und lesbar" zu melden waere
@@ -308,7 +330,9 @@ if [ "$VOLLSTAENDIG" -ne 0 ] || [ "$LESBAR" -ne 0 ]; then
   fehler "            Meist heisst das: es wurde erst nach dieser Sicherung"
   fehler "            eingetragen. Ein neuer Lauf holt es:  sudo prolo sichern"
   fehler "  OHNE-CONF das Werkzeug liegt im Archiv, hat aber heute keine"
-  fehler "            sicherung.conf mehr - entfernt oder umbenannt."
+  fehler "            sicherung.conf mehr - entfernt oder umbenannt - und"
+  fehler "            sein Ordner steht nicht in der Sicherung (die gibt es"
+  fehler "            erst seit N-87)."
   fehler "  KAPUTT    die Datei ist da und laesst sich nicht lesen. Das ist"
   fehler "            der Fall, fuer den es diese Probe gibt."
   exit 1
@@ -396,6 +420,18 @@ PY
 FEHLER=0
 for t in $BETROFFEN; do
   blau "$t"
+  # Fehlt der Ordner hier, kommt er aus der Sicherung (N-87). Ein
+  # VORHANDENER Ordner wird nie ueberschrieben (§15): dort liegt, was
+  # jemand nach der Sicherung geaendert hat - und das Git ist fuer die
+  # Konfiguration der bessere Rueckweg.
+  if [ ! -e "$STACK/$t" ] && [ -f "$STANDORDNER/$t/werkzeug.tar.gz" ]; then
+    if tar xzf "$STANDORDNER/$t/werkzeug.tar.gz" -C "$STACK"; then
+      melde "  Werkzeugordner aus der Sicherung angelegt: $STACK/$t"
+    else
+      fehler "  Der Werkzeugordner liess sich nicht auspacken - $t uebersprungen."
+      FEHLER=1; continue
+    fi
+  fi
   conf="$STACK/$t/sicherung.conf"
   V=$(conf_wert "$conf" VOLUMES)
   O=$(conf_wert "$conf" ORDNER)

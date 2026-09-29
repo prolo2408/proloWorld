@@ -285,6 +285,42 @@ printf '%s' "$A" | grep -q "nichts, was sich zurueckspielen liesse" && E=ja || E
 pruefe "und sagt das auch" "ja" "$E"
 cp "$T/heil.tar.gz" "$B/$STAND.tar.gz"
 
+# --- 8c. Ein Werkzeug, das es hier nicht mehr gibt (N-87) -------------
+# Der Fall nach einem Serververlust: "prolo neu" hat es angelegt, im Git
+# stand es nie. Die Sicherung hat seinen Ordner - der wird angelegt. Und
+# ein VORHANDENER Ordner wird dabei nie ueberschrieben (§15).
+mkdir -p "$T/neuling/$STAND/neuling" "$T/neuling/$STAND/probe" "$T/nbau/neuling"
+cp -r "$T/bau/$STAND/probe/." "$T/neuling/$STAND/probe/"
+printf 'services:\n  neuling:\n    image: neu:1\n' > "$T/nbau/neuling/docker-compose.yml"
+printf 'VOLUMES=""\nDATEIEN="notiz.txt"\nORDNER=""\nSQLITE=""\n' > "$T/nbau/neuling/sicherung.conf"
+tar czf "$T/neuling/$STAND/neuling/werkzeug.tar.gz" -C "$T/nbau" neuling
+echo "NOTIZ-AUS-DER-SICHERUNG" > "$T/neuling/$STAND/neuling/notiz.txt"
+# Und fuer probe einen Ordnerstand, der NICHT gewinnen darf:
+mkdir -p "$T/pbau/probe"
+printf 'services:\n  probe:\n    image: ALT-AUS-DER-SICHERUNG:1\n' > "$T/pbau/probe/docker-compose.yml"
+cp "$S/probe/sicherung.conf" "$T/pbau/probe/"
+tar czf "$T/neuling/$STAND/probe/werkzeug.tar.gz" -C "$T/pbau" probe
+( cd "$T/neuling" && tar czf "$B/$STAND.tar.gz" "$STAND" )
+rm -rf "$S/neuling"
+
+A=$(lauf --probe); R=$?
+pruefe "fehlendes Werkzeug: die Probe laeuft durch (N-87)" "0" "$R"
+printf '%s' "$A" | grep -q "wird beim Einspielen angelegt: neuling" && E=ja || E=nein
+pruefe "fehlendes Werkzeug: die Probe sagt, dass es angelegt wird" "ja" "$E"
+[ -e "$S/neuling" ] && E=ja || E=nein
+pruefe "fehlendes Werkzeug: die Probe legt NICHTS an" "nein" "$E"
+
+A=$(lauf --ja); R=$?
+pruefe "fehlendes Werkzeug: das Einspielen laeuft durch" "0" "$R"
+[ "$R" -eq 0 ] || printf '%s\n' "$A" | tail -15
+pruefe "fehlendes Werkzeug: seine Compose-Datei ist wieder da" "ja" \
+  "$(grep -q 'image: neu:1' "$S/neuling/docker-compose.yml" 2>/dev/null && echo ja || echo nein)"
+pruefe "fehlendes Werkzeug: und seine Daten auch" "NOTIZ-AUS-DER-SICHERUNG" \
+  "$(cat "$S/neuling/notiz.txt" 2>/dev/null)"
+pruefe "ein vorhandener Ordner wird NICHT ueberschrieben" "nein" \
+  "$(grep -q 'ALT-AUS-DER-SICHERUNG' "$S/probe/docker-compose.yml" && echo ja || echo nein)"
+cp "$T/heil.tar.gz" "$B/$STAND.tar.gz"
+
 # --- 9. Ein Stand, den es nicht gibt ----------------------------------
 A=$(lauf --probe --stand 1999-01-01); R=$?
 pruefe "ein unbekannter Stand ist ein Fehler, nicht der neueste" "1" "$R"
