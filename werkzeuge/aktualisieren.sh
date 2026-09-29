@@ -108,22 +108,11 @@ abbild_kennungen() {
   done
 }
 
-alle_laufen() {
-  # Laufen alle Dienste dieses Tools, und zwar mit dem AKTUELLEN Abbild?
-  # Nur dann darf ein Neustart entfallen.
-  local ids id
-  ids=$(docker compose ps -q 2>/dev/null) || return 1
-  [ -z "$ids" ] && return 1
-  for id in $ids; do
-    [ "$(docker inspect "$id" --format '{{.State.Running}}' 2>/dev/null)" = "true" ] || return 1
-  done
-  # Haengt ein Container noch an einem alten Abbild, meldet compose das.
-  if docker compose ps --format '{{.Service}}' 2>/dev/null | grep -q .; then
-    local veraltet
-    veraltet=$(docker compose ps 2>/dev/null | grep -ci "created\|exited" || true)
-    [ "$veraltet" -gt 0 ] && return 1
-  fi
-  return 0
+container_kennungen() {
+  # Alle Container dieses Werkzeugs, auch angehaltene, sortiert. Ein
+  # Container, den "up -d" NEU anlegt, bekommt eine neue Kennung - daran
+  # und nur daran sieht man, ob sich etwas geaendert hat (N-88).
+  docker compose ps -a -q 2>/dev/null | sort
 }
 
 # ----------------------------------------------------------------------
@@ -218,20 +207,30 @@ ein_tool() {
   fi
   NACHHER=$(abbild_kennungen)
 
-  local NEUSTART=1
-  if [ "$TROCKEN" -eq 0 ] && [ "$VORHER" = "$NACHHER" ] && alle_laufen; then
-    NEUSTART=0
-    melde "      Keine neue Fassung - die Abbilder sind unveraendert und alle"
-    melde "      Container laufen bereits damit."
-  elif [ "$TROCKEN" -eq 0 ] && [ "$VORHER" != "$NACHHER" ]; then
+  if [ "$TROCKEN" -eq 0 ] && [ "$VORHER" != "$NACHHER" ]; then
     melde "      Neue Abbilder vorhanden."
   fi
 
-  if [ "$NEUSTART" -eq 1 ]; then
-    melde "[3/4] Container werden neu gestartet ..."
-    tun docker compose up -d
-  else
-    melde "[3/4] Kein Neustart noetig."
+  # "docker compose up -d" laeuft IMMER (N-88). Es ist von sich aus
+  # sparsam: Compose legt nur neu an, was sich geaendert hat - Abbild ODER
+  # Konfiguration -, und laesst alles andere laufen. Eine eigene
+  # Entscheidung davor ist ueberfluessig und war falsch: sie las die
+  # Tabelle von "docker compose ps" nach "created", und das steht in
+  # JEDER Kopfzeile (Spalte CREATED). Mit echtem Docker kam darum nie
+  # "kein Neustart noetig" heraus - der Zweig war tot, und die Attrappe
+  # im Pruefskript, die keine Kopfzeile druckte, hat es verdeckt.
+  #
+  # Ob etwas neu angelegt wurde, sagen die Container-Kennungen vorher und
+  # nachher - gemessen, nicht vorhergesagt.
+  local IDS_VORHER IDS_NACHHER NEU_ANGELEGT=1
+  IDS_VORHER=$(container_kennungen)
+  melde "[3/4] docker compose up -d ..."
+  tun docker compose up -d
+  IDS_NACHHER=$(container_kennungen)
+  if [ "$TROCKEN" -eq 0 ] && [ -n "$IDS_VORHER" ] && [ "$IDS_VORHER" = "$IDS_NACHHER" ]; then
+    NEU_ANGELEGT=0
+    melde "      Nichts neu angelegt - Abbilder und Konfiguration sind"
+    melde "      unveraendert, die Container laufen weiter wie vorher."
   fi
 
   # Geprueft wird IMMER - auch wenn nichts neu gestartet wurde.
@@ -250,7 +249,7 @@ ein_tool() {
 
   if pruefen "$TOOL" "$PRUEF_WARTEN" "$PRUEF_URL" "$HAUPT"; then
     melde ""
-    if [ "$NEUSTART" -eq 0 ]; then
+    if [ "$NEU_ANGELEGT" -eq 0 ]; then
       melde "FERTIG. $TOOL ist aktuell und laeuft."
     else
       melde "FERTIG. $TOOL laeuft."

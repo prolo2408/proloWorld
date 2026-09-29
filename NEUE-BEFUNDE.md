@@ -5959,3 +5959,62 @@ Wegwerfstack nicht gibt, und einem `werkzeug.tar.gz` für `probe`, dessen
 Compose-Datei ein anderes Abbild nennt. Nach dem Einspielen muss
 `neuling` mit Compose-Datei **und** Daten dastehen und `probe` seine
 eigene Compose-Datei behalten haben.
+
+## N-88 — „Kein Neustart nötig" kam mit echtem Docker nie
+
+Beim Nachmessen zu `N-89` gefunden — mit einem echten Docker-Dienst, den
+es in dieser Arbeitsumgebung bisher nicht gab und der sich jetzt starten
+ließ.
+
+`aktualisieren.sh` wollte einen Neustart sparen, wenn sich die Abbilder
+nicht geändert haben und alle Container laufen. Die Entscheidung stand in
+`alle_laufen()`:
+
+```bash
+veraltet=$(docker compose ps 2>/dev/null | grep -ci "created\|exited" || true)
+[ "$veraltet" -gt 0 ] && return 1
+```
+
+`docker compose ps` druckt eine Tabelle, und ihre Kopfzeile lautet
+`NAME IMAGE COMMAND SERVICE CREATED STATUS PORTS`. Das Wort **CREATED**
+steht in jeder Ausgabe. Mit echtem Docker lief der Zweig „Kein Neustart
+nötig" darum **nie** — jeder Lauf meldete „Container werden neu
+gestartet ...", auch wenn nichts neu gestartet wurde. Die Attrappe in
+`aktualisieren-pruefen.sh` druckte für `compose ps` nur `c1`, ohne
+Kopfzeile — sie hat den Fehler nicht nur nicht gefunden, sie hat ihn
+verdeckt, und zwei Prüflinien waren grün, weil sie einen Zweig prüften,
+den es in Wirklichkeit nicht gibt.
+
+Schaden hat das keinen angerichtet, und genau darum ist es lehrreich:
+`docker compose up -d` ist von sich aus sparsam. Compose legt nur neu an,
+was sich geändert hat — Abbild **oder** Konfiguration — und lässt alles
+andere laufen. Die eigene Vorhersage war nicht nur tot, sie war auch
+schlechter als das, was sie ersetzen wollte: sie kannte nur Abbilder,
+keine Konfiguration. Hätte sie funktioniert, wäre eine geänderte
+Umgebungsvariable bei gleichem Abbild nie angekommen.
+
+### Behoben
+
+`docker compose up -d` läuft immer. Ob etwas neu angelegt wurde, sagen
+die Container-Kennungen vorher und nachher (`docker compose ps -a -q`) —
+gemessen, nicht vorhergesagt. Die Meldung heißt jetzt „Nichts neu
+angelegt — Abbilder und Konfiguration sind unverändert" statt „Kein
+Neustart nötig", weil das die Aussage ist, die gemessen wurde.
+
+### Gemessen mit echtem Docker
+
+| | Ausgabe | Container |
+|---|---|---|
+| nichts geändert | „Nichts neu angelegt", „FERTIG. probe ist aktuell und läuft." | läuft weiter |
+| nur `environment:` geändert | „FERTIG. probe läuft." | neu angelegt, `EINSTELLUNG=neu` im Container |
+
+### Probe
+
+Die Attrappe druckt für `compose ps` jetzt eine Tabelle **mit** Kopfzeile,
+wie das echte, und wechselt die Container-Kennung nur, wenn `up`
+wirklich neu anlegt.
+
+| | |
+|---|---|
+| `werkzeuge/aktualisieren-pruefen.sh` | **82 ok** (4 neue; eine alte Prüflinie auf die gemessene Aussage umgestellt) |
+| `… --gegenprobe` | **4 von 4** (2 neue: Vorhersage statt Messung; `up -d` entfällt bei gleichen Abbildern) |

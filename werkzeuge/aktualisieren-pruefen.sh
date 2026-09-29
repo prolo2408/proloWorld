@@ -54,8 +54,23 @@ cat > "$T/bin/docker" <<'STUB'
 # Die Sperre misst die zusammengesetzte Konfiguration - das braucht keinen
 # Dienst und geht darum ans echte docker (wie in neu-pruefen.sh).
 case " $* " in *" --no-interpolate "*) exec /usr/bin/docker "$@" ;; esac
+# "compose ps" wie das echte (N-88): -q gibt Kennungen, sonst eine Tabelle
+# MIT Kopfzeile. Die alte Attrappe druckte nur "c1" - und verdeckte damit,
+# dass die Kopfzeile das Wort CREATED enthaelt. Die Kennung wechselt nur,
+# wenn "up" wirklich neu anlegt (UP_NEU=1).
+IDS="${DOCKER_IDS:-/dev/null}"
+if [ "$1 $2" = "compose ps" ]; then
+  if [[ " $* " == *" -q "* ]]; then cat "$IDS" 2>/dev/null | grep . || echo c1
+  else
+    echo "NAME      IMAGE          COMMAND   SERVICE   CREATED         STATUS         PORTS"
+    echo "probe     probe:1.0.0    \"x\"       probe     2 minutes ago   Up 2 minutes"
+  fi
+  exit 0
+fi
+if [ "$1 $2" = "compose up" ] && [ "${UP_NEU:-0}" = 1 ] && [ "$IDS" != /dev/null ]; then
+  echo "c-neu-$$" > "$IDS"; exit 0
+fi
 case "$1 $2" in
-  "compose ps")   echo "c1"; exit 0 ;;
   "compose logs") exit 0 ;;
   "compose pull"|"compose up"|"compose build") exit 0 ;;
   "compose config") echo "probe:1.0.0"; exit 0 ;;
@@ -282,24 +297,46 @@ A=$(PATH="$T/bin:$PATH" DOCKER_INFO_EXIT=1 LAGE=gesund \
 echo "$A" | grep -q 'docker antwortet nicht' && E=ja || E=nein
 pruefe "docker nicht erreichbar wird vorher erkannt" "ja" "$E"
 
-# 11. Unveraenderte Abbilder -> kein Neustart
+# 11. Nichts geaendert -> nichts neu angelegt (N-88). Gemessen an den
+#     Container-Kennungen, nicht vorhergesagt.
 rm -f "$T/stack/probe/.stand-erfolgreich.yml"; fassung_setzen 1.0.0
+export DOCKER_IDS="$T/ids"; echo c1 > "$DOCKER_IDS"
 A=$(PATH="$T/bin:$PATH" KENNUNG=gleich LAGE=gesund \
       "$T/stack/werkzeuge/aktualisieren.sh" probe 2>&1)
-echo "$A" | grep -q 'Keine neue Fassung' && E=ja || E=nein
-pruefe "unveraenderte Abbilder fuehren nicht zum Neustart" "ja" "$E"
+echo "$A" | grep -q 'Nichts neu angelegt' && E=ja || E=nein
+pruefe "unveraendert: es wird gesagt, dass nichts neu angelegt wurde" "ja" "$E"
 echo "$A" | grep -q 'FERTIG. probe ist aktuell' && E=ja || E=nein
 pruefe "und werden als 'aktuell' gemeldet" "ja" "$E"
 [ -f "$T/stack/probe/.stand-erfolgreich.yml" ] && E=ja || E=nein
 pruefe "der Rueckweg wird auch ohne Neustart gesetzt" "ja" "$E"
 
+# 11b. Compose legt neu an (neues Abbild ODER neue Konfiguration) - dann
+#      darf es nicht "aktuell" heissen (N-88).
+rm -f "$T/stack/probe/.stand-erfolgreich.yml"; fassung_setzen 1.0.0
+echo c1 > "$DOCKER_IDS"
+A=$(PATH="$T/bin:$PATH" KENNUNG=gleich LAGE=gesund UP_NEU=1 \
+      "$T/stack/werkzeuge/aktualisieren.sh" probe 2>&1)
+echo "$A" | grep -q 'Nichts neu angelegt' && E=ja || E=nein
+pruefe "neu angelegt: es heisst NICHT 'nichts neu angelegt'" "nein" "$E"
+echo "$A" | grep -q '^FERTIG. probe laeuft.' && E=ja || E=nein
+pruefe "neu angelegt: FERTIG ohne 'aktuell'" "ja" "$E"
+# up -d laeuft in jedem Fall - Compose entscheidet, nicht eine Vorhersage.
+export DOCKER_PROTOKOLL="$T/docker.protokoll"; : > "$DOCKER_PROTOKOLL"
+PATH="$T/bin:$PATH" KENNUNG=gleich LAGE=gesund "$T/stack/werkzeuge/aktualisieren.sh" probe >/dev/null 2>&1
+unset DOCKER_PROTOKOLL
+grep -q "^compose up -d" "$T/docker.protokoll" && E=ja || E=nein
+pruefe "unveraendert: docker compose up -d laeuft trotzdem (N-88)" "ja" "$E"
+unset DOCKER_IDS
+
 # 12. Der Fall, der den ersten Entwurf entlarvt hat: nichts Neues, aber der
 #     Container ist krank. "Laeuft" darf nicht "ist in Ordnung" heissen.
 rm -f "$T/stack/probe/.stand-erfolgreich.yml"; fassung_setzen 1.0.0
+export DOCKER_IDS="$T/ids"; echo c1 > "$DOCKER_IDS"
 A=$(PATH="$T/bin:$PATH" KENNUNG=gleich LAGE=krank \
       "$T/stack/werkzeuge/aktualisieren.sh" probe 2>&1 || true)
-echo "$A" | grep -q 'Kein Neustart noetig' && E=ja || E=nein
-pruefe "ohne neue Abbilder wird nicht neu gestartet" "ja" "$E"
+unset DOCKER_IDS
+echo "$A" | grep -q 'Nichts neu angelegt' && E=ja || E=nein
+pruefe "ohne Aenderung wird nichts neu angelegt" "ja" "$E"
 echo "$A" | grep -q 'FEHLER:' && E=ja || E=nein
 pruefe "aber ein kranker Container faellt trotzdem auf" "ja" "$E"
 echo "$A" | grep -q 'ist aktuell' && E=ja || E=nein
@@ -507,6 +544,8 @@ if [ "${1:-}" = "--gegenprobe" ] && [ -z "${AKT_MUTATION:-}" ]; then
   done <<'MUT'
 die Sperre wird beim Aktualisieren nicht gefragt (N-85)|s/if \[ "\$TROCKEN" -eq 0 \] && ! start_pruefen "\$TOOL"; then/if false; then/
 die Sperre kommt erst nach dem Holen (N-85)|s/if \[ "\$TROCKEN" -eq 0 \] \&\& ! start_pruefen "\$TOOL"; then/if false; then/; s/^  NACHHER=\$(abbild_kennungen)$/  NACHHER=$(abbild_kennungen); if ! start_pruefen "$TOOL"; then return 1; fi/
+"nichts neu angelegt" wird vorhergesagt statt gemessen (N-88)|s/^  if \[ "\$TROCKEN" -eq 0 \] \&\& \[ -n "\$IDS_VORHER" \] \&\& \[ "\$IDS_VORHER" = "\$IDS_NACHHER" \]; then$/  if [ "$TROCKEN" -eq 0 ] \&\& [ "$VORHER" = "$NACHHER" ]; then/
+up -d entfaellt, wenn die Abbilder gleich sind (N-88)|s/^  tun docker compose up -d$/  [ "$VORHER" = "$NACHHER" ] || tun docker compose up -d/
 MUT
   echo "gefunden: $((N - DURCH))   entwischt: $DURCH"
   [ "$DURCH" -eq 0 ] || exit 1
