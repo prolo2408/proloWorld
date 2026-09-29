@@ -231,6 +231,91 @@ for W in $(werkzeuge); do
   done < "$CONF"
 done
 
+# ---------------------------------------------------------------- 6b
+schritt "6b. Was eingehaengt wird, muss vor dem ersten Start da sein"
+# N-91, gemessen auf einem frischen Server: traefik/acme.json gab es noch
+# nicht. Docker legt fuer eine fehlende Quelle eines Bind-Mounts einen
+# ORDNER an - Traefik meldete "permissions 755 for acme.json are too
+# open", schaltete Let's Encrypt ab, und jede Seite zeigte "nicht sicher".
+# Die Narbe aus N-05, auf jedem neuen Server.
+#
+# Was ein Werkzeug braucht, sagt es selbst, in seiner sicherung.conf:
+#   DATEIEN                eine Datei mit Daten    -> leere Datei, 0600
+#   ORDNER / VOLUMES_OHNE  ein Ordner              -> leerer Ordner
+# Alles andere, das eingehaengt wird und fehlt, ist Konfiguration aus dem
+# Git - das wird gemeldet, nicht erfunden. Ein leerer Ordner, wo eine
+# Datei hingehoert, ist das Ueberbleibsel eines frueheren Starts und wird
+# ersetzt - aber nur, wenn er LEER ist.
+einhaengepunkte() {   # je Zeile: <werkzeug>|<pfad relativ zum Werkzeug>
+python3 - "$STACK" <<'PY'
+import json, os, subprocess, sys
+stack = sys.argv[1]
+for w in sorted(os.listdir(stack)):
+    ordner = os.path.join(stack, w)
+    if not os.path.isfile(os.path.join(ordner, "docker-compose.yml")):
+        continue
+    try:
+        roh = subprocess.run(["docker", "compose", "config", "--no-interpolate",
+                              "--format", "json"], cwd=ordner,
+                             capture_output=True, text=True, timeout=60)
+        c = json.loads(roh.stdout) if roh.returncode == 0 else {}
+    except Exception:
+        c = {}
+    for dienst in (c.get("services") or {}).values():
+        for m in dienst.get("volumes") or []:
+            if not isinstance(m, dict) or m.get("type") != "bind":
+                continue
+            quelle = os.path.realpath(str(m.get("source") or ""))
+            wurzel = os.path.realpath(ordner)
+            if quelle.startswith(wurzel + os.sep):
+                print("%s|%s" % (w, os.path.relpath(quelle, wurzel)))
+PY
+}
+conf_liste() {   # $1 = conf-Datei, $2 = Feld -> ein Eintrag je Zeile, ohne "?"
+  [ -f "$1" ] || return 0
+  python3 - "$1" "$2" <<'PY'
+import re, signal, sys
+# Ein Kommandozeilenstueck, dessen Ausgabe in "grep -q" laeuft: das
+# schliesst nach dem ersten Treffer. Hier ist SIG_DFL richtig - anders als
+# in einem Dienst (N-82).
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+t = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+m = re.search(r'(?m)^%s="([^"]*)"' % re.escape(sys.argv[2]), t)
+for z in (m.group(1) if m else "").split("\n"):
+    for e in (z.split("|")[0].split() if sys.argv[2] == "VOLUMES_OHNE" else z.split()):
+        print(e.lstrip("?"))
+PY
+}
+EINHAENGEN=$(einhaengepunkte | sort -u)
+while IFS='|' read -r W P; do
+  [ -n "$W" ] || continue
+  Z="$STACK/$W/$P"; KONF="$STACK/$W/sicherung.conf"
+  if conf_liste "$KONF" DATEIEN | grep -qx "$P"; then
+    if [ -f "$Z" ]; then f_ok "$W/$P"
+    elif [ -d "$Z" ] && [ -z "$(ls -A "$Z")" ]; then
+      if tun; then rmdir "$Z" && : > "$Z" && chmod 600 "$Z" \
+                     && f_tat "$W/$P war ein leerer Ordner (Ueberbleibsel eines Starts) - jetzt eine Datei, 0600"
+      else f_wuerde "$W/$P: leeren Ordner durch eine Datei ersetzen"; fi
+    elif [ -d "$Z" ]; then
+      f_bad "$W/$P ist ein Ordner mit Inhalt, gehoert aber eine Datei hin - von Hand ansehen"
+    elif tun; then
+      : > "$Z" && chmod 600 "$Z" && f_tat "$W/$P angelegt (leer, 0600)"
+    else f_wuerde "$W/$P anlegen (leer, 0600)"; fi
+  elif { conf_liste "$KONF" ORDNER; conf_liste "$KONF" VOLUMES_OHNE; } | grep -qx "$P"; then
+    if [ -d "$Z" ]; then f_ok "$W/$P/"
+    elif [ -e "$Z" ]; then f_ok "$W/$P"
+    elif tun; then mkdir -p "$Z" && f_tat "$W/$P/ angelegt"
+    else f_wuerde "$W/$P/ anlegen"; fi
+  elif [ -e "$Z" ]; then
+    f_ok "$W/$P"
+  else
+    f_bad "$W/$P fehlt - Docker wuerde dort einen leeren Ordner anlegen."
+    printf '          Steht es im Git:  git -C %s checkout -- %s/%s\n' "$STACK" "$W" "$P"
+    printf '          Sind es Daten, gehoert es in %s/sicherung.conf (DATEIEN oder ORDNER).\n' "$W"
+  fi
+done <<< "$EINHAENGEN"
+[ -n "$EINHAENGEN" ] || f_ok "kein Werkzeug haengt etwas aus seinem Ordner ein"
+
 # ----------------------------------------------------------------- 7
 schritt "7. Geheimnisse verteilen"
 if tun && [ -s "$SCHL" ]; then

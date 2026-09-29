@@ -123,6 +123,15 @@ networks:
   netz-fremdprobe:
     external: true
 YML
+  # N-91: die sicherung.conf von Traefik und die Dateien aus dem Git, die
+  # er einhaengt. acme.json und log/ entstehen erst auf dem Server.
+  cp "$STACK/traefik/sicherung.conf" "$Z/traefik/"
+  cp "$STACK/traefik/traefik.yml" "$Z/traefik/"
+  # Ein Werkzeug, das eine Konfigurationsdatei einhaengt, die FEHLT - das
+  # darf nicht still als leerer Ordner entstehen.
+  mkdir -p "$Z/ohnekonf"
+  printf 'services:\n  ohnekonf:\n    image: x:1\n    volumes:\n      - ./wichtig.yml:/etc/wichtig.yml:ro\n' \
+    > "$Z/ohnekonf/docker-compose.yml"
   # Ein Werkzeug, dessen Start an einem fehlenden Netz scheitert (N-90).
   mkdir -p "$Z/ohnesocket"
   printf 'services:\n  ohnesocket:\n    image: fremd/x:1\n' > "$Z/ohnesocket/docker-compose.yml"
@@ -236,6 +245,33 @@ pruefen_einmal() {
     && grep -q "8099" "$W/lauf1.txt" \
     && sag ok "und es wird gesagt, warum - mit dem Port" \
     || sag FEHLER "der Grund fuer das Nicht-Starten fehlt in der Ausgabe"
+
+  # N-91: acme.json ist eine DATEI mit 0600, log/ ein Ordner - nicht das,
+  # was Docker aus einer fehlenden Quelle macht.
+  [ -f "$W/traefik/acme.json" ] && [ "$(stat -c %a "$W/traefik/acme.json")" = 600 ] \
+    && sag ok "acme.json ist eine Datei mit 0600 (N-91)" \
+    || sag FEHLER "acme.json ist keine Datei mit 0600" \
+           "dann legt Docker einen Ordner an, und Traefik holt kein Zertifikat"
+  [ -d "$W/traefik/log" ] && sag ok "log/ ist ein Ordner" || sag FEHLER "log/ fehlt"
+  grep -q "ohnekonf/wichtig.yml fehlt" "$W/lauf1.txt" \
+    && sag ok "eine fehlende Konfigurationsdatei wird gemeldet, nicht erfunden" \
+    || sag FEHLER "eine fehlende Konfigurationsdatei wird nicht gemeldet"
+  [ -e "$W/ohnekonf/wichtig.yml" ] \
+    && sag FEHLER "eine fehlende Konfigurationsdatei wurde angelegt" "leer ist sie falsch, nicht fehlend" \
+    || sag ok "und nicht angelegt"
+  # Das Ueberbleibsel eines frueheren Starts: ein leerer ORDNER acme.json.
+  rm -f "$W/traefik/acme.json"; mkdir "$W/traefik/acme.json"
+  lauf "$W" > "$W/lauf-acme.txt"
+  [ -f "$W/traefik/acme.json" ] && [ "$(stat -c %a "$W/traefik/acme.json")" = 600 ] \
+    && sag ok "ein leerer Ordner acme.json wird durch eine Datei ersetzt" \
+    || sag FEHLER "der leere Ordner acme.json bleibt stehen"
+  # Und einer mit Inhalt wird NICHT angefasst.
+  rm -f "$W/traefik/acme.json"; mkdir "$W/traefik/acme.json"; echo x > "$W/traefik/acme.json/drin"
+  lauf "$W" > "$W/lauf-acme2.txt"
+  [ -f "$W/traefik/acme.json/drin" ] \
+    && sag ok "ein Ordner mit Inhalt wird nicht angefasst" \
+    || sag FEHLER "ein Ordner mit Inhalt wurde geloescht"
+  rm -rf "$W/traefik/acme.json"; : > "$W/traefik/acme.json"; chmod 600 "$W/traefik/acme.json"
 
   # N-90: warum etwas nicht hochkam, steht da - im Wortlaut von docker,
   # ohne das Rauschen davor, und mit dem Weg daraus.
@@ -371,6 +407,25 @@ meldeprobe "die Meldung von docker wird verschluckt" \
   's|^    docker_sagt "$T" "$AUSGABE"$|    :|'
 meldeprobe "das Rauschen wird nicht herausgefiltert" \
   "s#^RAUSCHEN=.*#RAUSCHEN='NIEMALS-SO-EINE-ZEILE'#"
+
+# N-91: acme.json wird nicht vorbereitet.
+acmeprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/a$((++GEFUNDEN))"
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  mkdir -p "$W/traefik/acme.json"      # wie nach einem frueheren Start
+  lauf "$W" > /dev/null
+  if [ -f "$W/traefik/acme.json" ] && [ "$(stat -c %a "$W/traefik/acme.json")" = 600 ]; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+}
+acmeprobe "der leere Ordner acme.json bleibt stehen (N-91)" \
+  's#^    elif \[ -d "$Z" \] \&\& \[ -z "$(ls -A "$Z")" \]; then$#    elif false; then#'
+acmeprobe "acme.json wird ohne 0600 angelegt (N-91)" \
+  's#: > "$Z" \&\& chmod 600 "$Z" \&\& f_tat "$W/$P angelegt#: > "$Z" \&\& f_tat "$W/$P angelegt#; s#rmdir "$Z" \&\& : > "$Z" \&\& chmod 600 "$Z"#rmdir "$Z" \&\& : > "$Z"#'
 
 overrideprobe() {
   local NAME="$1" AUSDRUCK="$2" W="$T/o$((++GEFUNDEN))" A

@@ -6133,3 +6133,71 @@ Das ist die echte Ausgabe aus dem zweiten Lauf auf dem Wegwerf-Server.
 Die zweite Mutation ist mir zuerst falsch geraten: sie nahm `tail -4` weg
 und ließ den Filter stehen — sie blieb grün, zu Recht. Der Filter steht
 jetzt in einer eigenen Variable, die Mutation leert sie.
+
+## N-91 — Auf jedem neuen Server war `acme.json` ein Ordner
+
+Beim ersten echten Lauf auf einem frischen Stapel gefunden. Traefik hängt
+`./acme.json` ein. Auf einem frischen Klon gibt es die Datei nicht — sie
+steht mit Absicht nicht im Git (`§21`) —, und Docker legt für eine
+fehlende Quelle eines Bind-Mounts einen **Ordner** an. Traefik dazu, im
+Wortlaut:
+
+```
+ERR The ACME resolve is skipped from the resolvers list
+    error="unable to get ACME account: permissions 755 for
+    /letsencrypt/acme.json are too open, please use 600"
+```
+
+Kein Let's Encrypt, auf keinem Namen. Jede Seite zeigt „nicht sicher",
+und das Notzertifikat heißt `TRAEFIK DEFAULT CERT`. Das ist die Narbe aus
+`N-05` — dort waren es die Rechte an einer vorhandenen Datei, hier ist es
+die Datei selbst. Die Anleitung im Kommentar der Compose-Datei nennt
+`chown` und `chmod` für `acme.json`, aber nirgends, dass sie erst
+**angelegt** werden muss, und `prolo einrichten` tat es nicht. Genau die
+Sorte Handgriff, die `N-54` aus den Anleitungen ins Skript holen wollte.
+
+### Behoben
+
+`prolo einrichten` hat einen Schritt **6b**: alles, was ein Werkzeug aus
+seinem Ordner einhängt, muss vor dem ersten Start da sein. Was es wo
+braucht, sagt das Werkzeug selbst, in der `sicherung.conf`, die es ohnehin
+hat:
+
+| steht in | wird angelegt als |
+|---|---|
+| `DATEIEN` | leere Datei, `0600` |
+| `ORDNER`, `VOLUMES_OHNE` | leerer Ordner |
+| nirgends | **nichts** — gemeldet mit `git checkout` bzw. dem Hinweis auf die `sicherung.conf`; eine leere Konfigurationsdatei wäre falsch, nicht fehlend |
+
+Ein **leerer** Ordner, wo eine Datei hingehört, ist das Überbleibsel eines
+früheren Starts und wird ersetzt. Ein Ordner **mit Inhalt** wird nicht
+angefasst, sondern gemeldet.
+
+### Gemessen auf dem Wegwerf-Server
+
+```
+6b. Was eingehaengt wird, muss vor dem ersten Start da sein
+  getan   authentik/certs/ angelegt
+  getan   authentik/custom-templates/ angelegt
+  getan   authentik/data/ angelegt
+  getan   traefik/acme.json war ein leerer Ordner (Ueberbleibsel eines Starts) - jetzt eine Datei, 0600
+  ok      traefik/dynamic
+  ok      traefik/log/
+  ok      traefik/traefik.yml
+```
+
+Danach Traefik neu angelegt: **0** Zeilen „too open" im Protokoll (vorher 1).
+Beim zweiten Lauf nur noch `ok`.
+
+Beim ersten Lauf auf dem Server kam dazu ein `BrokenPipeError` aus meinem
+eigenen Python-Stück: seine Ausgabe läuft in `grep -q`, und das schließt
+nach dem ersten Treffer. Dort ist `SIGPIPE` auf Voreinstellung richtig —
+genau der Fall, für den die Zeile gedacht ist, die in `N-82` aus dem
+Dienst weg musste.
+
+### Probe
+
+| | |
+|---|---|
+| `werkzeuge/einrichten-pruefen.sh` | **26 ok** (6 neue) |
+| `… --gegenprobe` | **11 von 11** (2 neue: leerer Ordner bleibt; Datei ohne `0600`) |
