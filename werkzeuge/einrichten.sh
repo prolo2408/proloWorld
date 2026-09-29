@@ -132,6 +132,13 @@ schritt "5. Netze"
 # keine feste Liste, sonst uebersieht das Skript das naechste Werkzeug.
 # Welche EXTERNEN Netze nennt eine Compose-Datei? (ein Name je Zeile)
 # Ein Werkzeug ohne Argument heisst: alle Compose-Dateien zusammen.
+#
+# BEIDE Compose-Dateien je Werkzeug (N-83, dieselbe Falle wie N-70): bei
+# einem Fremdwerkzeug steht das Netz nicht in der Datei des Herstellers,
+# sondern in unserer docker-compose.override.yml. Wer nur die erste liest,
+# legt es auf einem frischen Server nie an - und der Router bleibt tot,
+# ohne Fehlermeldung. Die override-Datei gewinnt je Schluessel, wie bei
+# "docker compose" selbst.
 externe_netze() {
 python3 - "$STACK" "${1:-}" <<'PY'
 import os, re, sys
@@ -140,22 +147,27 @@ aus, erzeugt = set(), set()
 for d in sorted(os.listdir(stack)):
     if nur and d != nur:
         continue
-    p = os.path.join(stack, d, "docker-compose.yml")
-    if not os.path.isfile(p):
+    if not os.path.isfile(os.path.join(stack, d, "docker-compose.yml")):
         continue
-    t = open(p, encoding="utf-8", errors="replace").read()
-    block = re.search(r"^networks:\s*$(.*)", t, re.S | re.M)
-    if not block:
-        continue
-    for m in re.finditer(r"^  ([A-Za-z0-9_.-]+):\s*$((?:\n    .*)*)",
-                         block.group(1), re.M):
-        name, rumpf = m.group(1), m.group(2)
-        # "name:" gewinnt: socket-proxy nennt sein Netz "socket".
-        echt = re.search(r"^\s+name:\s*(\S+)", rumpf, re.M)
-        if echt:
-            name = echt.group(1)
-        (aus if re.search(r"^\s+external:\s*true", rumpf, re.M)
-         else erzeugt).add(name)
+    je_schluessel = {}
+    for datei in ("docker-compose.yml", "docker-compose.override.yml"):
+        p = os.path.join(stack, d, datei)
+        if not os.path.isfile(p):
+            continue
+        t = open(p, encoding="utf-8", errors="replace").read()
+        block = re.search(r"^networks:\s*$(.*)", t, re.S | re.M)
+        if not block:
+            continue
+        for m in re.finditer(r"^  ([A-Za-z0-9_.-]+):\s*$((?:\n    .*)*)",
+                             block.group(1), re.M):
+            schluessel, rumpf = m.group(1), m.group(2)
+            # "name:" gewinnt: socket-proxy nennt sein Netz "socket".
+            echt = re.search(r"^\s+name:\s*(\S+)", rumpf, re.M)
+            je_schluessel[schluessel] = (
+                echt.group(1) if echt else schluessel,
+                bool(re.search(r"^\s+external:\s*true", rumpf, re.M)))
+    for name, extern in je_schluessel.values():
+        (aus if extern else erzeugt).add(name)
 # Was ein Compose SELBST anlegt, legt man nicht von Hand an: "socket"
 # entsteht mit socket-proxy und ist "internal: true". Von Hand angelegt
 # waere es ein gewoehnliches Bridge-Netz - und socket-proxy kaeme nicht
@@ -316,17 +328,22 @@ done
 
 # ----------------------------------------------------------------- 10
 schritt "10. Was nur du tun kannst"
+# Auch hier beide Dateien (N-83): der Name eines Fremdwerkzeugs steht in
+# unserer override-Datei, nicht in der des Herstellers.
 python3 - "$STACK" <<'PY'
 import os, re, sys
 stack = sys.argv[1]
 namen = set()
 for d in sorted(os.listdir(stack)):
-    p = os.path.join(stack, d, "docker-compose.yml")
-    if not os.path.isfile(p):
+    if not os.path.isfile(os.path.join(stack, d, "docker-compose.yml")):
         continue
-    t = open(p, encoding="utf-8", errors="replace").read()
-    for m in re.finditer(r"Host\(`([^`]+)`\)", t):
-        namen.add(m.group(1))
+    for datei in ("docker-compose.yml", "docker-compose.override.yml"):
+        p = os.path.join(stack, d, datei)
+        if not os.path.isfile(p):
+            continue
+        t = open(p, encoding="utf-8", errors="replace").read()
+        for m in re.finditer(r"Host\(`([^`]+)`\)", t):
+            namen.add(m.group(1))
 if namen:
     print("  DNS - je ein A-Record auf die Server-IP, KEIN AAAA:")
     for n in sorted(namen):

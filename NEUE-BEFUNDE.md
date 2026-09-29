@@ -5654,3 +5654,52 @@ im Ganzen her (Signal **und** Fehlerseite nach dem Schreibfehler).
 | `admin/tests/gegenprobe.sh` | **16 von 16** gefunden (vorher 14 von 14) |
 
 Fassung 0.1.0 → **0.1.1** an allen drei Stellen.
+
+## N-83 — `prolo einrichten` sah von einem Fremdwerkzeug nur die Hälfte
+
+Beim Durchsehen gefunden. `N-70` hat die Regel aufgeschrieben — **jeder**
+Prüfer, der nur `docker-compose.yml` liest, sieht bei einem Fremdwerkzeug
+die Hälfte — und `prolo status`, `prolo dns` und die Grenzprüfung
+nachgezogen. `werkzeuge/einrichten.sh` las an zwei Stellen weiter nur die
+Datei des Herstellers:
+
+| Schritt | was er liest | was dabei verloren ging |
+|---|---|---|
+| 5. Netze | externe Netze je Werkzeug | jedes Netz, das nur in der override-Datei steht |
+| 9. Dienste starten | fehlende Netze je laufendem Werkzeug (`netze_fehlen`) | dasselbe, beim Nachhängen |
+| 10. Was nur du tun kannst | die DNS-Namen | `n8n.prolo.me` |
+
+Gemessen am Repository: Schritt 10 nannte **6** Namen, die Compose-Dateien
+enthalten **7** — `n8n.prolo.me` fehlte. Wer einen neuen Server nach
+dieser Liste beim DNS-Anbieter einträgt, vergisst genau diesen A-Eintrag,
+und `n8n.prolo.me` bekommt nie ein Zertifikat (`N-69`).
+
+Beim Netz ist n8n zufällig gedeckt: `netz-n8n` steht zusätzlich in der
+Compose-Datei von Traefik und wird darüber angelegt. Ein Werkzeug, das
+`prolo neu` gerade angelegt hat und dessen Netz Traefik noch nicht nennt,
+wäre es nicht.
+
+### Behoben
+
+Beide Stellen lesen jetzt beide Dateien; bei den Netzen gewinnt die
+override-Datei je Schlüssel, wie bei `docker compose` selbst. Die
+Nachbildung mit regulären Ausdrücken bleibt — `docker compose config`
+setzt eine `.env` voraus, und die gibt es beim Einrichten gerade noch
+nicht.
+
+### Probe
+
+`einrichten-pruefen.sh` legt in seiner Kopie ein Fremdwerkzeug
+`fremdprobe` an, dessen Netz und Name **nur** in der override-Datei stehen
+und dessen Netz Traefik nicht nennt. Die Kopie nimmt jetzt auch die
+override-Dateien mit (vorher nicht — auch die Probe sah nur die Hälfte),
+und die Docker-Attrappe verbindet bei `up` die Netze aus beiden Dateien.
+
+| | |
+|---|---|
+| `werkzeuge/einrichten-pruefen.sh` | **18 ok** (vorher 15) |
+| `… --gegenprobe` | **6 von 6** gefunden (vorher 4 von 4) |
+
+Die neue Zählprüfung zählt die Namen mit `grep` über alle Compose-Dateien,
+nicht mit dem Code, der geprüft wird: 8 in der Kopie (7 im Repository und
+`fremdprobe.prolo.me`), 8 in der Liste.

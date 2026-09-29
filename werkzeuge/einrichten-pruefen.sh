@@ -57,8 +57,9 @@ if [ "$1" = "compose" ]; then
       # "up -d" verbindet den Container mit allen erklaerten Netzen -
       # genau das, was echtes compose tut, wenn sich die Netze geaendert haben.
       sed -i "/^$W /d" "$V"
-      for NZ in $(grep -A50 '^networks:' "$DIR/docker-compose.yml" 2>/dev/null \
-                  | sed -n 's/^  \([A-Za-z0-9_.-]*\):$/\1/p'); do
+      for NZ in $(cat "$DIR/docker-compose.yml" "$DIR/docker-compose.override.yml" 2>/dev/null \
+                  | grep -A50 '^networks:' \
+                  | sed -n 's/^  \([A-Za-z0-9_.-]*\):$/\1/p' | sort -u); do
         echo "$W $NZ" >> "$V"
       done
       exit 0 ;;
@@ -79,6 +80,8 @@ kopieren() {
     [ -e "$D" ] || continue
     local W; W=$(basename "$(dirname "$D")")
     mkdir -p "$Z/$W"; cp "$D" "$Z/$W/"
+    [ -f "$STACK/$W/docker-compose.override.yml" ] \
+      && cp "$STACK/$W/docker-compose.override.yml" "$Z/$W/"
     [ -f "$STACK/$W/geheimnisse.conf" ] && cp "$STACK/$W/geheimnisse.conf" "$Z/$W/"
     [ -f "$STACK/$W/.env.beispiel" ] && cp "$STACK/$W/.env.beispiel" "$Z/$W/"
     if [ -f "$STACK/$W/dynamic/einlass.yml.beispiel" ]; then
@@ -86,6 +89,28 @@ kopieren() {
       cp "$STACK/$W/dynamic/einlass.yml.beispiel" "$Z/$W/dynamic/"
     fi
   done
+  # Ein Fremdwerkzeug, dessen Netz und Name NUR in der override-Datei
+  # stehen - und dessen Netz Traefik (noch) nicht nennt. Genau so sieht
+  # ein Werkzeug aus, das "prolo neu" gerade angelegt hat (N-83). n8n
+  # taugt dafuer nicht: sein Netz steht zusaetzlich bei Traefik und wuerde
+  # darueber angelegt, auch wenn die override-Datei ungelesen bliebe.
+  mkdir -p "$Z/fremdprobe"
+  cat > "$Z/fremdprobe/docker-compose.yml" <<'YML'
+services:
+  fremdprobe:
+    image: fremd/probe:1.0
+YML
+  cat > "$Z/fremdprobe/docker-compose.override.yml" <<'YML'
+services:
+  fremdprobe:
+    networks:
+      - netz-fremdprobe
+    labels:
+      - "traefik.http.routers.fremdprobe.rule=Host(`fremdprobe.prolo.me`)"
+networks:
+  netz-fremdprobe:
+    external: true
+YML
   # Sicherungsschluessel, sonst kommt Schritt 7 nicht dran
   age-keygen 2>/dev/null > "$Z/probe.key"
   grep '^# public key:' "$Z/probe.key" | cut -d' ' -f4 > "$Z/.backup-schluessel.pub"
@@ -177,6 +202,25 @@ pruefen_einmal() {
     && sag ok "die externen netz-* wurden angelegt" \
     || sag FEHLER "netz-wiki wurde nicht angelegt"
 
+  # N-83: was nur in der override-Datei steht, zaehlt genauso.
+  grep -qx "netz-fremdprobe" "$DOCKER_ATTRAPPE/netze" \
+    && sag ok "ein Netz aus der override-Datei wird angelegt (N-83)" \
+    || sag FEHLER "das Netz aus der override-Datei wurde nicht angelegt" \
+           "ein Fremdwerkzeug bekaeme auf einem frischen Server einen toten Router"
+  grep -q "^    fremdprobe.prolo.me$" "$W/lauf1.txt" \
+    && sag ok "ein Name aus der override-Datei steht in der DNS-Liste (N-83)" \
+    || sag FEHLER "der Name aus der override-Datei fehlt in der DNS-Liste" \
+           "dann fehlt beim Anbieter der A-Eintrag, und niemand weiss es"
+  # Und jeder Name aus IRGENDEINER Compose-Datei - gezaehlt mit grep, nicht
+  # mit dem Code, der geprueft wird.
+  local N_SOLL N_IST
+  N_SOLL=$(cat "$W"/*/docker-compose.yml "$W"/*/docker-compose.override.yml 2>/dev/null \
+           | grep -o 'Host(`[^`]*`)' | sort -u | wc -l)
+  N_IST=$(grep -c '^    [a-z0-9.-]*\.[a-z]*$' "$W/lauf1.txt")
+  [ "$N_SOLL" -eq "$N_IST" ] \
+    && sag ok "die DNS-Liste nennt alle $N_SOLL Namen aus den Compose-Dateien" \
+    || sag FEHLER "die DNS-Liste nennt $N_IST von $N_SOLL Namen"
+
   # Ein Trockenlauf fasst nichts an
   local V3 N3
   V3=$(find "$W" -name '.env' | sort | xargs md5sum 2>/dev/null)
@@ -242,6 +286,26 @@ netzprobe "ein laufender Container wird nie nachgehaengt" \
           's|FEHLT=$(netze_fehlen "$T")|FEHLT=""|'
 netzprobe "fehlende Netze werden gar nicht erst gesucht" \
           's|^netze_fehlen() {|netze_fehlen() { return 0;|'
+
+# N-83: die override-Datei wird nicht gelesen - weder fuer Netze noch fuer
+# Namen. Der Massstab ist, was nach dem Lauf fehlt.
+overrideprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/o$((++GEFUNDEN))" A
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  A=$(lauf "$W")
+  if grep -qx "netz-fremdprobe" "$DOCKER_ATTRAPPE/netze" \
+     && grep -q "^    fremdprobe.prolo.me$" <<<"$A"; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+}
+overrideprobe "Namen nur aus der Datei des Herstellers" \
+  '0,/"docker-compose.yml", "docker-compose.override.yml"/! s|("docker-compose.yml", "docker-compose.override.yml")|("docker-compose.yml",)|'
+overrideprobe "Netze nur aus der Datei des Herstellers" \
+  '0,/"docker-compose.yml", "docker-compose.override.yml"/ s|("docker-compose.yml", "docker-compose.override.yml")|("docker-compose.yml",)|'
 
 echo
 if [ -n "$DURCH" ]; then
