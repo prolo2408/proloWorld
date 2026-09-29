@@ -694,7 +694,7 @@ start_pruefen() {
   fi
 
   [ -x "$HIER/netze.sh" ] || return 0
-  while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND GETEILT HOSTS; do
+  while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND GETEILT HOSTS OFFENR; do
     [ "$Z" = dienst ] || continue
     if [ -n "$PORTS" ] && [ -z "$GRUND" ]; then
       fehler "NICHT gestartet: $TOOL/$D veroeffentlicht Port(s) $PORTS auf dem Host."
@@ -709,14 +709,21 @@ start_pruefen() {
       FEHLT=1
     fi
     if [ "$SCHUTZ" = OFFEN ]; then
-      fehler "NICHT gestartet: $TOOL/$D hat einen Router ohne Anmeldung."
+      # Den Router beim Namen nennen, nicht das Werkzeug (N-84): bei zwei
+      # Routern ist der ungeschuetzte oft gerade NICHT der, der so heisst
+      # wie das Werkzeug.
+      local R="${OFFENR%%,*}"
+      case "$R" in ""|"(Vorgabe)") R="$TOOL" ;; esac
+      fehler "NICHT gestartet: $TOOL/$D hat einen Router ohne Anmeldung: ${OFFENR:-?}"
       fehler ""
       fehler "  Entweder Authentik davor:"
-      fehler "    - \"traefik.http.routers.$TOOL.middlewares=authentik@file\""
+      fehler "    - \"traefik.http.routers.$R.middlewares=authentik@file\""
       fehler "  oder - wenn das Werkzeug seine eigene Anmeldung mitbringt -"
       fehler "  erklaert (CLAUDE.md §17a):"
       fehler "    - \"prolo.anmeldung=eigene\""
       fehler "    - \"prolo.anmeldung.grund=<warum>\""
+      fehler "  oder - wenn genau dieser Router oeffentlich sein soll:"
+      fehler "    - \"prolo.oeffentlich=$R\""
       FEHLT=1
     fi
   done < <("$HIER/netze.sh" --dienste "$TOOL" 2>/dev/null)

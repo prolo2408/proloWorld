@@ -33,7 +33,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 
 PORT = int(os.environ.get("ADMIN_PORT", "8080"))
 DATEN = os.environ.get("ADMIN_DATEN", "/daten")
@@ -164,20 +164,36 @@ HOST_REGEL = re.compile(r"Host\(`([^`]+)`\)")
 def schutz_lesen(labels):
     """Womit ist dieser Dienst geschuetzt? Gelesen, nicht geraten.
 
-    Die Middleware-Kette steht in den Labels. Kein authentik@file und keine
-    Erklaerung heisst OFFEN - und genau das soll man sehen. Ein fehlendes
-    middlewares= sieht sonst aus wie ein vergessenes (N-59).
+    Die Middleware-Kette steht in den Labels, und zwar JE ROUTER (N-84).
+    Vorher reichte ein authentik@file an irgendeinem Router, und der ganze
+    Dienst galt als geschuetzt - ein zweiter Router ohne Anmeldung daneben,
+    genau der Fall aus §17a, fiel nicht auf. Kein authentik@file und keine
+    Erklaerung heisst OFFEN, und dann steht dabei, welcher Router es ist.
+    Ein fehlendes middlewares= sieht sonst aus wie ein vergessenes (N-59).
+
+    Dieselbe Regel steht in werkzeuge/netze.sh (fuer "prolo start" und
+    "prolo netze") und in werkzeuge/grenze-pruefen.sh (fuer das Repository).
     """
     if labels.get("traefik.enable") != "true":
         return ("", "")
-    ketten = " ".join(w for k, w in labels.items() if ROUTER_MW.match(k))
-    if "authentik@file" in ketten:
-        return ("authentik", "")
-    if labels.get("prolo.anmeldung"):
+    router = sorted({k[len("traefik.http.routers."):-len(".rule")]
+                     for k in labels if ROUTER_REGEL.match(k)})
+    oeffentlich = {x for x in labels.get("prolo.oeffentlich", "").split(",") if x}
+    ungeschuetzt = [
+        r for r in router
+        if r not in oeffentlich
+        and "authentik@file" not in labels.get("traefik.http.routers.%s.middlewares" % r, "")]
+    # traefik.enable ohne eigenen Router: Traefik legt dann selbst einen an,
+    # mit einer Vorgaberegel und ohne Middleware.
+    if not router:
+        ungeschuetzt = ["(Vorgabe)"]
+    if ungeschuetzt and labels.get("prolo.anmeldung"):
         return (labels["prolo.anmeldung"], labels.get("prolo.anmeldung.grund", ""))
-    if labels.get("prolo.oeffentlich"):
-        return ("oeffentlich", labels["prolo.oeffentlich"])
-    return ("OFFEN", "")
+    if ungeschuetzt:
+        return ("OFFEN", ", ".join(ungeschuetzt))
+    if oeffentlich:
+        return ("oeffentlich", ", ".join(sorted(oeffentlich)))
+    return ("authentik", "")
 
 
 def lage():
@@ -252,10 +268,13 @@ def beanstandungen(l):
             if d["schutz"] == "OFFEN":
                 aus.append((
                     "ungeschuetzt", "%s/%s" % (w["name"], d["dienst"]),
-                    "Ein Router ohne Anmeldung und ohne Erklaerung. Entweder "
-                    "middlewares=authentik@file ergaenzen oder - wenn das "
-                    "Werkzeug eine eigene Anmeldung mitbringt - mit "
-                    "prolo.anmeldung=eigene erklaeren (CLAUDE.md §17a)."))
+                    "Router ohne Anmeldung und ohne Erklaerung: %s. Entweder "
+                    "an genau diesem Router middlewares=authentik@file "
+                    "ergaenzen, oder - wenn das Werkzeug eine eigene "
+                    "Anmeldung mitbringt - mit prolo.anmeldung=eigene "
+                    "erklaeren (CLAUDE.md §17a). Soll er mit Absicht "
+                    "oeffentlich sein: prolo.oeffentlich=<router>."
+                    % (d["schutz_grund"] or "?")))
             if d["ports"] and not d["ports_grund"]:
                 aus.append((
                     "offener Port", "%s/%s" % (w["name"], d["dienst"]),
@@ -569,7 +588,8 @@ def marker_schutz(s, grund):
     if s == "authentik":
         return '<span class="marker m-gut">Authentik</span>'
     if s == "OFFEN":
-        return '<span class="marker m-rot">OFFEN - ohne Anmeldung</span>'
+        return ('<span class="marker m-rot">OFFEN - ohne Anmeldung</span>'
+                + (' <span class="ktx mono">%s</span>' % e(grund) if grund else ""))
     if s == "oeffentlich":
         return '<span class="marker m-warm">oeffentlich: %s</span>' % e(grund)
     if s:

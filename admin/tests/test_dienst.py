@@ -62,6 +62,7 @@ class TestSchutz(unittest.TestCase):
     def test_oeffentlich_ist_erklaert(self):
         self.assertEqual(
             server.schutz_lesen({"traefik.enable": "true",
+                                 "traefik.http.routers.www.rule": "Host(`prolo.me`)",
                                  "prolo.oeffentlich": "www"}),
             ("oeffentlich", "www"))
 
@@ -71,7 +72,7 @@ class TestSchutz(unittest.TestCase):
         self.assertEqual(
             server.schutz_lesen({"traefik.enable": "true",
                                  "traefik.http.routers.a.rule": "Host(`a`)"}),
-            ("OFFEN", ""))
+            ("OFFEN", "a"))
 
     def test_kein_router_ist_kein_mangel(self):
         # Eine Datenbank hat keinen Router. Sie ist nicht "offen", sie ist
@@ -84,6 +85,25 @@ class TestSchutz(unittest.TestCase):
         self.assertEqual(
             server.schutz_lesen(dict(AUTH, **{"prolo.anmeldung": "eigene"})),
             ("authentik", ""))
+
+    def test_zweiter_router_ohne_anmeldung_ist_OFFEN(self):
+        # N-84: ein authentik@file an EINEM Router schuetzt nicht den
+        # zweiten. Vorher hiess das Ergebnis hier "authentik".
+        labels = dict(AUTH, **{
+            "traefik.http.routers.haken.rule": "Host(`a.prolo.me`) && PathPrefix(`/h`)",
+            "traefik.http.routers.haken.priority": "100"})
+        self.assertEqual(server.schutz_lesen(labels), ("OFFEN", "haken"))
+
+    def test_zweiter_router_als_oeffentlich_erklaert(self):
+        labels = dict(AUTH, **{
+            "traefik.http.routers.haken.rule": "Host(`a.prolo.me`) && PathPrefix(`/h`)",
+            "prolo.oeffentlich": "haken"})
+        self.assertEqual(server.schutz_lesen(labels), ("oeffentlich", "haken"))
+
+    def test_enable_ohne_router_ist_OFFEN(self):
+        # Traefik legt dann selbst einen Router an - ohne Middleware.
+        self.assertEqual(server.schutz_lesen({"traefik.enable": "true"}),
+                         ("OFFEN", "(Vorgabe)"))
 
     def test_traefik_aus_zaehlt_nicht(self):
         self.assertEqual(

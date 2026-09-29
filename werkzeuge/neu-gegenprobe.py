@@ -83,6 +83,21 @@ MUTATIONEN = [
      '''    if [ "$SCHUTZ" = OFFEN ]; then''',
      '''    if false; then'''),
 
+    ('ein authentik@file irgendwo schuetzt den ganzen Dienst (N-84)',
+     'netze.sh',
+     '''        and "authentik@file" not in label.get("traefik.http.routers.%s.middlewares" % r, "")]''',
+     '''        and "authentik@file" not in " ".join(w for k, w in label.items() if k.endswith(".middlewares"))]'''),
+
+    ('ein als oeffentlich erklaerter Router zaehlt trotzdem als offen (N-84)',
+     'netze.sh',
+     '''        if r not in oeffentlich''',
+     '''        if True'''),
+
+    ('prolo start nennt nicht den offenen Router, sondern das Werkzeug (N-84)',
+     'prolo',
+     '''      local R="${OFFENR%%,*}"''',
+     '''      local R="$TOOL"'''),
+
     ("ein geteiltes Netz faellt nicht auf (N-68)",
      "netze.sh",
      '''    if [ -n "$OHNE" ]; then''',

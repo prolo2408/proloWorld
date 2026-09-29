@@ -80,8 +80,8 @@ PY
 }
 
 probe "ein Router ohne Anmeldung gilt als geschuetzt" \
-  '    return ("OFFEN", "")' \
-  '    return ("authentik", "")'
+  '        return ("OFFEN", ", ".join(ungeschuetzt))' \
+  '        return ("authentik", "")'
 
 probe "die Marke von Traefik wird nicht mehr geprueft (N-44)" \
   '        mit = (self.headers.get(EINLASS_KOPF) or "").encode("utf-8", "replace")' \
@@ -137,6 +137,15 @@ probe "ein Dienst ohne Router gilt als offen" \
         return ("", "")''' \
   '''    if False:
         return ("", "")'''
+
+# N-84: ein authentik@file an irgendeinem Router schuetzt den ganzen Dienst.
+probe "ein zweiter Router ohne Anmeldung faellt nicht auf (N-84)" \
+  '        and "authentik@file" not in labels.get("traefik.http.routers.%s.middlewares" % r, "")]' \
+  '        and "authentik@file" not in " ".join(w for k, w in labels.items() if k.endswith(".middlewares"))]'
+
+probe "ein als oeffentlich erklaerter Router gilt trotzdem als offen (N-84)" \
+  '        if r not in oeffentlich' \
+  '        if True'
 
 # N-82: SIGPIPE auf die Voreinstellung - ein Browser, der wegklickt,
 # beendet dann den ganzen Dienst.

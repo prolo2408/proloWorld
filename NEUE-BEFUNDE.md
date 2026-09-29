@@ -5703,3 +5703,67 @@ und die Docker-Attrappe verbindet bei `up` die Netze aus beiden Dateien.
 Die neue Zählprüfung zählt die Namen mit `grep` über alle Compose-Dateien,
 nicht mit dem Code, der geprüft wird: 8 in der Kopie (7 im Repository und
 `fremdprobe.prolo.me`), 8 in der Liste.
+
+## N-84 — Ein `authentik@file` irgendwo schützte den ganzen Dienst
+
+Beim Durchsehen gefunden. Drei Stellen beantworten die Frage „ist dieser
+Dienst geschützt?", und nur eine davon richtig:
+
+| Stelle | läuft wo | wie sie urteilte |
+|---|---|---|
+| `werkzeuge/grenze-pruefen.sh` | im Repository | **je Router** — richtig |
+| `werkzeuge/netze.sh` (`prolo start`, `prolo netze`) | auf dem Server | je Dienst: ein `authentik@file` in **irgendeiner** Middleware-Kette genügte |
+| `admin/server.py` | auf dem Server | ebenso |
+
+Damit fiel genau der Fall durch, vor dem `§17a` warnt: ein Werkzeug mit
+geschütztem Hauptrouter und einem **zweiten** Router für Webhooks, der aus
+Versehen ohne Anmeldung bleibt. `grenze-pruefen.sh` hätte ihn gefunden —
+aber nur für Werkzeuge im Repository. Ein Werkzeug, das `prolo neu` auf dem
+Server anlegt, sieht diese Prüfung nie; dort lief nur die Stelle, die sich
+mit einem Treffer zufriedengab.
+
+Gemessen mit einem Dienst `halb1`: Router `halb1` mit `authentik@file`,
+Router `halb1-haken` (Priorität 100, `PathPrefix(/haken)`) ohne.
+
+| | vorher | nachher |
+|---|---|---|
+| `prolo start halb1` | startet | **NICHT gestartet**, nennt `halb1-haken` |
+| `prolo netze`, Spalte SCHUTZ | `authentik` | `OFFEN` |
+| Admin-Seite | „Authentik" | „OFFEN – ohne Anmeldung · halb1-haken" |
+
+### Behoben
+
+Alle drei urteilen jetzt nach derselben Regel: jeder Router hat
+`authentik@file`, oder steht in `prolo.oeffentlich=<router,…>`, oder der
+Dienst erklärt `prolo.anmeldung=eigene`. `traefik.enable=true` **ohne**
+eigenen Router gilt als offen — Traefik legt dann selbst einen an, mit
+Vorgaberegel und ohne Middleware.
+
+`netze.sh --dienste` gibt ein elftes Feld aus: die Router ohne Anmeldung.
+`prolo start` nennt den Router beim Namen, statt `routers.<werkzeug>`
+vorzuschlagen — bei zwei Routern ist der offene oft gerade **nicht** der,
+der wie das Werkzeug heißt. Dazu kommt der dritte Ausweg in der Meldung,
+`prolo.oeffentlich=<router>`, den `grenze-pruefen.sh` schon kannte.
+
+Eine sichtbare Folge: **www** steht jetzt als „öffentlich" da statt als
+„Authentik". Das ist die ehrlichere Angabe — die Startseite und die
+Zugangslinks sind mit Absicht offen, nur `/verwaltung` liegt hinter der
+Anmeldung.
+
+### Probe
+
+| | |
+|---|---|
+| `werkzeuge/neu-pruefen.sh` | **106 ok** (5 neue Prüflinien, Abschnitt 4e) |
+| `werkzeuge/neu-gegenprobe.py` | **24 von 24** (3 neue Mutationen) |
+| `admin/tests/alle.sh` | 41 Tests grün (3 neue) |
+| `admin/tests/gegenprobe.sh` | **18 von 18** (2 neue) |
+| `netze-pruefen.sh` / `prolo-pruefen.sh` / `grenze-pruefen.sh` | 42 / 101 / 66 ok |
+
+Zwei alte Erwartungswerte im Admin-Test waren zu schwach und sind
+angepasst — beide von Hand: `schutz_lesen` für einen Dienst **ohne** Router,
+aber mit `prolo.oeffentlich=www`, ergab „öffentlich"; mit Router `www`
+ergibt es das jetzt immer noch, ohne ist es „OFFEN (Vorgabe)". Und der
+offene Router steht jetzt im zweiten Feld, statt einer leeren Zeichenkette.
+
+Admin 0.1.1 → **0.1.2**.

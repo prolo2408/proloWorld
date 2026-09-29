@@ -256,6 +256,44 @@ pruefe "start: beide Auswege werden genannt" "ja" \
           && [ "$(enthaelt "prolo.anmeldung=eigene" "$A")" = ja ] && echo ja || echo nein)"
 pruefe "start: stop bleibt trotzdem moeglich" "0" "$("$PROLO" stop offen1 >/dev/null 2>&1; echo $?)"
 
+# 4e. Zwei Router, einer mit Anmeldung, einer ohne (N-84). Genau das, wovor
+# §17a warnt: ein zweiter Router fuer Webhooks, der aus Versehen offen ist.
+# Vorher reichte EIN authentik@file irgendwo am Dienst, und der ganze
+# Dienst galt als geschuetzt.
+mkdir -p "$S/halb1"
+cat > "$S/halb1/docker-compose.yml" <<'Y'
+services:
+  halb1:
+    image: nginx:1.27-alpine
+    networks:
+      - netz-alt
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=netz-alt"
+      - "traefik.http.routers.halb1.rule=Host(`halb1.prolo.me`)"
+      - "traefik.http.routers.halb1.middlewares=authentik@file"
+      - "traefik.http.routers.halb1-haken.rule=Host(`halb1.prolo.me`) && PathPrefix(`/haken`)"
+      - "traefik.http.routers.halb1-haken.priority=100"
+networks:
+  netz-alt:
+    external: true
+Y
+A=$("$PROLO" start halb1 2>&1); R=$?
+pruefe "start: zweiter Router ohne Anmeldung -> Rueckgabe 1 (N-84)" "1" "$R"
+pruefe "start: der offene Router wird beim Namen genannt" "ja" \
+       "$(enthaelt "halb1-haken.middlewares=authentik@file" "$A")"
+pruefe "start: und der Ausweg fuer einen gewollt oeffentlichen" "ja" \
+       "$(enthaelt "prolo.oeffentlich=halb1-haken" "$A")"
+A=$("$NETZE" 2>&1)
+pruefe "netze: der halb offene Dienst gilt als OFFEN" "ja" \
+       "$(passt "halb1 +halb1 +netz-alt +OFFEN" "$A")"
+# Erklaert oeffentlich: dann ist es ein Entschluss und geht durch.
+sed -i 's|      - "traefik.http.routers.halb1-haken.priority=100"|&\n      - "prolo.oeffentlich=halb1-haken"|' \
+  "$S/halb1/docker-compose.yml"
+A=$("$PROLO" start halb1 2>&1); R=$?
+pruefe "start: als oeffentlich erklaert -> geht durch" "0" "$R"
+rm -rf "$S/halb1"
+
 echo
 echo "== 5. prolo netze ========================================================"
 A=$("$NETZE" 2>&1); R=$?

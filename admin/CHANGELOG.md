@@ -1,3 +1,13 @@
+# 0.1.2
+
+- Schutz wird JE ROUTER gelesen, nicht je Dienst (N-84). Ein
+  `authentik@file` an einem Router machte den ganzen Dienst "geschuetzt" -
+  ein zweiter Router ohne Anmeldung daneben fiel nicht auf. Jetzt steht er
+  als OFFEN da, mit seinem Namen. Ein als oeffentlich erklaerter Router
+  (`prolo.oeffentlich=<router>`) zeigt sich als "oeffentlich", auch wenn
+  die anderen hinter Authentik liegen - bei www stand vorher "Authentik",
+  obwohl die Startseite mit Absicht offen ist.
+
 # 0.1.1
 
 - Eine einzige abgebrochene Verbindung beendete den ganzen Dienst (N-82).
