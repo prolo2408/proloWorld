@@ -16,7 +16,8 @@ pruefe() {
 }
 
 mkdir -p "$T/bin" "$T/stack/werkzeuge"
-cp "$HIER/prolo" "$HIER/neu.sh" "$HIER/netze.sh" "$HIER/volumes.py" "$T/stack/werkzeuge/"
+cp "$HIER/prolo" "$HIER/neu.sh" "$HIER/netze.sh" "$HIER/volumes.py" \
+   "$HIER/quellstand.sh" "$T/stack/werkzeuge/"
 
 # Einstieg fuer die Mutationsprobe (werkzeuge/prolo-gegenprobe.py). Sie
 # baut ihre Fehler in die KOPIE im Wegwerfordner ein, nie in die Datei im
@@ -30,6 +31,7 @@ cp "$HIER/prolo" "$HIER/neu.sh" "$HIER/netze.sh" "$HIER/volumes.py" "$T/stack/we
 # laeuft die Mutationsprobe gegen eine Datei, die sie gar nicht veraendert
 # hat, und ist gruen aus Mangel an Gelegenheit.
 QUELLE_PROLO="$T/stack/werkzeuge/prolo"
+QUELLE_QUELLSTAND="$T/stack/werkzeuge/quellstand.sh"
 printf '#!/bin/bash\nexit 0\n' > "$T/stack/backup.sh"; chmod +x "$T/stack/backup.sh"
 printf '#!/bin/bash\n[ "$1" = "-u" ] && echo "${UID_VORGABE:-0}" || exec /usr/bin/id "$@"\n' \
   > "$T/bin/id"; chmod +x "$T/bin/id"
@@ -281,7 +283,7 @@ if command -v git >/dev/null 2>&1 && [ -f "$HIER/quellstand.sh" ]; then
   echo zwei > "$T/gitfern/datei"; git -C "$T/gitfern" add -A
   git -C "$T/gitfern" commit -q -m "zwei - die neue Fassung"
   mkdir -p "$GS/werkzeuge" "$GS/probe"
-  cp "$QUELLE_PROLO" "$HIER/quellstand.sh" "$GS/werkzeuge/"
+  cp "$QUELLE_PROLO" "$QUELLE_QUELLSTAND" "$GS/werkzeuge/"
   printf 'services:\n  probe:\n    image: probe:1\n' > "$GS/probe/docker-compose.yml"
 
   A=$(PATH="$T/bin:$PATH" "$GS/werkzeuge/prolo" quelle 2>&1); R=$?
@@ -303,6 +305,26 @@ if command -v git >/dev/null 2>&1 && [ -f "$HIER/quellstand.sh" ]; then
   A=$(PATH="$T/bin:$PATH" "$GS/werkzeuge/prolo" hilfe 2>&1 || true)
   echo "$A" | grep -q "quelle \[--holen\]" && E=ja || E=nein
   pruefe "und die Hilfe nennt den Befehl" "ja" "$E"
+
+  # --- Unerreichbares origin (N-81) ------------------------------------
+  # Hier stand ein 2>/dev/null ueber dem fetch. Damit sah ein fehlender
+  # Zugang fuer root genauso aus wie ein abgestecktes Netzkabel, und der
+  # Betreiber stand vor "kein Zugriff auf origin" ohne jeden Anhaltspunkt.
+  # Geprueft wird die WIRKUNG: steht die Meldung von git selbst da?
+  git -C "$GS" remote set-url origin "$T/gibt-es-nicht"
+  A=$(PATH="$T/bin:$PATH" "$GS/werkzeuge/prolo" quelle 2>&1 || true)
+  echo "$A" | grep -q "nicht pruefbar (kein Zugriff auf origin)" && E=ja || E=nein
+  pruefe "unerreichbares origin: sagt, dass es nicht pruefbar ist" "ja" "$E"
+  echo "$A" | grep -q "git sagt:" && E=ja || E=nein
+  pruefe "und gibt weiter, was git selbst gesagt hat (N-81)" "ja" "$E"
+  echo "$A" | grep -qi "does not appear to be a git repository" && E=ja || E=nein
+  pruefe "und zwar die Meldung im Wortlaut, nicht umschrieben" "ja" "$E"
+  echo "$A" | grep -q "fetch origin haupt" && E=ja || E=nein
+  pruefe "und nennt genau den Aufruf zum Nachsehen (N-64)" "ja" "$E"
+  # --kurz verspricht eine Zeile - die Erklaerung darf sie nicht sprengen.
+  A=$(PATH="$T/bin:$PATH" "$GS/werkzeuge/quellstand.sh" --kurz 2>&1 || true)
+  pruefe "--kurz bleibt trotzdem bei einer Zeile" "1" "$(printf '%s\n' "$A" | wc -l | tr -d ' ')"
+  git -C "$GS" remote set-url origin "$T/gitfern"
 else
   echo "uebersprungen  Quellstand (git oder quellstand.sh fehlt)"
 fi

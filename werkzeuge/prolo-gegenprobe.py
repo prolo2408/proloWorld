@@ -122,6 +122,32 @@ MUTATIONEN = [
      """    printf 'dort antwortet, nicht von diesem hier. Wer %s aufruft,\\n' "$NAME"
     printf 'landet nicht bei uns.\\n'""",
      """    printf 'dort antwortet.\\n'"""),
+
+    # --- quellstand.sh (N-81) -------------------------------------------
+    ("der Maulkorb ist wieder da: 2>/dev/null ueber dem fetch (N-81)",
+     "quellstand.sh",
+     'FETCH=$(timeout 20 git -C "$STACK" fetch --quiet origin "$ZWEIG" 2>&1) || RC=$?',
+     'FETCH=$(timeout 20 git -C "$STACK" fetch --quiet origin "$ZWEIG" 2>/dev/null) || RC=$?'),
+
+    ("die Meldung von git wird zwar geholt, aber nicht weitergegeben",
+     "quellstand.sh",
+     '  nicht_pruefbar "kein Zugriff auf origin" "$FETCH"',
+     '  nicht_pruefbar "kein Zugriff auf origin"'),
+
+    ("git wird umschrieben statt zitiert",
+     "quellstand.sh",
+     '''    printf '%s\\n' "$2" | sed 's/^/                       /' | head -6''',
+     '''    melde "                       (irgendwas mit dem Netz)"'''),
+
+    ("der Aufruf zum Nachsehen faellt weg (N-64)",
+     "quellstand.sh",
+     '    melde "                       ${SUDO}git -C $STACK fetch origin ${ZWEIG:-<zweig>}"',
+     '    melde "                       bitte selbst nachsehen"'),
+
+    ("die Erklaerung sprengt auch --kurz",
+     "quellstand.sh",
+     '  if [ -n "${2:-}" ] && ! kurz; then',
+     '  if [ -n "${2:-}" ]; then'),
 ]
 
 

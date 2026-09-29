@@ -5490,3 +5490,103 @@ geprüft durchgegangen.
 
 `prolo-bedienen.html` führt den Befehl jetzt in der Befehlsliste und in
 der Symptomtabelle unter „Die Seite bleibt beim ersten Aufruf schwarz".
+
+---
+
+## N-81 — „Kein Zugriff auf origin" — und das war alles
+
+Direkt nach `N-80` gemeldet, beim Versuch, den neuen Stand zu holen:
+
+> Der sudo kann das Repo nicht sehen und machen. Was soll ich machen?
+
+Die Antwort darauf konnte niemand geben, auch nicht das Werkzeug selbst.
+In `werkzeuge/quellstand.sh` stand:
+
+```bash
+timeout 20 git -C "$STACK" fetch --quiet origin "$ZWEIG" 2>/dev/null \
+  || nicht_pruefbar "kein Zugriff auf origin"
+```
+
+Damit sah **jede** Ursache gleich aus:
+
+| was wirklich los ist | was dastand |
+|---|---|
+| root hat keine Zugangsdaten für ein privates Repository | kein Zugriff auf origin |
+| der Ordner gehört einem anderen Nutzer | kein Zugriff auf origin |
+| kein Netz, DNS kaputt, Proxy davor | kein Zugriff auf origin |
+| origin zeigt ins Leere | kein Zugriff auf origin |
+
+Drei Ursachen, drei völlig verschiedene Abhilfen — und eine Zeile, aus der
+sich keine davon ableiten lässt. Wer das liest, kann nur raten.
+
+> Das ist wörtlich `N-64`, nur in einer anderen Datei: **ein `2>/dev/null`
+> über dem fehlgeschlagenen Aufruf macht aus einer Diagnose eine Frage.**
+> Eine Regel gilt nicht dort, wo sie aufgeschrieben wurde, sondern überall.
+
+Besonders unangenehm war die Schleife: das Werkzeug, das sagt, wie man den
+neuen Stand holt, war selbst nur durch einen neuen Stand zu reparieren. Der
+Weg von Hand musste darum in die Meldung — und stand nicht drin.
+
+### Was jetzt kommt
+
+Die Meldung von `git` wird aufgehoben und weitergegeben, im Wortlaut, und
+dazu **genau der Aufruf**, den das Skript gemacht hat:
+
+```
+  Quellstand         nicht pruefbar (kein Zugriff auf origin)
+
+                     git sagt:
+                       fatal: '…' does not appear to be a git repository
+                       fatal: Could not read from remote repository.
+
+                       Please make sure you have the correct access rights
+                       and the repository exists.
+
+                     Selbst nachsehen - genau dieser Aufruf war es:
+                       sudo git -C /opt/stack fetch origin main
+```
+
+Drei Kleinigkeiten, die dazugehören:
+
+- Das `sudo` steht nur da, wenn das Skript **als root** läuft — sonst wäre
+  es der Rat, der nur manchmal passt und nach dem dritten Mal Tapete ist
+  (`N-64`).
+- Läuft der Aufruf in die Zeitgrenze, sagt `git` gar nichts mehr. Dann
+  steht das da, statt einer leeren Stelle.
+- `--kurz` verspricht **eine** Zeile und nichts, was ins Netz muss. Die
+  Erklärung erscheint dort nicht.
+
+Die beiden anderen `2>/dev/null` in derselben Datei wurden angesehen und
+bleiben: `rev-list --count` kann nach einem geglückten `fetch` praktisch
+nicht mehr scheitern, und scheitert `status --porcelain`, bricht das
+darauffolgende `pull --ff-only` mit seiner eigenen — weitergegebenen —
+Meldung ab. Stillschweigen entsteht dort also nicht.
+
+### Prüfung
+
+| | |
+|---|---|
+| `werkzeuge/prolo-pruefen.sh` | **101 ok**, RC=0 (vorher 96) |
+| `werkzeuge/prolo-gegenprobe.py` | **23 von 23** (vorher 18) |
+| `wiki/tests/alle.sh` | 129 ok, 0 Fehler |
+
+Geprüft wird die **Wirkung**, nicht der Text: der Git-Teststand bekommt ein
+`origin`, das ins Leere zeigt, und in der Ausgabe muss `does not appear to
+be a git repository` **im Wortlaut** stehen — eine Prüfzeile, die nur „git
+sagt:" sucht, bliebe grün, wenn darunter eine Umschreibung steht (`N-38`).
+
+**Und `quellstand.sh` war für die Mutationsprobe gar nicht erreichbar.**
+`prolo-pruefen.sh` kopiert die Dateien, die mutiert werden dürfen, in
+seinen Wegwerfordner — `quellstand.sh` war nicht dabei, sondern wurde aus
+dem Arbeitsstand genommen. Jede Mutation darauf wäre grün geblieben, aus
+Mangel an Gelegenheit; genau die Falle, vor der der Kommentar zwei Zeilen
+darüber warnt. Jetzt liegt sie wie `prolo` in der Kopie
+(`QUELLE_QUELLSTAND`).
+
+### Und der Prüfer der Wiki-Seite hat geholfen
+
+Die Symptomtabelle in `prolo-bedienen.html` steht dreimal in der Datei:
+als `markup`, als `text` und als gerendertes HTML. Im ersten Versuch landete
+dort ein rohes `"` mitten in einem JSON-String — die Seite war damit
+unlesbar. Aufgefallen ist es sofort, weil die Prüfung **vor** dem Schreiben
+läuft: die Datei blieb unangetastet, statt kaputt im Arbeitsstand zu liegen.
