@@ -345,6 +345,14 @@ sag(not uebersehen,
     "kein Werkzeug mit Router blieb ungeprueft (%d angesehen)" % len(geprueft),
     "uebersehen: %s" % ", ".join(uebersehen))
 
+# --- 4c. Der Vermittler startet auch ohne IPv6 (N-92) ------------------
+# Ohne ihn kein einziger Router. Auf einem Kern ohne IPv6 bindet er sonst
+# an [::] und startet in Schleife neu - gemessen.
+vermittler = lies("socket-proxy", "docker-compose.yml") or ""
+sag(re.search(r"^\s+DISABLE_IPV6:\s*[\"']?(1|true)[\"']?\s*$", vermittler, re.M) is not None,
+    "socket-proxy bindet nur IPv4 und startet auch ohne IPv6 (N-92)",
+    "ohne DISABLE_IPV6 stirbt er auf einem Kern ohne IPv6 - und Traefik findet keinen Router")
+
 # --- 5. Die Pruefadresse liegt auf einem freien Pfad --------------------
 for werkzeug in werkzeuge:
     conf = lies(werkzeug, "aktualisierung.conf") or ""

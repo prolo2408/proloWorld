@@ -26,6 +26,10 @@ STACK = os.path.dirname(HIER)
 
 # (Name, Datei, alt, neu, in welcher Pruefzeile es auffallen MUSS)
 MUTATIONEN = [
+    ("der Vermittler bindet wieder an IPv6 (N-92)",
+     "socket-proxy/docker-compose.yml", "      DISABLE_IPV6: 1\n", "",
+     "socket-proxy bindet nur IPv4"),
+
     ("der Vorrat faellt auf den alten Wert zurueck (N-79)",
      "traefik/dynamic/sicherheit.yml", "        burst: 700", "        burst: 150",
      "Vorrat traegt einen ganzen Seitenaufbau"),

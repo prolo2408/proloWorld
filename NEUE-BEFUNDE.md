@@ -6201,3 +6201,33 @@ Dienst weg musste.
 |---|---|
 | `werkzeuge/einrichten-pruefen.sh` | **26 ok** (6 neue) |
 | `… --gegenprobe` | **11 von 11** (2 neue: leerer Ordner bleibt; Datei ohne `0600`) |
+
+## N-92 — Ohne IPv6 im Kern gab es keinen einzigen Router
+
+Beim ersten echten Lauf gefunden. `socket-proxy` startete in Schleife neu:
+
+```
+[ALERT] Starting frontend dockerfrontend: cannot create listening socket [:::2375]
+```
+
+Das Abbild bindet von sich aus an `[::]`. Diese Arbeitsumgebung hat gar
+kein IPv6 im Kern (`/proc/sys/net/ipv6` fehlt) — auf gewöhnlichen Servern
+ist das anders, aber gehärtete Server schalten es oft mit
+`ipv6.disable=1` ab, und genau dort passiert dasselbe. Ohne den
+Vermittler findet Traefik **keinen** Router; der ganze Stack ist dann
+unerreichbar, und `prolo status` zeigt „socket-proxy 0/1".
+
+Der Stack benutzt IPv6 nirgends: `prolo einrichten` verlangt ausdrücklich
+keinen AAAA-Eintrag, und `socket` ist ein internes IPv4-Netz. Das Abbild
+kennt dafür `DISABLE_IPV6`.
+
+| | vorher | nachher |
+|---|---|---|
+| `socket-proxy` auf einem Kern ohne IPv6 | Neustart in Schleife (6 Neustarts nach Sekunden) | läuft, 0 Neustarts |
+
+### Probe
+
+| | |
+|---|---|
+| `werkzeuge/grenze-pruefen.sh` | 1 neue Prüflinie, grün |
+| `werkzeuge/grenze-gegenprobe.py` | **13 von 13** (1 neue; muss genau an dieser Zeile rot werden) |
