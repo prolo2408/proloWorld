@@ -72,6 +72,12 @@ for wurzel, ordner, namen in os.walk(stack):
                 continue
             sag(False, "%s nennt noch %s" % (os.path.relpath(p, stack), alt))
 
+# Und die Verweise IN der Datei selbst (N-98). Die erste Fassung las
+# jede Datei ausser dieser - und CLAUDE.md verwies in §15 auf einen
+# "Dreischritt aus §19a", den es nie gab (gemeint war §24a).
+for m in re.finditer(r"§(\d+[a-z]?(?:\.\d+)?)", quelle):
+    zitiert.setdefault(m.group(1), set()).add("CLAUDE.md")
+
 fehlend = {k: v for k, v in zitiert.items() if k not in vorhanden}
 sag(not fehlend, "jeder der %d zitierten Abschnitte gibt es wirklich" % len(zitiert),
     "; ".join("§%s (in %s)" % (k, ", ".join(sorted(v))) for k, v in sorted(fehlend.items())))

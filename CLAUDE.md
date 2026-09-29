@@ -555,7 +555,7 @@ abschalten und den Endzustand prüfen.
 
 - Löschen fragt nach — bei mehreren Datensätzen mit Nennung der Anzahl.
 - Wo möglich: erst als gelöscht markieren, später endgültig entfernen.
-- **Vor Migrationen, die Daten verändern**, gilt der Dreischritt aus §19a:
+- **Vor Migrationen, die Daten verändern**, gilt der Dreischritt aus §24a:
   Hinweis **vor** der ersten Änderung, Kopie des bisherigen Stands,
   Transaktion. Eine bestehende Kopie wird nicht überschrieben — sonst
   ersetzt ein zweiter, ebenfalls gescheiterter Lauf den einzigen brauchbaren

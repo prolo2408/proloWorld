@@ -6494,3 +6494,27 @@ Gegenproben (haben die Pruefungen Zaehne? §13a)
 
 33 von 34 grün, und der eine rote genau der seit `N-61`. Danach
 `prolo-befehle-pruefen.py --gegenprobe`: **8 von 8** gefunden.
+
+## N-98 — `CLAUDE.md` verwies auf einen Abschnitt, den es nie gab
+
+Beim Zusammenstellen der Regeln für die ausgelagerten Werkzeuge gefunden.
+`§15` sagt: „Vor Migrationen, die Daten verändern, gilt der Dreischritt
+aus **§19a**". Einen §19a gibt es nicht — der Dreischritt steht in `§24a`.
+
+`regeln-pruefen.sh` prüft seit `N-39`, dass jeder zitierte Abschnitt
+existiert: 148 Verweise der Form „CLAUDE.md §…" aus allen anderen
+Dateien. Die Regeldatei selbst schloss er aus (`p == regeln`) — und ihre
+eigenen 21 Verweise wurden nie geprüft. Gemessen: genau einer davon zeigt
+ins Leere.
+
+### Behoben
+
+`§15` verweist auf `§24a`, und die Prüfung liest auch die Verweise in der
+Regeldatei selbst.
+
+### Probe
+
+| | |
+|---|---|
+| `werkzeuge/regeln-pruefen.sh` | grün, „jeder der 32 zitierten Abschnitte gibt es wirklich" |
+| Mutation (Kopie nach der Korrektur, `§24a` → `§19a`) | **rot**: „jeder der 33 zitierten Abschnitte" — FEHLER |
