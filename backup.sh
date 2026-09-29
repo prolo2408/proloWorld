@@ -24,9 +24,14 @@
 set -euo pipefail
 
 DATUM=$(date +%Y-%m-%d)
-ZIEL="/opt/backups/$DATUM"
-BESITZER="prolo"
-SCHLUESSEL="/opt/stack/.backup-schluessel.pub"
+# Die drei Orte lassen sich von aussen setzen - nur, damit sich dieses
+# Skript im Ablauf pruefen laesst (werkzeuge/sicherung-lauf-pruefen.sh,
+# N-86). Auf dem Server gelten die Vorgaben.
+STACK="${PROLO_STACK:-/opt/stack}"
+BACKUPS="${PROLO_SICHERUNGEN:-/opt/backups}"
+BESITZER="${PROLO_BESITZER:-prolo}"
+ZIEL="$BACKUPS/$DATUM"
+SCHLUESSEL="$STACK/.backup-schluessel.pub"
 FEHLER=0
 
 # Genau ein Stand pro Tag - ein erneuter Lauf ersetzt den alten (Abschnitt 15).
@@ -44,8 +49,8 @@ mkdir -p "$ZIEL"
 # Gemessen wird die zusammengesetzte Compose-Konfiguration, nicht eine
 # Datei - bei einem Fremdwerkzeug steht die Haelfte im Overlay (§16).
 LUECKEN=""
-if [ -x /opt/stack/werkzeuge/volumes.py ]; then
-  LUECKEN=$(python3 /opt/stack/werkzeuge/volumes.py /opt/stack 2>/dev/null \
+if [ -x "$STACK/werkzeuge/volumes.py" ]; then
+  LUECKEN=$(python3 "$STACK/werkzeuge/volumes.py" "$STACK" 2>/dev/null \
             | grep '|FEHLT$' || true)
 fi
 if [ -n "$LUECKEN" ]; then
@@ -74,14 +79,14 @@ if [ -n "$LUECKEN" ]; then
       printf '      oder  VOLUMES_OHNE="%s|<warum>"\n\n' "$NAME"
     done
     echo "  Nachsehen, was ein Werkzeug anlegt:"
-    echo "    python3 /opt/stack/werkzeuge/volumes.py /opt/stack <werkzeug>"
+    echo "    python3 $STACK/werkzeuge/volumes.py $STACK <werkzeug>"
     echo
   } >&2
   FEHLER=1
 fi
 
 # --- Alle Tools durchgehen ------------------------------------------
-for KONF in /opt/stack/*/sicherung.conf; do
+for KONF in "$STACK"/*/sicherung.conf; do
   [ -e "$KONF" ] || continue
   TOOL=$(basename "$(dirname "$KONF")")
 
@@ -99,6 +104,10 @@ for KONF in /opt/stack/*/sicherung.conf; do
       :
     else
       echo "  WARNUNG: pg_dump fuer $DB_CONTAINER fehlgeschlagen" >&2
+      # Keine halbe Datei liegen lassen (N-86), wie bei SQLite unten: gzip
+      # schreibt auch aus einer leeren Leitung eine gueltige .gz. Im Archiv
+      # saehe sie aus wie eine Sicherung - leer oder mittendrin abgebrochen.
+      rm -f "$ZIEL/$TOOL/datenbank.sql.gz"
       FEHLER=1
     fi
   fi
@@ -160,12 +169,12 @@ rm -f "$2"
   for D in $DATEIEN; do
     FREIWILLIG=0
     case "$D" in "?"*) FREIWILLIG=1; D="${D#\?}" ;; esac
-    if [ -f "/opt/stack/$TOOL/$D" ]; then
-      cp "/opt/stack/$TOOL/$D" "$ZIEL/$TOOL/"
+    if [ -f "$STACK/$TOOL/$D" ]; then
+      cp "$STACK/$TOOL/$D" "$ZIEL/$TOOL/"
     elif [ "$FREIWILLIG" -eq 1 ]; then
-      echo "  Hinweis: /opt/stack/$TOOL/$D gibt es nicht - uebersprungen."
+      echo "  Hinweis: $STACK/$TOOL/$D gibt es nicht - uebersprungen."
     else
-      echo "  WARNUNG: /opt/stack/$TOOL/$D fehlt" >&2
+      echo "  WARNUNG: $STACK/$TOOL/$D fehlt" >&2
       FEHLER=1
     fi
   done
@@ -176,12 +185,12 @@ rm -f "$2"
   for O in ${ORDNER:-}; do
     FREIWILLIG=0
     case "$O" in "?"*) FREIWILLIG=1; O="${O#\?}" ;; esac
-    if [ -d "/opt/stack/$TOOL/$O" ]; then
-      tar czf "$ZIEL/$TOOL/$O.tar.gz" -C "/opt/stack/$TOOL" "$O"
+    if [ -d "$STACK/$TOOL/$O" ]; then
+      tar czf "$ZIEL/$TOOL/$O.tar.gz" -C "$STACK/$TOOL" "$O"
     elif [ "$FREIWILLIG" -eq 1 ]; then
-      echo "  Hinweis: /opt/stack/$TOOL/$O gibt es nicht - uebersprungen."
+      echo "  Hinweis: $STACK/$TOOL/$O gibt es nicht - uebersprungen."
     else
-      echo "  WARNUNG: Ordner /opt/stack/$TOOL/$O fehlt" >&2
+      echo "  WARNUNG: Ordner $STACK/$TOOL/$O fehlt" >&2
       FEHLER=1
     fi
   done
@@ -190,9 +199,9 @@ done
 # --- Rechte VOR dem Verschluesseln ----------------------------------
 # Nicht mehr selektiv auf zwei Dateinamen, sondern auf alles: die
 # Volume-Archive sind genauso schuetzenswert wie die .env darin.
-chmod 700 /opt/backups
-find /opt/backups -type d -exec chmod 700 {} +
-find /opt/backups -type f -exec chmod 600 {} +
+chmod 700 "$BACKUPS"
+find "$BACKUPS" -type d -exec chmod 700 {} +
+find "$BACKUPS" -type f -exec chmod 600 {} +
 
 # --- Verschluesseln -------------------------------------------------
 # Der oeffentliche Schluessel darf auf dem Server liegen, der private NICHT -
@@ -200,12 +209,40 @@ find /opt/backups -type f -exec chmod 600 {} +
 # in den Passwortmanager und auf den Arbeitsrechner.
 #   Erzeugen dort:  age-keygen -o ~/.age/prolo.key
 #   Oeffentlichen Teil hierher:  /opt/stack/.backup-schluessel.pub
+#
+# Wohin das Archiv kommt, entscheidet sich ERST NACH dem Lauf (N-86).
+# Vorher schrieb age direkt auf <datum>.tar.gz.age - und "prolo
+# aktualisieren" sichert vor jedem Lauf. Ging am Nachmittag etwas schief
+# (Authentiks Datenbank gerade nicht erreichbar), ersetzte der halbe Stand
+# den vollstaendigen vom Morgen. Die eine Sicherung des Tages war dann
+# genau die, die fehlschlug.
+#
+#   ohne Fehler                    -> ersetzt den Stand des Tages
+#   mit Fehlern, Tag schon belegt  -> daneben: <datum>-unvollstaendig-<zeit>
+#   mit Fehlern, Tag noch leer     -> wird der Stand des Tages (besser als
+#                                     nichts, und FEHLER bleibt gesetzt)
+#
+# "<datum>-unvollstaendig-..." sortiert VOR "<datum>.tar.gz.age" ('-' vor
+# '.'), also nimmt "prolo wiederherstellen" ohne --stand weiter den
+# vollstaendigen.
 if [ -f "$SCHLUESSEL" ] && command -v age >/dev/null 2>&1; then
-  if tar czf - -C /opt/backups "$DATUM" | age -R "$SCHLUESSEL" -o "/opt/backups/$DATUM.tar.gz.age"; then
+  ARCHIV="$BACKUPS/$DATUM.tar.gz.age"
+  NEU="$BACKUPS/.$DATUM.tar.gz.age.neu"
+  if tar czf - -C "$BACKUPS" "$DATUM" | age -R "$SCHLUESSEL" -o "$NEU"; then
     rm -rf "$ZIEL"                      # nur die verschluesselte Fassung bleibt
-    chmod 600 "/opt/backups/$DATUM.tar.gz.age"
-    echo "Verschluesselt: /opt/backups/$DATUM.tar.gz.age"
+    chmod 600 "$NEU"
+    if [ "$FEHLER" -ne 0 ] && [ -f "$ARCHIV" ]; then
+      DANEBEN="$BACKUPS/$DATUM-unvollstaendig-$(date +%H%M%S).tar.gz.age"
+      mv "$NEU" "$DANEBEN"
+      echo "Verschluesselt, aber UNVOLLSTAENDIG: $DANEBEN" >&2
+      echo "  Der vollstaendige Stand des Tages bleibt unangetastet:" >&2
+      echo "    $ARCHIV" >&2
+    else
+      mv "$NEU" "$ARCHIV"
+      echo "Verschluesselt: $ARCHIV"
+    fi
   else
+    rm -f "$NEU"
     echo "WARNUNG: Verschluesseln fehlgeschlagen - der Klartextstand bleibt liegen." >&2
     FEHLER=1
   fi
@@ -220,15 +257,15 @@ fi
 
 # --- Aufraeumen -----------------------------------------------------
 # Aufbewahrung: drei Monate. Beides, Ordner und verschluesselte Archive.
-find /opt/backups -maxdepth 1 -mindepth 1 -type d -mtime +90 -exec rm -rf {} +
-find /opt/backups -maxdepth 1 -type f -name '*.tar.gz.age' -mtime +90 -delete
-chown -R "$BESITZER":"$BESITZER" /opt/backups
+find "$BACKUPS" -maxdepth 1 -mindepth 1 -type d -mtime +90 -exec rm -rf {} +
+find "$BACKUPS" -maxdepth 1 -type f -name '*.tar.gz.age' -mtime +90 -delete
+chown -R "$BESITZER":"$BESITZER" "$BACKUPS"
 
 # --- Rueckmeldung ---------------------------------------------------
 # Eine Sicherung, deren Scheitern niemand merkt, ist keine Sicherung.
 # Die Ueberwachung schlaegt an, wenn .letzter-erfolg aelter als zwei Tage ist.
 if [ "$FEHLER" -eq 0 ]; then
-  date -Iseconds > /opt/backups/.letzter-erfolg
+  date -Iseconds > "$BACKUPS/.letzter-erfolg"
   echo "Backup fertig: $DATUM"
 else
   echo "BACKUP MIT FEHLERN - bitte nachsehen. .letzter-erfolg wurde NICHT gesetzt." >&2

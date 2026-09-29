@@ -5838,3 +5838,70 @@ beiden Commits: **12 vor, 15 nach** `N-83`. Die drei neuen Prüflinien
 stimmen, die Summen nicht — ich hatte die Ausgabe abgeschnitten gelesen
 und dazugezählt, statt zu zählen. Die Zahl im Eintrag ist korrigiert; die
 im Commit von `N-83` bleibt falsch, und darum steht es hier.
+
+## N-86 — Der zweite Lauf eines Tages ersetzte den ersten, auch wenn er scheiterte
+
+Beim Durchsehen gefunden. `backup.sh` legt „genau einen Stand pro Tag" ab
+(`B-08`), und `age` schrieb dafür direkt auf `<datum>.tar.gz.age` — egal, wie
+der Lauf ausgegangen war. Weil `prolo aktualisieren` **vor jedem Lauf**
+sichert, gibt es an einem Arbeitstag leicht drei, vier Läufe. Scheitert
+einer davon — Authentiks Datenbank startet gerade neu, ein Volume fehlt —,
+ersetzt sein halbes Archiv das vollständige vom Morgen.
+
+Und das halbe Archiv sah heil aus. `pg_dump | gzip > datenbank.sql.gz`:
+scheitert `pg_dump`, schreibt `gzip` trotzdem eine gültige, leere
+`.gz`-Datei. Bei SQLite wurde eine gescheiterte Kopie schon immer
+weggeräumt („keine halbe Datei liegen lassen"), bei PostgreSQL nicht.
+
+Gemessen am alten Stand, nur die Pfade umgebogen, zwei Läufe am selben Tag:
+
+| | alter Stand |
+|---|---|
+| Lauf 1 | Rückgabe 0, Archiv `41b52456…` |
+| Lauf 2, `pg_dump` scheitert | Rückgabe 1, Archiv **`cafdc267…`** — ersetzt |
+| `datenbank.sql.gz` im Archiv des Tages | 20 Bytes, entpackt **0 Bytes** |
+
+Die Datenbanksicherung vom Morgen war weg, und an ihrer Stelle lag eine
+Datei, die genauso heißt. `§15` sagt es für Migrationen ausdrücklich: eine
+bestehende Kopie wird nicht überschrieben, sonst ersetzt ein zweiter,
+ebenfalls gescheiterter Lauf den einzigen brauchbaren Stand. Für die
+Sicherung selbst galt es nicht.
+
+### Behoben
+
+`age` schreibt jetzt in eine Zwischendatei, und erst **nach** dem Lauf
+wird entschieden, wohin sie kommt:
+
+| Lauf | wohin |
+|---|---|
+| ohne Fehler | ersetzt `<datum>.tar.gz.age` — ein Stand pro Tag, wie bisher |
+| mit Fehlern, der Tag hat schon einen Stand | daneben: `<datum>-unvollstaendig-<zeit>.tar.gz.age` |
+| mit Fehlern, der Tag hat noch keinen | wird `<datum>.tar.gz.age` — besser als nichts, und der Erfolgsvermerk bleibt aus |
+
+`<datum>-unvollstaendig-…` sortiert **vor** `<datum>.tar.gz.age` (`-` vor
+`.`), also nimmt `prolo wiederherstellen` ohne `--stand` weiter den
+vollständigen. Eine gescheiterte PostgreSQL-Sicherung wird weggeräumt wie
+eine gescheiterte SQLite-Kopie.
+
+Damit sich das prüfen lässt, nimmt `backup.sh` seine drei Orte aus
+`PROLO_STACK`, `PROLO_SICHERUNGEN` und `PROLO_BESITZER`; auf dem Server
+gelten die Vorgaben `/opt/stack`, `/opt/backups`, `prolo`.
+
+### Probe
+
+`werkzeuge/sicherung-lauf-pruefen.sh` ist neu: es gab bisher **keine**
+Probe, die `backup.sh` selbst laufen lässt — `sicherung-pruefen.sh` prüft
+`volumes.py`, also nur, ob alles in einer `sicherung.conf` steht. Die neue
+Probe arbeitet mit einer Docker-Attrappe und dem echten `age` und
+entschlüsselt die Archive, um hineinzusehen.
+
+| | |
+|---|---|
+| `werkzeuge/sicherung-lauf-pruefen.sh` | **18 ok** |
+| `… --gegenprobe` | **4 von 4**: halber Lauf überschreibt; leere Dump-Datei bleibt; halbes Archiv sortiert dahinter; guter Lauf ersetzt nicht |
+
+Die Probe prüft die **Wirkung**: die Prüfsumme des Morgen-Archivs vor und
+nach dem halben Lauf, und den entschlüsselten Inhalt der Datenbankdatei —
+nicht die Meldung „UNVOLLSTAENDIG", die nur zusätzlich gesucht wird
+(`N-38`). Die Mutationsprobe verweigert eine Mutation, die sich nicht
+einbauen lässt, statt sie als „gefunden" zu zählen.
