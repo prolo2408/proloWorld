@@ -47,6 +47,9 @@ if [ "$1" = "inspect" ]; then
     *) echo healthy; exit 0 ;;
   esac
 fi
+# "compose config" misst die Sperre (N-85). Es braucht keinen laufenden
+# Dienst, also geht es ans echte docker - wie in neu-pruefen.sh.
+if [ "$1" = "compose" ] && [ "$2" = "config" ]; then exec /usr/bin/docker "$@"; fi
 if [ "$1" = "compose" ]; then
   DIR="$PWD"
   for i in "$@"; do case "$VOR" in --project-directory) DIR="$i" ;; esac; VOR="$i"; done
@@ -74,7 +77,8 @@ export DOCKER_ATTRAPPE="$T/att"; mkdir -p "$DOCKER_ATTRAPPE"
 # --- Kopie des Stacks: nur, was das Skript liest
 kopieren() {
   local Z="$1"; mkdir -p "$Z/werkzeuge"
-  cp "$HIER/einrichten.sh" "$HIER/geheimnisse.py" "$HIER/prolo" "$Z/werkzeuge/"
+  cp "$HIER/einrichten.sh" "$HIER/geheimnisse.py" "$HIER/prolo" \
+     "$HIER/startsperre.sh" "$HIER/netze.sh" "$Z/werkzeuge/"
   local D
   for D in "$STACK"/*/docker-compose.yml; do
     [ -e "$D" ] || continue
@@ -110,6 +114,16 @@ services:
 networks:
   netz-fremdprobe:
     external: true
+YML
+  # Ein Werkzeug mit einem unerklaerten offenen Port (N-85). Die Sperre
+  # aus "prolo start" muss auch beim Einrichten greifen.
+  mkdir -p "$Z/offenport"
+  cat > "$Z/offenport/docker-compose.yml" <<'YML'
+services:
+  offenport:
+    image: fremd/offen:1.0
+    ports:
+      - "8099:80"
 YML
   # Sicherungsschluessel, sonst kommt Schritt 7 nicht dran
   age-keygen 2>/dev/null > "$Z/probe.key"
@@ -202,6 +216,16 @@ pruefen_einmal() {
     && sag ok "die externen netz-* wurden angelegt" \
     || sag FEHLER "netz-wiki wurde nicht angelegt"
 
+  # N-85: ein offener Port wird auch beim Einrichten nicht losgelassen.
+  grep -qx "offenport" "$DOCKER_ATTRAPPE/laufen" \
+    && sag FEHLER "einrichten hat einen Dienst mit offenem Port gestartet" \
+           "genau das verweigert prolo start - die Sperre stand nur an einer Tuer" \
+    || sag ok "ein offener Port wird auch beim Einrichten nicht gestartet (N-85)"
+  grep -q "offenport NICHT gestartet" "$W/lauf1.txt" \
+    && grep -q "8099" "$W/lauf1.txt" \
+    && sag ok "und es wird gesagt, warum - mit dem Port" \
+    || sag FEHLER "der Grund fuer das Nicht-Starten fehlt in der Ausgabe"
+
   # N-83: was nur in der override-Datei steht, zaehlt genauso.
   grep -qx "netz-fremdprobe" "$DOCKER_ATTRAPPE/netze" \
     && sag ok "ein Netz aus der override-Datei wird angelegt (N-83)" \
@@ -289,6 +313,23 @@ netzprobe "fehlende Netze werden gar nicht erst gesucht" \
 
 # N-83: die override-Datei wird nicht gelesen - weder fuer Netze noch fuer
 # Namen. Der Massstab ist, was nach dem Lauf fehlt.
+# N-85: die Sperre fehlt beim Einrichten. Massstab: laeuft der Dienst mit
+# dem offenen Port nach dem Lauf?
+sperrprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/s$((++GEFUNDEN))"
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  lauf "$W" > /dev/null
+  if grep -qx "offenport" "$DOCKER_ATTRAPPE/laufen"; then
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  else
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  fi
+}
+sperrprobe "einrichten startet ohne die Sperre" \
+  '0,/if ! SPERRE=$(start_pruefen "$T" 2>\&1); then/! s|if ! SPERRE=$(start_pruefen "$T" 2>\&1); then|if false; then|'
+
 overrideprobe() {
   local NAME="$1" AUSDRUCK="$2" W="$T/o$((++GEFUNDEN))" A
   rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"

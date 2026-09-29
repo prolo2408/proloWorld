@@ -68,7 +68,7 @@ export PATH="$T/bin:$PATH"
 
 # --- Attrappen-Stack ----------------------------------------------------
 mkdir -p "$S/werkzeuge" "$S/traefik"
-cp "$HIER/prolo" "$HIER/neu.sh" "$HIER/netze.sh" "$S/werkzeuge/"
+cp "$HIER/prolo" "$HIER/neu.sh" "$HIER/netze.sh" "$HIER/startsperre.sh" "$S/werkzeuge/"
 
 # Einstieg fuer die Mutationsprobe (werkzeuge/neu-gegenprobe.py). Sie baut
 # ihre Fehler in die KOPIEN im Wegwerfordner ein, nie in die Dateien im

@@ -74,12 +74,12 @@ MUTATIONEN = [
      '''  if false; then'''),
 
     ("prolo start sieht ueber offene Ports hinweg",
-     "prolo",
+     "startsperre.sh",
      '''    if [ -n "$PORTS" ] && [ -z "$GRUND" ]; then''',
      '''    if false; then'''),
 
     ("prolo start laesst einen Router ohne Anmeldung los",
-     "prolo",
+     "startsperre.sh",
      '''    if [ "$SCHUTZ" = OFFEN ]; then''',
      '''    if false; then'''),
 
@@ -94,7 +94,7 @@ MUTATIONEN = [
      '''        if True'''),
 
     ('prolo start nennt nicht den offenen Router, sondern das Werkzeug (N-84)',
-     'prolo',
+     'startsperre.sh',
      '''      local R="${OFFENR%%,*}"''',
      '''      local R="$TOOL"'''),
 

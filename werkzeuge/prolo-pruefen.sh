@@ -17,7 +17,7 @@ pruefe() {
 
 mkdir -p "$T/bin" "$T/stack/werkzeuge"
 cp "$HIER/prolo" "$HIER/neu.sh" "$HIER/netze.sh" "$HIER/volumes.py" \
-   "$HIER/quellstand.sh" "$T/stack/werkzeuge/"
+   "$HIER/quellstand.sh" "$HIER/startsperre.sh" "$T/stack/werkzeuge/"
 
 # Einstieg fuer die Mutationsprobe (werkzeuge/prolo-gegenprobe.py). Sie
 # baut ihre Fehler in die KOPIE im Wegwerfordner ein, nie in die Datei im
@@ -283,7 +283,7 @@ if command -v git >/dev/null 2>&1 && [ -f "$HIER/quellstand.sh" ]; then
   echo zwei > "$T/gitfern/datei"; git -C "$T/gitfern" add -A
   git -C "$T/gitfern" commit -q -m "zwei - die neue Fassung"
   mkdir -p "$GS/werkzeuge" "$GS/probe"
-  cp "$QUELLE_PROLO" "$QUELLE_QUELLSTAND" "$GS/werkzeuge/"
+  cp "$QUELLE_PROLO" "$QUELLE_QUELLSTAND" "$T/stack/werkzeuge/startsperre.sh" "$GS/werkzeuge/"
   printf 'services:\n  probe:\n    image: probe:1\n' > "$GS/probe/docker-compose.yml"
 
   A=$(PATH="$T/bin:$PATH" "$GS/werkzeuge/prolo" quelle 2>&1); R=$?

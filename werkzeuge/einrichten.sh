@@ -34,6 +34,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Dieselbe Sperre wie "prolo start" (N-85): auch beim Einrichten geht
+# nichts mit einem unerklaerten offenen Port oder einem Router ohne
+# Anmeldung los.
+# shellcheck source=werkzeuge/startsperre.sh
+. "$HIER/startsperre.sh"
+
 OFFEN=0        # was der Mensch noch tun muss
 FEHLER=0       # was schiefging
 
@@ -304,6 +310,14 @@ starten() {
     FEHLT=$(netze_fehlen "$T")
     if [ -z "$FEHLT" ]; then f_ok "$T laeuft"; return 0; fi
     if ! tun; then f_wuerde "$T neu verbinden (fehlt: $FEHLT)"; return 0; fi
+    # Neu verbinden heisst neu anlegen - mit der Konfiguration von JETZT.
+    # Also dieselbe Sperre wie beim ersten Start (N-85).
+    local SPERRE
+    if ! SPERRE=$(start_pruefen "$T" 2>&1); then
+      f_bad "$T NICHT neu verbunden:"
+      printf '%s\n' "$SPERRE" | sed 's/^/          /'
+      return 0
+    fi
     if (cd "$STACK/$T" && docker compose up -d >/dev/null 2>&1); then
       FEHLT=$(netze_fehlen "$T")
       if [ -z "$FEHLT" ]; then f_tat "$T neu verbunden"
@@ -314,6 +328,12 @@ starten() {
     return 0
   fi
   if ! tun; then f_wuerde "$T starten"; return 0; fi
+  local SPERRE
+  if ! SPERRE=$(start_pruefen "$T" 2>&1); then
+    f_bad "$T NICHT gestartet:"
+    printf '%s\n' "$SPERRE" | sed 's/^/          /'
+    return 0
+  fi
   if (cd "$STACK/$T" && docker compose up -d >/dev/null 2>&1); then
     f_tat "$T gestartet"
   else

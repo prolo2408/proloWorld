@@ -5697,7 +5697,7 @@ und die Docker-Attrappe verbindet bei `up` die Netze aus beiden Dateien.
 
 | | |
 |---|---|
-| `werkzeuge/einrichten-pruefen.sh` | **18 ok** (vorher 15) |
+| `werkzeuge/einrichten-pruefen.sh` | **15 ok** (vorher 12) — *berichtigt in `N-85`: hier stand zuerst „18 (vorher 15)", nachgezählt an beiden Commits* |
 | `… --gegenprobe` | **6 von 6** gefunden (vorher 4 von 4) |
 
 Die neue Zählprüfung zählt die Namen mit `grep` über alle Compose-Dateien,
@@ -5767,3 +5767,74 @@ ergibt es das jetzt immer noch, ohne ist es „OFFEN (Vorgabe)". Und der
 offene Router steht jetzt im zweiten Feld, statt einer leeren Zeichenkette.
 
 Admin 0.1.1 → **0.1.2**.
+
+## N-85 — Die Startsperre stand nur an einer von drei Türen
+
+Beim Durchsehen gefunden. `prolo start` lässt nichts los, das einen
+unerklärten Port veröffentlicht oder einen Router ohne Anmeldung hat
+(`N-61`, `N-59`). Dienste werden aber auf **drei** Wegen gestartet:
+
+| Weg | Sperre vorher |
+|---|---|
+| `prolo start` | ja |
+| `prolo aktualisieren` (`aktualisieren.sh`, `docker compose up -d`) | **nein** |
+| `prolo einrichten` (`einrichten.sh`, Schritt 9, Start und Neuverbinden) | **nein** |
+
+Der gefährlichste der drei ist der zweite, weil er sich sicher anfühlt: er
+sichert vorher und rollt bei Fehlschlag zurück. Der Fall aus der Praxis ist
+eine neue Fassung eines Fremdwerkzeugs — man ersetzt die Datei des
+Herstellers (§16), und der Hersteller hat seine `ports:`-Zeile wieder
+drin. `prolo aktualisieren` holte, startete, fand den Dienst gesund und
+meldete „FERTIG" — mit dem Dienst am offenen Netz, an Traefik und an der
+Anmeldung vorbei.
+
+Gemessen mit `aktualisieren-pruefen.sh`, Herstellerdatei mit
+`ports: - "5678:5678"`:
+
+| | vorher | nachher |
+|---|---|---|
+| Rückgabe | 0, „FERTIG" | **1**, „NICHT gestartet: probe/probe veröffentlicht Port(s) 5678" |
+| `docker compose pull` | ja | **nein** |
+| `docker compose up -d` | ja | **nein** |
+| Zurückrollen | — | nein, es ist nichts passiert |
+
+### Behoben
+
+Die Sperre steht jetzt in `werkzeuge/startsperre.sh` und wird von allen
+drei Wegen gelesen. `aktualisieren.sh` fragt sie **vor** dem Holen: was
+gesperrt ist, wird gar nicht erst angefasst, und die laufenden Container
+bleiben, wie sie waren. `einrichten.sh` fragt sie vor dem ersten Start und
+vor dem Neuverbinden — Neuverbinden heißt neu anlegen, mit der
+Konfiguration von jetzt.
+
+### Probe
+
+Die Attrappen in `aktualisieren-pruefen.sh` und `einrichten-pruefen.sh`
+reichen `compose config` jetzt an das echte `docker` durch (wie
+`neu-pruefen.sh` seit `N-61`) — vorher gaben sie dafür eine feste Zeile
+zurück, und die Sperre hätte dort nie etwas zu sehen bekommen.
+`aktualisieren-pruefen.sh` schreibt jeden Docker-Aufruf mit, damit sich
+prüfen lässt, was **nicht** passiert ist.
+
+| | |
+|---|---|
+| `werkzeuge/aktualisieren-pruefen.sh` | **79 ok** (5 neue) |
+| `… --gegenprobe` (neu) | **2 von 2**: Sperre fehlt; Sperre erst nach dem Holen |
+| `werkzeuge/einrichten-pruefen.sh` | **17 ok** (2 neue) |
+| `… --gegenprobe` | **7 von 7** (1 neue) |
+| `neu-gegenprobe.py` / `prolo-gegenprobe.py` | 24 von 24 / 23 von 23 — die drei Mutationen zur Sperre zeigen jetzt auf `startsperre.sh` |
+
+Die zweite Mutation in `aktualisieren-pruefen.sh --gegenprobe` ist mir
+zuerst falsch geraten: sie setzte einen zusätzlichen Aufruf **hinter** das
+Holen und ließ den echten davor stehen. Sie blieb grün — zu Recht, denn
+sie hatte nichts kaputt gemacht. Jetzt schaltet sie den echten Aufruf aus
+und setzt ihn hinter das Holen; die Prüflinie „und nicht einmal geholt"
+findet sie.
+
+### Berichtigung zu `N-83`
+
+Dort stand „`einrichten-pruefen.sh` 18 ok (vorher 15)". Nachgezählt an den
+beiden Commits: **12 vor, 15 nach** `N-83`. Die drei neuen Prüflinien
+stimmen, die Summen nicht — ich hatte die Ausgabe abgeschnitten gelesen
+und dazugezählt, statt zu zählen. Die Zahl im Eintrag ist korrigiert; die
+im Commit von `N-83` bleibt falsch, und darum steht es hier.

@@ -29,7 +29,10 @@ pruefe() {
 
 # --- Attrappen-Stack aufbauen -------------------------------------------
 mkdir -p "$T/bin" "$T/stack/werkzeuge" "$T/stack/probe"
-cp "$SKRIPT_UNTER_TEST" "$T/stack/werkzeuge/"
+cp "$SKRIPT_UNTER_TEST" "$HIER/startsperre.sh" "$HIER/netze.sh" "$T/stack/werkzeuge/"
+# Einstieg fuer die Mutationsprobe (--gegenprobe unten): ein sed-Ausdruck
+# auf die KOPIE, nie auf den Arbeitsstand (N-34).
+[ -z "${AKT_MUTATION:-}" ] || sed -i "$AKT_MUTATION" "$T/stack/werkzeuge/aktualisieren.sh"
 printf '#!/bin/bash\nexit 0\n' > "$T/stack/backup.sh"; chmod +x "$T/stack/backup.sh"
 printf 'TYP="image"\nPRUEF_URL=""\nPRUEF_WARTEN=4\n' > "$T/stack/probe/aktualisierung.conf"
 
@@ -45,6 +48,12 @@ fassung_jetzt() { grep 'image:' "$T/stack/probe/docker-compose.yml" | tr -d ' ';
 
 cat > "$T/bin/docker" <<'STUB'
 #!/bin/bash
+# Jeder Aufruf wird mitgeschrieben - damit laesst sich pruefen, was NICHT
+# passiert ist (N-85: kein "compose up" bei offenem Port).
+[ -n "${DOCKER_PROTOKOLL:-}" ] && echo "$*" >> "$DOCKER_PROTOKOLL"
+# Die Sperre misst die zusammengesetzte Konfiguration - das braucht keinen
+# Dienst und geht darum ans echte docker (wie in neu-pruefen.sh).
+case " $* " in *" --no-interpolate "*) exec /usr/bin/docker "$@" ;; esac
 case "$1 $2" in
   "compose ps")   echo "c1"; exit 0 ;;
   "compose logs") exit 0 ;;
@@ -191,6 +200,30 @@ Z=$(PATH="$T/bin:$PATH" LAGE=gesund "$T/stack/werkzeuge/aktualisieren.sh" --troc
     | sed -n '/Eingetragene Fassung/,/Rueckweg/p' | grep -c '^        ')
 pruefe "Abbild mit Kommentar bleibt eine Zeile" "1" "$Z"
 
+# 4f. Die Sperre aus "prolo start" gilt auch hier (N-85). Der Fall aus
+#     der Praxis: eine neue Herstellerdatei bringt ihre ports:-Zeile mit.
+rm -f "$T/stack/probe/.stand-erfolgreich.yml"
+cat > "$T/stack/probe/docker-compose.yml" <<'Y'
+services:
+  probe:
+    image: probe:2.0.0
+    ports:
+      - "5678:5678"
+Y
+export DOCKER_PROTOKOLL="$T/docker.protokoll"; : > "$DOCKER_PROTOKOLL"
+A=$(lauf gesund); R=$?
+unset DOCKER_PROTOKOLL
+pruefe "offener Port: der Lauf scheitert (N-85)" "1" "$R"
+echo "$A" | grep -q "NICHT gestartet: probe/probe veroeffentlicht Port(s) 5678" && E=ja || E=nein
+pruefe "offener Port: der Port wird genannt" "ja" "$E"
+grep -q "^compose up" "$T/docker.protokoll" && E=ja || E=nein
+pruefe "offener Port: es wird NICHTS gestartet" "nein" "$E"
+grep -q "^compose pull" "$T/docker.protokoll" && E=ja || E=nein
+pruefe "offener Port: und nicht einmal geholt" "nein" "$E"
+echo "$A" | grep -q "zurueckgerollt" && E=ja || E=nein
+pruefe "offener Port: kein Zurueckrollen, es ist nichts passiert" "nein" "$E"
+fassung_setzen 1.0.0
+
 # 5. Fehlende image:-Zeile bricht ab (B-23)
 cat > "$T/stack/probe/docker-compose.yml" <<'Y'
 services:
@@ -292,7 +325,8 @@ if command -v git >/dev/null 2>&1 && [ -x "$QUELLSTAND" ]; then
     git -C "$T/fern" commit -q -m "zwei - die neue Fassung"
 
     mkdir -p "$GIT_T/werkzeuge" "$GIT_T/probe"
-    cp "$SKRIPT_UNTER_TEST" "$QUELLSTAND" "$GIT_T/werkzeuge/"
+    cp "$SKRIPT_UNTER_TEST" "$QUELLSTAND" "$HIER/startsperre.sh" "$HIER/netze.sh" \
+       "$GIT_T/werkzeuge/"
     printf '#!/bin/bash\nexit 0\n' > "$GIT_T/backup.sh"; chmod +x "$GIT_T/backup.sh"
     printf 'services:\n  probe:\n    image: probe:1.0.0\n' > "$GIT_T/probe/docker-compose.yml"
     printf 'TYP="build"\nPRUEF_URL=""\nPRUEF_WARTEN=4\n' > "$GIT_T/probe/aktualisierung.conf"
@@ -452,5 +486,29 @@ if [ "$FEHLER" -eq 0 ]; then
   echo "Alles gruen."
 else
   echo "GEGENPROBE FEHLGESCHLAGEN." >&2
+fi
+
+# --- Mutationsprobe (§13a): ./aktualisieren-pruefen.sh --gegenprobe ------
+# Jede Mutation muss den Lauf oben rot machen. Nur fuer die Prueflinien,
+# die seit N-85 dazugekommen sind; die aelteren hat dieses Skript als
+# Ablaufprobe von Anfang an belegt.
+if [ "${1:-}" = "--gegenprobe" ] && [ -z "${AKT_MUTATION:-}" ]; then
+  echo
+  echo "=== Mutationsprobe ==="
+  DURCH=0; N=0
+  while IFS='|' read -r NAME AUSDRUCK; do
+    [ -n "$NAME" ] || continue
+    N=$((N + 1))
+    if AKT_MUTATION="$AUSDRUCK" bash "$0" >/dev/null 2>&1; then
+      printf 'ENTWISCHT %s  <-- Testluecke\n' "$NAME"; DURCH=$((DURCH + 1))
+    else
+      printf 'gefunden  %s\n' "$NAME"
+    fi
+  done <<'MUT'
+die Sperre wird beim Aktualisieren nicht gefragt (N-85)|s/if \[ "\$TROCKEN" -eq 0 \] && ! start_pruefen "\$TOOL"; then/if false; then/
+die Sperre kommt erst nach dem Holen (N-85)|s/if \[ "\$TROCKEN" -eq 0 \] \&\& ! start_pruefen "\$TOOL"; then/if false; then/; s/^  NACHHER=\$(abbild_kennungen)$/  NACHHER=$(abbild_kennungen); if ! start_pruefen "$TOOL"; then return 1; fi/
+MUT
+  echo "gefunden: $((N - DURCH))   entwischt: $DURCH"
+  [ "$DURCH" -eq 0 ] || exit 1
 fi
 exit "$FEHLER"

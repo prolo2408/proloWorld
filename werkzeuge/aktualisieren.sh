@@ -59,6 +59,11 @@ set -euo pipefail
 HIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STACK="$(dirname "$HIER")"
 SICHERUNG="$STACK/backup.sh"
+# Dieselbe Sperre wie "prolo start" (N-85). Ohne sie ging eine
+# Herstellerdatei, die ihre ports:-Zeile zurueckbringt, mit einem
+# Aktualisierungslauf ungehindert ins offene Netz.
+# shellcheck source=werkzeuge/startsperre.sh
+. "$HIER/startsperre.sh"
 
 TROCKEN=0
 OHNE_SICHERUNG=0
@@ -183,6 +188,17 @@ ein_tool() {
   fi
 
   cd "$ORDNER"
+
+  # --- Sperre, BEVOR etwas geholt oder gestartet wird (N-85) ------------
+  # Ein offener Port oder ein Router ohne Anmeldung wird gar nicht erst
+  # losgelassen. Kein Zurueckrollen: es ist nichts passiert, und die
+  # laufenden Container bleiben, wie sie waren.
+  if [ "$TROCKEN" -eq 0 ] && ! start_pruefen "$TOOL"; then
+    melde ""
+    melde "ABBRUCH: $TOOL wurde NICHT aktualisiert - Grund steht oben."
+    melde "         Was laeuft, laeuft weiter wie vorher."
+    return 1
+  fi
 
   # --- Neue Fassung holen und vergleichen ------------------------------
   # Erst nachsehen, OB es etwas Neues gibt. Vorher wurde jedes Tool bei
