@@ -16,7 +16,9 @@ T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 GEFUNDEN=0; ENTWISCHT=0
 
-cp -a "$QUELLE/server.py" "$QUELLE/tests" "$T/"
+# Die Schriften gehoeren dazu: die Probe zu N-82 holt eine davon, und ohne
+# sie antwortet die Kopie mit einer kleinen 404 statt mit der Datei.
+cp -a "$QUELLE/server.py" "$QUELLE/tests" "$QUELLE/schriften" "$T/"
 rm -rf "$T/tests/__pycache__"
 
 probe() {
@@ -32,6 +34,36 @@ if s.count(alt) != 1:
     sys.stderr.write("Muster %dx gefunden: %r\n" % (s.count(alt), alt))
     sys.exit(1)
 io.open(p, "w", encoding="utf-8").write(s.replace(alt, neu))
+PY
+  then
+    printf 'ABBRUCH   %s (Mutation liess sich nicht einbauen)\n' "$name"
+    ENTWISCHT=$((ENTWISCHT + 1)); return
+  fi
+  if (cd "$T" && python3 -m unittest discover -s tests -t tests >"$T/lauf.txt" 2>&1); then
+    printf 'ENTWISCHT %s  <-- Testluecke\n' "$name"
+    ENTWISCHT=$((ENTWISCHT + 1))
+  else
+    printf 'gefunden  %s\n' "$name"
+    grep -E '^(FAIL|ERROR):' "$T/lauf.txt" | sed 's/^/            /' | head -4
+    GEFUNDEN=$((GEFUNDEN + 1))
+  fi
+}
+
+# Zwei Stellen auf einmal - fuer einen Fehler, der erst aus beiden entsteht.
+probe2() {
+  local name="$1"
+  cp "$QUELLE/server.py" "$T/server.py"
+  rm -rf "$T/tests/__pycache__" "$T/__pycache__"
+  if ! python3 - "$T/server.py" "$2" "$3" "$4" "$5" <<'PY'
+import io, sys
+p = sys.argv[1]
+s = io.open(p, encoding="utf-8").read()
+for alt, neu in ((sys.argv[2], sys.argv[3]), (sys.argv[4], sys.argv[5])):
+    if s.count(alt) != 1:
+        sys.stderr.write("Muster %dx gefunden: %r\n" % (s.count(alt), alt))
+        sys.exit(1)
+    s = s.replace(alt, neu)
+io.open(p, "w", encoding="utf-8").write(s)
 PY
   then
     printf 'ABBRUCH   %s (Mutation liess sich nicht einbauen)\n' "$name"
@@ -105,6 +137,27 @@ probe "ein Dienst ohne Router gilt als offen" \
         return ("", "")''' \
   '''    if False:
         return ("", "")'''
+
+# N-82: SIGPIPE auf die Voreinstellung - ein Browser, der wegklickt,
+# beendet dann den ganzen Dienst.
+probe "SIGPIPE steht wieder auf der Voreinstellung (N-82)" \
+  '    datenbank_anlegen()
+    srv = ThreadingHTTPServer' \
+  '    import signal; signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    datenbank_anlegen()
+    srv = ThreadingHTTPServer'
+
+# Und der alte Stand im Ganzen: Voreinstellung UND jeder Schreibfehler
+# fuehrt zu einer Fehlerseite, also zu einem zweiten Schreibversuch in
+# dieselbe geschlossene Leitung. Genau so ist der Dienst gestorben.
+probe2 "eine abgebrochene Verbindung beendet den Dienst (N-82)" \
+  '    datenbank_anlegen()
+    srv = ThreadingHTTPServer' \
+  '    import signal; signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    datenbank_anlegen()
+    srv = ThreadingHTTPServer' \
+  '        except (BrokenPipeError, ConnectionResetError):' \
+  '        except ZeroDivisionError:'
 
 echo
 echo "gefunden: $GEFUNDEN   entwischt: $ENTWISCHT"

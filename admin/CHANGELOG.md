@@ -1,3 +1,12 @@
+# 0.1.1
+
+- Eine einzige abgebrochene Verbindung beendete den ganzen Dienst (N-82).
+  `main()` setzte SIGPIPE auf die Voreinstellung zurueck - richtig fuer ein
+  Kommandozeilenwerkzeug, falsch fuer einen Dienst. Jetzt bleibt es
+  ignoriert, und ein Schreibfehler in eine geschlossene Leitung wird im
+  betroffenen Faden still verworfen statt mit einer Fehlerseite ein zweites
+  Mal hineinzuschreiben.
+
 # 0.1.0
 
 Erste Fassung. Lesende Uebersicht ueber den Stack.

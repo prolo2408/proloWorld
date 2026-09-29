@@ -5590,3 +5590,67 @@ als `markup`, als `text` und als gerendertes HTML. Im ersten Versuch landete
 dort ein rohes `"` mitten in einem JSON-String — die Seite war damit
 unlesbar. Aufgefallen ist es sofort, weil die Prüfung **vor** dem Schreiben
 läuft: die Datei blieb unangetastet, statt kaputt im Arbeitsstand zu liegen.
+
+## N-82 — Ein Browser, der wegklickt, beendete die Admin-Seite
+
+Beim Durchsehen des ganzen Projekts gefunden, nicht gemeldet. In
+`admin/server.py`, `main()`:
+
+```python
+# Ohne das bricht der Dienst mit BrokenPipeError ab, sobald ein Browser
+# eine Antwort nicht zu Ende liest.
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+```
+
+Der Kommentar beschreibt das Gegenteil dessen, was die Zeile tut. Python
+**ignoriert** SIGPIPE von sich aus; ein Schreibversuch in eine geschlossene
+Leitung wird dann zu einem `BrokenPipeError` in genau dem einen Faden, der
+schreibt. Mit `SIG_DFL` dagegen beendet der Kern den **ganzen Prozess**.
+Die Zeile gehört in ein Kommandozeilenwerkzeug, dessen Ausgabe in `head`
+läuft — `werkzeuge/geheimnisse.py` hat sie dort zu Recht. In einen Dienst
+kopiert, ist sie ein Ausschalter, den jeder Browser bedienen kann.
+
+### Gemessen, nicht überlegt
+
+Echter Prozess, zehn Verbindungen, die nach der Anfrage mit RST statt mit
+einem geordneten Schließen enden (das tut ein Browser beim Wegklicken):
+
+| | vorher | nachher |
+|---|---|---|
+| Verbindungen bis zum Ende des Dienstes | **1** (Rückgabe −13 = SIGPIPE) | keine nach 30 |
+| `SigIgn` des Prozesses, Bit 13 | nicht gesetzt | gesetzt |
+
+`restart: unless-stopped` hätte den Container jedes Mal neu gestartet —
+sichtbar wäre davon nur ein kurzes „nicht erreichbar" gewesen, und in der
+Liste der Neustarts ein Zähler, der langsam wächst. Genau der Zähler, an
+dem `prolo aktualisieren` eine Fassung für kaputt hält (siehe `N-89`).
+
+### Behoben
+
+Die Zeile ist weg, und in `_lauf` wird `BrokenPipeError` /
+`ConnectionResetError` still verworfen: wer schon weg ist, bekommt keine
+Fehlerseite hinterhergeschickt — das wäre der zweite Schreibversuch in
+dieselbe geschlossene Leitung, und genau der hat das Signal ausgelöst.
+
+### Die Probe hat meine erste Prüflinie durchfallen lassen
+
+Die erste Fassung des Tests holte eine Schriftdatei und prüfte, ob der
+Dienst danach noch lebt. Die Mutation „SIGPIPE wieder auf Voreinstellung"
+blieb damit **grün**, aus zwei Gründen:
+
+- `gegenprobe.sh` kopiert nur `server.py` und `tests/` — ohne `schriften/`
+  antwortete die Kopie mit einer kleinen 404, nicht mit der Datei.
+- Mein neuer `except`-Zweig verhindert den zweiten Schreibversuch. Die
+  Mutation baute also nur die **halbe** Ursache wieder ein.
+
+Jetzt sind es zwei Prüflinien: eine misst die Ursache direkt (`SigIgn` in
+`/proc/<pid>/status`), eine die Wirkung am echten Prozess. Und zwei
+Mutationen: eine setzt nur das Signal zurück, eine stellt den alten Stand
+im Ganzen her (Signal **und** Fehlerseite nach dem Schreibfehler).
+
+| | |
+|---|---|
+| `admin/tests/alle.sh` | grün, 2 neue Prüflinien |
+| `admin/tests/gegenprobe.sh` | **16 von 16** gefunden (vorher 14 von 14) |
+
+Fassung 0.1.0 → **0.1.1** an allen drei Stellen.

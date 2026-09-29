@@ -26,7 +26,6 @@ import html
 import json
 import os
 import re
-import signal
 import sqlite3
 import sys
 import urllib.error
@@ -34,7 +33,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 PORT = int(os.environ.get("ADMIN_PORT", "8080"))
 DATEN = os.environ.get("ADMIN_DATEN", "/daten")
@@ -820,6 +819,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.einlass_pruefen()
             was()
+        except (BrokenPipeError, ConnectionResetError):
+            # Der Browser ist weg, bevor die Antwort ankam. Das ist kein
+            # Fehler des Dienstes, und eine Fehlerseite hinterherzuschicken
+            # hiesse, noch einmal in dieselbe geschlossene Leitung zu
+            # schreiben (N-82).
+            self.close_connection = True
         except Antwort as a:
             self.fehlerseite(a.kode, a.text)
         except Exception:
@@ -957,9 +962,14 @@ def main():
             "Der Wert ist ein Geheimnis wie ein Passwort: nicht in Git und\n"
             "nicht in einen Chat (CLAUDE.md §21, §22).\n")
         sys.exit(2)
-    # Ohne das bricht der Dienst mit BrokenPipeError ab, sobald ein Browser
-    # eine Antwort nicht zu Ende liest.
-    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    # KEIN signal.signal(SIGPIPE, SIG_DFL) hier (N-82). Das gehoert in ein
+    # Kommandozeilenwerkzeug, dessen Ausgabe in "head" laeuft - in einem
+    # Dienst beendet es den GANZEN Prozess, sobald ein einziger Browser die
+    # Verbindung schliesst, bevor die Antwort geschrieben ist. Gemessen:
+    # eine abgebrochene Verbindung, und der Dienst war weg (Rueckgabe -13).
+    # Python ignoriert SIGPIPE von sich aus; der Schreibfehler kommt dann
+    # als BrokenPipeError in genau dem einen Faden an und wird in _lauf
+    # still verworfen.
     datenbank_anlegen()
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     srv.daemon_threads = True

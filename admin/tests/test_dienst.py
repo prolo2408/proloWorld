@@ -380,5 +380,77 @@ class TestDienst(unittest.TestCase):
         self.assertIn(kode, (400, 404))
 
 
+class TestAbgebrocheneVerbindung(unittest.TestCase):
+    """Ein Browser, der mitten in der Antwort geht, darf den Dienst nicht
+    beenden (N-82).
+
+    Gemessen wird am ECHTEN Prozess, nicht am Handler im Testfaden: der
+    Fehler sass in main(), und ein Signal trifft den ganzen Prozess. Im
+    selben Prozess wie die Tests liefe die Probe gar nicht erst durch -
+    sie wuerde den Testlauf selbst beenden.
+    """
+
+    def starten(self):
+        import socket
+        import subprocess
+        import time
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        daten = tempfile.mkdtemp()
+        umgebung = dict(os.environ, PROLO_EINLASS=EINLASS, ADMIN_DATEN=daten,
+                        ADMIN_PORT=str(port),
+                        ADMIN_DOCKER_API="http://127.0.0.1:1")
+        prozess = subprocess.Popen(
+            [sys.executable, os.path.join(os.path.dirname(server.__file__),
+                                          "server.py")],
+            env=umgebung, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(prozess.kill)
+        for _ in range(50):
+            try:
+                socket.create_connection(("127.0.0.1", port), 0.2).close()
+                break
+            except OSError:
+                time.sleep(0.1)
+        return prozess, port
+
+    def test_sigpipe_bleibt_ignoriert(self):
+        # Die Ursache selbst, nicht nur ihre Wirkung: ist SIGPIPE im
+        # laufenden Dienst ignoriert? Bit 13 in SigIgn (Zaehlung ab 1).
+        # Das haengt nicht davon ab, ob ein Schreibversuch zufaellig vor
+        # oder nach dem RST kommt.
+        prozess, _ = self.starten()
+        with open("/proc/%d/status" % prozess.pid) as f:
+            zeile = [z for z in f if z.startswith("SigIgn:")][0]
+        maske = int(zeile.split()[1], 16)
+        self.assertTrue(maske & (1 << (13 - 1)),
+                        "SIGPIPE ist im Dienst nicht ignoriert (SigIgn %s)"
+                        % zeile.split()[1])
+
+    def test_dienst_ueberlebt_abgebrochene_verbindungen(self):
+        import socket
+        import struct
+        import time
+        prozess, port = self.starten()
+        # Zehnmal: Anfrage auf eine Schriftdatei (die Antwort ist grosser
+        # als eine leere Seite), dann sofort RST statt eines geordneten
+        # Schliessens. Das ist, was ein Browser beim Wegklicken tut.
+        for _ in range(10):
+            c = socket.create_connection(("127.0.0.1", port))
+            c.sendall(b"GET /schriften/sora-latin.woff2 HTTP/1.1\r\n"
+                      b"Host: x\r\nX-Prolo-Einlass: " + EINLASS.encode()
+                      + b"\r\n\r\n")
+            c.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
+                         struct.pack("ii", 1, 0))
+            c.close()
+            time.sleep(0.05)
+        self.assertIsNone(prozess.poll(),
+                          "der Dienst hat sich beendet (Rueckgabe %s)"
+                          % prozess.returncode)
+        with urllib.request.urlopen("http://127.0.0.1:%d/gesundheit" % port,
+                                    timeout=5) as r:
+            self.assertEqual(r.read(), b"ok")
+
+
 if __name__ == "__main__":
     unittest.main()
