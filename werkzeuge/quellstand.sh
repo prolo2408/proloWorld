@@ -30,6 +30,7 @@ set -uo pipefail
 HIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STACK="$(dirname "$HIER")"
 WAS="${1:---pruefen}"
+SUDO=""; [ "$(id -u)" -eq 0 ] && SUDO="sudo "
 
 melde() { printf '%s\n' "$*"; }
 kurz()  { [ "$WAS" = "--kurz" ]; }
@@ -37,9 +38,24 @@ kurz()  { [ "$WAS" = "--kurz" ]; }
 zeile() { kurz && printf '%s\n' "$1"; }
 lang()  { kurz || melde "$*"; }
 
+# $1 Kurzgrund, $2 (freiwillig) was der fehlgeschlagene Aufruf selbst sagte.
+#
+# Das zweite Feld ist der ganze Punkt (N-81, Regel aus N-64): ohne es steht
+# dieselbe Zeile "kein Zugriff auf origin" fuer fehlende Zugangsdaten, fuer
+# einen fremden Besitzer und fuer fehlendes Netz - drei Ursachen mit drei
+# voellig verschiedenen Abhilfen. Wer sie nicht auseinanderhalten kann, kann
+# nichts tun ausser raten.
 nicht_pruefbar() {
   zeile "nicht pruefbar ($1)"
   lang "  Quellstand         nicht pruefbar ($1)"
+  if [ -n "${2:-}" ] && ! kurz; then
+    melde ""
+    melde "                     git sagt:"
+    printf '%s\n' "$2" | sed 's/^/                       /' | head -6
+    melde ""
+    melde "                     Selbst nachsehen - genau dieser Aufruf war es:"
+    melde "                       ${SUDO}git -C $STACK fetch origin ${ZWEIG:-<zweig>}"
+  fi
   exit 11
 }
 
@@ -63,9 +79,18 @@ fi
 [ "$ZWEIG" != "HEAD" ] || nicht_pruefbar "abgeloester Kopf - kein Zweig"
 
 # Holen darf fehlschlagen (kein Netz, kein Schluessel). Das ist kein Grund
-# abzubrechen, nur einer, nichts zu behaupten.
-timeout 20 git -C "$STACK" fetch --quiet origin "$ZWEIG" 2>/dev/null \
-  || nicht_pruefbar "kein Zugriff auf origin"
+# abzubrechen, nur einer, nichts zu behaupten - aber sehr wohl einer, zu
+# sagen WARUM. Hier stand ein 2>/dev/null, und damit sah ein fehlender
+# Zugang fuer root genauso aus wie ein abgestecktes Netzkabel (N-81).
+RC=0
+FETCH=$(timeout 20 git -C "$STACK" fetch --quiet origin "$ZWEIG" 2>&1) || RC=$?
+if [ "$RC" -ne 0 ]; then
+  # timeout meldet 124, und dann hat git meist gar nichts mehr gesagt.
+  [ -z "$FETCH" ] && [ "$RC" -ge 124 ] \
+    && FETCH="(keine Meldung - der Aufruf lief in die Zeitgrenze von 20s)"
+  [ -z "$FETCH" ] && FETCH="(git hat nichts gesagt, Rueckgabe $RC)"
+  nicht_pruefbar "kein Zugriff auf origin" "$FETCH"
+fi
 
 HINTER=$(git -C "$STACK" rev-list --count "HEAD..origin/$ZWEIG" 2>/dev/null || echo 0)
 VORAUS=$(git -C "$STACK" rev-list --count "origin/$ZWEIG..HEAD" 2>/dev/null || echo 0)
