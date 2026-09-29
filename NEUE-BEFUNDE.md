@@ -5408,3 +5408,85 @@ eine Datenbank hineingeraten (§21), und der Rückweg ist nie die eigene
 Arbeit (`N-34`, `N-60`). Sie verlangt nicht, dass *irgendeine* Prüfzeile
 rot wird, sondern die **richtige**: sonst deckt eine fremde Zeile die
 Lücke zu.
+
+---
+
+## N-80 — Die Antwort stand seit Tagen im Protokoll, und niemand kam heran
+
+`N-79` ließ sich nur deshalb messen, weil ein Nachbau der beiden
+Middlewares hier im Kleinen gebaut werden konnte. Auf dem Server selbst
+hätte dieselbe Frage — *wurde hier etwas abgewiesen, und was?* — in einer
+Minute beantwortet werden können: Traefik schreibt seit `B-26` jede
+Anfrage samt Statuscode nach `traefik/log/zugriff.log`.
+
+Nur kam niemand heran. Es gab keinen Befehl dafür, `prolo status` erwähnt
+die Datei nicht, und 14.000 JSON-Zeilen liest man nicht von Hand. Die
+Diagnose lag die ganze Zeit auf der Platte.
+
+> Dieselbe Lehre wie `N-64` und `N-69`: was das Werkzeug **in der Hand
+> hatte**, darf es nicht verschweigen. Hier war es nicht einmal
+> verschwiegen — es war nur nicht abholbar.
+
+### Was jetzt kommt
+
+```
+sudo prolo abweisungen [--stunden N]
+```
+
+Liest `zugriff.log` samt der gedrehten Fassungen daneben (`.1`, `.gz`) und
+zeigt je Name, wie viele Anfragen ankamen, wie viele mit **429** abgewiesen
+wurden, wie viele mit **5xx** scheiterten und über wie viele Quelladressen
+das lief — dazu die Pfade, die es am häufigsten traf.
+
+Nach §7: der Satz mit dem **weil** steht je Name, die Erklärung dahinter
+genau **einmal** — sie nennt die Datei, in der die beiden Werte stehen,
+die Werte selbst, und den Befehl, der eine Änderung wirksam macht
+(`N-64`, `N-67`). Wurde nichts abgewiesen, sagt es das und zieht die
+Folgerung mit: dann liegt es *nicht* an der Bremse am Eingang.
+
+### Was dabei nicht auf den Schirm darf
+
+In den Pfaden des Zugriffsprotokolls stehen die Zugangslinks von `www`:
+`/z/<Marke>`, 192 Bit, und wer sie hat, kommt hinein. Ein Werkzeug, das
+Protokollzeilen anzeigt, zeigt sie mit — und die Ausgabe landet im
+nächsten Chat (§22). Darum werden Pfade entschärft, **bevor** irgendetwas
+gedruckt wird: `/z/…` und `/s/…` werden zu `/z/<Marke>`, und jedes
+Wegstück ab 16 Zeichen ohne Punkt wird auf vier Zeichen gekürzt.
+Quelladressen werden nur **gezählt**, nicht genannt.
+
+Zwei Regeln, und die Mutationsprobe verlangt, dass **jede für sich**
+durchfallen kann: nimmt man nur die `/z/`-Regel heraus, fängt die
+Längenregel die Marke noch ab — die Prüfzeile bliebe grün, während die
+Regel weg ist. Darum steht im Testprotokoll ein zweites langes Merkmal
+außerhalb von `/z/`.
+
+Und die Prüfzeile sucht ein **Stück** der Marke, nicht die ganze: die
+Ausgabe kürzt Pfade auf 44 Zeichen, und 44 von 64 Zeichen eines
+Geheimnisses sind auch dann ein Leck, wenn die vollständige Marke nicht
+dasteht. Mit der ganzen Marke als Muster wäre die Zeile grün geblieben,
+während zwei Drittel des Geheimnisses auf dem Schirm stehen — genau die
+Art Prüfzeile, die nichts prüft (§13a).
+
+### Prüfung
+
+| | |
+|---|---|
+| `werkzeuge/zugriff-pruefen.sh` | **18 ok**, RC=0 (neu) |
+| `werkzeuge/zugriff-gegenprobe.py` | **15 von 15** (neu) |
+| `werkzeuge/prolo-pruefen.sh` | 96 ok, RC=0 — kennt den neuen Befehl |
+| `wiki/tests/alle.sh` | 129 ok, 0 Fehler |
+
+Die Zahlen im Testprotokoll sind **von Hand gezählt** (§13): n8n 10
+Anfragen / 3 abgewiesen / 1 Fehler / 2 Quellen, wiki 4 / 0 / 0 / 0,
+www 2 / 1 / 0 / 1. Die gedrehte Kopie daneben muss dieselben Zahlen
+**verdoppeln** — sonst wäre „liest auch `.gz`" eine Behauptung ohne
+Wirkung (`N-38`).
+
+Drei Mutationen entwischten beim ersten Lauf und haben je eine Prüflinie
+nachgezogen: die Längenregel (deckte sich mit der `/z/`-Regel), der
+saubere Lauf (die Mutation hatte nur die halbe Meldung entfernt) und die
+Marke selbst (siehe oben). Ohne die Gegenprobe wären alle drei als
+geprüft durchgegangen.
+
+`prolo-bedienen.html` führt den Befehl jetzt in der Befehlsliste und in
+der Symptomtabelle unter „Die Seite bleibt beim ersten Aufruf schwarz".
