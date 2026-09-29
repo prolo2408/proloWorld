@@ -6659,3 +6659,40 @@ aus der Kopie zurückgeholt, nicht per `git checkout` (`N-34`): 0
 Unterschiede zum Git-Stand. Die Regel dazu steht in `TEIL 0` schon — eine
 Probe darf nichts im Arbeitsstand bewegen —, und ich habe sie mit einem
 Rückfallpfad unterlaufen, der nur im Fehlerfall kopiert.
+
+## U-03 — Was jedes Werkzeug-Repository mitbringt
+
+Damit in `prolo2408/wiki`, `…/bordbuch` und `…/www` ein Claude (oder ein
+Mensch) vom ersten Tag an so arbeiten kann wie hier, liegt in jedem der
+drei Ordner schon jetzt, was dort gebraucht wird. `git subtree split`
+nimmt es mit (`U-04`), und `.github/` landet dabei an der Wurzel — wo
+GitHub es liest. Solange die Ordner hier liegen, tut `.github/` darin
+nichts.
+
+| Datei | Inhalt |
+|---|---|
+| `CLAUDE.md` | die Regeln: **der Vertrag mit dem Betrieb** zuerst, dann Arbeitsweise, Oberfläche (§1–§10), Robustheit (§11–§15), Anmeldung, Datentrennung, Benennung, Schützenswertes, Protokolle, Fassung und Migration. Die Abschnittsnummern sind dieselben wie hier — im Code stehen hunderte Verweise wie „§17", und sie sollen stimmen. Neue Befunde bekommen eine eigene Folge (`WK-`, `BB-`, `WW-`). |
+| `README.md` | was es ist, wie man testet, lokal startet (ausprobiert: alle drei antworten mit 200) und veröffentlicht |
+| `BEFUNDE.md` | leer, mit dem Verweis auf die Narben hier |
+| `.github/workflows/abbild.yml` | bei jedem Push: Tests, Gegenprobe, Fassung an drei Stellen, Dockerfile, **Abbild bauen und gesund starten**. Bei einem Tag `v<fassung>`: Tag gegen Code und Herstellerdatei prüfen, eine schon vorhandene Fassung **verweigern** (`§16`), bauen, nach `ghcr.io` schieben, Veröffentlichung mit der Herstellerdatei (ohne `build:`) anhängen |
+| `tests/test_vertrag.py` | die 12 Code-Prüfungen, die in proloWorld wegfallen (`U-02`): Grenze in `do_GET` und `do_POST`, freie Pfade genau `/gesundheit` und `/api/version`, `:?` an der Marke, jede geprüfte Gruppe im Label, Abbild und Changelog tragen die Fassung aus dem Code, und die Herstellerdatei enthält nichts, was dem Betrieb gehört (Netz, Speichergrenzen, Ports) |
+| `tests/gegenprobe_vertrag.py` | die Zähne dazu, aufgerufen aus `tests/alle.sh` |
+
+### Ausgeführt
+
+| | wiki | bordbuch | www |
+|---|---|---|---|
+| `tests/alle.sh` | grün (156 Python-Tests) | grün (138) | grün (52) |
+| `gegenprobe_vertrag.py` | **7 von 7** | **7 von 7** | **7 von 7** |
+| Abbild bauen, nur mit `PROLO_EINLASS` starten | `healthy` | `healthy` | `healthy` |
+| `actionlint` (mit shellcheck) auf `abbild.yml` | sauber | sauber | sauber |
+| Fassung an drei Stellen, Auszug der Versionshinweise | 1.4.1 | 2.6.2 | 1.1.1 |
+
+Der Vertragstest hat sofort etwas gefunden: das Bordbuch hatte keine
+`/gesundheit` — das ist `N-99`, eigens behoben.
+
+`werkzeuge/alle-pruefen.sh --schnell`: alles grün.
+
+Die Regeldateien sind aus der `CLAUDE.md` des Stapels erzeugt (Abschnitte
+wörtlich übernommen, Pfade, die im Werkzeug-Repo nicht mehr stimmen,
+umgebogen). Ab dem Umzug leben sie eigenständig weiter.

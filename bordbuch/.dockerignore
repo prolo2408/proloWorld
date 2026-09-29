@@ -27,3 +27,6 @@ aktualisierung.conf
 .env.*
 .stand-erfolgreich.yml
 *.tar.gz
+
+# Arbeitsablaeufe des Repositorys gehoeren nicht ins Abbild.
+.github/
