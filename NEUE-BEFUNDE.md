@@ -6518,3 +6518,64 @@ Regeldatei selbst.
 |---|---|
 | `werkzeuge/regeln-pruefen.sh` | grün, „jeder der 32 zitierten Abschnitte gibt es wirklich" |
 | Mutation (Kopie nach der Korrektur, `§24a` → `§19a`) | **rot**: „jeder der 33 zitierten Abschnitte" — FEHLER |
+
+---
+
+# Umbau: proloWorld wird die Betriebsplattform
+
+**Auftrag (29.09.2026):** „Die Projekte www, Bordbuch und wiki will ich
+separat halten. Also eigene Repos … Mein Wunsch ist, dass proloWorld nur
+das Administrieren von Tools ganz einfach macht … Nur auch so Tools wie
+das Bordbuch sollen als extern gesehen werden."
+
+Die Schritte dieses Umbaus sind keine Befunde, sondern Entscheidungen.
+Sie bekommen darum eine eigene Nummernfolge: `U-01` aufwärts.
+
+## U-01 — Eigene Werkzeuge bekommen eine Herstellerdatei wie n8n
+
+**Entscheidung.** Ein eigenes Werkzeug wird im Betrieb genauso behandelt
+wie ein fremdes (`§16`, `N-61`): seine `docker-compose.yml` ist die
+**Herstellerdatei** — sie gehört zum Werkzeug und liegt später in dessen
+eigenem Repository —, und alles, was vom Betrieb kommt, steht daneben in
+der `docker-compose.override.yml`.
+
+| Herstellerdatei (Werkzeug) | override (Betrieb) |
+|---|---|
+| Abbild, `build: .`, `container_name` | Netz `netz-<werkzeug>` |
+| Rechte: `cap_drop`, `no-new-privileges`, `read_only`, `tmpfs` | Traefik: Route, Zertifikat, Anmeldung |
+| Umgebung, `PROLO_EINLASS` mit `:?` | `mem_limit`, `pids_limit` |
+| Volumes, Label `prolo.gruppen` | |
+
+Eine Abweichung, und sie ist Absicht: bei **www** stehen die beiden Router
+in der Herstellerdatei. Welche Pfade öffentlich sind, ist dort die
+Sicherheitsgrenze des Werkzeugs (`N-74`), und `www/tests/test_freigabe.py`
+hält Code und Regel zusammen — das geht nur im selben Repository.
+
+Dazu zwei Festlegungen, die den Umzug später zu einer Zeile machen:
+
+- Das Abbild heißt schon jetzt so, wie es veröffentlicht wird:
+  `ghcr.io/prolo2408/<werkzeug>:<fassung>`. Solange `build: .` dasteht,
+  wird es wie bisher auf dem Server gebaut und nur so benannt.
+- Der Projektname steht fest (`name: <werkzeug>`). Nach ihm heißen die
+  Volumes (`bordbuch_bordbuch_daten` …); ohne ihn hinge er am Ordnernamen,
+  und ein Klon unter anderem Namen fände seine Daten nicht.
+
+### Ausgeführt
+
+Die zusammengesetzte Konfiguration (`docker compose config`) alt gegen
+neu, je Werkzeug, normalisiert:
+
+| | Abbild | sonst |
+|---|---|---|
+| wiki | `wiki:1.4.1` → `ghcr.io/prolo2408/wiki:1.4.1` | nur der Hinweistext bei fehlendem `PROLO_EINLASS` (nennt jetzt `prolo geheimnisse --verteilen`, `N-96`) |
+| bordbuch | `bordbuch:2.6.1` → `ghcr.io/prolo2408/bordbuch:2.6.1` | ebenso |
+| www | `www:1.1.1` → `ghcr.io/prolo2408/www:1.1.1` | ebenso |
+
+Volume-Namen, Netze, Labels, Grenzen: unverändert. Auf dem Server
+bedeutet das beim nächsten `prolo aktualisieren`: einmal neu bauen unter
+neuem Namen, Container neu anlegen, **dieselben** Volumes.
+
+`werkzeuge/alle-pruefen.sh --schnell`: **alles grün** (4 Werkzeug-Suiten,
+15 Prüfungen des Stapels). `wiki/tests/test_fassung.py` erwartet den
+neuen Abbildnamen. Die Gegenproben der drei Werkzeuge: bordbuch vollständig,
+www 17 von 17, admin 18 von 18.

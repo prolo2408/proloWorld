@@ -1,24 +1,33 @@
-# /opt/stack/bordbuch/docker-compose.yml
+# bordbuch/docker-compose.yml
+#
+# DIE HERSTELLERDATEI des Bordbuchs. Sie gehoert zum Werkzeug, nicht zum
+# Betrieb: im eigenen Repository (prolo2408/bordbuch) liegt dieselbe Datei,
+# und proloWorld uebernimmt sie unveraendert - wie die Datei von n8n.
+#
+# Hier steht, was das WERKZEUG braucht: Abbild, Volumes, Umgebung, Rechte.
+# Netz, Route, Anmeldung und Speichergrenzen sind Sache des Betriebs und
+# stehen daneben in docker-compose.override.yml. "docker compose" liest
+# beide von selbst; was dabei herauskommt, zeigt "docker compose config".
 #
 # Bewusst KEINE ports-Zeile: der Dienst ist ausschliesslich ueber Traefik
-# erreichbar. Das ist hier nicht nur Gewohnheit, sondern der eigentliche
-# Schutz - Bordbuch vertraut den Anmeldekoepfen von Authentik, und die waeren
-# faelschbar, sobald jemand den Container direkt erreicht.
+# erreichbar. Bordbuch vertraut den Anmeldekoepfen von Authentik, und die
+# waeren faelschbar, sobald jemand den Container direkt erreicht.
+
+# Der Projektname steht fest: danach heissen die Volumes
+# (bordbuch_bordbuch_daten ...). Ohne ihn haenge er am Ordnernamen - und
+# ein Klon unter anderem Namen faende seine Daten nicht.
+name: bordbuch
 
 services:
   bordbuch:
+    # build: nur fuer den Bau aus dem Quellcode. Ist das Abbild einmal
+    # veroeffentlicht, holt der Betrieb es von ghcr.io.
     build: .
-    image: bordbuch:2.6.1          # feste Fassung, nie latest
+    image: ghcr.io/prolo2408/bordbuch:2.6.1     # feste Fassung, nie latest
     container_name: bordbuch
-    # Grenzen nach CLAUDE.md §19 (B-29). Vorher hatte KEIN Container
-    # mem_limit, pids_limit, cap_drop oder security_opt. Folgen: ein
-    # Speicherleck in einem Tool brachte den GANZEN Server in den OOM-Killer,
-    # nicht nur sich selbst; die Container liefen mit dem vollen
-    # Standardsatz an Linux-Faehigkeiten, obwohl keiner davon welche
-    # braucht; und ohne no-new-privileges ermoeglicht eine Datei mit
-    # gesetztem setuid-Bit im Abbild eine Rechteausweitung.
-    mem_limit: 512m
-    pids_limit: 256
+    restart: unless-stopped
+    # Rechte nach CLAUDE.md §19 (B-29): keine Linux-Faehigkeiten, keine
+    # Rechteausweitung ueber setuid.
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -29,15 +38,14 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=16m
-    restart: unless-stopped
 
     environment:
       # Die Marke der Vertrauensgrenze (N-44). Mit ":?" bricht schon
       # "docker compose up" ab und sagt, was fehlt - besser als ein
       # Container, der startet und dann jede Anfrage mit 401 abweist.
-      # Der Wert steht in /opt/stack/bordbuch/.env und muss derselbe sein
-      # wie in /opt/stack/traefik/dynamic/einlass.yml.
-      PROLO_EINLASS: "${PROLO_EINLASS:?PROLO_EINLASS fehlt in bordbuch/.env - siehe traefik/dynamic/einlass.yml.beispiel}"
+      # Der Wert steht in bordbuch/.env; "prolo geheimnisse --verteilen"
+      # traegt ihn ein.
+      PROLO_EINLASS: "${PROLO_EINLASS:?PROLO_EINLASS fehlt in bordbuch/.env - sudo prolo geheimnisse --verteilen}"
       # Datenbank und Belege liegen in getrennten Volumes - Belege werden
       # gross, und beim Wiederherstellen will man sie einzeln behandeln koennen.
       BORDBUCH_DB: /daten/bordbuch.db
@@ -56,36 +64,12 @@ services:
       - bordbuch_daten:/daten
       - bordbuch_belege:/belege
 
-    networks:
-      - netz-bordbuch
-
     labels:
       # Welche Gruppen dieses Werkzeug in Authentik erwartet (N-95). Das
-      # Werkzeug sagt es selbst - "prolo einrichten" liest es von hier,
-      # statt eine eigene Liste zu fuehren, die veraltet.
+      # Werkzeug sagt es selbst - "prolo einrichten" liest es von hier.
       # Form: <gruppe>=<wozu>; <gruppe>=<wozu>
       - "prolo.gruppen=bordbuch-admin=alle Fahrtenbuecher sichern und zurueckspielen"
-      - "traefik.enable=true"
-      - "traefik.docker.network=netz-bordbuch"
-      - "traefik.http.services.bordbuch.loadbalancer.server.port=8080"
-      - "traefik.http.routers.bordbuch.rule=Host(`bordbuch.prolo.me`)"
-      - "traefik.http.routers.bordbuch.entrypoints=websecure"
-      - "traefik.http.routers.bordbuch.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.bordbuch.middlewares=authentik@file"
-      - "traefik.http.routers.bordbuch.service=bordbuch"
 
 volumes:
   bordbuch_daten:                   # von aussen: bordbuch_bordbuch_daten
   bordbuch_belege:                  # von aussen: bordbuch_bordbuch_belege
-
-networks:
-# Eigenes Netz je Werkzeug (N-45). Vorher hingen Wiki, Bordbuch, n8n und
-# Authentik im selben Netz "proxy" - und in einem Docker-Netz erreicht jeder
-# Container jeden anderen direkt, ohne Traefik und ohne Anmeldung. Damit war
-# der Weg von n8n (fuehrt angeklickte Ablaeufe mit einem HTTP-Baustein aus,
-# hat Webhook-Pfade ohne Anmeldung) zum Wiki offen. Jetzt gibt es ihn nicht
-# mehr: nur Traefik haengt in allen Netzen, die Werkzeuge in je ihrem.
-#
-# Anlegen, einmalig je Server:  docker network create netz-bordbuch
-  netz-bordbuch:
-    external: true
