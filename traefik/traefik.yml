@@ -49,8 +49,11 @@ entryPoints:
         - vertrauensgrenze@file
         - einlass@file
         - sicherheitskopf@file
-      tls:
-        options: streng@file
+      # TLS-Vorgaben: keine Option hier (N-93). Sie stehen in der Option
+      # "default" in dynamic/sicherheit.yml - nur dort gilt sniStrict auch
+      # fuer Namen, die keinen Router haben. "tls: {}" schaltet TLS fuer
+      # alle Router dieses Eingangs ein, wie vorher.
+      tls: {}
 
 providers:
   docker:

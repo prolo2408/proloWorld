@@ -142,7 +142,17 @@ http:
 
 tls:
   options:
-    streng:
+    # "default", nicht ein eigener Name (N-93). Traefik wertet sniStrict
+    # fuer einen UNBEKANNTEN Namen nur in der Option "default" aus - fuer
+    # ihn gibt es keinen Router, also auch keine Option vom Router oder vom
+    # Eingang. Unter dem Namen "streng" galt sniStrict nur fuer Namen, die
+    # ohnehin einen Router haben. Gemessen mit Traefik 3.6.13: ein fremder
+    # Name und eine Anfrage ganz ohne Namen bekamen einen Handshake mit
+    # dem Notzertifikat und eine 404. Jetzt wird der Handshake verweigert.
+    #
+    # "default" gilt fuer JEDEN Router, der keine andere Option nennt -
+    # darum steht am Eingang in traefik.yml auch keine mehr.
+    default:
       minVersion: VersionTLS12
       # sniStrict: eine Anfrage ohne passenden Servernamen bekommt KEIN
       # Standardzertifikat mehr. Zusammen mit B-27 ist damit der Weg zu

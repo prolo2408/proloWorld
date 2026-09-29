@@ -6231,3 +6231,48 @@ kennt dafür `DISABLE_IPV6`.
 |---|---|
 | `werkzeuge/grenze-pruefen.sh` | 1 neue Prüflinie, grün |
 | `werkzeuge/grenze-gegenprobe.py` | **13 von 13** (1 neue; muss genau an dieser Zeile rot werden) |
+
+## N-93 — `sniStrict` stand in einer Option, die für fremde Namen nie gilt
+
+Beim ersten echten Lauf gefunden. `traefik/dynamic/sicherheit.yml`
+verspricht:
+
+> sniStrict: eine Anfrage ohne passenden Servernamen bekommt KEIN
+> Standardzertifikat mehr. Zusammen mit B-27 ist damit der Weg zu einer
+> Täuschungsseite auf einem fremden Hostnamen zu.
+
+Gemessen mit Traefik 3.6.13 und einem Testzertifikat für `prolo.me`:
+
+| Anfrage | vorher | nachher |
+|---|---|---|
+| `prolo.me` | 200 | 200 |
+| fremder Name `fremd.example` | **Handshake mit dem Notzertifikat, 404** | Handshake verweigert |
+| ganz ohne Namen | **Handshake mit dem Notzertifikat, 404** | Handshake verweigert |
+| TLS 1.1 auf `prolo.me` | — | verweigert |
+
+Die Einstellung stand in einer Option namens `streng`, und der Eingang
+verwies darauf. Für einen **unbekannten** Namen gibt es aber keinen
+Router — also auch keine Option vom Router oder vom Eingang. Traefik
+nimmt dann die Option `default`, und in der stand nichts. `sniStrict`
+galt damit nur für Namen, die ohnehin einen Router haben: genau dort, wo
+es nichts zu verhindern gibt.
+
+Viel Schaden war nicht drin — hinter dem Notzertifikat kam eine 404 —,
+aber eine Sicherheitseigenschaft, die in der Datei behauptet wird und
+nicht gilt, ist schlimmer als eine, die fehlt: man verlässt sich darauf.
+Und das Notzertifikat trägt den Namen `TRAEFIK DEFAULT CERT` — für jeden,
+der nach Traefik-Servern sucht, ein Schild an der Tür.
+
+### Behoben
+
+Die Option heißt `default`. Sie gilt damit für jeden Router, der keine
+andere nennt, **und** für jeden Namen ohne Router; am Eingang steht keine
+Option mehr (`tls: {}`).
+
+### Probe
+
+| | |
+|---|---|
+| `werkzeuge/grenze-pruefen.sh` | 2 neue Prüflinien, grün |
+| `werkzeuge/grenze-gegenprobe.py` | **14 von 14** (1 neue, muss genau an dieser Zeile rot werden) |
+| echter Traefik, vorher/nachher | siehe Tabelle |

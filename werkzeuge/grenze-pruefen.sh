@@ -345,6 +345,20 @@ sag(not uebersehen,
     "kein Werkzeug mit Router blieb ungeprueft (%d angesehen)" % len(geprueft),
     "uebersehen: %s" % ", ".join(uebersehen))
 
+# --- 4b. sniStrict steht dort, wo Traefik es liest (N-93) --------------
+# Fuer einen UNBEKANNTEN Namen gibt es keinen Router, also nur die Option
+# "default". Unter einem anderen Namen galt sniStrict nur fuer Namen, die
+# ohnehin einen Router haben - gemessen: fremder Name -> Notzertifikat, 404.
+sicher = lies("traefik", "dynamic/sicherheit.yml") or ""
+m = re.search(r"^tls:\n  options:\n(?:    #.*\n)*    default:\n((?:      .*\n|\s*\n)+)", sicher, re.M)
+sag(m is not None and re.search(r"^      sniStrict:\s*true\s*$", m.group(1), re.M) is not None,
+    "sniStrict steht in der TLS-Option 'default' (N-93)",
+    "in einer anders benannten Option gilt es fuer fremde Namen nicht")
+statisch_tls = lies("traefik", "traefik.yml") or ""
+sag(not re.search(r"^\s+options:\s*(?!default)\S+@file", statisch_tls, re.M),
+    "der Eingang verweist auf keine andere TLS-Option als 'default'",
+    "sonst gilt fuer die Router etwas anderes als fuer fremde Namen")
+
 # --- 4c. Der Vermittler startet auch ohne IPv6 (N-92) ------------------
 # Ohne ihn kein einziger Router. Auf einem Kern ohne IPv6 bindet er sonst
 # an [::] und startet in Schleife neu - gemessen.

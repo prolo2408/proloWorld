@@ -26,6 +26,11 @@ STACK = os.path.dirname(HIER)
 
 # (Name, Datei, alt, neu, in welcher Pruefzeile es auffallen MUSS)
 MUTATIONEN = [
+    ("sniStrict steht wieder in einer eigenen Option (N-93)",
+     "traefik/dynamic/sicherheit.yml", "    default:\n      minVersion: VersionTLS12",
+     "    streng:\n      minVersion: VersionTLS12",
+     "sniStrict steht in der TLS-Option 'default'"),
+
     ("der Vermittler bindet wieder an IPv6 (N-92)",
      "socket-proxy/docker-compose.yml", "      DISABLE_IPV6: 1\n", "",
      "socket-proxy bindet nur IPv4"),
