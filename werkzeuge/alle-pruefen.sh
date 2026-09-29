@@ -77,6 +77,17 @@ if [ "$SCHNELL" -eq 0 ]; then
   done
   lauf "werkzeuge/prolo-befehle-pruefen.py --gegenprobe" \
        python3 "$HIER/prolo-befehle-pruefen.py" --gegenprobe
+  # Die Gegenproben der Werkzeuge selbst. admin ruft seine aus alle.sh,
+  # bordbuch und www nicht - ohne diese Zeilen liefen sie nur von Hand.
+  for G in "$STACK"/*/tests/gegenprobe.sh "$STACK"/*/tests/gegenprobe.py; do
+    [ -e "$G" ] || continue
+    W=$(basename "$(dirname "$(dirname "$G")")")
+    grep -q "gegenprobe" "$STACK/$W/tests/alle.sh" 2>/dev/null && continue
+    case "$G" in
+      *.sh) lauf "$W/tests/$(basename "$G")" bash "$G" ;;
+      *.py) lauf "$W/tests/$(basename "$G")" python3 "$G" ;;
+    esac
+  done
   # Pruefer mit eingebauter Gegenprobe: erkannt am Schalter, nicht am Namen.
   for P in "$HIER"/*-pruefen.sh; do
     [ -e "$P" ] || continue
