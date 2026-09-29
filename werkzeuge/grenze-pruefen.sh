@@ -137,6 +137,39 @@ sag(0 < int(werte.get("average", 0)) <= 200,
 sag(int(werte.get("amount", 0)) > 0,
     "gleichzeitige Anfragen sind begrenzt (amount=%s)" % werte.get("amount"))
 
+# --- 1c. ... und trifft auch keine Anwendung, die sich nachlaedt (N-79) --
+#
+# Die drei Zeilen darueber waren am Wiki bemessen: eine Seite, die fertig
+# vom Server kommt. Eine Anwendung, die ihre Oberflaeche erst im Browser
+# zusammenbaut, holt ein paar hundert Teile auf einmal - und faellt ein
+# einziges davon weg, bleibt die Seite schwarz.
+#
+# Gemessen mit einem echten Chromium gegen einen Nachbau beider
+# Middlewares: bei burst=150 wurden von einer Seite mit 300 Teilen 28
+# Anfragen abgewiesen und die Oberflaeche kam nicht; bei burst=700 kamen
+# 200, 300, 400 und 600 Teile ohne eine einzige Abweisung durch. In der
+# Spitze feuert ein Browser dabei 134 Anfragen in einer Sekunde.
+sag(int(werte.get("burst", 0)) >= 600,
+    "der Vorrat traegt einen ganzen Seitenaufbau (burst=%s)"
+    % werte.get("burst"),
+    "gemessen: 600 Teile sind 602 Anfragen am Stueck, 150 reichen dafuer nicht")
+sag(int(werte.get("amount", 0)) >= 150,
+    "gleichzeitige Anfragen eines Browsers passen durch (amount=%s)"
+    % werte.get("amount"),
+    "vier abgewiesene von 300 genuegen, damit die Oberflaeche schwarz bleibt")
+
+# Und gemessen wird je Quelladresse, weil es dasteht - nicht, weil es die
+# Vorgabe ist. Dieselbe Regel wie bei traefik.docker.network seit N-45.
+for name, mitte in (("ratenbremse", "rateLimit"),
+                    ("gleichzeitig", "inFlightReq")):
+    block = re.search(r"^    %s:\n(.*?)(?=^    \S|^\S)" % name,
+                      sicher_roh, re.S | re.M)
+    inhalt = block.group(1) if block else ""
+    sag("sourceCriterion" in inhalt and "ipStrategy" in inhalt,
+        "%s misst ausdruecklich je Quelladresse" % name,
+        "ohne sourceCriterion gilt die Vorgabe von Traefik, und die steht "
+        "nirgends bei uns")
+
 # --- 2. Jede Kopfzeile, die Authentik setzen darf, wird vorher geleert ---
 auth = lies("traefik", "dynamic", "authentik.yml") or ""
 gesetzt = [h.strip().lower() for h in

@@ -823,6 +823,10 @@ prolo - ein Einstiegspunkt fuer den Stack unter $STACK
                               ohne Zusatz nur nachsehen (auch: source)
   start|stop|neustart <tool>
   protokoll <tool> [-f]       auch: logs
+  abweisungen [--stunden N]   Was hat der Eingang abgewiesen, und warum?
+                              Liest das Zugriffsprotokoll von Traefik.
+                              Erste Frage, wenn eine Seite beim ersten
+                              Aufruf leer bleibt (N-79, auch: zugriff)
   sichern                     auch: backup
   wiederherstellen            einen gesicherten Stand zurueckholen
     --probe                   nur ueben: auspacken, nachpruefen, nichts
@@ -872,6 +876,8 @@ case "$BEFEHL" in
   quelle|source)              befehl_quelle "$@" ;;
   start|stop|neustart)        root_noetig "$BEFEHL" "$@"; befehl_compose "$BEFEHL" "$@" ;;
   protokoll|logs)             root_noetig protokoll "$@"; befehl_protokoll "$@" ;;
+  abweisungen|zugriff)        root_noetig abweisungen "$@"
+                              exec python3 "$HIER/zugriff.py" "$@" ;;
   neu|new)                    exec "$HIER/neu.sh" "$@" ;;
   netze|netz|networks)        exec "$HIER/netze.sh" "$@" ;;
   suchen|search)              befehl_suchen "$@" ;;

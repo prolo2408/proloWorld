@@ -5297,3 +5297,196 @@ Dafür reicht der bisherige Docker-Ersatz in `prolo-pruefen.sh` nicht: er
 beantwortete `compose config` mit nichts, also sah `volumes.py` gar keine
 Bind-Mounts. `compose config` braucht keinen Daemon und wird darum
 durchgereicht statt erfunden — wie im Prüfer für die Wiederherstellung.
+
+---
+
+## N-79 — Die Bremse war am Wiki bemessen, und n8n blieb schwarz
+
+Gemeldet vom Betreiber, nach einer Woche Benutzung:
+
+> egal auf welche seite ich gehe n8n Bitwarden auth ich immer einmal die
+> seite neu laden muss. Irgenwas wird geladen aber die Seite ist einfach
+> schwart oben steht z.b. n8n mit dem Icon aber erst, wenn ich neu lade
+> kommt der inhalt. Daurrch funktionier z.B. n8n nicht richtig.
+
+Die Beschreibung enthielt die Diagnose schon: **Titel und Symbol waren
+da.** Das HTML-Dokument ist also angekommen; was fehlte, war das, was die
+Seite danach nachlädt. Und es traf genau die drei Werkzeuge, die ihre
+Oberfläche erst im Browser zusammenbauen — n8n, Vaultwarden und die
+Anmeldeoberfläche von Authentik —, und keines der eigenen, die fertige
+Seiten ausliefern.
+
+In unserer Schicht gibt es genau zwei Dinge, die sich anders verhalten,
+je nachdem wie **viele** Anfragen gleichzeitig ankommen: die Ratenbremse
+und die Grenze für gleichzeitige Anfragen, beide aus `N-46`. Und der
+zweite Aufruf ist genau der, bei dem kaum noch Anfragen ankommen, weil
+alles im Browserspeicher liegt.
+
+### Gemessen, nicht vermutet
+
+Ein Nachbau der beiden Middlewares (Token-Eimer `average`/`burst`, Zähler
+für gleichzeitige Anfragen) vor einer Seite, die ihre Oberfläche aus `n`
+Teilen zusammensetzt, geladen mit einem echten Chromium — erst frisch,
+dann nach vier Sekunden noch einmal, genau der Handgriff aus der Meldung:
+
+| Teile | abgewiesen | erster Aufruf | nach dem Neuladen |
+|---:|---:|---|---|
+| 200 | 0 | Oberfläche nach 1,6 s | da |
+| 300 | 28 | **schwarz** | da (0,3 s) |
+| 400 | 97 | **schwarz** | da (0,8 s) |
+| 600 | 219 | **schwarz** | da (1,7 s) |
+
+`average: 50, burst: 150, amount: 40` — der Stand von `N-46`.
+
+Zwei Zahlen aus demselben Lauf erklären den Rest. Ein einzelner Browser
+feuert in der Spitze **134 Anfragen in einer Sekunde**; die Bremse ließ
+50 zu. Und es braucht keinen Sturm: mit der Grenze für gleichzeitige
+Anfragen allein (Ratenbremse aus, `amount: 2`) wurden von 300 Anfragen
+**vier** abgewiesen — die Seite blieb trotzdem schwarz. Fehlt ein Teil,
+wird die Oberfläche nicht gebaut.
+
+> Die Werte waren am Wiki bemessen: einer Seite, die fertig vom Server
+> kommt und rund 15 Anfragen braucht. Gemessen wurde damals, was es schon
+> gab — und was es noch nicht gab, fiel durch. Dieselbe Lehre wie `N-68`,
+> `N-72`, `N-76` und `N-77`, diesmal nicht an einer Prüfzeile, sondern an
+> einer Einstellung.
+
+### Was jetzt kommt
+
+`burst: 700` statt 150, `amount: 200` statt 40 — und `average` bleibt bei
+**50**. Das ist der Kern: `burst` ist ein **einmaliger** Vorrat für einen
+Seitenaufbau, `average` die **Dauerbremse**. Wer in Schleife anklopft,
+braucht den Vorrat auf und hängt danach bei genau denselben 50 Anfragen je
+Sekunde wie vorher. Die Bremse gegen ein Skript ist unverändert; nur der
+erste Schwung ist groß genug für einen Browser.
+
+Mit `burst: 700` kamen dieselben vier Seiten ohne **eine einzige**
+Abweisung durch — Oberfläche nach 1,7 / 2,4 / 3,2 / 4,9 Sekunden.
+
+Dazu steht `sourceCriterion` jetzt ausdrücklich an beiden Middlewares.
+Dass „je Quelladresse" gemessen wird, stand vorher nur im Kommentar. Eine
+Vorgabe, auf die man sich verlässt, ohne sie hinzuschreiben, ist eine
+Annahme — dieselbe Regel wie bei `traefik.docker.network` seit `N-45`.
+
+### Der Prüfer hat gelogen, bevor er half
+
+Beim ersten Durchgang meldete er bei 400 Teilen „schwarz", obwohl **keine
+einzige** Anfrage abgewiesen worden war: er wartete 2,5 Sekunden und die
+Seite war noch nicht fertig. Eine feste Wartezeit misst die Geschwindigkeit
+des Rechners, nicht die Wirkung der Bremse. Gewartet wird jetzt auf die
+Oberfläche.
+
+Und der Prüfer wurde gegengeprobt (§14a): mit einem Eimer von **1** Token
+meldet er schwarz, mit **5000** meldet er die Oberfläche. Ohne diesen
+Beweis heißt „nichts gefunden" nichts.
+
+### Was nicht gemessen werden konnte
+
+Traefik spricht mit einem Browser HTTP/2, der Nachbau nur HTTP/1.1. Über
+HTTP/1.1 öffnet ein Browser sechs Verbindungen — mehr als sechs Anfragen
+lagen im Nachbau also nie gleichzeitig an, und `amount: 40` konnte dort
+gar nicht zuschlagen. Über HTTP/2 liegen sie auf **einer** Verbindung und
+gehen zu vielen gleichzeitig hinaus. Dass eine zu enge Grenze genau dieses
+Bild erzeugt, ist oben gemessen (`amount: 2`); **wie viele** es über
+HTTP/2 tatsächlich sind, ist es nicht. Darum ist `amount: 200` mit
+Abstand gewählt und nicht auf die Kante.
+
+Was auf dem Server wirklich abgewiesen wurde, steht im Zugriffsprotokoll
+von Traefik — und das konnte bisher niemand lesen. Darum `N-80`.
+
+### Prüfung
+
+| | |
+|---|---|
+| `werkzeuge/grenze-pruefen.sh` | **66 ok**, RC=0 (vorher 62) |
+| `werkzeuge/grenze-gegenprobe.py` | **12 von 12** (neu — der Prüfer hatte keine) |
+| netze / regeln / dockerfile | 42 / 6 / 4, RC=0 |
+
+Die Gegenprobe arbeitet auf einer Kopie der **versionierten** Dateien
+(`git ls-files`) in einem Wegwerfordner — so kann weder eine `.env` noch
+eine Datenbank hineingeraten (§21), und der Rückweg ist nie die eigene
+Arbeit (`N-34`, `N-60`). Sie verlangt nicht, dass *irgendeine* Prüfzeile
+rot wird, sondern die **richtige**: sonst deckt eine fremde Zeile die
+Lücke zu.
+
+---
+
+## N-80 — Die Antwort stand seit Tagen im Protokoll, und niemand kam heran
+
+`N-79` ließ sich nur deshalb messen, weil ein Nachbau der beiden
+Middlewares hier im Kleinen gebaut werden konnte. Auf dem Server selbst
+hätte dieselbe Frage — *wurde hier etwas abgewiesen, und was?* — in einer
+Minute beantwortet werden können: Traefik schreibt seit `B-26` jede
+Anfrage samt Statuscode nach `traefik/log/zugriff.log`.
+
+Nur kam niemand heran. Es gab keinen Befehl dafür, `prolo status` erwähnt
+die Datei nicht, und 14.000 JSON-Zeilen liest man nicht von Hand. Die
+Diagnose lag die ganze Zeit auf der Platte.
+
+> Dieselbe Lehre wie `N-64` und `N-69`: was das Werkzeug **in der Hand
+> hatte**, darf es nicht verschweigen. Hier war es nicht einmal
+> verschwiegen — es war nur nicht abholbar.
+
+### Was jetzt kommt
+
+```
+sudo prolo abweisungen [--stunden N]
+```
+
+Liest `zugriff.log` samt der gedrehten Fassungen daneben (`.1`, `.gz`) und
+zeigt je Name, wie viele Anfragen ankamen, wie viele mit **429** abgewiesen
+wurden, wie viele mit **5xx** scheiterten und über wie viele Quelladressen
+das lief — dazu die Pfade, die es am häufigsten traf.
+
+Nach §7: der Satz mit dem **weil** steht je Name, die Erklärung dahinter
+genau **einmal** — sie nennt die Datei, in der die beiden Werte stehen,
+die Werte selbst, und den Befehl, der eine Änderung wirksam macht
+(`N-64`, `N-67`). Wurde nichts abgewiesen, sagt es das und zieht die
+Folgerung mit: dann liegt es *nicht* an der Bremse am Eingang.
+
+### Was dabei nicht auf den Schirm darf
+
+In den Pfaden des Zugriffsprotokolls stehen die Zugangslinks von `www`:
+`/z/<Marke>`, 192 Bit, und wer sie hat, kommt hinein. Ein Werkzeug, das
+Protokollzeilen anzeigt, zeigt sie mit — und die Ausgabe landet im
+nächsten Chat (§22). Darum werden Pfade entschärft, **bevor** irgendetwas
+gedruckt wird: `/z/…` und `/s/…` werden zu `/z/<Marke>`, und jedes
+Wegstück ab 16 Zeichen ohne Punkt wird auf vier Zeichen gekürzt.
+Quelladressen werden nur **gezählt**, nicht genannt.
+
+Zwei Regeln, und die Mutationsprobe verlangt, dass **jede für sich**
+durchfallen kann: nimmt man nur die `/z/`-Regel heraus, fängt die
+Längenregel die Marke noch ab — die Prüfzeile bliebe grün, während die
+Regel weg ist. Darum steht im Testprotokoll ein zweites langes Merkmal
+außerhalb von `/z/`.
+
+Und die Prüfzeile sucht ein **Stück** der Marke, nicht die ganze: die
+Ausgabe kürzt Pfade auf 44 Zeichen, und 44 von 64 Zeichen eines
+Geheimnisses sind auch dann ein Leck, wenn die vollständige Marke nicht
+dasteht. Mit der ganzen Marke als Muster wäre die Zeile grün geblieben,
+während zwei Drittel des Geheimnisses auf dem Schirm stehen — genau die
+Art Prüfzeile, die nichts prüft (§13a).
+
+### Prüfung
+
+| | |
+|---|---|
+| `werkzeuge/zugriff-pruefen.sh` | **18 ok**, RC=0 (neu) |
+| `werkzeuge/zugriff-gegenprobe.py` | **15 von 15** (neu) |
+| `werkzeuge/prolo-pruefen.sh` | 96 ok, RC=0 — kennt den neuen Befehl |
+| `wiki/tests/alle.sh` | 129 ok, 0 Fehler |
+
+Die Zahlen im Testprotokoll sind **von Hand gezählt** (§13): n8n 10
+Anfragen / 3 abgewiesen / 1 Fehler / 2 Quellen, wiki 4 / 0 / 0 / 0,
+www 2 / 1 / 0 / 1. Die gedrehte Kopie daneben muss dieselben Zahlen
+**verdoppeln** — sonst wäre „liest auch `.gz`" eine Behauptung ohne
+Wirkung (`N-38`).
+
+Drei Mutationen entwischten beim ersten Lauf und haben je eine Prüflinie
+nachgezogen: die Längenregel (deckte sich mit der `/z/`-Regel), der
+saubere Lauf (die Mutation hatte nur die halbe Meldung entfernt) und die
+Marke selbst (siehe oben). Ohne die Gegenprobe wären alle drei als
+geprüft durchgegangen.
+
+`prolo-bedienen.html` führt den Befehl jetzt in der Befehlsliste und in
+der Symptomtabelle unter „Die Seite bleibt beim ersten Aufruf schwarz".
