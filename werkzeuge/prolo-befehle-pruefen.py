@@ -114,10 +114,13 @@ MUTATIONEN = [
      lambda w: _tausch(w, "wiki/vorlagen/prolo-bedienen.html",
                        "<code>sudo prolo start traefik</code>",
                        "<code>sudo prolo compose traefik up -d</code>")),
-    ("Geruest-Kommentar nennt prolo compose",
+    # Zielte bis N-97 auf einen Kommentar, den N-61 entfernt hat - und liess
+    # sich seitdem nicht mehr einbauen. Die Gegenprobe war damit rot, und
+    # niemand hat es gemerkt. Jetzt eine Meldung, die prolo selbst ausgibt.
+    ("prolo selbst nennt einen erfundenen Befehl",
      lambda w: _tausch(w, "werkzeuge/prolo",
-                       "  #   sudo prolo start traefik\n",
-                       "  #   sudo prolo compose traefik up -d\n")),
+                       '  melde "  sudo prolo neu <name>"',
+                       '  melde "  sudo prolo anlegen <name>"')),
     ("Changelog nennt prolo sicherung",
      lambda w: _tausch(w, "bordbuch/CHANGELOG.md",
                        "`sudo prolo sichern`", "`sudo prolo sicherung`")),

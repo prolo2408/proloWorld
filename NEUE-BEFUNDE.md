@@ -6442,3 +6442,55 @@ sich seit `N-61` nicht mehr einbauen lässt — sie zielt auf einen
 Kommentar, den es seitdem nicht mehr gibt. Die Gegenprobe war damit seit
 Wochen rot, ohne dass es jemand gemerkt hat. Das ist ein eigener Befund:
 `N-97`.
+
+## N-97 — Eine Gegenprobe war seit `N-61` rot, und niemand hat es gemerkt
+
+Beim Arbeiten an `N-96` gefunden. `prolo-befehle-pruefen.py --gegenprobe`
+meldete:
+
+```
+2. Geruest-Kommentar nennt prolo compose  NICHT EINGEBAUT
+   (Textstelle fehlt in werkzeuge/prolo: '  #   sudo prolo start traefik\n')
+1 von 7 Mutationen blieben unentdeckt
+```
+
+Die Mutation zielte auf einen Kommentar in `werkzeuge/prolo`, den `N-61`
+entfernt hat (`git log -S` nennt den Commit `ad790cc`). Seitdem ließ sie
+sich nicht mehr einbauen, und die Gegenprobe war rot. Gemerkt hat es
+niemand, denn sie läuft nur, wenn jemand sie von Hand aufruft — und
+`prolo-pruefen.sh` ruft nur die Prüfung, nicht ihre Gegenprobe.
+
+Das ist die Lehre aus `§13a` eine Ebene höher: eine Gegenprobe beweist,
+dass eine Prüfung Zähne hat — aber nur, wenn sie läuft. Es gab
+**34** Prüfungen und Gegenproben in diesem Stapel und **keinen** Lauf,
+der alle ausführt.
+
+### Behoben
+
+- **`werkzeuge/alle-pruefen.sh`**: jede `*/tests/alle.sh`, jede
+  `werkzeuge/*-pruefen.sh`, jede Gegenprobe — gefunden am Dateisystem,
+  nicht an einer Liste (`§16`); eine neue Prüfung braucht dort keine
+  Zeile. Eine Tabelle mit Dauer und Ergebnis, bei Rot die ersten
+  Fehlzeilen, und ein Rückgabewert, der nur bei **allem** grün 0 ist.
+  `--schnell` lässt die Gegenproben weg (Minuten statt einer
+  Viertelstunde).
+- **`.github/workflows/pruefen.yml`**: derselbe Lauf bei jedem Push und
+  jedem Pull Request.
+- Die veraltete Mutation zielt jetzt auf eine Meldung, die `prolo` selbst
+  ausgibt (`sudo prolo neu <name>` → `sudo prolo anlegen <name>`).
+
+### Ausgeführt
+
+Der erste Sammellauf, **vor** der Reparatur:
+
+```
+Gegenproben (haben die Pruefungen Zaehne? §13a)
+  ...
+  werkzeuge/prolo-befehle-pruefen.py --gegenprobe      ROT       0s  (Rueckgabe 1)
+        2. Geruest-Kommentar nennt prolo compose      NICHT EINGEBAUT (...)
+  ...
+1 rot: werkzeuge/prolo-befehle-pruefen.py --gegenprobe
+```
+
+33 von 34 grün, und der eine rote genau der seit `N-61`. Danach
+`prolo-befehle-pruefen.py --gegenprobe`: **8 von 8** gefunden.

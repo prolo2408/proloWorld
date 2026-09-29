@@ -1,0 +1,30 @@
+# Jede Pruefung und jede Gegenprobe, bei jedem Push und jedem Pull Request
+# (N-97). Eine Pruefung, die nur laeuft, wenn jemand daran denkt, prueft
+# nichts: eine Gegenprobe war seit N-61 rot, und niemand hat es gemerkt.
+name: Pruefen
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  alles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # age fuer Sicherung und Merkzettel; docker und compose bringt der
+      # Runner mit ("compose config" braucht keinen laufenden Dienst).
+      - name: age
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq age
+      - name: Alle Pruefungen und Gegenproben
+        run: ./werkzeuge/alle-pruefen.sh
