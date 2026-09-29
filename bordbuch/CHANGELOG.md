@@ -10,6 +10,15 @@ erste = etwas Bestehendes bricht.
 
 ---
 
+## 2.6.2 — 2026-09-29
+
+Das Bordbuch antwortet jetzt auch auf `/gesundheit` mit `ok`, ohne
+Anmeldung - wie Wiki, Freigabe und Admin-Seite. Bisher war nur
+`/api/version` frei, und die Gesundheitsprüfung von Docker lief darüber.
+Für die Bedienung ändert sich nichts; der Betrieb prüft jetzt bei allen
+Werkzeugen denselben Pfad (`N-99`).
+
+
 ## 2.6.1 — 2026-09-20
 
 Die Meldung beim Start ohne Einlassmarke schickte in den nächsten

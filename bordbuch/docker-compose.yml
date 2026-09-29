@@ -23,7 +23,7 @@ services:
     # build: nur fuer den Bau aus dem Quellcode. Ist das Abbild einmal
     # veroeffentlicht, holt der Betrieb es von ghcr.io.
     build: .
-    image: ghcr.io/prolo2408/bordbuch:2.6.1     # feste Fassung, nie latest
+    image: ghcr.io/prolo2408/bordbuch:2.6.2     # feste Fassung, nie latest
     container_name: bordbuch
     restart: unless-stopped
     # Rechte nach CLAUDE.md §19 (B-29): keine Linux-Faehigkeiten, keine

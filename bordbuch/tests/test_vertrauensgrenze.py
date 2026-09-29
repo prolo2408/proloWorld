@@ -107,6 +107,16 @@ class Vertrauensgrenze(unittest.TestCase):
     def test_eine_marke_mit_umlaut_gibt_401_und_keinen_serverfehler(self):
         self.assertEqual(self.ruf("/api/state", einlass="gehäim"), 401)
 
+    def test_die_gesundheit_bleibt_frei(self):
+        # N-99: der zweite freie Pfad aus dem Vertrag. Die Gesundheits-
+        # pruefung im Dockerfile und PRUEF_URL rufen ihn am Zugang vorbei auf.
+        self.assertEqual(self.ruf("/gesundheit", einlass=False), 200)
+
+    def test_die_gesundheit_gibt_nichts_preis(self):
+        a = urllib.request.Request("http://127.0.0.1:%d/gesundheit" % self.port)
+        with urllib.request.urlopen(a) as r:
+            self.assertEqual(r.read(), b"ok")
+
     def test_die_fassung_bleibt_frei(self):
         # Die Gesundheitspruefung im Dockerfile und PRUEF_URL aus
         # aktualisierung.conf rufen genau diesen Pfad am Zugang vorbei auf.

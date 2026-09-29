@@ -6579,3 +6579,30 @@ neuem Namen, Container neu anlegen, **dieselben** Volumes.
 15 Prüfungen des Stapels). `wiki/tests/test_fassung.py` erwartet den
 neuen Abbildnamen. Die Gegenproben der drei Werkzeuge: bordbuch vollständig,
 www 17 von 17, admin 18 von 18.
+
+## N-99 — Das Bordbuch hatte als einziges Werkzeug keine `/gesundheit`
+
+Beim Schreiben des Vertragstests für die ausgelagerten Werkzeuge
+gefunden (`U-03`). Der Vertrag sagt: `/gesundheit` antwortet `ok`,
+`/api/version` gibt die Fassung, beide ohne Anmeldung und ohne
+Einlassmarke. Wiki, www und admin halten das ein. Das Bordbuch hatte nur
+`/api/version` frei; die Gesundheitsprüfung im Dockerfile und `PRUEF_URL`
+liefen darüber.
+
+Das funktionierte — aber es war die eine Ausnahme, die man sich merken
+muss. Wer ein Werkzeug über `/gesundheit` anspricht (eine Überwachung,
+die künftige Admin-Seite), bekam beim Bordbuch eine 401.
+
+### Behoben
+
+`EINLASS_FREI = ("/gesundheit", "/api/version")`, `/gesundheit` antwortet
+`ok` als Text wie überall; Dockerfile und `PRUEF_URL` prüfen darüber.
+Fassung **2.6.1 → 2.6.2** an allen drei Stellen.
+
+### Probe
+
+| | |
+|---|---|
+| `bordbuch/tests/alle.sh` | **138** Python-Tests grün (2 neue), Node grün |
+| `bordbuch/tests/gegenprobe.sh` | alle gefunden, 1 neue Mutation (Gesundheit wieder hinter der Marke) |
+| Abbild 2.6.2 mit echtem Docker, nur `PROLO_EINLASS` gesetzt | `healthy` |
