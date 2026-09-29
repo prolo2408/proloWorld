@@ -224,6 +224,16 @@ ein_tool() {
   # nachher - gemessen, nicht vorhergesagt.
   local IDS_VORHER IDS_NACHHER NEU_ANGELEGT=1
   IDS_VORHER=$(container_kennungen)
+  # Die Neustarts JEDES Containers vor dem Lauf (N-89). Docker zaehlt sie
+  # ueber die ganze Lebenszeit eines Containers; wer vor drei Wochen bei
+  # einem Datenbankausfall dreimal neu gestartet ist, traegt die 3 fuer
+  # immer. Gezaehlt wird darum nur, was WAEHREND dieses Laufs dazukommt.
+  NEUSTARTS_VORHER=""
+  local id
+  for id in $IDS_VORHER; do
+    NEUSTARTS_VORHER="$NEUSTARTS_VORHER$id $(docker inspect "$id" --format '{{.RestartCount}}' 2>/dev/null || echo 0)
+"
+  done
   melde "[3/4] docker compose up -d ..."
   tun docker compose up -d
   IDS_NACHHER=$(container_kennungen)
@@ -283,19 +293,24 @@ pruefen() {
 
   ENDE=$(( $(date +%s) + GRENZE ))
   while :; do
-    local alles_gut=1 id zustand gesund neustarts name
+    local alles_gut=1 id zustand gesund neustarts name basis
     for id in $IDS; do
       name=$(docker inspect "$id" --format '{{.Name}}' | sed 's|^/||')
       zustand=$(docker inspect "$id" --format '{{.State.Status}}')
       gesund=$(docker inspect "$id" \
                --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}ohne{{end}}')
       neustarts=$(docker inspect "$id" --format '{{.RestartCount}}')
+      # Nur was seit dem Start dieses Laufs dazukam (N-89). Ein Container,
+      # den "up -d" neu angelegt hat, hat eine neue Kennung, steht nicht
+      # in der Liste und zaehlt von 0.
+      basis=$(printf '%s' "${NEUSTARTS_VORHER:-}" | awk -v i="$id" '$1==i{print $2; exit}')
+      neustarts=$(( neustarts - ${basis:-0} ))
 
       if [ "$zustand" != "running" ]; then alles_gut=0; fi
       if [ "$gesund" = "unhealthy" ]; then alles_gut=0; fi
       if [ "$gesund" = "starting" ]; then alles_gut=0; fi
       if [ "$neustarts" -gt 2 ]; then
-        melde "  FEHLER: $name startet staendig neu ($neustarts Neustarts)."
+        melde "  FEHLER: $name startet staendig neu ($neustarts Neustarts seit Beginn dieses Laufs)."
         return 1
       fi
     done

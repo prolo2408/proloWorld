@@ -87,7 +87,13 @@ if [ "$1" = "inspect" ]; then
     gesund)   ST=running; GE=healthy;   NS=0 ;;
     krank)    ST=running; GE=unhealthy; NS=0 ;;
     startet)  ST=running; GE=starting;  NS=0 ;;
-    neustart) ST=running; GE=healthy;   NS=7 ;;
+    # Dauerneustart: der Zaehler WAECHST, wie bei einem echten Container,
+    # der immer wieder abstuerzt. Ein fester Wert waere ein Container, der
+    # irgendwann einmal neu gestartet ist - das ist "frueher" (N-89).
+    neustart) ST=running; GE=healthy
+              Z="${DOCKER_ZAEHLER:-/tmp/zaehler.$PPID}"
+              NS=$(( $(cat "$Z" 2>/dev/null || echo 7) + 1 )); echo "$NS" > "$Z" ;;
+    frueher)  ST=running; GE=healthy;   NS=5 ;;
     tot)      ST=exited;  GE=ohne;      NS=0 ;;
   esac
   case "$FMT" in
@@ -136,8 +142,20 @@ for lage in krank startet tot; do
 done
 
 rm -f "$T/stack/probe/.stand-erfolgreich.yml"; fassung_setzen 1.0.0
+export DOCKER_ZAEHLER="$T/zaehler"; rm -f "$DOCKER_ZAEHLER"
 echo "$(lauf neustart)" | grep -q 'startet staendig neu' && E=ja || E=nein
 pruefe "Dauerneustart wird benannt" "ja" "$E"
+
+# N-89: ein Container, der FRUEHER neu gestartet ist und jetzt gesund
+# laeuft. Docker zaehlt ueber die ganze Lebenszeit - vorher scheiterte
+# damit JEDER Lauf, samt Versuch zurueckzurollen.
+rm -f "$T/stack/probe/.stand-erfolgreich.yml"; fassung_setzen 1.0.0
+A=$(lauf frueher); R=$?
+pruefe "frueher neu gestartet, jetzt gesund: der Lauf gelingt (N-89)" "0" "$R"
+echo "$A" | grep -q 'startet staendig neu' && E=ja || E=nein
+pruefe "frueher neu gestartet: kein Fehlalarm" "nein" "$E"
+echo "$A" | grep -q 'zurueckgerollt' && E=ja || E=nein
+pruefe "frueher neu gestartet: kein Zurueckrollen" "nein" "$E"
 
 # 2. Erfolg darf nicht die volle Wartezeit brauchen
 rm -f "$T/stack/probe/.stand-erfolgreich.yml"; fassung_setzen 1.0.0
@@ -546,6 +564,7 @@ die Sperre wird beim Aktualisieren nicht gefragt (N-85)|s/if \[ "\$TROCKEN" -eq 
 die Sperre kommt erst nach dem Holen (N-85)|s/if \[ "\$TROCKEN" -eq 0 \] \&\& ! start_pruefen "\$TOOL"; then/if false; then/; s/^  NACHHER=\$(abbild_kennungen)$/  NACHHER=$(abbild_kennungen); if ! start_pruefen "$TOOL"; then return 1; fi/
 "nichts neu angelegt" wird vorhergesagt statt gemessen (N-88)|s/^  if \[ "\$TROCKEN" -eq 0 \] \&\& \[ -n "\$IDS_VORHER" \] \&\& \[ "\$IDS_VORHER" = "\$IDS_NACHHER" \]; then$/  if [ "$TROCKEN" -eq 0 ] \&\& [ "$VORHER" = "$NACHHER" ]; then/
 up -d entfaellt, wenn die Abbilder gleich sind (N-88)|s/^  tun docker compose up -d$/  [ "$VORHER" = "$NACHHER" ] || tun docker compose up -d/
+Neustarts werden ueber die ganze Lebenszeit gezaehlt (N-89)|s/^      neustarts=\$(( neustarts - \${basis:-0} ))$/      neustarts=$(( neustarts - 0 ))/
 MUT
   echo "gefunden: $((N - DURCH))   entwischt: $DURCH"
   [ "$DURCH" -eq 0 ] || exit 1

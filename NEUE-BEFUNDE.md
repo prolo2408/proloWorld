@@ -6018,3 +6018,54 @@ wirklich neu anlegt.
 |---|---|
 | `werkzeuge/aktualisieren-pruefen.sh` | **82 ok** (4 neue; eine alte Prüflinie auf die gemessene Aussage umgestellt) |
 | `… --gegenprobe` | **4 von 4** (2 neue: Vorhersage statt Messung; `up -d` entfällt bei gleichen Abbildern) |
+
+## N-89 — Wer einmal neu gestartet ist, ließ jede Aktualisierung scheitern
+
+Beim Durchsehen gefunden, mit echtem Docker bestätigt. `aktualisieren.sh`
+erkennt einen Dauerabsturz an `RestartCount > 2`. Docker zählt diesen Wert
+aber über die **ganze Lebenszeit** eines Containers — gemessen: ein
+Container, der dreimal abstürzt und dann läuft, zeigt nach 1, 3, 6, 12, 20
+und 35 Sekunden unverändert `3`, und so bleibt es, bis er neu angelegt
+wird.
+
+Ein einziger Datenbankausfall in der Nacht, bei dem ein Werkzeug dreimal
+neu startet, bis Authentik wieder da ist — und von da an scheitert jeder
+`prolo aktualisieren`-Lauf für dieses Werkzeug:
+
+```
+[3/4] Container werden neu gestartet ...
+  FEHLER: probe-probe-1 startet staendig neu (3 Neustarts).
+!!! FEHLGESCHLAGEN - probe wird zurueckgerollt.
+```
+
+Mit echtem Docker so gemessen, bei einem Container, der seit Minuten
+gesund lief und an dem sich nichts geändert hatte. Liegt ein Rückweg vor,
+wird er auch gegangen: die `docker-compose.yml` wird auf den letzten
+erfolgreichen Stand zurückgesetzt — bei einem Werkzeug, das gar kein
+Problem hat. `N-82` hätte genau diesen Zähler bei der Admin-Seite mit
+jedem weggeklickten Browser hochgetrieben.
+
+### Behoben
+
+Vor `docker compose up -d` merkt sich der Lauf die Neustarts jedes
+Containers, und in der Prüfung zählt nur, was **seitdem** dazukommt. Ein
+Container, den `up -d` neu anlegt, hat eine neue Kennung und zählt von 0.
+
+### Gemessen mit echtem Docker
+
+| | vorher | nachher |
+|---|---|---|
+| früher 3× neu gestartet, jetzt gesund, nichts geändert | FEHLER, Rückgabe 1, Zurückrollen | „FERTIG. probe ist aktuell und läuft.", Rückgabe 0 |
+| echter Dauerabsturz (`exit 1`) | FEHLER | FEHLER, „5 Neustarts seit Beginn dieses Laufs", Zurückrollen |
+
+### Probe
+
+Die Attrappe hatte einen **festen** Zählerstand 7 für „Dauerneustart" —
+das ist in Wirklichkeit ein Container, der irgendwann einmal neu gestartet
+ist, also genau der Fall, der kein Fehler sein darf. Jetzt wächst der
+Zähler bei jeder Abfrage, und der feste Wert heißt `frueher`.
+
+| | |
+|---|---|
+| `werkzeuge/aktualisieren-pruefen.sh` | **85 ok** (3 neue) |
+| `… --gegenprobe` | **5 von 5** (1 neue: Zählung über die Lebenszeit) |
