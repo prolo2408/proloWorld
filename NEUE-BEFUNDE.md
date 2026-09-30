@@ -7511,3 +7511,30 @@ auch keine durchgelassen.
 | nachher | **2 ok**, Rückgabe 0; `--gegenprobe` **4 von 4** (nacktes `alpine`, andere Fassung, `latest`, Aufruf über zwei Zeilen) |
 | berührte Prüfungen | `prolo` 101, `wiederherstellen` 41, `sicherung-lauf` 28, `sicherung` 14 ok; Gegenproben `prolo` **23 von 23**, `wiederherstellen` **18 von 18** — mit den angepassten Nachbildungen |
 | echte Sicherung auf dem Prüfserver | `alpine:latest` vorher gelöscht → `prolo sichern` → alle Werkzeuge gesichert, auch `crowdsec`; einziger Fehler `pg_dump` für das dort nicht laufende Authentik; danach liegen nur `alpine:3.22`/`3.22.6` da, **kein** `latest` wurde geholt |
+
+---
+
+## N-109 — Die Bedienseite beschrieb noch das gemeinsame Netz `proxy`
+
+**Gefunden:** beim Einfügen der Zeile für `crowdsec` in die Tabelle „Was
+mitläuft" der Bedienseite. Dort stand zu Traefik: „Legt auch das Netz
+`proxy` an, in dem alle hängen." Das gemeinsame Netz gibt es seit `N-45`
+nicht mehr — und genau seine Abschaffung ist der Punkt: in einem gemeinsamen
+Netz erreicht jeder Container jeden anderen, ohne Traefik und ohne
+Anmeldung. Wer die Seite las, lernte das Gegenteil der Regel.
+
+### Behoben
+
+Die Zeile sagt jetzt, was gilt: Traefik hängt als einziger in allen
+Werkzeugnetzen (`netz-<werkzeug>`), die Werkzeuge erreichen einander nicht.
+Geändert in allen drei Fassungen der Seite — HTML, Quelltext und Suchtext
+in den Kopfdaten —, `<` dort weiter als `<`.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| Suche nach „Netz proxy" in der Seite | vorher 3 Stellen, nachher **0** |
+| Diff | genau 3 Zeilen |
+| `wiki/tests/alle.sh` | grün |
+| im Browser geladen | 0 JS-Fehler; Kopfdaten lesbar, kein `</` im Skriptblock |
