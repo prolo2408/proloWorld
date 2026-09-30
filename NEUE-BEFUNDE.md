@@ -7200,3 +7200,31 @@ Knopf der Admin-Seite antwortet mit 403 — ohne dass eine Prüfung rot wird.
 Gemeint sind alle, die eine Änderung treffen **kann** — und eine Änderung an
 einer Compose-Datei trifft jede Gegenprobe, die diese Datei mutiert.
 Vor dem Push läuft `alle-pruefen.sh`, nicht eine Auswahl.
+
+---
+
+## N-105 — Die Befehlsprobe fand ihre Textstelle nicht mehr
+
+**Gefunden:** beim vollen Lauf von `alle-pruefen.sh` für `N-104`.
+`prolo-befehle-pruefen.py --gegenprobe` meldete 1 von 8 Mutationen „nicht
+eingebaut": sie suchte die ganze Tabellenzeile
+``| ein neues Werkzeug | `sudo prolo neu <name>` |`` in
+`werkzeuge/ANLEITUNG.md`. `A-03` hat die Zeile hinten um den Weg über die
+Compose-Datei verlängert — die Zeile gibt es noch, die Zeichenfolge mit dem
+schließenden Strich nicht.
+
+Dieselbe Ursache wie `N-104`: in `A-03` lief `alle-pruefen.sh` nicht
+ganz, also auch diese Gegenprobe nicht.
+
+### Behoben
+
+Die Mutation greift nur noch den Anfang der Zeile, bis zum Befehl. Das ist
+der Teil, um den es ihr geht; was dahinter steht, darf sich ändern.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `prolo-befehle-pruefen.py --gegenprobe` vorher | 7 von 8, Nr. 3 „NICHT EINGEBAUT" |
+| nachher | **8 von 8** |
+| `prolo-befehle-pruefen.py` | grün |

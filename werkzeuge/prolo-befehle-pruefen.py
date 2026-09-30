@@ -133,8 +133,10 @@ MUTATIONEN = [
                        '  melde "  sudo prolo anlegen <name>"')),
     ("Anleitung nennt prolo anlegen",
      lambda w: _tausch(w, "werkzeuge/ANLEITUNG.md",
-                       "| ein neues Werkzeug | `sudo prolo neu <name>` |",
-                       "| ein neues Werkzeug | `sudo prolo anlegen <name>` |")),
+                       # Nur der Anfang der Zeile: A-03 hat sie hinten
+                       # verlaengert, und die Mutation griff ins Leere (N-105).
+                       "| ein neues Werkzeug | `sudo prolo neu <name>`",
+                       "| ein neues Werkzeug | `sudo prolo anlegen <name>`")),
     ("CLAUDE.md nennt einen erfundenen Befehl",
      lambda w: _tausch(w, "CLAUDE.md", "`prolo sichern`", "`prolo backupjetzt`")),
     # Die Ausnahme fuer das Narbenbuch darf nicht auf andere Dateien
