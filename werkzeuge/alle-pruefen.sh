@@ -14,9 +14,18 @@
 # werkzeuge/*-pruefen.sh, jede Gegenprobe, jedes <werkzeug>/tests/alle.sh.
 # Eine neue Pruefung braucht hier keine Zeile.
 #
-#   ./werkzeuge/alle-pruefen.sh            alles
-#   ./werkzeuge/alle-pruefen.sh --schnell  ohne Gegenproben (Minuten statt
-#                                          einer Viertelstunde)
+#   ./werkzeuge/alle-pruefen.sh              alles (gut eine Stunde)
+#   ./werkzeuge/alle-pruefen.sh --schnell    ohne Gegenproben (Minuten)
+#   ./werkzeuge/alle-pruefen.sh --teil 2/4   nur jede vierte Pruefung, ab
+#                                            der zweiten (N-111)
+#   ./werkzeuge/alle-pruefen.sh --liste      nur die Namen, nichts ausfuehren
+#
+# --teil ist fuer GitHub: dort laufen die Teile nebeneinander, jeder auf
+# einer eigenen Maschine. Am Stueck lief der Lauf in die Zeitgrenze von 45
+# Minuten und wurde abgebrochen - mit lauter gruenen Zeilen davor (N-111).
+# Die Teile werden aus DERSELBEN Liste geschnitten wie der ganze Lauf,
+# reihum nach Nummer: was es gibt, landet in genau einem Teil.
+# werkzeuge/aufteilung-pruefen.sh haelt das fest.
 #
 # Die Ausgabe jeder Pruefung landet in einer Datei; hier steht nur, ob sie
 # gruen war, und bei Rot die letzten Zeilen. Nie durch eine Pipe gelesen
@@ -25,15 +34,41 @@ set -uo pipefail
 
 HIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STACK="$(dirname "$HIER")"
-SCHNELL=0
-[ "${1:-}" = "--schnell" ] && SCHNELL=1
+SCHNELL=0; LISTE=0; TEIL=1; TEILE=1
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --schnell) SCHNELL=1 ;;
+    --liste)   LISTE=1 ;;
+    --teil)
+      if [[ "${2:-}" =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]] \
+         && [ "${BASH_REMATCH[1]}" -le "${BASH_REMATCH[2]}" ]; then
+        TEIL=${BASH_REMATCH[1]}; TEILE=${BASH_REMATCH[2]}; shift
+      else
+        echo "--teil erwartet <nummer>/<anzahl>, die Nummer von 1 bis zur Anzahl - etwa --teil 2/4." >&2
+        exit 2
+      fi ;;
+    *) echo "Unbekannt: $1 - moeglich sind --schnell, --teil <nummer>/<anzahl> und --liste." >&2
+       exit 2 ;;
+  esac
+  shift
+done
 
 PROTOKOLLE=$(mktemp -d)
 ERGEBNIS=()
 ROT=0
+NR=0      # laufende Nummer in der ganzen Liste - daran haengt der Teil
+GELAUFEN=0
+
+abschnitt() { [ "$LISTE" -eq 1 ] || printf '\n%s\n' "$1"; }
 
 lauf() {   # lauf <name> <befehl...>
   local NAME="$1"; shift
+  NR=$((NR + 1))
+  [ $(( (NR - 1) % TEILE + 1 )) -eq "$TEIL" ] || return 0
+  if [ "$LISTE" -eq 1 ]; then
+    printf '%s\n' "$NAME"; return 0
+  fi
+  GELAUFEN=$((GELAUFEN + 1))
   local DATEI="$PROTOKOLLE/$(printf '%s' "$NAME" | tr '/ ' '__').log"
   local START=$SECONDS R
   printf '  %-52s ' "$NAME"
@@ -50,14 +85,14 @@ lauf() {   # lauf <name> <befehl...>
   fi
 }
 
-printf '\nPruefungen der Werkzeuge mit eigenem Code\n'
+abschnitt 'Pruefungen der Werkzeuge mit eigenem Code'
 for A in "$STACK"/*/tests/alle.sh; do
   [ -e "$A" ] || continue
   W=$(basename "$(dirname "$(dirname "$A")")")
   lauf "$W/tests/alle.sh" bash "$A"
 done
 
-printf '\nPruefungen des Stapels\n'
+abschnitt 'Pruefungen des Stapels'
 for P in "$HIER"/*-pruefen.sh; do
   [ -e "$P" ] || continue
   [ "$(basename "$P")" = "alle-pruefen.sh" ] && continue
@@ -66,7 +101,7 @@ done
 lauf "werkzeuge/prolo-befehle-pruefen.py" python3 "$HIER/prolo-befehle-pruefen.py" "$STACK"
 
 if [ "$SCHNELL" -eq 0 ]; then
-  printf '\nGegenproben (haben die Pruefungen Zaehne? §13a)\n'
+  abschnitt 'Gegenproben (haben die Pruefungen Zaehne? §13a)'
   for G in "$HIER"/*-gegenprobe.py; do
     [ -e "$G" ] || continue
     case "$(basename "$G")" in
@@ -97,12 +132,17 @@ if [ "$SCHNELL" -eq 0 ]; then
   done
 fi
 
+if [ "$LISTE" -eq 1 ]; then
+  rm -rf "$PROTOKOLLE"; exit 0
+fi
 printf '\n'
+WAS="Alles"
+[ "$TEILE" -gt 1 ] && WAS="Teil $TEIL von $TEILE"
 if [ "$ROT" -eq 0 ]; then
-  printf 'Alles gruen.\n'
+  printf '%s gruen (%d Pruefungen).\n' "$WAS" "$GELAUFEN"
   rm -rf "$PROTOKOLLE"
   exit 0
 fi
-printf '%d rot: %s\n' "$ROT" "${ERGEBNIS[*]}"
+printf '%s: %d von %d rot: %s\n' "$WAS" "$ROT" "$GELAUFEN" "${ERGEBNIS[*]}"
 printf 'Die ganzen Ausgaben liegen in %s\n' "$PROTOKOLLE"
 exit 1

@@ -7575,3 +7575,55 @@ fest vorgegeben oder nicht — der Fehler war so nicht zu sehen.
 | `auftrag-pruefen.sh` als `pruefer` **vorher** | rot: `compose_pruefen` → `fehler`, Befund leer — wie auf GitHub |
 | nachher als `pruefer` / als root | **101** / **100 ok** (eine Prüfzeile läuft nur ohne root) |
 | `--gegenprobe` als `pruefer` | **31 von 31** (1 neu: „HOME fest auf /root") |
+
+---
+
+## N-111 — Die Prüfung auf GitHub lief in die Zeitgrenze
+
+**Gefunden:** beim Nachsehen, ob die Prüfung nach `N-110` grün ist. Sie war
+es nicht — und rot auch nicht: **abgebrochen**. Jede Zeile bis dahin war
+grün, dann kam nach 45 Minuten die Zeitgrenze des Workflows, mitten in den
+Gegenproben. Drei standen noch aus (`einrichten`, `geheimnisse`,
+`sicherung-lauf`), sie liefen gar nicht.
+
+Gewachsen war der Lauf mit `F-01` und `F-02`: allein die Gegenproben von
+`auftrag-pruefen.sh` (**740 s**) und `crowdsec-pruefen.sh` (**587 s**)
+sind zusammen über 22 Minuten. Am Stück dauert alles auf GitHub rund
+**51 Minuten**.
+
+Ein abgebrochener Lauf ist schlimmer als ein roter: er sieht nach „dauert
+halt" aus, und was nicht lief, meldet niemand. Die Grenze einfach
+hochzusetzen hätte das nur verschoben — beim nächsten Werkzeug wäre sie
+wieder erreicht.
+
+### Behoben
+
+- `alle-pruefen.sh --teil <nummer>/<anzahl>`: nur jede n-te Prüfung der
+  **ganzen** Liste, reihum. Die Teile werden aus derselben Liste geschnitten
+  wie der ganze Lauf — was es gibt, landet in genau einem Teil. Ein
+  unmöglicher Teil (`5/4`) wird abgewiesen, statt still null Prüfungen grün
+  zu melden. Dazu `--liste` (nur die Namen) und am Ende die Zahl der
+  gelaufenen Prüfungen.
+- Der Workflow läuft in **vier Teilen nebeneinander**, jeder auf einer
+  eigenen Maschine. Geschnitten wird aus `strategy.job-index` und
+  `job-total`, nicht aus festen Zahlen: wer einen Teil dazunimmt, ändert nur
+  die Liste unter `matrix`. Ein Sammeljob `alles` ist nur grün, wenn jeder
+  Teil grün ist — mit `if: always()`, sonst stünde er bei einem roten Teil
+  als „übersprungen" da.
+- `werkzeuge/aufteilung-pruefen.sh` hält fest: `--liste` nennt jede Prüfung
+  samt Gegenprobe und führt nichts aus (Attrappen für `bash` und `python3`
+  schreiben mit), 1 bis 7 Teile ergeben je genau die ganze Liste, unmögliche
+  Teile werden abgewiesen, der Workflow schneidet aus `job-index/job-total`
+  und der Sammeljob prüft das Ergebnis.
+
+Lokal bleibt es bei der Regel aus TEIL 0: vor dem Push läuft
+`alle-pruefen.sh` **ganz**. Die Teile sind für GitHub.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `alle-pruefen.sh --liste` | **40** Prüfungen — von Hand gezählt: 4 `tests/alle.sh` + 19 Prüfer + 1 Befehlsprobe + 6 Gegenproben (`.py`) + 1 + 9 mit `--gegenprobe` |
+| `aufteilung-pruefen.sh` | **4 ok**; `--gegenprobe` **8 von 8** |
+| Teile aus den GitHub-Zeiten geschätzt | vier Teile: rund **17 / 13 / 14 / 6** Minuten statt 51 am Stück |
+| `alle-pruefen.sh` ganz, als `pruefer` | **40 von 40 grün**, Rückgabe 0, 4.096 s — der erste Versuch brach ab, weil die Sandbox mitten im Lauf neu startete und Docker verlor; nicht gewertet |
