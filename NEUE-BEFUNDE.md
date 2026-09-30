@@ -7476,3 +7476,38 @@ CrowdSec —, und die Mutation fällt auf.
 | Gleichlauf Seite/Ausführer | gleich |
 | Browser, 19 Ansichten × 3 Breiten × 2 Themen | **0 Mängel** in 114 Messungen, Prüfer-Gegenprobe 7 von 7, Tastatur vollständig, 0 JS-Fehler; die Bilder bei 360 und 1920 px angesehen |
 | **echter Lauf auf dem Prüfserver** | CrowdSec über `prolo start crowdsec` (Startsperre frei: Port nur 127.0.0.1, erklärt), Admin 0.4.0 über `prolo start admin`. Im Browser: Sperren 93.184.216.50 / 24 h → Auftrag → `auftrag.py` → `prolo firewall` → in CrowdSec „von Hand (arthur): E2E vom Pruefserver", 23 h 59 min, danach auf der Seite; eigene Adresse als Teil von 93.184.216.0/24 → abgelehnt, **0** neue Aufträge; „Meine Adresse freigeben" → Freigabeliste `93.184.216.99`; Aufheben mit Rückfrage → in CrowdSec keine Sperre mehr; 0 JS-Fehler. Die Seite zeigte dabei die echte Lage: kein Bouncer („noch nie abgefragt"), keine `auth.log` in dieser Sandbox, 4 gelesene Traefik-Zeilen — und eine Anfrage auf `/wp-login.php` von einer Docker-internen Adresse blieb richtig ungesperrt |
+
+---
+
+## N-108 — Sicherung und Wiederherstellung liefen mit `alpine:latest`
+
+**Gefunden:** als offener Punkt beim Audit notiert, beim Anlegen von
+`crowdsec/` wieder darauf gestoßen (dessen Volumes laufen durch denselben
+Weg). `backup.sh`, `prolo` (zweimal) und `wiederherstellen.sh` (dreimal)
+starten für `tar` in einem Volume ein Hilfsabbild — geschrieben als
+`alpine`, also `alpine:latest`. §19: „Feste Fassungsnummer beim Abbild,
+niemals latest." Ausgerechnet auf dem Weg, der im Ernstfall zählt, hing das
+Ergebnis davon ab, was Docker Hub an diesem Tag unter `latest` liefert.
+
+Die Nachbildungen in `prolo-pruefen.sh` und `wiederherstellen-pruefen.sh`
+erkannten das Abbild wörtlich an `alpine)` — sie hätten jede Fassung und
+auch keine durchgelassen.
+
+### Behoben
+
+- `HILFSABBILD="alpine:3.22.6"` in allen drei Skripten, alle sechs Aufrufe
+  nehmen `"$HILFSABBILD"`.
+- Neuer Prüfer `werkzeuge/abbilder-pruefen.sh`: jedes `docker run` dort
+  (auch über Fortsetzungszeilen) nimmt `"$HILFSABBILD"`, und die Angabe
+  steht überall gleich und mit Ziffern da.
+- Die Nachbildungen erkennen nur noch `alpine:<Ziffern>` — ein Rückfall auf
+  das nackte `alpine` fällt dort zusätzlich auf.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `abbilder-pruefen.sh` **vor** der Korrektur | 6 Aufrufe ohne `$HILFSABBILD`, keine Angabe — Rückgabe 1 |
+| nachher | **2 ok**, Rückgabe 0; `--gegenprobe` **4 von 4** (nacktes `alpine`, andere Fassung, `latest`, Aufruf über zwei Zeilen) |
+| berührte Prüfungen | `prolo` 101, `wiederherstellen` 41, `sicherung-lauf` 28, `sicherung` 14 ok; Gegenproben `prolo` **23 von 23**, `wiederherstellen` **18 von 18** — mit den angepassten Nachbildungen |
+| echte Sicherung auf dem Prüfserver | `alpine:latest` vorher gelöscht → `prolo sichern` → alle Werkzeuge gesichert, auch `crowdsec`; einziger Fehler `pg_dump` für das dort nicht laufende Authentik; danach liegen nur `alpine:3.22`/`3.22.6` da, **kein** `latest` wurde geholt |

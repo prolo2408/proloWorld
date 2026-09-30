@@ -23,6 +23,10 @@ set -uo pipefail
 
 HIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STACK="$(dirname "$HIER")"
+# Das Hilfsabbild fuer tar in Volumes - feste Fassung, nie latest (§19,
+# N-108). Steht gleich in backup.sh, werkzeuge/prolo und
+# werkzeuge/wiederherstellen.sh; werkzeuge/abbilder-pruefen.sh haelt es zusammen.
+HILFSABBILD="alpine:3.22.6"
 BACKUPS="${PROLO_BACKUPS:-/opt/backups}"
 
 PROBE=0; STAND=""; SCHLUESSEL=""; JA=0; TOOLS=()
@@ -450,10 +454,10 @@ for t in $BETROFFEN; do
 
   # --- Volumes: erst der jetzige Stand zur Seite, dann ersetzen --------
   for vol in $V; do
-    docker run --rm -v "$vol":/daten -v "$SICHERHEITSKOPIE/$t":/ab alpine \
+    docker run --rm -v "$vol":/daten -v "$SICHERHEITSKOPIE/$t":/ab "$HILFSABBILD" \
       tar czf "/ab/$vol.tar.gz" -C /daten . >/dev/null 2>&1 \
       || melde "  (kein jetziger Stand von $vol - das Volume gibt es noch nicht)"
-    if docker run --rm -v "$vol":/daten -v "$STANDORDNER/$t":/ein alpine \
+    if docker run --rm -v "$vol":/daten -v "$STANDORDNER/$t":/ein "$HILFSABBILD" \
          sh -c 'rm -rf /daten/..?* /daten/.[!.]* /daten/* 2>/dev/null; \
                 tar xzf "/ein/'"$vol"'.tar.gz" -C /daten' >/dev/null 2>&1; then
       melde "  Volume  $vol"
@@ -510,7 +514,7 @@ for t in $BETROFFEN; do
       FEHLER=1; continue
     fi
     set -- $ORT
-    if docker run --rm -v "$1":/daten -v "$STANDORDNER/$t":/ein alpine \
+    if docker run --rm -v "$1":/daten -v "$STANDORDNER/$t":/ein "$HILFSABBILD" \
          sh -c 'cp "/ein/'"$name"'" "/daten/'"$2"'" && \
                 rm -f "/daten/'"$2"'-wal" "/daten/'"$2"'-shm"' >/dev/null 2>&1; then
       melde "  SQLite  $name  (nach $1:/$2, -wal und -shm entfernt)"

@@ -28,6 +28,10 @@ DATUM=$(date +%Y-%m-%d)
 # Skript im Ablauf pruefen laesst (werkzeuge/sicherung-lauf-pruefen.sh,
 # N-86). Auf dem Server gelten die Vorgaben.
 STACK="${PROLO_STACK:-/opt/stack}"
+# Das Hilfsabbild fuer tar in Volumes - feste Fassung, nie latest (§19,
+# N-108). Steht gleich in backup.sh, werkzeuge/prolo und
+# werkzeuge/wiederherstellen.sh; werkzeuge/abbilder-pruefen.sh haelt es zusammen.
+HILFSABBILD="alpine:3.22.6"
 BACKUPS="${PROLO_SICHERUNGEN:-/opt/backups}"
 BESITZER="${PROLO_BESITZER:-prolo}"
 ZIEL="$BACKUPS/$DATUM"
@@ -156,7 +160,7 @@ rm -f "$2"
   done
 
   for V in $VOLUMES; do
-    docker run --rm -v "$V":/daten -v "$ZIEL/$TOOL":/backup alpine \
+    docker run --rm -v "$V":/daten -v "$ZIEL/$TOOL":/backup "$HILFSABBILD" \
       tar czf "/backup/$V.tar.gz" -C /daten . 2>/dev/null \
       || { echo "  WARNUNG: Volume $V nicht gefunden" >&2; FEHLER=1; }
   done

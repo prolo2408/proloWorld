@@ -53,12 +53,12 @@ esac
 if [ "$1" = "inspect" ]; then echo true; exit 0; fi
 if [ "$1" = "volume" ]; then exit 0; fi
 if [ "$1" = "run" ]; then
-  # -v <volume>:/daten -v <ziel>:/ab alpine <befehl...>
+  # -v <volume>:/daten -v <ziel>:/ab alpine:<fassung> <befehl...>
   VOL=""; AB=""
   while [ $# -gt 0 ]; do
     case "$1" in
       -v) case "$2" in *:/daten) VOL="${2%%:*}" ;; *:/ab) AB="${2%%:*}" ;; esac; shift ;;
-      alpine) shift; break ;;
+      alpine:[0-9]*) shift; break ;;   # nur mit fester Fassung (N-108)
     esac
     shift
   done

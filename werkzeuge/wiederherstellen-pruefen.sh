@@ -47,7 +47,7 @@ if [ "$1" = "run" ]; then
     case "$1" in
       -v) case "$2" in *:/daten) VOL="${2%%:*}" ;; *:/ein) EIN="${2%%:*}" ;;
                        *:/ab) AB="${2%%:*}" ;; esac; shift ;;
-      alpine) shift; break ;;
+      alpine:[0-9]*) shift; break ;;   # nur mit fester Fassung (N-108)
     esac
     shift
   done
