@@ -41,7 +41,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 
 PORT = int(os.environ.get("ADMIN_PORT", "8080"))
 DATEN = os.environ.get("ADMIN_DATEN", "/daten")
@@ -800,6 +800,10 @@ table.auftraege td.wann{white-space:nowrap}
 
 .tabbar{display:none}
 @media (max-width:900px){
+  /* §3: am Handy nichts unter 12 px. Die 10-11 px fuer Labels, Marker und
+     Tabellenkoepfe gelten am Schreibtisch - am Handy waren es 296 Stellen
+     auf 14 Ansichten, im Browser gemessen (N-102). */
+  thead th, dl.fakten dt, dl.konto dt, .marker, .kpi .sub, .feature .sub{font-size:12px}
   .zwei{grid-template-columns:1fr}
   .huelle{grid-template-columns:1fr}
   .seite{display:none}

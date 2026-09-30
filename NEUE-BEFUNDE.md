@@ -6995,3 +6995,25 @@ Und ein Fund, der älter ist als dieser Umbau: am Handy steht Schrift unter
 | Stapelprüfungen | `grenze` 73, `netze` 42, `sicherung` 14, `geheimnisse` 161, `regeln`, `dockerfile`, `prolo-befehle`: grün; `volumes.py`: `auftraege/erledigt` gesichert, `auftraege/eingang` erklärt |
 | Browser (Kratzblock), 14 Ansichten × 360/768/1920 × dunkel/hell = 84 Messungen | kein seitliches Scrollen, nichts ragt aus einer Karte, **kein Kontrast unter 4,5:1** (oklch umgerechnet), Klickflächen ≥ 44 × 44; der Prüfer findet **5 von 5** eingebauten Mängeln; Anhalten fragt, „Abbrechen" legt nichts ab; alle Bedienelemente per Tab erreichbar, alle mit Fokusrahmen; 0 JavaScript-Fehler |
 | echter Lauf auf dem Prüfserver | `prolo aktualisieren admin` baut 0.2.0, Einhängepunkte `eingang` rw / `erledigt` ro; im Browser: **Neu starten** www → Auftrag → `auftrag.py` → `prolo neustart www` → Container neu gestartet, Seite springt von „wartet" auf „erledigt"; **Anhalten** → Container weg, www steht als „angehalten" in der Liste; **Starten** von dort → läuft wieder; Protokoll von wiki: 200 echte Zeilen über den Vermittler; admin anhalten: gesperrt; `auftrag.py liste` nennt alle vier mit `arthur` |
+
+## N-102 — Am Handy stand auf der Admin-Seite Schrift unter 12 px
+
+§3: „Handy: nichts unter 12 px." Die Admin-Seite hatte seit 0.1 am Handy
+dieselben Größen wie am Schreibtisch: Tabellenköpfe 10 px, Marker,
+Beschriftungen (`dt`) und Unterzeilen der Kennzahlen 11 px. Aufgefallen
+bei der Browserabnahme von `A-02` — der Prüfer misst seitdem die
+Schriftgröße jedes Textknotens bei 360 px, und seine eigene Gegenprobe
+(eine eingebaute 10-px-Zeile) findet er.
+
+Behoben in einer Regel im Handy-Abschnitt; am Schreibtisch bleibt es bei
+10–11 px für Labels (§3). Admin **0.2.1**.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| Browser, 14 Ansichten × 3 Breiten × 2 Themen | vorher **296** Stellen unter 12 px, nachher **0** Mängel jeder Art; Prüfer-Gegenprobe 5 von 5 |
+| `admin/tests/alle.sh` | grün, Fassung 0.2.1 an drei Stellen |
+
+Nicht gemessen: Wiki, Bordbuch und www. Sie ziehen in eigene
+Repositorys (`U-04`); dort gehört dieselbe Messung als erster Befund hin.

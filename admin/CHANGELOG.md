@@ -1,3 +1,8 @@
+# 0.2.1
+
+- Am Handy keine Schrift mehr unter 12 px (§3): Tabellenkoepfe, Marker,
+  Beschriftungen und Unterzeilen waren dort 10-11 px (N-102).
+
 # 0.2.0
 
 - **Bedienen** (A-02): Starten, Neu starten, Anhalten, Pruefen,
