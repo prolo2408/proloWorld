@@ -14,6 +14,7 @@ import tempfile
 import threading
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import ThreadingHTTPServer
 
@@ -403,8 +404,9 @@ class TestBedienen(unittest.TestCase):
     def test_werkzeugseite_zum_bedienen(self):
         kode, text, _ = self.hol("/werkzeug/wiki", self.BEDIENEN)
         self.assertEqual(kode, 200)
-        for w in ("neustart", "aktualisieren", "pruefen", "stop"):
+        for w in ("neustart", "aktualisieren", "pruefen", "stop", "start"):
             self.assertIn('name="art" value="%s"' % w, text)
+        self.assertIn("Konfiguration uebernehmen", text)
         self.assertIn('data-frage="wiki anhalten?', text)
         # Das Protokoll ist da - und maskiert.
         self.assertIn("gestartet", text)
@@ -458,6 +460,180 @@ class TestBedienen(unittest.TestCase):
         self.assertIn('value="netz_anlegen"', text)
         kode, _, kopf = self.hol("/auftrag", self.BEDIENEN, b"art=netz_anlegen&netz=netz-neu")
         self.assertEqual(kode, 303)
+
+
+# ------------------------------------------------ Compose einwerfen (A-03)
+COMPOSE = "services:\n  app:\n    image: hersteller/app:1.2.3\n    ports:\n      - \"8000:8000\"\n"
+
+
+class TestComposePruefen(unittest.TestCase):
+    def kode(self, art, felder):
+        with self.assertRaises(server.Antwort) as f:
+            server.auftrag_pruefen(art, felder)
+        return f.exception
+
+    NEU = {"name": "uptime", "compose": COMPOSE, "dienst": "app", "port": "8000",
+           "netz": "", "geteilt": "", "anmeldung": "authentik", "grund": "",
+           "werte": {"TZ": "Europe/Berlin"}}
+
+    def test_pruefen_gueltig_und_ungueltig(self):
+        self.assertEqual(server.auftrag_pruefen("compose_pruefen", {"name": "uptime", "compose": COMPOSE}),
+                         {"name": "uptime", "compose": COMPOSE})
+        for felder in ({"name": "uptime", "compose": "   "},
+                       {"name": "Uptime", "compose": COMPOSE},
+                       {"name": "uptime", "compose": "x" * (256 * 1024 + 1)}):
+            with self.subTest(felder=str(felder)[:40]):
+                self.assertEqual(self.kode("compose_pruefen", felder).kode, 400)
+
+    def test_anlegen_gueltig(self):
+        self.assertEqual(server.auftrag_pruefen("neu", dict(self.NEU)), self.NEU)
+
+    def test_anlegen_ungueltig(self):
+        for aenderung, im_text in (({"anmeldung": ""}, "§17a"),
+                                   ({"anmeldung": "eigene", "grund": ""}, "N-59"),
+                                   ({"netz": "netz-anderes", "geteilt": ""}, "N-62"),
+                                   ({"port": "80a"}, "Port"),
+                                   ({"port": "70000"}, "Port"),
+                                   ({"dienst": "a b"}, "Dienst"),
+                                   ({"grund": "x\ny", "anmeldung": "eigene"}, "Grund"),
+                                   ({"werte": {"DB_PASSWORD": "x"}}, "Geheimnisse"),
+                                   ({"werte": {"TZ": "a'b"}}, "TZ")):
+            with self.subTest(aenderung=aenderung):
+                a = self.kode("neu", dict(self.NEU, **aenderung))
+                self.assertEqual(a.kode, 400)
+                self.assertIn(im_text, a.text)
+        # Das eigene Netz braucht keinen Grund - es ist keines, das man teilt.
+        server.auftrag_pruefen("neu", dict(self.NEU, netz="netz-uptime"))
+
+
+class TestAnlegenAusPruefung(unittest.TestCase):
+    def setUp(self):
+        self.alt = (server.EINGANG, server.ERLEDIGT)
+        buch()
+
+    def tearDown(self):
+        server.EINGANG, server.ERLEDIGT = self.alt
+
+    def pruefung(self, kennung, gefahren=(), compose=COMPOSE):
+        erledigt(kennung, art="compose_pruefen", name="uptime", status="ok",
+                 befund={"ok": True, "dienste": [], "vorschlag": {}, "gefahren": list(gefahren),
+                         "variablen": [{"name": "TZ", "geheim": False},
+                                       {"name": "DB_PASSWORD", "geheim": True}]})
+        with open(os.path.join(server.ERLEDIGT, kennung + ".compose"), "w") as f:
+            f.write(compose)
+
+    def test_die_gepruefte_datei_wird_angelegt_nicht_die_aus_dem_formular(self):
+        self.pruefung("20260101-100000-00000001")
+        f = server.anlegen_felder({"pruefung": ["20260101-100000-00000001"],
+                                   "dienst": ["app"], "port": ["8000"], "netz_wahl": ["neu"],
+                                   "netz": ["netz-fremd"], "anmeldung": ["authentik"],
+                                   "compose": ["services: {boese: {privileged: true}}"]})
+        self.assertEqual(f["compose"], COMPOSE)
+        self.assertEqual((f["name"], f["netz"], f["geteilt"]), ("uptime", "", ""))
+
+    def test_werte_nur_fuer_genannte_nicht_geheime_variablen(self):
+        self.pruefung("20260101-100000-00000003")
+        f = server.anlegen_felder({"pruefung": ["20260101-100000-00000003"],
+                                   "wert_TZ": ["Europe/Berlin"], "wert_DB_PASSWORD": ["abgeschrieben"],
+                                   "wert_FREMD": ["x"]})
+        self.assertEqual(f["werte"], {"TZ": "Europe/Berlin"})
+
+    def test_mit_gefahren_wird_nichts_angelegt(self):
+        self.pruefung("20260101-100000-00000002", gefahren=[{"dienst": "app", "was": "privileged"}])
+        with self.assertRaises(server.Antwort) as f:
+            server.anlegen_felder({"pruefung": ["20260101-100000-00000002"]})
+        self.assertEqual(f.exception.kode, 400)
+
+    def test_ohne_pruefung_nichts(self):
+        for k in ("", "../erledigt/x", "20260101-100000-0000000f"):
+            with self.subTest(k=k):
+                with self.assertRaises(server.Antwort) as f:
+                    server.anlegen_felder({"pruefung": [k]})
+                self.assertEqual(f.exception.kode, 400)
+
+
+class TestComposeSeiten(TestBedienen):
+    """Dieselbe Attrappe wie beim Bedienen, andere Wege."""
+
+    def test_die_seite_nur_fuer_den_betrieb(self):
+        kode, _, _ = self.hol("/neu", self.SEHEN)
+        self.assertEqual(kode, 403)
+        kode, text, _ = self.hol("/neu", self.BEDIENEN)
+        self.assertEqual(kode, 200)
+        self.assertIn('name="compose"', text)
+        _, text, _ = self.hol("/werkzeuge", self.BEDIENEN)
+        self.assertIn('href="/neu"', text)
+        _, text, _ = self.hol("/werkzeuge", self.SEHEN)
+        self.assertNotIn('href="/neu"', text)
+
+    def test_pruefen_legt_die_datei_zeichengenau_ab(self):
+        daten = urllib.parse.urlencode({"name": "uptime", "compose": COMPOSE}).encode()
+        kode, _, kopf = self.hol("/neu/pruefen", self.BEDIENEN, daten)
+        self.assertEqual(kode, 303)
+        k = kopf["Location"][len("/auftrag/"):]
+        with open(os.path.join(server.EINGANG, k + ".json")) as f:
+            d = json.load(f)
+        self.assertEqual((d["art"], d["name"], d["compose"]), ("compose_pruefen", "uptime", COMPOSE))
+
+    def test_pruefen_nicht_von_fremder_seite_und_nicht_fuer_seher(self):
+        daten = urllib.parse.urlencode({"name": "uptime", "compose": COMPOSE}).encode()
+        kode, _, _ = self.hol("/neu/pruefen", self.BEDIENEN, daten, ursprung="https://x.example")
+        self.assertEqual(kode, 403)
+        kode, _, _ = self.hol("/neu/pruefen", self.SEHEN, daten)
+        self.assertEqual(kode, 403)
+        self.assertEqual(self.eingang(), [])
+
+    def befund(self, kennung, gefahren=()):
+        erledigt(kennung, art="compose_pruefen", name="uptime", status="ok",
+                 befund={"ok": True, "name_frei": True, "gefahren": list(gefahren),
+                         "vorschlag": {"dienst": "app", "port": "8000"},
+                         "dienste": [{"name": "app", "abbild": "hersteller/app:1.2.3",
+                                      "ports": [{"ziel": "8000"}], "expose": []},
+                                     {"name": "db", "abbild": "postgres:16", "ports": [],
+                                      "expose": [], "hilfsdienst": True}],
+                         "volumes": ["uptime_daten"], "binds": [],
+                         "variablen": [{"name": "DB_PASSWORD", "geheim": True}]})
+        with open(os.path.join(server.ERLEDIGT, kennung + ".compose"), "w") as f:
+            f.write(COMPOSE)
+
+    def test_der_befund_mit_formular(self):
+        self.befund("20260101-110000-00000011")
+        kode, text, _ = self.hol("/auftrag/20260101-110000-00000011", self.BEDIENEN)
+        self.assertEqual(kode, 200)
+        self.assertIn('action="/neu/anlegen"', text)
+        self.assertIn('<option value="app" data-port="8000" selected>', text)
+        self.assertIn('value="authentik" required', text)
+        self.assertNotIn('value="authentik" required checked', text)   # ohne Vorgabe
+        self.assertIn("DB_PASSWORD", text)
+
+    def test_der_befund_mit_gefahr_ohne_formular_und_maskiert(self):
+        self.befund("20260101-110000-00000012",
+                    gefahren=[{"dienst": "app", "was": "haengt /<script>alert(4)</script> vom Server ein"}])
+        _, text, _ = self.hol("/auftrag/20260101-110000-00000012", self.BEDIENEN)
+        self.assertIn("Wird nicht angelegt", text)
+        self.assertNotIn('action="/neu/anlegen"', text)
+        self.assertNotIn("<script>alert(4)", text)
+        self.assertIn("&lt;script&gt;alert(4)", text)
+
+    def test_anlegen_legt_einen_neu_auftrag_ab(self):
+        self.befund("20260101-110000-00000013")
+        daten = urllib.parse.urlencode({"pruefung": "20260101-110000-00000013", "dienst": "app",
+                                        "port": "8000", "netz_wahl": "neu",
+                                        "anmeldung": "authentik"}).encode()
+        kode, _, kopf = self.hol("/neu/anlegen", self.BEDIENEN, daten)
+        self.assertEqual(kode, 303)
+        k = kopf["Location"][len("/auftrag/"):]
+        with open(os.path.join(server.EINGANG, k + ".json")) as f:
+            d = json.load(f)
+        self.assertEqual((d["art"], d["name"], d["dienst"], d["port"], d["netz"], d["anmeldung"]),
+                         ("neu", "uptime", "app", "8000", "", "authentik"))
+        self.assertEqual(d["compose"], COMPOSE)
+
+    def test_nach_dem_anlegen_ist_starten_der_naechste_griff(self):
+        erledigt("20260101-120000-00000021", art="neu", name="uptime", status="ok", rueckgabe=0)
+        _, text, _ = self.hol("/auftrag/20260101-120000-00000021", self.BEDIENEN)
+        self.assertIn('name="art" value="start"', text)
+        self.assertIn('name="werkzeug" value="uptime"', text)
 
 
 if __name__ == "__main__":

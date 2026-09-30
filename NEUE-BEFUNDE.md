@@ -7079,3 +7079,80 @@ Prüflinie, eine eigene Mutation.
 | `einrichten-pruefen.sh --gegenprobe` (Nicht-root) | **18 von 18** (1 neu: die Schranke lässt 2.20.0 durch) |
 | n8n, echtes `docker compose config` | `ports`: keine; Netz `netz-n8n` |
 | `grenze` 73, `netze` 42, `sicherung` 14, `aktualisieren` 85, `prolo` 101 ok, `regeln`, `prolo-befehle` | grün |
+
+## A-03 — Eine Compose-Datei einwerfen, und das Werkzeug wird gehostet
+
+Der Wunsch in einem Satz: *„eine grafische Oberfläche, wo ich ein docker
+compose reinwerfe, und es wird passend gehostet — Netze und alles will ich
+trotzdem selbst anpassen können."*
+
+### Der Weg
+
+1. **Einwerfen** (Admin: *Werkzeuge* → *Werkzeug anlegen*): Name und die
+   `docker-compose.yml` aus der Doku des Herstellers.
+2. **Prüfen** — ein Auftrag ohne Nebenwirkung. `werkzeuge/compose_befund.py`
+   liest die Datei mit `docker compose config` (nicht mit einem eigenen
+   YAML-Leser) und sagt: Dienste, Abbilder, Ports, Volumes, Bind-Mounts,
+   `env_file`, Variablen `${…}` mit Vorgabe — und **Gefahren**:
+   `privileged`, `network_mode: host`/`container:`, `pid`/`ipc`/`uts`/
+   `userns_mode`/`cgroup: host`, `cap_add`, `devices`, abgeschaltete
+   Schutzprofile, der Docker-Socket, jeder Pfad vom Server, der ganze
+   Werkzeugordner, `build:`, `latest`, fremde Volumes. Er schlägt vor, zu
+   welchem Dienst Traefik führt (Datenbanken und ähnliche Hilfsdienste
+   zählen nicht) und auf welchem Port — **nur** wenn das eindeutig ist.
+3. **Bestätigen**: Dienst, Port, Netz (eigenes — Vorgabe — oder ein
+   vorhandenes, dann mit Grund), Anmeldung (**ohne Vorgabe**, §17a), Werte
+   für die nicht geheimen Variablen (mit der Vorgabe des Herstellers
+   vorbelegt). Angelegt wird **genau die Datei, die geprüft wurde** — sie
+   liegt beim Prüfauftrag, das Formular kann sie nicht austauschen.
+4. **Anlegen** über `prolo neu <name> --compose <datei>`:
+   - die Herstellerdatei **zeichengenau**;
+   - die override-Datei: eigenes Netz **plus** das Projektnetz (sonst
+     erreicht die App ihre Datenbank nicht mehr), Route, Zertifikat,
+     Anmeldung, Grenzen, und `ports: !reset []` an **jedem** Dienst mit
+     Port (`N-103`) — eine Datenbank auf 5432 für die ganze Welt ist der
+     häufigste Fund in fremden Compose-Dateien;
+   - `sicherung.conf` mit **allen** Volumes (Laufzeitnamen) und Ordnern,
+     ein Hinweis bei einer Datenbank im Volume;
+   - `.env` (0600): geheime Variablen **gewürfelt** — ein Passwort aus der
+     Beispieldatei ist eines, das im Internet steht —, in der
+     `geheimnisse.conf` vermerkt und sofort im verschlüsselten Merkzettel;
+     die übrigen aus dem Formular;
+   - gleich danach die Startsperre, gemessen an der zusammengesetzten
+     Konfiguration.
+5. **Starten**, und bei neuem Netz Traefik „Konfiguration übernehmen" —
+   ein neuer Knopf für laufende Werkzeuge (`prolo start`), denn „Neu
+   starten" nimmt kein neues Netz mit (`N-58`).
+
+**Gefahren:** aus der Admin-Seite wird so etwas **nie** angelegt — sie
+ist die Stelle, an der man am ehesten hereinkommt, und das wäre der Weg zu
+root. Auf dem Server fragt `prolo neu` einzeln nach; die Antwort muss
+wörtlich `ja, gefaehrlich` sein, ohne Terminal wird nichts angelegt.
+Geheime Variablen kommen nie über einen Auftrag: Seite und Ausführer
+lehnen Werte für `…PASS/SECRET/KEY/TOKEN/SALT/CREDENTIAL…` ab.
+
+### Nebenbei gefunden und behoben
+
+- `prolo neu` fiel bei fehlendem Port **still auf 8080** zurück: die
+  Rückfrage scheitert ohne Terminal in einer Subshell, und danach griff
+  die alte Vorgabe (§11). Jetzt: Port aus dem gewählten Dienst, sonst
+  Abbruch mit `--port`.
+- Ein vorhandenes Netz ließ sich mit `--netz` **ohne Grund** teilen — der
+  Grund wurde nur in der Rückfrage verlangt. Jetzt `--geteilt <grund>`,
+  Pflicht (`N-62`).
+- Die override-Datei nahm dem Dienst das Projektnetz: wer nur ein Netz
+  nennt, nimmt alle anderen. Bei einer Herstellerdatei mit Datenbank war
+  die dann weg.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `neu-pruefen.sh` | **145 ok** (vorher 112): zwei Dienste mit Ports, `env_file`, Variablen → Herstellerdatei zeichengenau, **kein** Port veröffentlicht, App in `default` und `netz-zweiapp`, Datenbank nur in `default`, Volumes mit Laufzeitnamen, Ordner, Datenbank-Hinweis, `.env` 0600, Geheimnis gewürfelt (≥ 40 Zeichen) und **nicht** in der Ausgabe, Wert aus `--wert`, Konfiguration vollständig, Startsperre frei, `volumes.py` ohne Lücke; mehrdeutig → nichts; zwei Ports → keine stille 8080; Gefahr aus der Seite / ohne Terminal → nichts; Geheimnis per `--wert` → nichts; kaputte Datei → Wortlaut von docker; fremdes Netz ohne Grund → nichts |
+| `neu-gegenprobe.py` | **37 von 37** (10 neu). Eine davon war zuerst falsch gebaut: sie setzte 8080 in der Meldungszeile, der Abbruch danach blieb stehen — sie prüfte nichts und „entwischte". Jetzt trifft sie die Zeile, die abbricht. |
+| `auftrag-pruefen.sh` | **77 ok**: Prüfauftrag ruft `prolo` nicht, Befund von Hand, Datei zeichengenau daneben, Gefahren im Befund; `neu` bekommt Datei, Dienst, Port, Netz, Wert — die Datei war während des Aufrufs da und ist danach weg; 10 Ablehnungen (Name vorhanden, keine Anmeldung, eigene ohne Grund, fremdes Netz ohne Grund, Port 70000, Dienst mit Leerzeichen, leere Datei, Geheimnis als Wert, Hochkomma, Werte als Text) erreichen `prolo` nicht |
+| `auftrag-pruefen.sh --gegenprobe` | **22 von 22** (5 neu) |
+| `admin/tests` | **105** Tests; `gegenprobe.sh` **35 von 35** (6 neu: Gefahr anlegbar, Datei aus dem Formular, Seher werfen ein, eigene ohne Grund, Gefahr ungefiltert, Anmeldung mit Vorgabe) |
+| Browser, 18 Ansichten × 3 Breiten × 2 Themen | **0 Mängel** in 108 Messungen, nachdem die Gefahrenliste bei 360 px nicht mehr auf 515 px schob; der Prüfer misst bei einem Feld im Label das Label. Auf dem Bild — nicht in einer Messung — standen die Formularfelder mit halben Bildschirmen Luft untereinander (`flex: 1 1 220px` in einer Spalte ist eine Höhe); behoben |
+| **echter Lauf auf dem Prüfserver** | im Browser `traefik/whoami:v1.10.3` mit `"8081:80"` eingeworfen → Vorschlag `whoami`/`80` → angelegt (Herstellerdatei mit `8081:80` unverändert, override mit `!reset`, Startsperre frei) → gestartet → bei Traefik „Konfiguration übernehmen" (hängt danach in `netz-whoami`) → `https://whoami.prolo.me` über Traefik: **200**, Antwort von `whoami`; `127.0.0.1:8081`: **keine Antwort** |
+| Stapelprüfungen | `grenze` 73, `netze` 42, `sicherung` 14, `prolo` 101, `einrichten` 38, `geheimnisse` 161, `dockerfile`, `regeln`, `prolo-befehle` (42 Befehle): grün |

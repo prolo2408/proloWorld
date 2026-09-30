@@ -33,7 +33,7 @@
 services:
   admin:
     build: .
-    image: prolo-admin:0.2.1          # feste Fassung, nie latest (§19)
+    image: prolo-admin:0.3.0          # feste Fassung, nie latest (§19)
     container_name: admin
     restart: unless-stopped
 

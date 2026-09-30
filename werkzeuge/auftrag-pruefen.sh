@@ -31,6 +31,7 @@ aufbauen() {   # aufbauen <wurzel> [datei-mit-auftrag.py]
   local S="$1"
   rm -rf "$S"; mkdir -p "$S/werkzeuge"
   cp "${2:-$HIER/auftrag.py}" "$S/werkzeuge/auftrag.py"
+  cp "$HIER/compose_befund.py" "$S/werkzeuge/"
   local w
   for w in traefik admin; do
     mkdir -p "$S/$w"; printf 'services: {}\n' > "$S/$w/docker-compose.yml"
@@ -63,6 +64,13 @@ D="$(dirname "$0")"
 printf '%s\n' "$*" >> "$D/.aufrufe"
 env | grep -E '^(GEHEIM|PROLO_AUFTRAG)=' | sort >> "$D/.umgebung"
 echo "prolo-attrappe: $*"
+# A-03: bei "neu" die Compose-Datei festhalten, solange es sie gibt - danach
+# muss sie weg sein (sie lag nur fuer diesen Aufruf da).
+if [ "$1" = neu ]; then
+  for ((i = 1; i <= $#; i++)); do
+    if [ "${!i}" = --compose ]; then j=$((i + 1)); cp "${!j}" "$D/.compose-kopie"; echo "${!j}" > "$D/.compose-pfad"; fi
+  done
+fi
 case "$(cat "$D/.verhalten" 2>/dev/null)" in
   fehler)   echo "etwas ging schief" >&2; exit 3 ;;
   schlafen) sleep 60 & echo $! > "$D/.kind"; wait ;;
@@ -205,7 +213,7 @@ FAELLE
   # --- Was verworfen wird: die Datei selbst taugt nicht ---------------
   printf '{"art":"start","werkzeug":"wiki"}' > "$T/draussen.json"
   K=$(kennung); ln -s "$T/draussen.json" "$S/admin/auftraege/eingang/$K.json"
-  K2=$(kennung); { printf '{"art":"start","werkzeug":"wiki"}'; head -c 300000 /dev/zero | tr '\0' ' '; } \
+  K2=$(kennung); { printf '{"art":"start","werkzeug":"wiki"}'; head -c 700000 /dev/zero | tr '\0' ' '; } \
     > "$S/admin/auftraege/eingang/$K2.json"
   printf '{"art":"start","werkzeug":"wiki"}' > "$S/admin/auftraege/eingang/hallo.json"
   printf 'kein json' > "$S/admin/auftraege/eingang/$(kennung).json"
@@ -237,6 +245,59 @@ FAELLE
   abarbeiten "$S"
   pruefe "eine frische halbe Datei bleibt liegen, eine alte nicht" "$K.neu " "$(eingang "$S")"
   rm -f "$S/admin/auftraege/eingang/$K.neu"
+
+  # --- Compose einwerfen (A-03) ----------------------------------------
+  : > "$S/werkzeuge/.aufrufe"
+  local CJ; CJ=$(python3 -c 'import json; print(json.dumps("services:\n  app:\n    image: x/app:1.2.3\n    ports: [\"8000:8000\"]\n  db:\n    image: postgres:16.10-alpine\n"))')
+  K=$(auftrag "$S" '{"art":"compose_pruefen","name":"uptime","compose":'"$CJ"'}')
+  abarbeiten "$S"
+  pruefe "compose_pruefen: ok" "ok" "$(lage "$S" "$K" status)"
+  pruefe "compose_pruefen: prolo wird nicht gerufen" "" "$(aufrufe "$S")"
+  pruefe "compose_pruefen: der Befund nennt Dienste und Vorschlag (von Hand)" "app db | app 8000 | True" \
+    "$(python3 -c 'import json,sys; b=json.load(open(sys.argv[1]))["befund"]; print(" ".join(d["name"] for d in b["dienste"]), "|", b["vorschlag"]["dienst"], b["vorschlag"]["port"], "|", b["name_frei"])' \
+       "$S/admin/auftraege/erledigt/$K.json" 2>&1)"
+  pruefe "compose_pruefen: die angesehene Datei liegt daneben, zeichengenau" "ja" \
+    "$(python3 -c 'import json,sys; print("ja" if open(sys.argv[1]).read() == json.loads(sys.argv[2]) else "nein")' \
+       "$S/admin/auftraege/erledigt/$K.compose" "$CJ" 2>&1)"
+  local CG; CG=$(python3 -c 'import json; print(json.dumps("services:\n  x:\n    image: x/x:1\n    privileged: true\n    volumes: [\"/var/run/docker.sock:/var/run/docker.sock\"]\n"))')
+  K=$(auftrag "$S" '{"art":"compose_pruefen","name":"boese","compose":'"$CG"'}')
+  abarbeiten "$S"
+  pruefe "compose_pruefen: Gefahren stehen im Befund" "2" \
+    "$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["befund"]["gefahren"]))' "$S/admin/auftraege/erledigt/$K.json" 2>&1)"
+
+  K=$(auftrag "$S" '{"art":"neu","name":"uptime","compose":'"$CJ"',"dienst":"app","port":"8000","netz":"","geteilt":"","anmeldung":"authentik","grund":"","werte":{"TZ":"Europe/Berlin"}}')
+  abarbeiten "$S"
+  pruefe "neu: prolo neu mit Datei, Dienst, Port, eigenem Netz, Anmeldung und Wert" \
+    "neu uptime --compose DATEI --anmeldung authentik --dienst app --port 8000 --netz-neu --wert TZ=Europe/Berlin" \
+    "$(aufrufe "$S" | tail -1 | sed "s#$(cat "$S/werkzeuge/.compose-pfad" 2>/dev/null)#DATEI#")"
+  pruefe "neu: die Datei war waehrend des Aufrufs da, zeichengenau" "ja" \
+    "$(python3 -c 'import json,sys; print("ja" if open(sys.argv[1]).read() == json.loads(sys.argv[2]) else "nein")' "$S/werkzeuge/.compose-kopie" "$CJ" 2>&1)"
+  pruefe "neu: und danach ist sie weg" "weg" \
+    "$([ -e "$(cat "$S/werkzeuge/.compose-pfad")" ] && echo da || echo weg)"
+  K=$(auftrag "$S" '{"art":"neu","name":"uptime","compose":'"$CJ"',"dienst":"app","port":"8000","netz":"netz-anderes","geteilt":"Testbereich","anmeldung":"eigene","grund":"API","werte":{}}')
+  abarbeiten "$S"
+  pruefe "neu: ein geteiltes Netz geht mit Grund an prolo" \
+    "neu uptime --compose DATEI --anmeldung eigene --grund API --dienst app --port 8000 --netz netz-anderes --geteilt Testbereich" \
+    "$(aufrufe "$S" | tail -1 | sed "s#$(cat "$S/werkzeuge/.compose-pfad" 2>/dev/null)#DATEI#")"
+  : > "$S/werkzeuge/.aufrufe"
+  while IFS='|' read -r was json; do
+    [ -n "$was" ] || continue
+    K=$(auftrag "$S" "$json")
+    abarbeiten "$S"
+    pruefe "neu abgelehnt: $was" "abgelehnt" "$(lage "$S" "$K" status)"
+  done <<FAELLE
+den Namen gibt es schon|{"art":"neu","name":"wiki","compose":$CJ,"dienst":"","port":"","netz":"","geteilt":"","anmeldung":"authentik","grund":"","werte":{}}
+ohne Anmeldung|{"art":"neu","name":"u2","compose":$CJ,"dienst":"","port":"","netz":"","geteilt":"","anmeldung":"","grund":"","werte":{}}
+eigene Anmeldung ohne Grund|{"art":"neu","name":"u2","compose":$CJ,"dienst":"","port":"","netz":"","geteilt":"","anmeldung":"eigene","grund":"","werte":{}}
+fremdes Netz ohne Grund|{"art":"neu","name":"u2","compose":$CJ,"dienst":"","port":"","netz":"netz-x","geteilt":"","anmeldung":"authentik","grund":"","werte":{}}
+Port 70000|{"art":"neu","name":"u2","compose":$CJ,"dienst":"","port":"70000","netz":"","geteilt":"","anmeldung":"authentik","grund":"","werte":{}}
+Dienst mit Leerzeichen|{"art":"neu","name":"u2","compose":$CJ,"dienst":"a b","port":"","netz":"","geteilt":"","anmeldung":"authentik","grund":"","werte":{}}
+leere Datei|{"art":"neu","name":"u2","compose":"  ","dienst":"","port":"","netz":"","geteilt":"","anmeldung":"authentik","grund":"","werte":{}}
+ein Geheimnis als Wert|{"art":"neu","name":"u2","compose":$CJ,"dienst":"","port":"","netz":"","geteilt":"","anmeldung":"authentik","grund":"","werte":{"DB_PASSWORD":"geheim"}}
+ein Wert mit Hochkomma|{"art":"neu","name":"u2","compose":$CJ,"dienst":"","port":"","netz":"","geteilt":"","anmeldung":"authentik","grund":"","werte":{"TZ":"a'b"}}
+Werte als Text|{"art":"neu","name":"u2","compose":$CJ,"dienst":"","port":"","netz":"","geteilt":"","anmeldung":"authentik","grund":"","werte":"TZ=x"}
+FAELLE
+  pruefe "neu: keine Ablehnung erreicht prolo" "" "$(aufrufe "$S")"
 
   # --- Grenzen ----------------------------------------------------------
   echo schlafen > "$S/werkzeuge/.verhalten"
@@ -348,6 +409,11 @@ der Bestand nimmt den ganzen Dienst mit|s/dienste.append({"dienst": dname, "abbi
 der Bestand wird jedes Mal geschrieben|s/^        if not erzwingen and os.path.exists(BESTAND) and \\$/        if False and \\/
 der Bestand bleibt nach einem Auftrag alt|s/^                    bestand_schreiben(erzwingen=True)$/                    pass/
 ein Verweis als Werkzeugordner wird angenommen|s/ or os.path.islink(os.path.join(STACK, w)):/:/
+neu: ein geteiltes Netz ohne Grund geht an prolo|s/        if daten\["netz"\] and daten\["netz"\] != "netz-" + daten\["name"\] and not daten\["geteilt"\].strip():/        if False:/
+neu: den Namen gibt es schon und es geht trotzdem|s/        if art == "neu" and os.path.lexists(os.path.join(STACK, n)):/        if False:/
+neu: die Compose-Datei bleibt liegen|s/^            shutil.rmtree(ordner, ignore_errors=True)$/            pass/
+neu: der Grund fuer das Teilen geht verloren|s/        befehl += \["--netz", a\["netz"\], "--geteilt", a\["geteilt"\]\]/        befehl += ["--netz", a["netz"]]/
+neu: ein Geheimnis kommt ueber einen Auftrag|s/^        if GEHEIM.search(k):$/        if False:/
 die Ursache wird zu "unlesbar"|s/(zeilen\[-1\] if zeilen else "Rueckgabe %d" % roh.returncode)\[:300\]/"unlesbar"/
 MUT
   echo "gefunden: $((NR - DURCH))   entwischt: $DURCH"

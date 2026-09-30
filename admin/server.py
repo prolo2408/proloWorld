@@ -41,7 +41,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.2.1"
+VERSION = "0.3.0"
 
 PORT = int(os.environ.get("ADMIN_PORT", "8080"))
 DATEN = os.environ.get("ADMIN_DATEN", "/daten")
@@ -81,7 +81,16 @@ ARTEN = {
     "aktualisieren": (("werkzeug",), "Aktualisieren"),
     "sichern": ((), "Sichern"),
     "netz_anlegen": (("netz",), "Netz anlegen"),
+    # A-03: eine Compose-Datei einwerfen - erst ansehen, dann anlegen.
+    "compose_pruefen": (("name", "compose"), "Compose-Datei pruefen"),
+    "neu": (("name", "compose", "dienst", "port", "netz", "geteilt", "anmeldung", "grund",
+             "werte"), "Anlegen"),
 }
+VARIABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
+GEHEIM = re.compile(r"PASS|SECRET|KEY|TOKEN|SALT|CREDENTIAL", re.I)
+DIENST = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+MAX_COMPOSE = 256 * 1024
+FREITEXT_MAX = 200
 KERN = ("traefik", "authentik", "socket-proxy", "admin")
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 KENNUNG = re.compile(r"\d{8}-\d{6}-[0-9a-f]{8}")
@@ -276,7 +285,7 @@ def bestand_lesen():
 
 
 def ziel_von(felder):
-    return felder.get("werkzeug") or felder.get("netz") or ""
+    return felder.get("werkzeug") or felder.get("name") or felder.get("netz") or ""
 
 
 def auftrag_pruefen(art, felder):
@@ -288,11 +297,57 @@ def auftrag_pruefen(art, felder):
     noetig, _ = ARTEN[art]
     aus = {}
     for f in noetig:
-        wert = (felder.get(f) or "").strip()
-        if not NAME.fullmatch(wert):
-            raise Antwort(400, "%s: nur Kleinbuchstaben, Ziffern und Bindestrich, "
-                               "hoechstens 40 Zeichen." % ("Werkzeug" if f == "werkzeug" else "Netz"))
+        if f == "werte":
+            werte = felder.get("werte") or {}
+            if not isinstance(werte, dict) or len(werte) > 30:
+                raise Antwort(400, "Zu viele Werte (hoechstens 30).")
+            for k, v in werte.items():
+                if not VARIABLE.fullmatch(k) or GEHEIM.search(k):
+                    raise Antwort(400, "%s: kein Wert, der hierher gehoert - Geheimnisse "
+                                       "wuerfelt der Server selbst." % k[:40])
+                if len(v) > 500 or not v.isprintable() or "'" in v:
+                    raise Antwort(400, "Der Wert fuer %s ist zu lang (500 Zeichen), hat "
+                                       "mehrere Zeilen oder ein '." % k)
+            aus[f] = werte
+            continue
+        wert = felder.get(f) or ""
+        wert = wert if f == "compose" else wert.strip()
+        leer_erlaubt = art == "neu" and f in ("dienst", "port", "netz", "geteilt", "grund")
+        if f in ("werkzeug", "name", "netz"):
+            if not (leer_erlaubt and not wert) and not NAME.fullmatch(wert):
+                raise Antwort(400, "%s: nur Kleinbuchstaben, Ziffern und Bindestrich, "
+                                   "hoechstens 40 Zeichen." % {"werkzeug": "Werkzeug", "name": "Name",
+                                                              "netz": "Netz"}[f])
+        elif f == "compose":
+            if not wert.strip():
+                raise Antwort(400, "Die Compose-Datei ist leer. Die des Herstellers "
+                                   "steht meist in seiner Doku unter 'Docker Compose'.")
+            if len(wert.encode("utf-8")) > MAX_COMPOSE:
+                raise Antwort(400, "Die Compose-Datei ist groesser als %d KiB."
+                                   % (MAX_COMPOSE // 1024))
+        elif f == "dienst":
+            if wert and not DIENST.fullmatch(wert):
+                raise Antwort(400, "Dienst: so heisst kein Dienst in einer Compose-Datei.")
+        elif f == "port":
+            if wert and not (wert.isdigit() and 0 < int(wert) < 65536):
+                raise Antwort(400, "Port: eine Zahl von 1 bis 65535.")
+        elif f in ("geteilt", "grund"):
+            if len(wert) > FREITEXT_MAX or not wert.isprintable():
+                raise Antwort(400, "Der Grund ist zu lang (hoechstens %d Zeichen, eine "
+                                   "Zeile)." % FREITEXT_MAX)
+        elif f == "anmeldung":
+            if wert not in ("authentik", "eigene"):
+                raise Antwort(400, "Anmeldung: Authentik davor oder die eigene des "
+                                   "Werkzeugs - das ist eine Entscheidung, darum ohne "
+                                   "Vorgabe (§17a).")
         aus[f] = wert
+    if art == "neu":
+        if aus["anmeldung"] == "eigene" and not aus["grund"]:
+            raise Antwort(400, "Eigene Anmeldung nur mit Grund - sonst sieht ein "
+                               "fehlendes Authentik aus wie ein vergessenes (N-59).")
+        if aus["netz"] and aus["netz"] != "netz-" + aus["name"] and not aus["geteilt"]:
+            raise Antwort(400, "Ein vorhandenes Netz teilen nur mit Grund - es hebt die "
+                               "Abschottung zwischen zwei Werkzeugen auf (N-62).")
     if art == "stop" and aus.get("werkzeug") in KERN:
         raise Antwort(400, "%s haelt den Zugang offen - ohne ihn gibt es keine "
                            "Seite mehr, von der aus man ihn wieder startet. Neu "
@@ -558,6 +613,46 @@ def werkzeuge_sicht(l, bestand):
     return [sicht[k] for k in sorted(sicht)]
 
 
+def teilbare_netze(l):
+    """Netze, in die sich ein neues Werkzeug haengen koennte: die Netze
+    der Werkzeuge - nicht Dockers eigene, nicht die internen, nicht die
+    Projektnetze (<projekt>_default)."""
+    return sorted(n["name"] for n in l["netze"]
+                  if n["name"].startswith("netz-") and not n["intern"])
+
+
+def anlegen_felder(feld):
+    """Aus dem Anlegen-Formular die Felder eines neu-Auftrags - mit GENAU
+    der Compose-Datei, die im Pruef-Auftrag angesehen wurde."""
+    def w(k):
+        return (feld.get(k) or [""])[0]
+    kennung = w("pruefung")
+    if not KENNUNG.fullmatch(kennung):
+        raise Antwort(400, "Zu diesem Anlegen gehoert keine Pruefung. Von vorn: /neu")
+    stand = json_datei(os.path.join(ERLEDIGT, kennung + ".json")) or {}
+    befund = stand.get("befund") or {}
+    if stand.get("art") != "compose_pruefen" or not befund.get("ok"):
+        raise Antwort(400, "Diese Pruefung gibt es nicht oder sie war nicht erfolgreich. "
+                           "Von vorn: /neu")
+    if befund.get("gefahren"):
+        raise Antwort(400, "In dieser Compose-Datei steht, womit ein Container auf den "
+                           "Server greift - aus der Seite wird sie nicht angelegt.")
+    try:
+        with open(os.path.join(ERLEDIGT, kennung + ".compose"), encoding="utf-8") as f:
+            compose = f.read(MAX_COMPOSE + 1)
+    except OSError:
+        raise Antwort(400, "Die gepruefte Compose-Datei ist nicht mehr da. Von vorn: /neu")
+    netz = w("netz") if w("netz_wahl") == "vorhanden" else ""
+    # Nur Werte fuer Variablen, die der Befund nennt und die keine
+    # Geheimnisse sind - was sonst im Formular steht, faellt weg.
+    offen = {x["name"] for x in befund.get("variablen") or [] if not x.get("geheim")}
+    werte = {k: w("wert_" + k) for k in sorted(offen) if w("wert_" + k)}
+    return {"name": str(stand.get("name") or ""), "compose": compose, "werte": werte,
+            "dienst": w("dienst"), "port": w("port"), "netz": netz,
+            "geteilt": w("geteilt") if netz else "", "anmeldung": w("anmeldung"),
+            "grund": w("grund")}
+
+
 # ---------------------------------------------------------- Darstellung
 def e(s):
     return html.escape(str(s), quote=True)
@@ -760,6 +855,27 @@ button:disabled{opacity:.55;cursor:not-allowed}
 .feld input{min-height:44px;border:1px solid var(--line);border-radius:10px;
   background:var(--surface);color:var(--ink);font:inherit;
   font-family:'JetBrains Mono',monospace;font-size:13px;padding:0 12px;min-width:0}
+.feld textarea, .feld select{border:1px solid var(--line);border-radius:10px;
+  background:var(--surface);color:var(--ink);font:inherit;min-width:0;padding:10px 12px}
+.feld textarea{font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.5;
+  min-height:320px;resize:vertical}
+.feld select{min-height:44px;font-family:'JetBrains Mono',monospace;font-size:13px}
+fieldset{border:1px solid var(--line-soft);border-radius:10px;padding:12px 14px;margin:0;
+  min-width:0;display:flex;flex-direction:column;gap:8px}
+legend{font-size:12px;color:var(--ink-3);padding:0 4px}
+label.wahl{display:flex;gap:10px;align-items:flex-start;min-height:44px;padding:6px 0;
+  color:var(--ink-2);cursor:pointer}
+label.wahl input{margin-top:3px;width:18px;height:18px;flex:none}
+/* In einer Spalte sind 220 px Grundmass eine HOEHE - die Felder standen
+   mit halben Bildschirmen Luft untereinander (im Browser gesehen, von
+   keiner Messung gefunden). Die Zeilenregel gilt nur in einer Zeile. */
+.formular{display:flex;flex-direction:column;gap:14px;margin-top:12px;max-width:760px}
+.formular .feld, fieldset .feld{flex:none}
+/* Ein Pfad aus einer fremden Datei hat keine Trennstelle - ohne das schob
+   er die Seite bei 360 px auf 515 px Breite (im Browser gemessen). */
+ul.gefahren{margin:10px 0 0;padding-left:20px;color:var(--ink-2);overflow-wrap:anywhere}
+.erkl{overflow-wrap:anywhere}
+ul.gefahren li{margin:4px 0}
 pre.ausgabe{font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.5;
   color:var(--ink-2);background:var(--app);border:1px solid var(--line-soft);
   border-radius:10px;padding:12px;margin:12px 0 0;white-space:pre-wrap;
@@ -1096,7 +1212,7 @@ def ansicht_uebersicht(l, auftraege, betrieb):
                liste, letzte))
 
 
-def ansicht_werkzeuge(sicht, bestand):
+def ansicht_werkzeuge(sicht, bestand, betrieb=False):
     zeilen = []
     for s in sicht:
         schutz = sorted({d["schutz"] for d in s["dienste"] if d["schutz"]})
@@ -1137,9 +1253,12 @@ def ansicht_werkzeuge(sicht, bestand):
                 'kein Werkzeug. Ein neues legt man auf dem Server an:<br>'
                 '<span class="mono">sudo prolo neu &lt;name&gt;</span></div></div>'
                 % hinweis)
+    anlegen = ('<div class="aktionen"><a class="knopf" href="/neu">Werkzeug anlegen</a>'
+               '<span class="erkl">aus der Compose-Datei eines Herstellers</span></div>'
+               if betrieb else "")
     return ('<div class="karte"><h2>Werkzeuge</h2>'
             '<div class="ktx">Ein Werkzeug ist ein Ordner mit docker-compose.yml. '
-            'Bedienen, Protokolle und Einzelheiten auf seiner Seite.</div>%s'
+            'Bedienen, Protokolle und Einzelheiten auf seiner Seite.</div>' + anlegen + '%s'
             '<div class="scroll" style="margin-top:12px"><table class="liste">'
             '<thead><tr><th>Werkzeug</th><th>Zustand</th><th>Erreichbar unter</th>'
             '<th>Schutz</th></tr></thead><tbody>%s</tbody></table></div></div>'
@@ -1166,8 +1285,12 @@ def ansicht_werkzeug(s, auftraege, betrieb, protokoll):
             k.append(knopf("start", "werkzeug", name, "Starten", "knopf"))
         else:
             k.append(knopf("neustart", "werkzeug", name, "Neu starten", "knopf"))
-            if s["zustand"] == "teilweise":
-                k.append(knopf("start", "werkzeug", name, "Fehlende starten"))
+            # "prolo start" auf ein laufendes Werkzeug legt neu an, was sich
+            # an seiner Konfiguration geaendert hat - ein neues Netz bei
+            # Traefik zum Beispiel. Neu starten tut das nicht (N-58).
+            k.append(knopf("start", "werkzeug", name,
+                           "Fehlende starten" if s["zustand"] == "teilweise"
+                           else "Konfiguration uebernehmen"))
         k.append(knopf("aktualisieren", "werkzeug", name, "Aktualisieren"))
         k.append(knopf("pruefen", "werkzeug", name, "Pruefen"))
         if s["zustand"] != "angehalten":
@@ -1180,7 +1303,10 @@ def ansicht_werkzeug(s, auftraege, betrieb, protokoll):
         bedienen = ('<div class="aktionen">%s</div>'
                     '<div class="erkl">Jeder Knopf legt einen Auftrag ab; ausgefuehrt '
                     'wird er auf dem Server mit prolo &ndash; mit Startsperre, und '
-                    'beim Aktualisieren mit Sicherung vorher und Rueckweg.</div>'
+                    'beim Aktualisieren mit Sicherung vorher und Rueckweg. '
+                    '&bdquo;Konfiguration uebernehmen&ldquo; legt neu an, was sich '
+                    'an den Dateien geaendert hat (z. B. ein neues Netz bei Traefik); '
+                    '&bdquo;Neu starten&ldquo; startet nur neu.</div>'
                     % "".join(k))
 
     dienste = "".join(
@@ -1255,6 +1381,162 @@ def ansicht_werkzeug(s, auftraege, betrieb, protokoll):
                   "angehalten": "Angehalten."}[s["zustand"]]),
                bedienen, fakten, dienste, prot, e(name),
                auftrag_tabelle(eigene, "Fuer dieses Werkzeug noch kein Auftrag.")))
+
+
+def ansicht_neu(name="", compose=""):
+    """Eine Compose-Datei einwerfen (A-03). Erst ansehen, dann anlegen - der
+    erste Schritt hat keine Nebenwirkung."""
+    return ('<div class="reihe zwei oben"><div class="karte"><h2>Compose-Datei einwerfen</h2>'
+            '<div class="ktx">Die Datei des Herstellers, so wie sie in seiner Doku steht. '
+            'Sie wird unveraendert uebernommen; Netz, Route, Anmeldung und Grenzen '
+            'kommen von uns daneben.</div>'
+            '<form method="post" action="/neu/pruefen" class="formular">'
+            '<div class="feld"><label for="name">Name - wird Ordner und Subdomain</label>'
+            '<input id="name" name="name" required maxlength="40" value="%s" '
+            'pattern="[a-z0-9][a-z0-9\-]{0,39}" placeholder="z. B. uptime" '
+            'autocomplete="off" spellcheck="false"></div>'
+            '<div class="feld"><label for="compose">docker-compose.yml des Herstellers</label>'
+            '<textarea id="compose" name="compose" required spellcheck="false" '
+            'placeholder="services:&#10;  app:&#10;    image: hersteller/app:1.2.3">%s</textarea></div>'
+            '<div class="aktionen"><button type="submit" class="knopf">Pruefen</button>'
+            '<span class="erkl">legt noch nichts an</span></div></form></div>'
+            '<div class="karte"><h2>Was passiert</h2><div class="ktx">Zwei Schritte.</div>'
+            '<dl class="fakten"><dt>1 Pruefen</dt><dd>Der Server liest die Datei mit docker '
+            'compose: welche Dienste, welche Ports, welche Volumes, welche Variablen - und '
+            'ob darin etwas steht, womit ein Container auf den Server greift (privileged, '
+            'Host-Netz, Docker-Socket, Pfade vom Server). Dann wird nichts angelegt.</dd>'
+            '<dt>2 Anlegen</dt><dd>Mit Dienst, Port, Netz und Anmeldung, die du bestaetigst: '
+            'Ordner, override-Datei (eigenes Netz, Route, Zertifikat, Grenzen, ohne die '
+            'Ports des Herstellers), Sicherung aller Volumes, geheime Variablen fuer '
+            'prolo geheimnisse.</dd>'
+            '<dt>Danach</dt><dd>Name beim DNS-Anbieter eintragen, bei Authentik die '
+            'Anwendung anlegen, Starten.</dd></dl></div></div>'
+            % (e(name), e(compose)))
+
+
+def befund_html(stand, netze):
+    """Der Befund eines compose_pruefen-Auftrags - und, wenn nichts dagegen
+    spricht, das Formular zum Anlegen."""
+    b = stand.get("befund") or {}
+    name = str(stand.get("name") or "")
+    if not b.get("ok"):
+        return ('<div class="karte"><h2>Nicht zu gebrauchen</h2><div class="hinweis">'
+                '<div class="was">%s</div></div><div class="aktionen">'
+                '<a class="knopf-rahmen" href="/neu">Zurueck</a></div></div>'
+                % e(b.get("fehler") or "Der Server hat keinen Befund geliefert."))
+    dienste = "".join(
+        '<tr><td class="mono"><b>%s</b></td><td class="mono">%s</td><td class="mono">%s</td>'
+        '<td>%s</td></tr>'
+        % (e(d["name"]), e(d["abbild"]),
+           e(", ".join(sorted({p["ziel"] for p in d["ports"]} | set(d["expose"])))) or "-",
+           '<span class="marker m-warm">Hilfsdienst</span>' if d.get("hilfsdienst") else "")
+        for d in b.get("dienste") or [])
+    teile = ['<div class="karte"><h2>Dienste</h2><div class="ktx">Was die Datei startet. '
+             'Die Ports des Herstellers werden nicht veroeffentlicht - erreichbar ist nur '
+             'der Dienst, zu dem Traefik fuehrt.</div><div class="scroll" style="margin-top:12px">'
+             '<table><thead><tr><th>Dienst</th><th>Abbild</th><th>Ports</th><th></th></tr>'
+             '</thead><tbody>%s</tbody></table></div></div>' % dienste]
+    gefahren = b.get("gefahren") or []
+    if gefahren:
+        teile.append(
+            '<div class="karte" style="border-color:var(--danger)"><h2>Wird nicht angelegt</h2>'
+            '<div class="ktx">In der Datei steht, womit ein Container aus seinem Kaefig auf '
+            'den Server greift:</div><ul class="gefahren">%s</ul>'
+            '<div class="erkl">Aus der Seite wird so etwas nie angelegt - sie ist die Stelle, '
+            'an der man am ehesten hereinkommt. Muss es sein: auf dem Server, dort wird '
+            'einzeln nachgefragt: <span class="mono">sudo prolo neu %s --compose &lt;datei&gt;</span>'
+            '</div></div>'
+            % ("".join('<li><b class="mono">%s</b>: %s</li>' % (e(g["dienst"]), e(g["was"]))
+                       for g in gefahren), e(name)))
+    elif not b.get("name_frei", True):
+        teile.append('<div class="karte"><h2>Den Namen gibt es schon</h2><div class="leer">'
+                     'Ein Werkzeug %s liegt schon auf dem Server. Anderen Namen waehlen: '
+                     '<a class="mehr" href="/neu">zurueck</a>.</div></div>' % e(name))
+    else:
+        teile.append(anlegen_html(stand, b, netze))
+    extra = []
+    if b.get("volumes"):
+        extra.append('<dt>Volumes</dt><dd class="mono">%s</dd>' % e(", ".join(b["volumes"])))
+    if b.get("binds"):
+        extra.append('<dt>Ordner</dt><dd class="mono">%s</dd>'
+                     % e(", ".join(sorted({x["pfad"] for x in b["binds"]}))))
+    if b.get("variablen"):
+        extra.append('<dt>Variablen</dt><dd class="mono">%s</dd>' % ", ".join(
+            e(v["name"]) + (' <span class="marker m-weg">geheim</span>' if v.get("geheim") else "")
+            for v in b["variablen"]))
+    if extra:
+        teile.append('<div class="karte"><h2>Was gesichert und gefuellt wird</h2>'
+                     '<div class="ktx">Volumes und Ordner kommen in die sicherung.conf, '
+                     'geheime Variablen in die geheimnisse.conf - prolo geheimnisse '
+                     '--verteilen fuellt sie mit Zufallswerten.</div>'
+                     '<dl class="fakten">%s</dl></div>' % "".join(extra))
+    return "".join(teile)
+
+
+def anlegen_html(stand, b, netze):
+    v = b.get("vorschlag") or {}
+    name = str(stand.get("name") or "")
+    optionen = "".join(
+        '<option value="%s" data-port="%s"%s>%s%s</option>'
+        % (e(d["name"]),
+           e((sorted({p["ziel"] for p in d["ports"]} | set(d["expose"])) or [""])[0]
+             if len({p["ziel"] for p in d["ports"]} | set(d["expose"])) == 1 else ""),
+           " selected" if d["name"] == v.get("dienst") else "", e(d["name"]),
+           " (Hilfsdienst)" if d.get("hilfsdienst") else "")
+        for d in b.get("dienste") or [])
+    vorhanden = "".join('<option value="%s">%s</option>' % (e(n), e(n)) for n in netze)
+    offen = [x for x in b.get("variablen") or [] if not x.get("geheim")]
+    werte = ""
+    if offen:
+        werte = ('<fieldset><legend>Werte fuer die .env - Geheimnisse wuerfelt der Server '
+                 'selbst</legend>%s</fieldset>' % "".join(
+                     '<div class="feld"><label for="w-%(n)s">%(n)s%(p)s</label>'
+                     '<input id="w-%(n)s" name="wert_%(n)s" value="%(v)s" maxlength="500"%(r)s '
+                     'spellcheck="false"></div>'
+                     % {"n": e(x["name"]), "v": e(x.get("vorgabe") or ""),
+                        "p": " (Pflicht)" if x.get("pflicht") else " (hat eine Vorgabe)",
+                        "r": " required" if x.get("pflicht") else ""}
+                     for x in offen))
+    return (
+        '<div class="karte"><h2>Anlegen</h2><div class="ktx">Pruefe den Vorschlag - er ist aus '
+        'der Datei gelesen, nicht geraten; wo sie nichts Eindeutiges sagt, ist das Feld leer.</div>'
+        '<form method="post" action="/neu/anlegen" class="formular">'
+        '<input type="hidden" name="pruefung" value="%(k)s">'
+        '<div class="feld"><label for="dienst">Zu welchem Dienst fuehrt Traefik</label>'
+        '<select id="dienst" name="dienst">%(opt)s</select></div>'
+        '<div class="feld"><label for="port">Auf welchem Port lauscht er im Container</label>'
+        '<input id="port" name="port" inputmode="numeric" pattern="[0-9]{1,5}" required '
+        'value="%(port)s" placeholder="steht in der Doku des Herstellers"></div>'
+        '<fieldset><legend>Netz</legend>'
+        '<label class="wahl"><input type="radio" name="netz_wahl" value="neu" checked>'
+        '<span>eigenes Netz <span class="mono">netz-%(name)s</span><span class="erkl" '
+        'style="display:block">empfohlen: was hier kompromittiert wird, erreicht nichts '
+        'anderes (N-45)</span></span></label>'
+        '<label class="wahl"><input type="radio" name="netz_wahl" value="vorhanden">'
+        '<span>ein vorhandenes teilen</span></label>'
+        '<div class="feld"><label for="netz">Welches</label><select id="netz" name="netz">'
+        '<option value="">-</option>%(vorh)s</select></div>'
+        '<div class="feld"><label for="geteilt">Warum teilen (nur beim Teilen, Pflicht)</label>'
+        '<input id="geteilt" name="geteilt" maxlength="200"></div></fieldset>'
+        '<fieldset><legend>Anmeldung - eine Entscheidung, darum ohne Vorgabe</legend>'
+        '<label class="wahl"><input type="radio" name="anmeldung" value="authentik" required>'
+        '<span>Authentik davor<span class="erkl" style="display:block">niemand kommt an das '
+        'Werkzeug, ohne sich zentral anzumelden</span></span></label>'
+        '<label class="wahl"><input type="radio" name="anmeldung" value="eigene">'
+        '<span>die eigene Anmeldung des Werkzeugs<span class="erkl" style="display:block">nur, '
+        'wenn Webhooks, API oder eine Handy-App an Authentik scheitern - dann 2FA im Werkzeug '
+        'einschalten (§17a)</span></span></label>'
+        '<div class="feld"><label for="grund">Grund (bei eigener Anmeldung Pflicht)</label>'
+        '<input id="grund" name="grund" maxlength="200"></div></fieldset>'
+        '%(werte)s'
+        '<div class="aktionen"><button type="submit" class="knopf">Anlegen</button>'
+        '<span class="erkl">startet noch nicht</span></div></form></div>'
+        '<script>(function(){var s=document.getElementById("dienst"),'
+        'p=document.getElementById("port");s.addEventListener("change",function(){'
+        'var o=s.options[s.selectedIndex];p.value=o.getAttribute("data-port")||"";});})();'
+        '</script>'
+        % {"k": e(stand["kennung"]), "opt": optionen, "port": e(v.get("port") or ""),
+           "name": e(name), "vorh": vorhanden, "werte": werte})
 
 
 def ansicht_netze(l, betrieb):
@@ -1349,7 +1631,7 @@ def auftrag_json(lage, ausgabe):
             "offen": lage.get("status") in OFFEN_STATUS}
 
 
-def ansicht_auftrag(lage, ausgabe):
+def ansicht_auftrag(lage, ausgabe, netze=(), betrieb=False):
     d = auftrag_json(lage, ausgabe)
     fakten = ('<dl class="fakten"><dt>Auftrag</dt><dd>%s</dd><dt>Ziel</dt><dd class="mono">%s</dd>'
               '<dt>Wer</dt><dd>%s</dd><dt>Angelegt</dt><dd class="mono">%s</dd>'
@@ -1362,16 +1644,30 @@ def ansicht_auftrag(lage, ausgabe):
     grund = ('<div class="hinweis"><div class="wo">Grund</div><div class="was">%s</div></div>'
              % e(lage["grund"])) if lage.get("grund") else ""
     weiter = ""
-    if lage.get("werkzeug") and NAME.fullmatch(str(lage["werkzeug"])):
-        weiter = ('<a class="mehr" href="/werkzeug/%s">zu %s</a>'
-                  % (e(lage["werkzeug"]), e(lage["werkzeug"])))
+    ziel = lage.get("werkzeug") or (lage.get("name") if lage.get("art") == "neu" else "")
+    if ziel and NAME.fullmatch(str(ziel)):
+        weiter = ('<a class="mehr" href="/werkzeug/%s">zu %s</a>' % (e(ziel), e(ziel)))
+    # A-03: nach dem Anlegen ist Starten der naechste Griff.
+    if lage.get("art") == "neu" and lage.get("status") == "ok" and betrieb and ziel:
+        weiter = ('<div class="aktionen">%s%s</div><div class="erkl">Vorher: den Namen beim '
+                  'DNS-Anbieter eintragen und - bei Authentik davor - dort die Anwendung '
+                  'anlegen und dem Outpost zuweisen. Ist ein neues Netz entstanden, muss '
+                  'Traefik es uebernehmen: auf der Seite von <a class="mehr" '
+                  'href="/werkzeug/traefik">traefik</a> &bdquo;Konfiguration '
+                  'uebernehmen&ldquo;. Was sonst noch fehlt, steht in der Ausgabe unter '
+                  '"Noch zu tun".</div>'
+                  % (knopf("start", "werkzeug", ziel, "Starten", "knopf"), weiter))
     return ('<div class="reihe zwei"><div class="karte"><h2>Stand</h2>'
             '<div style="margin-top:10px"><span id="stand" class="marker %s">%s</span></div>'
             '<div id="hinweis" class="erkl">%s</div>%s%s<div>%s</div></div>'
             '<div class="karte"><h2>Ausgabe</h2><div class="ktx">Was prolo auf dem '
             'Server geschrieben hat.</div><pre class="ausgabe" id="ausgabe">%s</pre></div></div>'
             % (d["klasse"], e(d["wort"]), e(d["hinweis"]), fakten, grund, weiter,
-               e(ausgabe) or ("(noch keine)" if d["offen"] else "(keine)")))
+               e(ausgabe) or ("(noch keine)" if d["offen"] else "(keine)"))
+            + ('<div class="reihe" style="grid-template-columns:1fr">%s</div>'
+               % befund_html(lage, netze)
+               if lage.get("art") == "compose_pruefen" and lage.get("status") in ("ok", "fehler")
+               and betrieb else ""))
 
 
 def auftrag_nachladen(kennung):
@@ -1589,10 +1885,20 @@ class Handler(BaseHTTPRequestHandler):
             stand, ausgabe = auftrag_lesen(kennung)
             titel = "%s %s" % (ARTEN.get(stand.get("art"), ((), stand.get("art") or "?"))[1],
                                ziel_von(stand))
+            netze = []
+            if stand.get("art") == "compose_pruefen" and betrieb:
+                try:
+                    netze = teilbare_netze(lage())
+                except Antwort:
+                    netze = []
             return zeigen(titel.strip(), "Auftrag %s" % kennung,
-                          ansicht_auftrag(stand, ausgabe), "/auftraege",
+                          ansicht_auftrag(stand, ausgabe, netze, betrieb), "/auftraege",
                           auftrag_nachladen(kennung)
                           if stand.get("status") in OFFEN_STATUS else "")
+        if pfad == "/neu":
+            self.betrieb_noetig(nutzer)
+            return zeigen("Werkzeug anlegen", "Aus der Compose-Datei eines Herstellers",
+                          ansicht_neu(), "/werkzeuge")
         if pfad == "/auftraege":
             return zeigen("Auftraege", "Was von hier aus angestossen wurde",
                           ansicht_auftraege(auftraege_lesen(), betrieb), pfad)
@@ -1606,7 +1912,7 @@ class Handler(BaseHTTPRequestHandler):
         if pfad == "/werkzeuge":
             bestand = bestand_lesen()
             return zeigen("Werkzeuge", "Laufend und angehalten, mit Namen und Schutz",
-                          ansicht_werkzeuge(werkzeuge_sicht(l, bestand), bestand), pfad)
+                          ansicht_werkzeuge(werkzeuge_sicht(l, bestand), bestand, betrieb), pfad)
         if pfad.startswith("/werkzeug/"):
             name = pfad[len("/werkzeug/"):]
             s = next((x for x in werkzeuge_sicht(l, bestand_lesen())
@@ -1635,9 +1941,9 @@ class Handler(BaseHTTPRequestHandler):
                           ansicht_netze(l, betrieb), pfad)
         raise Antwort(404, "Diese Seite gibt es nicht. Zurueck zur Uebersicht: /")
 
-    def formular(self):
+    def formular(self, grenze=4096):
         laenge = int(self.headers.get("Content-Length") or 0)
-        if laenge > 4096:
+        if laenge > grenze:
             raise Antwort(413, "Das war zu viel fuer ein Formular.")
         return parse_qs(self.rfile.read(laenge).decode("utf-8", "replace"))
 
@@ -1657,6 +1963,24 @@ class Handler(BaseHTTPRequestHandler):
                 (feld.get("art") or [""])[0],
                 {k: (feld.get(k) or [""])[0] for k in ("werkzeug", "netz")},
                 nutzer["nutzer_id"])
+            return self.weiter("/auftrag/%s" % kennung)
+        if pfad == "/neu/pruefen":
+            self.gleicher_ursprung()
+            self.betrieb_noetig(nutzer)
+            # Eine Compose-Datei ist groesser als ein Knopfdruck: bis 256 KiB,
+            # URL-kodiert bis zum Dreifachen.
+            feld = self.formular(grenze=3 * MAX_COMPOSE + 4096)
+            kennung, _ = auftrag_ablegen(
+                "compose_pruefen",
+                {"name": (feld.get("name") or [""])[0],
+                 "compose": (feld.get("compose") or [""])[0]},
+                nutzer["nutzer_id"])
+            return self.weiter("/auftrag/%s" % kennung)
+        if pfad == "/neu/anlegen":
+            self.gleicher_ursprung()
+            self.betrieb_noetig(nutzer)
+            feld = self.formular()
+            kennung, _ = auftrag_ablegen("neu", anlegen_felder(feld), nutzer["nutzer_id"])
             return self.weiter("/auftrag/%s" % kennung)
         raise Antwort(404, "Diesen Weg gibt es nicht.")
 

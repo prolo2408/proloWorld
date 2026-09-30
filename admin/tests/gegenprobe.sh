@@ -191,6 +191,29 @@ probe "eine Kennung darf ein Pfad sein (A-02)" \
 probe "die Auftragsseite darf ihren Stand nicht nachholen (A-02)" \
   "\"connect-src 'self'; \"" \
   '""'
+# --- A-03: Compose einwerfen
+probe "eine Compose-Datei mit Gefahren laesst sich anlegen (A-03)" \
+  '    if befund.get("gefahren"):' \
+  '    if False:'
+probe "angelegt wird die Datei aus dem Formular statt der gepruefen (A-03)" \
+  '    return {"name": str(stand.get("name") or ""), "compose": compose,' \
+  '    return {"name": str(stand.get("name") or ""), "compose": w("compose") or compose,'
+probe "wer nur sehen darf, wirft Compose-Dateien ein (A-03)" \
+  '        if pfad == "/neu/pruefen":
+            self.gleicher_ursprung()
+            self.betrieb_noetig(nutzer)' \
+  '        if pfad == "/neu/pruefen":
+            self.gleicher_ursprung()'
+probe "eigene Anmeldung ohne Grund geht durch (A-03)" \
+  '        if aus["anmeldung"] == "eigene" and not aus["grund"]:' \
+  '        if False:'
+probe "eine Gefahr aus der Datei wird ungefiltert gezeigt (A-03)" \
+  '% (e(g["dienst"]), e(g["was"]))' \
+  '% (e(g["dienst"]), g["was"])'
+probe "die Anmeldung hat doch eine Vorgabe (A-03)" \
+  'name="anmeldung" value="authentik" required>' \
+  'name="anmeldung" value="authentik" required checked>'
+
 probe "wer nur sehen darf, liest die Protokolle (A-02)" \
   '            if betrieb and laufend:' \
   '            if laufend:'

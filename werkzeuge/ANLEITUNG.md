@@ -5,7 +5,7 @@ Diese Datei beschreibt drei Griffe. Die Regeln dahinter stehen in
 
 | ich will … | Befehl |
 |---|---|
-| ein neues Werkzeug | `sudo prolo neu <name>` |
+| ein neues Werkzeug | `sudo prolo neu <name>` — oder aus der Compose-Datei des Herstellers: in der Admin-Seite *Werkzeug anlegen*, auf dem Server `sudo prolo neu <name> --compose <datei>` |
 | sehen, wer in welchem Netz hängt | `prolo netze` |
 | ein Netz anlegen / schließen / umziehen | `sudo prolo netze anlegen\|schliessen\|umziehen …` |
 | dasselbe im Browser, dazu starten, anhalten, aktualisieren | `https://admin.prolo.me` |
@@ -80,6 +80,34 @@ sudo prolo neu vaultwarden \
   --port 80 --netz-neu --anmeldung eigene \
   --grund "Handy-App und Browser-Erweiterung sprechen die API direkt"
 ```
+
+### Aus der Compose-Datei des Herstellers (`A-03`)
+
+Der kürzeste Weg: die `docker-compose.yml` aus der Doku des Herstellers
+nehmen und
+
+- in der Admin-Seite: *Werkzeuge* → *Werkzeug anlegen* → Name und Datei
+  einwerfen → *Prüfen* → Vorschlag bestätigen → *Anlegen* → *Starten*;
+  ist ein neues Netz entstanden, bei *traefik* „Konfiguration übernehmen"
+- oder auf dem Server:
+
+```bash
+sudo prolo neu uptime --compose ~/docker-compose.yml
+```
+
+Die Datei wird **unverändert** übernommen. `werkzeuge/compose_befund.py`
+liest sie mit `docker compose config` und schlägt Dienst und Port vor;
+daneben entstehen die override-Datei (eigenes Netz, Route, Zertifikat,
+Anmeldung, Grenzen, `ports: !reset []` an **jedem** Dienst mit Port), die
+`sicherung.conf` mit allen Volumes und Ordnern, die `.env` — geheime
+Variablen (`…PASS…`, `…SECRET…`, `…KEY…`, `…TOKEN…`) werden gewürfelt und
+stehen in der `geheimnisse.conf` —, und `prolo start` wird gleich geprüft.
+
+Steht in der Datei etwas, womit ein Container auf den Server greift
+(`privileged`, `network_mode: host`, `pid: host`, `cap_add`, `devices`,
+der Docker-Socket, ein Pfad vom Server), legt die Admin-Seite **nichts**
+an. Auf dem Server fragt `prolo neu` einzeln nach — die Antwort muss
+wörtlich `ja, gefaehrlich` sein.
 
 ### Danach, bei einem Fremdwerkzeug
 

@@ -43,10 +43,12 @@ import fcntl
 import json
 import os
 import re
+import shutil
 import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 
 HIER = os.path.dirname(os.path.realpath(__file__))
@@ -66,7 +68,13 @@ ADMIN_UID = 10004
 KENNUNG = re.compile(r"\d{8}-\d{6}-[0-9a-f]{8}")
 WERKZEUG = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 NETZ = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
-MAX_AUFTRAG_BYTE = 256 * 1024
+MAX_AUFTRAG_BYTE = 640 * 1024      # eine Compose-Datei, als JSON maskiert
+MAX_COMPOSE = 256 * 1024
+DIENST = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+VARIABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
+# Geheimnisse kommen NIE ueber einen Auftrag - die wuerfelt prolo neu selbst.
+GEHEIM = re.compile(r"PASS|SECRET|KEY|TOKEN|SALT|CREDENTIAL", re.I)
+FREITEXT_MAX = 200
 MAX_AUSGABE_BYTE = 1024 * 1024
 MAX_WER = 100
 
@@ -93,7 +101,31 @@ ARTEN = {
     "aktualisieren": (("werkzeug",), 60 * MINUTE, lambda a: ["aktualisieren", a["werkzeug"]]),
     "sichern":       ((),            60 * MINUTE, lambda a: ["sichern"]),
     "netz_anlegen":  (("netz",),      5 * MINUTE, lambda a: ["netze", "anlegen", a["netz"]]),
+    # A-03: eine Compose-Datei ansehen (ohne Nebenwirkung) und daraus ein
+    # Werkzeug anlegen. Die Datei selbst geht als Datei an prolo neu, nie
+    # als Argument.
+    "compose_pruefen": (("name", "compose"), 2 * MINUTE, None),
+    "neu": (("name", "compose", "dienst", "port", "netz", "geteilt", "anmeldung", "grund",
+             "werte"),
+            5 * MINUTE, lambda a: neu_argumente(a)),
 }
+
+
+def neu_argumente(a):
+    befehl = ["neu", a["name"], "--compose", a["_datei"], "--anmeldung", a["anmeldung"]]
+    if a["grund"]:
+        befehl += ["--grund", a["grund"]]
+    if a["dienst"]:
+        befehl += ["--dienst", a["dienst"]]
+    if a["port"]:
+        befehl += ["--port", a["port"]]
+    if a["netz"] and a["netz"] != "netz-" + a["name"]:
+        befehl += ["--netz", a["netz"], "--geteilt", a["geteilt"]]
+    else:
+        befehl += ["--netz-neu"]
+    for k in sorted(a["werte"]):
+        befehl += ["--wert", "%s=%s" % (k, a["werte"][k])]
+    return befehl
 IMMER_ERLAUBT = ("art", "wer", "angelegt")
 
 UMGEBUNG = {
@@ -166,6 +198,20 @@ def lesen(pfad):
     return daten
 
 
+def werte_pruefen(werte):
+    """Werte fuer Variablen der Herstellerdatei: keine Geheimnisse, keine
+    Zeichen, die eine .env-Zeile zerbrechen."""
+    if not isinstance(werte, dict) or len(werte) > 30:
+        raise Abgelehnt("das Feld werte ist keine Liste von hoechstens 30 Werten")
+    for k, v in werte.items():
+        if not VARIABLE.fullmatch(k):
+            raise Abgelehnt("%r ist kein Variablenname" % k[:40])
+        if GEHEIM.search(k):
+            raise Abgelehnt("%s ist ein Geheimnis - das wuerfelt prolo neu selbst" % k)
+        if not isinstance(v, str) or len(v) > 500 or not v.isprintable() or "'" in v:
+            raise Abgelehnt("der Wert fuer %s ist zu lang, hat Steuerzeichen oder ein '" % k)
+
+
 def pruefen(daten):
     """Nur bekannte Arten, nur bekannte Felder, jedes gegen sein Muster."""
     art = daten.get("art")
@@ -177,7 +223,9 @@ def pruefen(daten):
     if fremd:
         raise Abgelehnt("unbekannte Felder: %s" % ", ".join(fremd))
     for feld in felder:
-        if not isinstance(daten.get(feld), str):
+        if feld == "werte":
+            werte_pruefen(daten.get(feld))
+        elif not isinstance(daten.get(feld), str):
             raise Abgelehnt("das Feld %s fehlt" % feld)
 
     if "werkzeug" in felder:
@@ -193,9 +241,38 @@ def pruefen(daten):
                 "%s haelt den Zugang offen - ohne ihn gibt es keine Seite mehr, "
                 "von der aus man ihn wieder startet. Neu starten geht; anhalten "
                 "auf dem Server: sudo prolo stop %s" % (w, w))
-    if "netz" in felder and not NETZ.fullmatch(daten["netz"]):
+    if "netz" in felder and daten["netz"] and not NETZ.fullmatch(daten["netz"]):
         raise Abgelehnt("%r ist kein Netzname (Kleinbuchstaben, Ziffern, "
                         "Bindestrich)" % daten["netz"])
+    if art == "netz_anlegen" and not daten["netz"]:
+        raise Abgelehnt("das Feld netz ist leer")
+    if "name" in felder:
+        n = daten["name"]
+        if not WERKZEUG.fullmatch(n):
+            raise Abgelehnt("%r ist kein Werkzeugname (Kleinbuchstaben, Ziffern, "
+                            "Bindestrich - er wird die Subdomain)" % n)
+        if art == "neu" and os.path.lexists(os.path.join(STACK, n)):
+            raise Abgelehnt("ein Werkzeug %s gibt es schon" % n)
+    if "compose" in felder:
+        if not daten["compose"].strip():
+            raise Abgelehnt("die Compose-Datei ist leer")
+        if len(daten["compose"].encode("utf-8")) > MAX_COMPOSE:
+            raise Abgelehnt("die Compose-Datei ist groesser als %d KiB" % (MAX_COMPOSE // 1024))
+    if art == "neu":
+        if daten["dienst"] and not DIENST.fullmatch(daten["dienst"]):
+            raise Abgelehnt("%r ist kein Dienstname" % daten["dienst"])
+        if daten["port"] and not (daten["port"].isdigit() and 0 < int(daten["port"]) < 65536):
+            raise Abgelehnt("%r ist kein Port" % daten["port"])
+        for feld in ("geteilt", "grund"):
+            w = daten[feld]
+            if len(w) > FREITEXT_MAX or not w.isprintable():
+                raise Abgelehnt("das Feld %s ist zu lang oder hat Steuerzeichen" % feld)
+        if daten["anmeldung"] not in ("authentik", "eigene"):
+            raise Abgelehnt("anmeldung ist authentik oder eigene - ohne Vorgabe (§17a)")
+        if daten["anmeldung"] == "eigene" and not daten["grund"].strip():
+            raise Abgelehnt("eigene Anmeldung nur mit Grund (N-59)")
+        if daten["netz"] and daten["netz"] != "netz-" + daten["name"] and not daten["geteilt"].strip():
+            raise Abgelehnt("ein fremdes Netz nur mit Grund - es hebt die Abschottung auf (N-62)")
 
     wer = daten.get("wer", "")
     if not isinstance(wer, str) or len(wer) > MAX_WER or not wer.isprintable():
@@ -204,9 +281,64 @@ def pruefen(daten):
 
 
 # ------------------------------------------------------------ Ausfuehren
+def compose_ablegen(daten):
+    """Die Compose-Datei in einen Ordner, den nur root lesen kann. Sie geht
+    als DATEI an prolo neu bzw. compose_befund.py - nie als Argument."""
+    ordner = tempfile.mkdtemp(prefix="prolo-compose-")
+    pfad = os.path.join(ordner, "docker-compose.yml")
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write(daten["compose"])
+    return ordner, pfad
+
+
+def befund_holen(kennung, daten, lage):
+    """compose_pruefen: den Befund lesen - nichts anlegen, nichts starten."""
+    ordner, pfad = compose_ablegen(daten)
+    try:
+        r = subprocess.run([sys.executable, os.path.join(HIER, "compose_befund.py"),
+                            pfad, daten["name"]], capture_output=True, text=True,
+                           timeout=ARTEN["compose_pruefen"][1], env=UMGEBUNG)
+    except subprocess.TimeoutExpired:
+        return "zeit", None
+    finally:
+        shutil.rmtree(ordner, ignore_errors=True)
+    try:
+        befund = json.loads(r.stdout)
+    except ValueError:
+        befund = {"ok": False, "fehler": (r.stderr.strip().splitlines() or ["kein Befund"])[-1]}
+    befund["name_frei"] = not os.path.lexists(os.path.join(STACK, daten["name"]))
+    lage["befund"] = befund
+    # Die Datei selbst liegt daneben: "Anlegen" nimmt GENAU die, die hier
+    # angesehen wurde - nicht eine, die jemand dazwischen geaendert hat.
+    schreiben(os.path.join(ERLEDIGT, kennung + ".compose"), daten["compose"])
+    with open(os.path.join(ERLEDIGT, kennung + ".log"), "w", encoding="utf-8") as log:
+        if befund.get("ok"):
+            log.write("Dienste: %s\n" % ", ".join(d["name"] for d in befund["dienste"]))
+            log.write("Vorschlag: %s auf Port %s\n" % (befund["vorschlag"]["dienst"] or "-",
+                                                     befund["vorschlag"]["port"] or "-"))
+            for g in befund["gefahren"]:
+                log.write("GEFAHR %s: %s\n" % (g["dienst"], g["was"]))
+        else:
+            log.write("Nicht zu gebrauchen: %s\n" % befund.get("fehler"))
+    os.chmod(os.path.join(ERLEDIGT, kennung + ".log"), 0o644)
+    return ("ok" if befund.get("ok") else "fehler"), r.returncode
+
+
 def ausfuehren(kennung, art, daten):
     """prolo mit den Argumenten aus ARTEN - als Liste, nie ueber eine Shell."""
     _, zeit_s, argumente = ARTEN[art]
+    ordner = None
+    if art == "neu":
+        ordner, pfad = compose_ablegen(daten)
+        daten = dict(daten, _datei=pfad)
+    try:
+        return prolo_ausfuehren(kennung, art, daten, zeit_s, argumente)
+    finally:
+        if ordner:
+            shutil.rmtree(ordner, ignore_errors=True)
+
+
+def prolo_ausfuehren(kennung, art, daten, zeit_s, argumente):
     befehl = [PROLO] + argumente(daten)
     log_pfad = os.path.join(ERLEDIGT, kennung + ".log")
     umgebung = dict(UMGEBUNG, PROLO_AUFTRAG=kennung)
@@ -300,7 +432,8 @@ def einer(name):
     # nur maskiert (admin/server.py).
     lage = {"kennung": kennung, "beginn": jetzt()}
     for feld, grenze in (("art", 40), ("wer", MAX_WER), ("werkzeug", 40),
-                         ("netz", 40), ("angelegt", 40)):
+                         ("netz", 40), ("angelegt", 40), ("name", 40),
+                         ("dienst", 64), ("port", 5), ("anmeldung", 12)):
         wert = daten.get(feld)
         if isinstance(wert, str) and len(wert) <= grenze and wert.isprintable():
             lage[feld] = wert
@@ -315,11 +448,14 @@ def einer(name):
 
     lage["status"] = "laeuft"
     lage_schreiben(kennung, lage)
-    status, rueckgabe = ausfuehren(kennung, art, daten)
+    if art == "compose_pruefen":
+        status, rueckgabe = befund_holen(kennung, daten, lage)
+    else:
+        status, rueckgabe = ausfuehren(kennung, art, daten)
     lage.update(status=status, rueckgabe=rueckgabe, ende=jetzt())
     lage_schreiben(kennung, lage)
     protokollieren({"zeit": lage["ende"], **{k: lage[k] for k in
-                    ("kennung", "art", "werkzeug", "netz", "wer", "status",
+                    ("kennung", "art", "werkzeug", "name", "netz", "wer", "status",
                      "rueckgabe") if k in lage}})
 
 

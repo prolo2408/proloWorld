@@ -610,7 +610,8 @@ Der Ordnername ist kleingeschrieben, ohne Leerzeichen und Umlaute, und
 **identisch mit der Subdomain**: Ordner `bordbuch` → `bordbuch.prolo.me`.
 
 **Angelegt wird ein Werkzeug mit `prolo neu <name>`** (`N-61`), nicht von
-Hand. Das Skript fragt nach Art, Netz und Anmeldung, schreibt alle Dateien,
+Hand — aus der Compose-Datei eines Herstellers mit `prolo neu <name>
+--compose <datei>` oder in der Admin-Seite (`A-03`). Das Skript fragt nach Art, Netz und Anmeldung, schreibt alle Dateien,
 legt das Netz an und trägt es bei Traefik ein — und zwar **bevor** der
 Ordner entsteht: geht das Netz nicht, entsteht gar nichts, statt eines
 Ordners, den niemand von einem fertigen Werkzeug unterscheiden kann (`§12`).

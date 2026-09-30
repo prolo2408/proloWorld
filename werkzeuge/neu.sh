@@ -25,7 +25,20 @@
 # Aufruf, alles fragbar und alles vorgebbar:
 #   neu.sh <name> [--art fremd|eigen] [--abbild ABBILD] [--dienst NAME]
 #                 [--port N] [--host NAME] [--netz NETZ|--netz-neu]
-#                 [--anmeldung authentik|eigene] [--grund TEXT]
+#                 [--geteilt TEXT] [--anmeldung authentik|eigene] [--grund TEXT]
+#                 [--compose DATEI] [--wert NAME=WERT ...]
+#
+# --compose DATEI (A-03): die Compose-Datei des Herstellers gleich mitgeben.
+# Sie wird UNVERAENDERT uebernommen; Dienst, Port, Abbild, Volumes und
+# Variablen liest werkzeuge/compose_befund.py aus ihr - und die Gefahren
+# (privileged, Host-Netz, Docker-Socket, Pfade vom Server ...). Kommt der
+# Aufruf aus der Admin-Seite (PROLO_AUFTRAG gesetzt), wird mit Gefahren
+# NICHTS angelegt; auf der Kommandozeile wird einzeln nachgefragt.
+#
+# --wert NAME=WERT: ein Wert fuer eine Variable ${NAME} der Herstellerdatei,
+# in die .env. Nur fuer Werte, die KEINE Geheimnisse sind - geheime (PASS,
+# SECRET, KEY, TOKEN ...) wuerfelt neu.sh selbst, und sie stehen dann nur
+# in der .env und im verschluesselten Merkzettel, nie in einem Auftrag.
 set -uo pipefail
 
 HIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,7 +50,7 @@ fehler() { printf '%s\n' "$*" >&2; }
 titel()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
 NAME=""; ART=""; ABBILD=""; DIENST=""; PORT=""; HOST=""; NETZ=""
-ANMELDUNG=""; GRUND=""; OHNE_NETZ=0
+ANMELDUNG=""; GRUND=""; OHNE_NETZ=0; COMPOSE=""; GETEILT=""; WERTE=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -51,6 +64,9 @@ while [ $# -gt 0 ]; do
     --ohne-netz) OHNE_NETZ=1; shift ;;
     --anmeldung) ANMELDUNG="${2:-}"; shift 2 ;;
     --grund)     GRUND="${2:-}"; shift 2 ;;
+    --geteilt)   GETEILT="${2:-}"; shift 2 ;;
+    --compose)   COMPOSE="${2:-}"; shift 2 ;;
+    --wert)      WERTE+=("${2:-}"); shift 2 ;;
     -*)          fehler "Unbekannt: $1"; exit 1 ;;
     *)           [ -z "$NAME" ] && NAME="$1" || { fehler "Zu viele Namen."; exit 1; }
                  shift ;;
@@ -88,6 +104,96 @@ fi
 # Fragen nur, wenn jemand da ist, der antworten kann. Sonst ist ein
 # fehlender Wert ein Fehler und keine stille Vorgabe (CLAUDE.md §11).
 fragbar() { [ -t 0 ]; }
+
+# --- Die Compose-Datei des Herstellers (A-03) -------------------------
+# Gelesen, BEVOR irgendetwas angelegt wird (§12): was hier scheitert,
+# hinterlaesst nichts.
+BEFUND=""
+aus_befund() {   # aus_befund <python-ausdruck ueber b>  -> Ausgabe
+  python3 -c 'import json,sys; b=json.load(open(sys.argv[1])); print(eval(sys.argv[2]))' \
+    "$BEFUND" "$1"
+}
+if [ -n "$COMPOSE" ]; then
+  [ -z "$ART" ] || [ "$ART" = fremd ] \
+    || { fehler "--compose ist die Datei eines Herstellers - also --art fremd."; exit 1; }
+  ART=fremd
+  [ -f "$COMPOSE" ] || { fehler "Die Compose-Datei $COMPOSE gibt es nicht."; exit 1; }
+  BEFUND=$(mktemp); trap 'rm -f "$BEFUND"' EXIT
+  if ! python3 "$HIER/compose_befund.py" "$COMPOSE" "$NAME" > "$BEFUND"; then
+    fehler "Die Compose-Datei ist so nicht zu gebrauchen:"
+    fehler "  $(aus_befund 'b["fehler"]')"
+    exit 1
+  fi
+  N_GEFAHR=$(aus_befund 'len(b["gefahren"])')
+  if [ "$N_GEFAHR" -gt 0 ]; then
+    fehler ""
+    fehler "  In der Compose-Datei steht, womit ein Container aus seinem Kaefig"
+    fehler "  heraus auf den Server greift:"
+    aus_befund '"\n".join("    %s: %s" % (g["dienst"], g["was"]) for g in b["gefahren"])' >&2
+    fehler ""
+    if [ -n "${PROLO_AUFTRAG:-}" ]; then
+      # Aus der Admin-Seite nie. Die Seite ist die Stelle, an der man am
+      # ehesten hereinkommt - und das hier waere der Weg zu root.
+      fehler "  Aus der Admin-Seite wird so etwas nicht angelegt. Wenn es sein"
+      fehler "  muss: auf dem Server, dort wird einzeln nachgefragt -"
+      fehler "    sudo prolo neu $NAME --compose <datei>"
+      exit 1
+    fi
+    if ! fragbar; then
+      fehler "  Ohne Terminal wird das nicht angelegt - dafuer braucht es"
+      fehler "  jemanden, der es einzeln bestaetigt."
+      exit 1
+    fi
+    [ "$(frage "Trotzdem anlegen? Dann genau 'ja, gefaehrlich' tippen")" = "ja, gefaehrlich" ] \
+      || { melde "  Abgebrochen, nichts angelegt."; exit 1; }
+  fi
+  # Werte aus --wert: nur Variablen, die die Datei nennt, keine geheimen,
+  # nichts, was eine .env-Zeile zerbricht. Geprueft VOR dem Anlegen (§12).
+  for W in "${WERTE[@]+"${WERTE[@]}"}"; do
+    WN="${W%%=*}"; WW="${W#*=}"
+    python3 - "$BEFUND" "$W" <<'PY' || exit 1
+import json, re, sys
+b = json.load(open(sys.argv[1]))
+name, _, wert = sys.argv[2].partition("=")
+bekannt = {v["name"]: v for v in b["variablen"]}
+if name not in bekannt:
+    sys.exit("--wert %s: diese Variable nennt die Datei nicht" % name)
+if bekannt[name]["geheim"]:
+    sys.exit("--wert %s: das ist ein Geheimnis - das wuerfelt prolo neu selbst" % name)
+if len(wert) > 500 or not wert.isprintable() or "'" in wert:
+    sys.exit("--wert %s: hoechstens 500 Zeichen, eine Zeile, ohne '" % name)
+PY
+  done
+  if [ -z "$DIENST" ]; then
+    DIENST=$(aus_befund 'b["vorschlag"]["dienst"]')
+    if [ -z "$DIENST" ]; then
+      melde "  Dienste in der Datei: $(aus_befund '" ".join(d["name"] for d in b["dienste"])')"
+      DIENST=$(frage "Zu welchem Dienst fuehrt Traefik")
+    fi
+  fi
+  aus_befund '"\n".join(d["name"] for d in b["dienste"])' | grep -qxF "$DIENST" \
+    || { fehler "Einen Dienst '$DIENST' gibt es in der Datei nicht. Da sind:"
+         fehler "  $(aus_befund '" ".join(d["name"] for d in b["dienste"])')"; exit 1; }
+  ABBILD=$(python3 -c 'import json,sys; b=json.load(open(sys.argv[1])); print(next(d["abbild"] for d in b["dienste"] if d["name"]==sys.argv[2]))' "$BEFUND" "$DIENST")
+  if [ -z "$PORT" ]; then
+    # Der Port des GEWAEHLTEN Dienstes - aus seinen ports: und expose:,
+    # wenn es genau einer ist. Sonst fragt jemand, oder es wird nichts:
+    # eine stille 8080 waere ein geratener Wert (§11), und der Router fuehrte
+    # ins Leere.
+    V=$(python3 -c '
+import json,sys
+b=json.load(open(sys.argv[1]))
+d=next(x for x in b["dienste"] if x["name"]==sys.argv[2])
+z=sorted({p["ziel"] for p in d["ports"] if p["ziel"]} | set(d["expose"]))
+print(z[0] if len(z)==1 else "")' "$BEFUND" "$DIENST")
+    if [ -n "$V" ]; then PORT="$V"
+    elif fragbar; then PORT=$(frage "Interner Port des Dienstes $DIENST (steht in der Doku des Herstellers)")
+    else fehler "Auf welchem Port $DIENST im Container lauscht, sagt die Datei nicht eindeutig."
+         fehler "Er steht in der Doku des Herstellers:  --port <zahl>"; exit 1
+    fi
+    [ -n "$PORT" ] || { fehler "Ohne Port geht es nicht."; exit 1; }
+  fi
+fi
 frage() {   # $1 Text  $2 Vorgabe (leer = Pflicht)  -> Antwort auf stdout
   local text="$1" vorgabe="${2:-}" a
   if ! fragbar; then
@@ -172,17 +278,23 @@ if [ -z "$NETZ" ]; then
     printf '%s\n' "$VORHANDEN" | grep -qx "$NETZ" \
       || { fehler "Das Netz $NETZ gibt es nicht. Erst anlegen:"
            fehler "  sudo prolo netze anlegen $NETZ"; exit 1; }
-    GETEILT=$(frage "Warum teilen sich zwei Werkzeuge dieses Netz")
-    [ -n "$GETEILT" ] || { fehler "Ohne Grund nicht - ein geteiltes Netz hebt"
-                           fehler "die Abschottung zwischen zwei Werkzeugen auf."; exit 1; }
+    [ -n "$GETEILT" ] || GETEILT=$(frage "Warum teilen sich zwei Werkzeuge dieses Netz")
   else
     NETZ="netz-$NAME"
   fi
 elif [ "$NETZ" = neu ]; then
   NETZ="netz-$NAME"
 fi
-GETEILT="${GETEILT:-}"
 case "$NETZ" in *[!a-z0-9-]*) fehler "Netzname: nur Kleinbuchstaben, Ziffern, Bindestrich."; exit 1 ;; esac
+# Wer in ein fremdes Netz geht, teilt es - und das ist eine Entscheidung,
+# keine Bequemlichkeit (N-62). Auch mit --netz auf der Kommandozeile: sonst
+# steht der Grund nirgends, und "prolo netze" beanstandet es danach.
+if [ "$NETZ" != "netz-$NAME" ] && [ -z "$GETEILT" ]; then
+  GETEILT=$(frage "Warum teilt sich $NAME das Netz $NETZ mit einem anderen Werkzeug")
+fi
+[ "$NETZ" = "netz-$NAME" ] || [ -n "$GETEILT" ] \
+  || { fehler "Ohne Grund nicht - ein geteiltes Netz hebt die Abschottung"
+       fehler "zwischen zwei Werkzeugen auf (--geteilt <grund>)."; exit 1; }
 
 # --- 5. Anmeldung -----------------------------------------------------
 if [ "$ART" = eigen ]; then
@@ -218,7 +330,7 @@ fi
 # ----------------------------------------------------------------------
 titel "Das wird angelegt"
 melde "  Ordner      $STACK/$NAME"
-melde "  Art         $ART"
+melde "  Art         $ART${COMPOSE:+  (Compose-Datei des Herstellers: $(aus_befund 'len(b["dienste"])') Dienst(e))}"
 melde "  Abbild      $ABBILD"
 melde "  Dienst      $DIENST  (Port $PORT)"
 melde "  Hostname    $HOST"
@@ -293,6 +405,10 @@ grenzen() {  # $1 = Einrueckung
 
 # ----------------------------------------------------------------------
 if [ "$ART" = fremd ]; then
+  if [ -n "$COMPOSE" ]; then
+    # Die Datei des Herstellers - Byte fuer Byte, ohne Kommentar davor.
+    cp "$COMPOSE" "$STACK/$NAME/docker-compose.yml"
+  else
   cat > "$STACK/$NAME/docker-compose.yml" <<YML
 # /opt/stack/$NAME/docker-compose.yml
 #
@@ -318,6 +434,7 @@ services:
   $DIENST:
     image: $ABBILD
 YML
+  fi
 
   {
     cat <<YML
@@ -344,11 +461,27 @@ services:
     # erreichbar (§19).
     ports: !reset []
     networks:
+      # "default" bleibt: ueber das Projektnetz erreicht der Dienst seine
+      # eigenen Hilfsdienste (Datenbank ...). Wer nur ein Netz nennt,
+      # nimmt ihm alle anderen - und die Datenbank ist weg.
+      - default
       - $NETZ
 YML
     grenzen "    "
     printf '    labels:\n'
     labels "      "
+    # Weitere Dienste des Herstellers mit eigener ports:-Zeile: auch dort
+    # faellt sie weg (N-103). Eine Datenbank auf 5432 fuer die ganze Welt
+    # ist der haeufigste Fund in fremden Compose-Dateien.
+    if [ -n "$BEFUND" ]; then
+      python3 -c '
+import json,sys
+b=json.load(open(sys.argv[1]))
+for d in b["dienste"]:
+    if d["name"] != sys.argv[2] and d["ports"]:
+        print("  %s:\n    # Die ports:-Zeile des Herstellers faellt weg (N-103).\n    ports: !reset []" % d["name"])
+' "$BEFUND" "$DIENST"
+    fi
     cat <<YML
 
 networks:
@@ -377,7 +510,12 @@ herauskommt, zeigt:
 cd /opt/stack/$NAME && docker compose config
 \`\`\`
 
-## Aufsetzen
+$([ -n "$COMPOSE" ] && printf '%s' "## Angelegt aus der Compose-Datei des Herstellers
+
+Am $(date +%Y-%m-%d) mit \`prolo neu --compose\`$([ -n "${PROLO_AUFTRAG:-}" ] && printf ' aus der Admin-Seite (Auftrag %s)' "$PROLO_AUFTRAG"). Die Datei steht
+unveraendert in \`docker-compose.yml\`; Traefik fuehrt zu \`$DIENST\` auf Port
+$PORT.
+" || printf '%s' "## Aufsetzen
 
 1. Die \`docker-compose.yml\` des Herstellers hier hineinkopieren -
    **unveraendert**, auch mit ihrer \`ports:\`-Zeile: die override-Datei
@@ -386,7 +524,7 @@ cd /opt/stack/$NAME && docker compose config
 2. Heisst der Dienst dort anders als \`$DIENST\`, den Namen in
    \`docker-compose.override.yml\` angleichen.
 3. Die Zeile \`PROLO-PLATZHALTER\` loeschen.
-4. \`sudo prolo start $NAME\`
+4. \`sudo prolo start $NAME\`")
 
 ## Anmeldung
 
@@ -472,13 +610,97 @@ MD
 fi
 
 # ----------------------------------------------------------------------
+# Was die Herstellerdatei an Volumes, Ordnern und env-Dateien anlegt,
+# steht im Befund (A-03) - gemessen, nicht geraten. Alles davon wird
+# gesichert; wer etwas davon nicht sichern will, schreibt es mit Grund nach
+# VOLUMES_OHNE. Ordner mit "?": ein Bind-Mount, den es vor dem ersten Start
+# noch nicht gibt, darf fehlen (N-101 kann Unterpfade).
+B_VOLUMES=""; B_ORDNER=""; B_DATEIEN="?.env"; B_HILFSDIENSTE=""
+if [ -n "$BEFUND" ]; then
+  B_VOLUMES=$(aus_befund '" ".join(b["volumes"])')
+  B_ORDNER=$(aus_befund '" ".join(sorted({"?" + x["pfad"] for x in b["binds"]}))')
+  B_DATEIEN=$(aus_befund '" ".join(sorted({"?.env"} | {"?" + x for x in b["env_dateien"]}))')
+  B_HILFSDIENSTE=$(aus_befund '" ".join("%s (%s)" % (d["name"], d["abbild"]) for d in b["dienste"] if d["hilfsdienst"])')
+  # env-Dateien, die die Herstellerdatei erwartet: leer anlegen, 0600.
+  # Ohne sie startet Compose gar nicht; mit ihnen startet es und sagt,
+  # welche Werte fehlen.
+  for E in $(aus_befund '" ".join(b["env_dateien"])') .env; do
+    [ -e "$STACK/$NAME/$E" ] && continue
+    mkdir -p "$(dirname "$STACK/$NAME/$E")"
+    : > "$STACK/$NAME/$E"; chmod 600 "$STACK/$NAME/$E"
+  done
+  # Die Variablen ${...} der Herstellerdatei: jede als leere Zeile in die
+  # .env - und die, die wie Geheimnisse heissen, in die geheimnisse.conf.
+  # Dann fuellt "prolo geheimnisse --verteilen" sie mit Zufallswerten, und
+  # niemand tippt ein Passwort aus der Beispieldatei ab (§22).
+  python3 - "$BEFUND" "$STACK/$NAME" "$NAME" <<'PY'
+import json, os, sys
+b = json.load(open(sys.argv[1]))
+ordner, name = sys.argv[2], sys.argv[3]
+env = os.path.join(ordner, ".env")
+da = {z.split("=", 1)[0] for z in open(env, encoding="utf-8").read().splitlines() if "=" in z}
+with open(env, "a", encoding="utf-8") as f:
+    for v in b["variablen"]:
+        if v["name"] not in da and v["pflicht"]:
+            f.write("%s=\n" % v["name"])
+# Geheime Variablen: gewuerfelt, nicht abgeschrieben. Das Werkzeug ist
+# NEU - es haelt noch niemand einen alten Wert, also ist Wuerfeln genau
+# richtig (§23a). Ein Passwort aus der Beispieldatei des Herstellers ist
+# eines, das im Internet steht.
+import secrets
+zeilen = open(env, encoding="utf-8").read().splitlines()
+gesetzt = {z.split("=", 1)[0]: i for i, z in enumerate(zeilen) if "=" in z}
+for v in b["variablen"]:
+    if not v["geheim"]:
+        continue
+    neu = "%s=%s" % (v["name"], secrets.token_urlsafe(32))
+    if v["name"] in gesetzt and zeilen[gesetzt[v["name"]]].split("=", 1)[1] == "":
+        zeilen[gesetzt[v["name"]]] = neu
+    elif v["name"] not in gesetzt:
+        zeilen.append(neu)
+with open(env, "w", encoding="utf-8") as f:
+    f.write("\n".join(zeilen) + ("\n" if zeilen else ""))
+geheim = [v for v in b["variablen"] if v["geheim"]]
+if geheim:
+    with open(os.path.join(ordner, "geheimnisse.conf"), "w", encoding="utf-8") as f:
+        f.write("# /opt/stack/%s/geheimnisse.conf\n" % name)
+        f.write("# Aus der Compose-Datei des Herstellers gelesen (A-03). Eine Zeile je\n")
+        f.write("# Wert: NAME|DATEI|FORM|WECHSEL|Erklaerung - und NIE ein Wert.\n")
+        f.write("# haende: ob ein neuer Wert das Werkzeug aus seinen Daten aussperrt,\n")
+        f.write("# weiss hier niemand - also nur von Hand wechseln (§23a).\n")
+        for v in geheim:
+            f.write("%s|.env|env|haende|Aus der Herstellerdatei (${%s}). Beim Anlegen gewuerfelt.\n"
+                    % (v["name"], v["name"]))
+PY
+  # Werte aus --wert in die .env - als 'wert', damit Leerzeichen und # im
+  # Wert nichts anrichten.
+  for W in "${WERTE[@]+"${WERTE[@]}"}"; do
+    python3 - "$STACK/$NAME/.env" "$W" <<'PY'
+import sys
+env, (name, _, wert) = sys.argv[1], sys.argv[2].partition("=")
+zeilen = open(env, encoding="utf-8").read().splitlines()
+zeilen = [z for z in zeilen if z.split("=", 1)[0] != name] + ["%s='%s'" % (name, wert)]
+open(env, "w", encoding="utf-8").write("\n".join(zeilen) + "\n")
+PY
+  done
+  # Die neuen Geheimnisse gehoeren sofort in den verschluesselten Merkzettel
+  # (§23a) - sonst stehen sie nur auf diesem Server.
+  if [ -f "$STACK/$NAME/geheimnisse.conf" ] && [ -s "$STACK/.backup-schluessel.pub" ]; then
+    if python3 "$HIER/geheimnisse.py" --merkzettel >/dev/null 2>&1; then
+      melde "  Geheimnisse gewuerfelt und im Merkzettel (verschluesselt)."
+    else
+      fehler "  Merkzettel nicht geschrieben - von Hand: sudo prolo geheimnisse --merkzettel"
+    fi
+  fi
+fi
+
 cat > "$STACK/$NAME/sicherung.conf" <<CONF
 # /opt/stack/$NAME/sicherung.conf
 # Angelegt mit "prolo neu $NAME". Damit ist das Werkzeug in backup.sh drin -
 # zentral ist nichts zu aendern.
 
 # Namen pruefen mit: docker volume ls | grep $NAME
-VOLUMES="$([ "$ART" = eigen ] && printf '%s' "${NAME}_${NAME}_daten")"
+VOLUMES="$([ "$ART" = eigen ] && printf '%s' "${NAME}_${NAME}_daten")$B_VOLUMES"
 
 # Fuer einen eigenen Datenbank-Container ausfuellen, sonst leer lassen.
 DB_CONTAINER=""
@@ -487,13 +709,13 @@ DB_NAME=""
 
 # Ein "?" davor heisst: darf fehlen, ohne dass die Sicherung als
 # fehlgeschlagen gilt.
-DATEIEN="?.env"
+DATEIEN="$B_DATEIEN"
 
 # SQLite IM Container, Form "behaelter:/pfad/zur.db". Leer lassen, wenn es
 # keine gibt - sonst meldet jede Sicherung einen Fehler.
 SQLITE=""
 
-ORDNER=""
+ORDNER="$B_ORDNER"
 
 # Was mit Absicht NICHT gesichert wird, je Zeile "name|warum".
 # Ohne Begruendung beanstandet es werkzeuge/volumes.py - und das soll es.
@@ -505,7 +727,11 @@ ANMELDUNG: $ANMELDUNG$([ "$ANMELDUNG" = eigene ] && printf '%s' " - KEIN Authent
 Grund: $GRUND
 Bedingungen nach CLAUDE.md §17a: eigenes Netz, Ratenbremse am Eingang,
 2FA in der eigenen Anmeldung EINGESCHALTET.")
-$([ "$ART" = fremd ] && printf '%s' "
+$([ -n "$B_HILFSDIENSTE" ] && printf '%s' "
+DATENBANK im Volume: $B_HILFSDIENSTE. Das Volume wird als Datei
+gesichert - eine Datenbank, die dabei schreibt, kann so einen halben Stand
+liefern. Konsistent wird es mit DB_CONTAINER, DB_USER und DB_NAME oben
+(pg_dump) oder mit SQLITE.")$([ "$ART" = fremd ] && [ -z "$COMPOSE" ] && printf '%s' "
 SICHERUNG NOCH NICHT VOLLSTAENDIG: die Herstellerdatei gibt es zu diesem
 Zeitpunkt noch nicht, also steht in VOLUMES nichts. Nach dem Einsetzen
 der Compose-Datei des Herstellers zeigt
@@ -516,7 +742,8 @@ welche Volumes das Werkzeug anlegt - mit ihrem LAUFZEITnamen, der
 <ordner>_<schluessel> lautet und nicht der Schluessel ist. Jedes davon
 gehoert in VOLUMES oder mit Begruendung in VOLUMES_OHNE. Solange eines
 fehlt, bricht die Sicherung ab und sagt welches (N-76).")
-Die Volume-Namen sind geraten - vor der ersten Sicherung einmal nachsehen."
+$([ -n "$COMPOSE" ] && printf '%s' "Volumes, Ordner und env-Dateien sind aus der Herstellerdatei gemessen (A-03)." \
+  || printf '%s' "Die Volume-Namen sind geraten - vor der ersten Sicherung einmal nachsehen.")"
 CONF
 
 cat > "$STACK/$NAME/aktualisierung.conf" <<CONF
@@ -550,9 +777,19 @@ CONF
 titel "Angelegt"
 ls -1A "$STACK/$NAME" | sed 's/^/  /'
 
+# Wuerde "prolo start" das so loslassen? Gleich jetzt gemessen, nicht
+# erst beim Start (A-03) - an der zusammengesetzten Konfiguration.
+if [ -n "$COMPOSE" ]; then
+  titel "Startsperre"
+  # shellcheck source=werkzeuge/startsperre.sh
+  . "$HIER/startsperre.sh"
+  if start_pruefen "$NAME"; then melde "  frei: kein offener Port, kein Router ohne Anmeldung"
+  else fehler "  (vor dem Start zu klaeren - siehe oben)"; fi
+fi
+
 titel "Noch zu tun"
 N=1
-if [ "$ART" = fremd ]; then
+if [ "$ART" = fremd ] && [ -z "$COMPOSE" ]; then
   melde "  $N. Die docker-compose.yml des Herstellers unveraendert in"
   melde "     $STACK/$NAME/docker-compose.yml kopieren und die Zeile"
   melde "     PROLO-PLATZHALTER loeschen. Seine ports:-Zeile darf bleiben -"
@@ -568,6 +805,26 @@ if [ "$ANMELDUNG" = authentik ]; then
   melde "     mit 403, und das sieht aus wie ein kaputtes Werkzeug."
   N=$((N+1))
 fi
+if [ -n "$BEFUND" ]; then
+  # Was die Herstellerdatei verlangt und noch leer ist. Gewuerfelte
+  # Geheimnisse und mitgegebene Werte sind es nicht mehr.
+  LEER=$(python3 - "$BEFUND" "$STACK/$NAME/.env" <<'PY'
+import json, sys
+b = json.load(open(sys.argv[1]))
+werte = {}
+for z in open(sys.argv[2], encoding="utf-8").read().splitlines():
+    if "=" in z:
+        k, _, w = z.partition("=")
+        werte[k] = w.strip("'\"")
+print(" ".join(v["name"] for v in b["variablen"] if v["pflicht"] and not werte.get(v["name"])))
+PY
+)
+  if [ -n "$LEER" ]; then
+    melde "  $N. Werte fuer $NAME/.env - ohne sie startet es nicht: $LEER"
+    melde "     Auf dem Server: sudo nano $STACK/$NAME/.env"
+    N=$((N+1))
+  fi
+fi
 if [ "$ART" = eigen ]; then
   melde "  $N. .env anlegen und PROLO_EINLASS eintragen:"
   melde "       sudo prolo geheimnisse --verteilen"
@@ -577,7 +834,7 @@ if [ "$OHNE_NETZ" -eq 1 ]; then
   melde "  $N. Das Netz nachholen:  sudo prolo netze anlegen $NETZ"
   N=$((N+1))
 fi
-if [ "$ART" = fremd ]; then
+if [ "$ART" = fremd ] && [ -z "$COMPOSE" ]; then
   # Der Schritt, der bei bitwarden gefehlt hat (N-76). Er steht NACH dem
   # Einsetzen der Herstellerdatei, weil es vorher nichts zu messen gibt -
   # und VOR dem Starten, weil danach Daten entstehen.

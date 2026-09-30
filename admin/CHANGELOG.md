@@ -1,3 +1,17 @@
+# 0.3.0
+
+- **Werkzeug anlegen aus einer Compose-Datei** (A-03): die Datei des
+  Herstellers einwerfen, pruefen lassen (Dienste, Ports, Volumes,
+  Variablen - und Gefahren wie privileged, Host-Netz, Docker-Socket, Pfade
+  vom Server), mit Dienst, Port, Netz und Anmeldung bestaetigen. Angelegt
+  wird ueber `prolo neu --compose`: Herstellerdatei unveraendert, unsere
+  Zutat daneben, ohne die Ports des Herstellers, alle Volumes in der
+  Sicherung, geheime Variablen gewuerfelt. Mit Gefahren wird aus der Seite
+  nichts angelegt.
+- "Konfiguration uebernehmen" fuer laufende Werkzeuge (`prolo start`):
+  legt neu an, was sich geaendert hat - z. B. ein neues Netz bei Traefik.
+- Formulare: Felder ohne Luecken, lange Pfade brechen um.
+
 # 0.2.1
 
 - Am Handy keine Schrift mehr unter 12 px (§3): Tabellenkoepfe, Marker,
