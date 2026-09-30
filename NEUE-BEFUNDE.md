@@ -6696,3 +6696,48 @@ Der Vertragstest hat sofort etwas gefunden: das Bordbuch hatte keine
 Die Regeldateien sind aus der `CLAUDE.md` des Stapels erzeugt (Abschnitte
 wörtlich übernommen, Pfade, die im Werkzeug-Repo nicht mehr stimmen,
 umgebogen). Ab dem Umzug leben sie eigenständig weiter.
+
+## N-100 — Die Einrichtungsprobe bog den echten `prolo` um — und lief ohne root gar nicht
+
+Zwei Seiten derselben Sache, beide durch die neue Prüfung auf GitHub
+(`.github/workflows/pruefen.yml`) ans Licht gekommen.
+
+**Ohne root:** Der erste Lauf auf GitHub war rot — `einrichten-pruefen.sh`
+und `neu-pruefen.sh`. `einrichten.sh` und `neu.sh` fragen als Erstes
+`id -u` und hören ohne root sofort auf. Hier lief jede Probe bisher als
+root, also fiel es nie auf. Ein Prüfer, der nur als root grün wird, prüft
+auf dem Rechner des nächsten Menschen nichts.
+
+**Mit root — schlimmer:** Schritt 2 von `prolo einrichten` legt
+`/usr/local/bin/prolo` an. Die Probe lief in einem Wegwerfordner, aber
+dieser Pfad war fest — also bog jeder Lauf **den echten Verweis** auf den
+Wegwerfordner um, und nach dem Aufräumen zeigte er ins Leere. Gemessen:
+nach einem Probelauf als root war `prolo` auf dem Prüfrechner weg
+(`readlink` zeigte auf ein gelöschtes `/tmp/…`). Auf einem Server, auf dem
+jemand die Probe laufen lässt, wäre es genauso.
+
+### Behoben
+
+- `einrichten.sh`: `ZIEL="${PROLO_BIN:-/usr/local/bin/prolo}"` — setzbar
+  nur, damit die Probe ihren Verweis in die Kopie legt.
+- `einrichten-pruefen.sh` und `neu-pruefen.sh`: ein `id` im eigenen
+  `PATH`, das auf `-u` mit `0` antwortet. Geschrieben wird ohnehin nur im
+  Wegwerfordner.
+- `einrichten-pruefen.sh` prüft die Wirkung, nicht die Absicht: der
+  Verweis liegt **in der Kopie** und zeigt auf sie, und der echte
+  `/usr/local/bin/prolo` ist nach dem Lauf **derselbe** wie vorher.
+- Mutation 12: `ZIEL` wieder fest auf `/usr/local/bin/prolo`. Als root
+  stellt die Probe den echten Verweis danach sofort wieder her.
+
+### Ausgeführt
+
+| | als root | ohne root (`pruefer`) |
+|---|---|---|
+| `einrichten-pruefen.sh` | grün, 30 ok | grün, 30 ok |
+| `einrichten-pruefen.sh --gegenprobe` | — | **14 von 14** gefunden |
+| `neu-pruefen.sh` | grün | grün, 106 ok |
+| `/usr/local/bin/prolo` danach | unverändert (`/opt/stack/werkzeuge/prolo`) | unverändert |
+
+`werkzeuge/alle-pruefen.sh` als `pruefer`: alle Werkzeugtests und alle
+Prüfungen des Stapels grün (der Lauf wurde in den Gegenproben durch einen
+Neustart des Prüfrechners abgebrochen, nicht durch einen Fehler).

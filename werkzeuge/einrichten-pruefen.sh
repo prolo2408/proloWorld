@@ -82,6 +82,15 @@ STUB
 chmod +x "$T/bin/docker"
 export DOCKER_ATTRAPPE="$T/att"; mkdir -p "$DOCKER_ATTRAPPE"
 
+# "id -u" sagt 0: einrichten.sh verlangt root, und die Probe soll ueberall
+# gleich laufen - auf dem Server als root wie auf dem Pruefrechner ohne
+# (N-100). Alles, was dabei geschrieben wird, liegt in der Kopie.
+printf '#!/bin/bash\n[ "$1" = "-u" ] && echo 0 || exec /usr/bin/id "$@"\n' > "$T/bin/id"
+chmod +x "$T/bin/id"
+
+# Der echte Verweis vorher - nachher muss er genau so aussehen (N-100).
+ECHT_VORHER=$(readlink /usr/local/bin/prolo 2>/dev/null || echo fehlt)
+
 # --- Kopie des Stacks: nur, was das Skript liest
 kopieren() {
   local Z="$1"; mkdir -p "$Z/werkzeuge"
@@ -151,7 +160,9 @@ YML
 }
 
 lauf() {  # lauf <wurzel> [--trocken]
-  ( cd "$1" && PATH="$T/bin:$PATH" HOME="$1" \
+  # PROLO_BIN: der Verweis aus Schritt 2 landet in der Kopie, nie in
+  # /usr/local/bin (N-100). HOME: "git config --global" ebenso.
+  ( cd "$1" && PATH="$T/bin:$PATH" HOME="$1" PROLO_BIN="$1/bin-prolo" \
       bash "$1/werkzeuge/einrichten.sh" ${2:-} < /dev/null 2>&1 )
 }
 
@@ -164,6 +175,11 @@ pruefen_einmal() {
   A1=$(lauf "$W"); R1=$?
   echo "$A1" > "$W/lauf1.txt"
 
+  # N-100: der Verweis aus Schritt 2 liegt in der Kopie und zeigt auf sie.
+  [ "$(readlink "$W/bin-prolo" 2>/dev/null)" = "$W/werkzeuge/prolo" ] \
+    && sag ok "der prolo-Verweis entsteht in der Kopie, nicht in /usr/local/bin (N-100)" \
+    || sag FEHLER "der prolo-Verweis entstand nicht in der Kopie" \
+           "dann biegt die Probe den echten /usr/local/bin/prolo um"
   grep -q "getan" <<<"$A1" && sag ok "erster Lauf richtet wirklich etwas ein" \
     || sag FEHLER "erster Lauf hat nichts getan" "dann prueft der zweite nichts"
 
@@ -329,6 +345,10 @@ pruefen_einmal() {
 
 if [ "$GEGENPROBE" -eq 0 ]; then
   pruefen_einmal "$T/stack"
+  [ "$(readlink /usr/local/bin/prolo 2>/dev/null || echo fehlt)" = "$ECHT_VORHER" ] \
+    && sag ok "der echte /usr/local/bin/prolo ist unberuehrt (N-100)" \
+    || sag FEHLER "der echte /usr/local/bin/prolo wurde umgebogen" \
+           "vorher: $ECHT_VORHER"
   echo
   [ "$FEHLER" -eq 0 ] && echo "Alles gruen." || echo "EINRICHTUNGSPRUEFUNG FEHLGESCHLAGEN." >&2
   exit "$FEHLER"
@@ -457,6 +477,28 @@ gruppenprobe "die Gruppen stehen nicht mehr in der Liste (N-95)" \
   's#^if zeilen:$#if False:#'
 gruppenprobe "das Label prolo.gruppen wird nicht gelesen (N-95)" \
   's#for m in re.finditer(r"prolo\\.gruppen=#for m in [] or re.finditer(r"NIE-prolo\\.gruppen=#'
+
+# N-100: der Verweis landet wieder in /usr/local/bin.
+binprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/p$((++GEFUNDEN))"
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  lauf "$W" > /dev/null
+  # Ohne root schlaegt das ln fehl, mit root trifft es den echten Verweis -
+  # in beiden Faellen fehlt er in der Kopie. Den echten stellt die Probe
+  # sofort wieder her, falls sie ihn umgebogen hat.
+  [ "$(readlink /usr/local/bin/prolo 2>/dev/null || echo fehlt)" = "$ECHT_VORHER" ] \
+    || { [ "$ECHT_VORHER" = fehlt ] && rm -f /usr/local/bin/prolo \
+         || ln -sf "$ECHT_VORHER" /usr/local/bin/prolo; }
+  if [ -L "$W/bin-prolo" ]; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+}
+binprobe "der Verweis geht wieder nach /usr/local/bin (N-100)" \
+  's#^ZIEL="${PROLO_BIN:-/usr/local/bin/prolo}"$#ZIEL=/usr/local/bin/prolo#'
 
 overrideprobe() {
   local NAME="$1" AUSDRUCK="$2" W="$T/o$((++GEFUNDEN))" A

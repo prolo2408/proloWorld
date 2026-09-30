@@ -63,6 +63,11 @@ esac
 exit 1
 STUB
 chmod +x "$T/bin/docker"
+# "id -u" sagt 0: neu.sh und "prolo start" verlangen root, und die Probe
+# soll auf dem Pruefrechner ohne root genauso laufen wie auf dem Server
+# (N-100). Geschrieben wird nur im Wegwerfordner.
+printf '#!/bin/bash\n[ "$1" = "-u" ] && echo 0 || exec /usr/bin/id "$@"\n' > "$T/bin/id"
+chmod +x "$T/bin/id"
 export DOCKER_NETZE="$T/netze"
 export PATH="$T/bin:$PATH"
 

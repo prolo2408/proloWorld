@@ -79,7 +79,10 @@ else f_bad "age fehlt:  apt install age"; fi
 
 # ----------------------------------------------------------------- 2
 schritt "2. prolo im PATH"
-ZIEL=/usr/local/bin/prolo
+# Von aussen setzbar nur fuer die Probe (N-100): einrichten-pruefen.sh lief
+# als root und bog dabei den ECHTEN /usr/local/bin/prolo auf seinen
+# Wegwerfordner um - danach war "prolo" auf dem Server weg.
+ZIEL="${PROLO_BIN:-/usr/local/bin/prolo}"
 if [ "$(readlink -f "$ZIEL" 2>/dev/null)" = "$HIER/prolo" ]; then
   f_ok "$ZIEL zeigt hierher"
 elif tun; then
