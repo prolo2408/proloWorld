@@ -21,6 +21,16 @@ HIER = os.path.dirname(os.path.abspath(__file__))
 PRUEFER = os.path.join(HIER, "wiederherstellen-pruefen.sh")
 
 MUTATIONEN = [
+    # N-101: eine Datei mit Unterpfad auf einem Server, auf dem ihr Ordner
+    # noch fehlt.
+    ("ein Ordner mit Unterpfad wird nicht weggelegt (N-101)",
+     '    mkdir -p "$(dirname "$SICHERHEITSKOPIE/$t/$o.tar.gz")"\n',
+     ''),
+
+    ("der Ordner vor einer Datei mit Unterpfad wird nicht angelegt (N-101)",
+     '    mkdir -p "$(dirname "$SICHERHEITSKOPIE/$t/$d")" "$(dirname "$STACK/$t/$d")"',
+     '    mkdir -p "$(dirname "$SICHERHEITSKOPIE/$t/$d")"'),
+
     # N-87: ein Werkzeug, dessen Ordner hier fehlt, kommt aus der Sicherung.
     ("ein fehlender Werkzeugordner wird nicht aus der Sicherung gelesen (N-87)",
      '    if [ ! -e "$STACK/$t" ] && [ -f "$STANDORDNER/$t/werkzeug.tar.gz" ]; then\n      mkdir -p "$AUSPACK/ordner"',

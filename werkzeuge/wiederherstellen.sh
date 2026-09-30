@@ -466,6 +466,9 @@ for t in $BETROFFEN; do
   for o in $O; do
     o="${o#\?}"
     [ -f "$STANDORDNER/$t/$o.tar.gz" ] || continue
+    # Unterpfade ("auftraege/erledigt") brauchen ihren Ordner auch in der
+    # Sicherheitskopie (N-101).
+    mkdir -p "$(dirname "$SICHERHEITSKOPIE/$t/$o.tar.gz")"
     [ -d "$STACK/$t/$o" ] && tar czf "$SICHERHEITSKOPIE/$t/$o.tar.gz" -C "$STACK/$t" "$o" 2>/dev/null
     rm -rf "${STACK:?}/$t/$o"
     if tar xzf "$STANDORDNER/$t/$o.tar.gz" -C "$STACK/$t" 2>/dev/null; then
@@ -477,6 +480,7 @@ for t in $BETROFFEN; do
   for d in $D2; do
     d="${d#\?}"
     [ -f "$STANDORDNER/$t/$d" ] || continue
+    mkdir -p "$(dirname "$SICHERHEITSKOPIE/$t/$d")" "$(dirname "$STACK/$t/$d")"
     [ -f "$STACK/$t/$d" ] && cp -p "$STACK/$t/$d" "$SICHERHEITSKOPIE/$t/$d"
     if cp "$STANDORDNER/$t/$d" "$STACK/$t/$d"; then
       # acme.json und .env sind Geheimnisse - die Rechte gehen mit (§21).

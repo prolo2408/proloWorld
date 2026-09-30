@@ -6880,3 +6880,45 @@ fast alles wurde als Doppel verworfen; und ein beendetes Kind ohne Eltern
 bleibt in diesem Container als Zombie stehen, `kill -0` hielt es für
 lebendig. Gemessen wird jetzt über eine Zählerdatei und über den
 Prozesszustand.
+
+## N-101 — Ein Ordner mit Unterpfad ließ jede Sicherung scheitern
+
+Gefunden beim ersten **echten** Lauf der neuen Admin-Seite (`A-02`) auf
+dem Prüfserver: `prolo aktualisieren admin` brach ab, bevor es etwas
+anfasste —
+
+```
+tar (child): /opt/backups/2026-09-30/admin/auftraege/erledigt.tar.gz: Cannot open: No such file or directory
+ABBRUCH: die Sicherung endete mit einem Fehler.
+```
+
+`admin/sicherung.conf` nennt `ORDNER="auftraege/erledigt"` — den ersten
+Ordner mit Unterpfad im Stapel. `backup.sh` legte das Archiv unter
+`<ziel>/admin/auftraege/erledigt.tar.gz` an, ohne den Ordner `auftraege/`
+davor. Die Sperre hat richtig gegriffen (ohne Sicherung kein Update);
+falsch war die Sicherung.
+
+Und daneben, derselbe Fehler still: eine **Datei** mit Unterpfad in
+`DATEIEN` wurde flach kopiert (`cp … "$ZIEL/$TOOL/"`) — `konf/app.yml`
+lag als `app.yml` im Archiv, die Wiederherstellung suchte sie unter
+`konf/app.yml` und meldete „FEHLT". Beim Zurückspielen fehlte außerdem der
+Ordner davor, wenn es ihn auf dem Server (noch) nicht gab.
+
+`werkzeuge/volumes.py` schreibt Bind-Mounts mit ihrem **relativen Pfad**
+vor — Unterpfade sind also genau das, was die Regeln verlangen.
+
+### Behoben
+
+- `backup.sh`: `mkdir -p` vor dem Archiv eines Ordners und vor der Kopie
+  einer Datei; Dateien mit ihrem Pfad.
+- `werkzeuge/wiederherstellen.sh`: `mkdir -p` für die Sicherheitskopie
+  (Ordner und Dateien) und für das Ziel einer Datei.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `sicherung-lauf-pruefen.sh` | 28 ok (vorher 24): `buch/erledigt` als eigenes Stück mit Inhalt, `konf/tief.conf` mit Pfad, der Werkzeugordner nimmt beides nicht doppelt mit |
+| `--gegenprobe` | **9 von 9** (2 neu: kein Ordner im Archiv, Datei flach) |
+| `wiederherstellen-pruefen.sh` | 41 ok (vorher 38): Ordner mit Unterpfad zurück, Datei mit Unterpfad zurück **auch ohne den Ordner davor**, der zerstörte Unterordner liegt in der Sicherheitskopie |
+| `wiederherstellen-gegenprobe.py` | **18 von 18** (2 neu) |

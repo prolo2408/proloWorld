@@ -69,7 +69,7 @@ chmod +x "$T/bin/docker"
 export PATH="$T/bin:$PATH"
 
 # --- Ein Werkzeug mit Volume, Ordner, Datei und SQLite ----------------
-mkdir -p "$S/probe" "$VOLUMEHEIM/probe_daten" "$S/probe/beilagen"
+mkdir -p "$S/probe" "$VOLUMEHEIM/probe_daten" "$S/probe/beilagen" "$S/probe/tief/unter" "$S/probe/konf"
 cat > "$S/probe/docker-compose.yml" <<'Y'
 services:
   probe:
@@ -84,15 +84,18 @@ VOLUMES="probe_daten"
 DB_CONTAINER=""
 DB_USER=""
 DB_NAME=""
-DATEIEN="wichtig.txt"
+DATEIEN="wichtig.txt konf/tief.conf"
 SQLITE="probe:/daten/probe.db"
-ORDNER="beilagen"
+ORDNER="beilagen tief/unter"
 CONF
 
 # Inhalte, die sich unterscheiden lassen
 echo "ORIGINAL-VOLUME" > "$VOLUMEHEIM/probe_daten/inhalt.txt"
 echo "ORIGINAL-DATEI"  > "$S/probe/wichtig.txt"
 echo "ORIGINAL-BEILAGE" > "$S/probe/beilagen/b1.txt"
+# Unterpfade (N-101): ein Ordner und eine Datei eine Ebene tiefer.
+echo "ORIGINAL-TIEF" > "$S/probe/tief/unter/t1.txt"
+echo "ORIGINAL-KONF" > "$S/probe/konf/tief.conf"
 # Im Volume liegt die Datenbank so, wie ein tar sie erwischt - hier
 # absichtlich mit ALTEM Inhalt. Die heile Kopie daneben hat den richtigen.
 # So faellt auf, wenn der SQLite-Schritt gar nicht laeuft: dann gewinnt
@@ -117,6 +120,10 @@ echo "JOURNAL AUS DEM ARCHIV" > "$VOLUMEHEIM/probe_daten/probe.db-wal"
 rm -f "$VOLUMEHEIM/probe_daten/probe.db-wal"
 cp "$S/probe/wichtig.txt" "$T/bau/$STAND/probe/"
 tar czf "$T/bau/$STAND/probe/beilagen.tar.gz" -C "$S/probe" beilagen
+# Wie backup.sh seit N-101: mit Pfad im Archiv.
+mkdir -p "$T/bau/$STAND/probe/tief" "$T/bau/$STAND/probe/konf"
+tar czf "$T/bau/$STAND/probe/tief/unter.tar.gz" -C "$S/probe" tief/unter
+cp "$S/probe/konf/tief.conf" "$T/bau/$STAND/probe/konf/"
 python3 - "$T/bau/$STAND/probe/probe.db" "ORIGINAL-DB" <<'PY'
 import sqlite3, sys
 con = sqlite3.connect(sys.argv[1])
@@ -188,6 +195,11 @@ echo "ZERSTOERT" > "$VOLUMEHEIM/probe_daten/inhalt.txt"
 rm -f "$VOLUMEHEIM/probe_daten/probe.db"
 echo "ZERSTOERT" > "$S/probe/wichtig.txt"
 rm -rf "$S/probe/beilagen"
+# Unterpfade (N-101): der Ordner zerstoert - sein alter Stand muss in die
+# Sicherheitskopie; die Datei samt Ordner davor weg, wie auf einem frischen
+# Server, auf dem es konf/ noch nicht gibt.
+echo "ZERSTOERT-TIEF" > "$S/probe/tief/unter/t1.txt"
+rm -rf "$S/probe/konf"
 # Und ein altes -wal daneben, das nach dem Einspielen weg sein MUSS.
 echo "ALTES JOURNAL" > "$VOLUMEHEIM/probe_daten/probe.db-wal"
 # Dazu eine Datei, die im Archiv NICHT vorkommt. Nach dem Einspielen darf
@@ -206,6 +218,10 @@ pruefe "die Datei ist wieder da" "ORIGINAL-DATEI" \
   "$(cat "$S/probe/wichtig.txt" 2>/dev/null)"
 pruefe "der Ordner ist wieder da" "ORIGINAL-BEILAGE" \
   "$(cat "$S/probe/beilagen/b1.txt" 2>/dev/null)"
+pruefe "der Ordner mit Unterpfad ist wieder da (N-101)" "ORIGINAL-TIEF" \
+  "$(cat "$S/probe/tief/unter/t1.txt" 2>/dev/null)"
+pruefe "die Datei mit Unterpfad ist wieder da, auch ohne den Ordner davor (N-101)" "ORIGINAL-KONF" \
+  "$(cat "$S/probe/konf/tief.conf" 2>/dev/null)"
 # Der eigentliche Beweis: ORIGINAL-DB steht NUR in der Einzelkopie. Kommt
 # VOLUME-DB-ALT heraus, lief der SQLite-Schritt nicht - und das Volume hat
 # den Fehler verdeckt (dieselbe Falle wie N-68, N-72, N-76).
@@ -237,6 +253,8 @@ pruefe "der Stand VOR der Wiederherstellung wurde weggelegt" "ja" "$E"
 pruefe "und enthaelt das alte Volume" "ja" "$E"
 pruefe "und zwar mit dem zerstoerten Inhalt, nicht dem neuen" "ZERSTOERT" \
   "$(tar xzOf "$KOPIE/probe/probe_daten.tar.gz" ./inhalt.txt 2>/dev/null)"
+pruefe "auch der Ordner mit Unterpfad ist weggelegt (N-101)" "ZERSTOERT-TIEF" \
+  "$(tar xzOf "$KOPIE/probe/tief/unter.tar.gz" tief/unter/t1.txt 2>/dev/null)"
 
 # --- 7. Ohne Bestaetigung passiert nichts -----------------------------
 echo "WIEDER-ZERSTOERT" > "$VOLUMEHEIM/probe_daten/inhalt.txt"

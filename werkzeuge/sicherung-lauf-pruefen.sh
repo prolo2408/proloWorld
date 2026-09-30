@@ -41,9 +41,15 @@ cp "$WURZEL/backup.sh" "$S/backup.sh"
 [ -z "${SICHERUNG_MUTATION:-}" ] || sed -i "$SICHERUNG_MUTATION" "$S/backup.sh"
 
 printf 'VOLUMES=""\nDB_CONTAINER="db"\nDB_USER="u"\nDB_NAME="n"\n' > "$S/dbtool/sicherung.conf"
-printf 'DATEIEN="eine.conf"\nORDNER="daten"\nSQLITE=""\nHINWEIS=""\n' >> "$S/dbtool/sicherung.conf"
-printf 'VOLUMES_OHNE="log|Protokoll\nnotiz.md|liegt im Git"\n' >> "$S/dbtool/sicherung.conf"
+printf 'DATEIEN="eine.conf konf/tief.conf"\nORDNER="daten buch/erledigt"\nSQLITE=""\nHINWEIS=""\n' >> "$S/dbtool/sicherung.conf"
+printf 'VOLUMES_OHNE="log|Protokoll\nnotiz.md|liegt im Git\nbuch/eingang|Warteschlange"\n' >> "$S/dbtool/sicherung.conf"
 echo "inhalt" > "$S/dbtool/eine.conf"
+# Unterpfade (N-101): ein Ordner und eine Datei eine Ebene tiefer, wie das
+# Auftragsbuch der Admin-Seite (auftraege/erledigt).
+mkdir -p "$S/dbtool/konf" "$S/dbtool/buch/erledigt" "$S/dbtool/buch/eingang"
+echo "tief" > "$S/dbtool/konf/tief.conf"
+echo "wer-wann-was" > "$S/dbtool/buch/erledigt/protokoll.jsonl"
+echo "wartet" > "$S/dbtool/buch/eingang/x.json"
 # Der Werkzeugordner selbst (N-87): Compose-Datei, ein Ordner, der einzeln
 # gesichert wird, ein Protokollordner, der gar nicht gesichert wird, und
 # eine Datei, die in VOLUMES_OHNE steht - die gehoert trotzdem in die
@@ -110,6 +116,21 @@ pruefe "Werkzeugordner: ein Protokollordner aus VOLUMES_OHNE nicht" "nein" \
   "$(printf '%s\n' "$W" | grep -q 'dbtool/log' && echo ja || echo nein)"
 pruefe "Werkzeugordner: eine DATEI aus VOLUMES_OHNE schon" "ja" \
   "$(printf '%s\n' "$W" | grep -qx 'dbtool/notiz.md' && echo ja || echo nein)"
+
+# Unterpfade (N-101): mit ihrem Pfad im Archiv, so wie die
+# Wiederherstellung sie sucht - nicht flach, und nicht gar nicht.
+ALLES=$(inhalt "$B/$D.tar.gz.age")
+pruefe "Unterpfad: der Ordner buch/erledigt steht als eigenes Stueck drin (N-101)" "ja" \
+  "$(grep -qx "$D/dbtool/buch/erledigt.tar.gz" <<<"$ALLES" && echo ja || echo nein)"
+pruefe "Unterpfad: mit seinem Inhalt" "wer-wann-was" \
+  "$(age -d -i "$T/geheim.key" "$B/$D.tar.gz.age" | tar xzOf - "$D/dbtool/buch/erledigt.tar.gz" 2>/dev/null \
+     | tar xzOf - buch/erledigt/protokoll.jsonl 2>/dev/null)"
+pruefe "Unterpfad: die Datei konf/tief.conf mit Pfad, nicht flach (N-101)" "tief" \
+  "$(age -d -i "$T/geheim.key" "$B/$D.tar.gz.age" | tar xzOf - "$D/dbtool/konf/tief.conf" 2>/dev/null)"
+# Der leere Ordner buch/ selbst darf drin sein - sein INHALT nicht: der
+# eine Teil wird einzeln gesichert, der andere gar nicht.
+pruefe "Unterpfad: der Werkzeugordner nimmt buch/erledigt und buch/eingang nicht mit" "nein" \
+  "$(grep -qE 'dbtool/buch/(erledigt|eingang)' <<<"$W" && echo ja || echo nein)"
 
 # 2. Derselbe Tag, der Lauf scheitert (N-86) -----------------------------
 rm -f "$B/.letzter-erfolg"
@@ -187,6 +208,8 @@ der Werkzeugordner wird nicht gesichert (N-87)|s/^  if ! tar czf "\$ZIEL\/\$TOOL
 ein ORDNER landet doppelt im Werkzeugordner (N-87)|s/^  for O in \${ORDNER:-}; do AUSNAHMEN+=/  for O in ; do AUSNAHMEN+=/
 ein Protokollordner landet im Werkzeugordner (N-87)|s/\&\& \[ -d "\$STACK\/\$TOOL\/\$NAME" \] \&\& AUSNAHMEN+=/\&\& false \&\& AUSNAHMEN+=/
 ein guter Lauf ersetzt den Stand des Tages nicht|s/^      mv "\$NEU" "\$ARCHIV"$/      [ -f "$ARCHIV" ] || mv "$NEU" "$ARCHIV"/
+ein Ordner mit Unterpfad bekommt keinen Ordner im Archiv (N-101)|s/^      mkdir -p "\$(dirname "\$ZIEL\/\$TOOL\/\$O.tar.gz")"$/      :/
+eine Datei mit Unterpfad wird flach kopiert (N-101)|s/^      cp "\$STACK\/\$TOOL\/\$D" "\$ZIEL\/\$TOOL\/\$D"$/      cp "$STACK\/$TOOL\/$D" "$ZIEL\/$TOOL\/"/
 MUT
   echo "gefunden: $((N - DURCH))   entwischt: $DURCH"
   [ "$DURCH" -eq 0 ] || exit 1

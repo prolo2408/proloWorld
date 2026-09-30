@@ -170,7 +170,11 @@ rm -f "$2"
     FREIWILLIG=0
     case "$D" in "?"*) FREIWILLIG=1; D="${D#\?}" ;; esac
     if [ -f "$STACK/$TOOL/$D" ]; then
-      cp "$STACK/$TOOL/$D" "$ZIEL/$TOOL/"
+      # Mit Pfad, nicht flach (N-101): "konf/app.yml" landete vorher als
+      # "app.yml" im Archiv - und die Wiederherstellung suchte es unter
+      # "konf/app.yml", fand nichts und meldete FEHLT.
+      mkdir -p "$(dirname "$ZIEL/$TOOL/$D")"
+      cp "$STACK/$TOOL/$D" "$ZIEL/$TOOL/$D"
     elif [ "$FREIWILLIG" -eq 1 ]; then
       echo "  Hinweis: $STACK/$TOOL/$D gibt es nicht - uebersprungen."
     else
@@ -186,6 +190,10 @@ rm -f "$2"
     FREIWILLIG=0
     case "$O" in "?"*) FREIWILLIG=1; O="${O#\?}" ;; esac
     if [ -d "$STACK/$TOOL/$O" ]; then
+      # Ein Ordner mit Unterpfad ("auftraege/erledigt") braucht den Ordner
+      # davor auch im Archiv (N-101). Ohne ihn scheiterte tar, und mit ihm
+      # jede Aktualisierung - gemessen beim ersten echten Lauf.
+      mkdir -p "$(dirname "$ZIEL/$TOOL/$O.tar.gz")"
       tar czf "$ZIEL/$TOOL/$O.tar.gz" -C "$STACK/$TOOL" "$O"
     elif [ "$FREIWILLIG" -eq 1 ]; then
       echo "  Hinweis: $STACK/$TOOL/$O gibt es nicht - uebersprungen."
