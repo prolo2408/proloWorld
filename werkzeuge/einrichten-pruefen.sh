@@ -110,7 +110,8 @@ ECHT_VORHER=$(readlink /usr/local/bin/prolo 2>/dev/null || echo fehlt)
 # --- Kopie des Stacks: nur, was das Skript liest
 kopieren() {
   local Z="$1"; mkdir -p "$Z/werkzeuge"
-  cp "$HIER/einrichten.sh" "$HIER/geheimnisse.py" "$HIER/prolo" \
+  cp "${HIER_MUTIERT:-$HIER/einrichten.sh}" "$Z/werkzeuge/einrichten.sh"
+  cp "$HIER/geheimnisse.py" "$HIER/prolo" \
      "$HIER/startsperre.sh" "$HIER/netze.sh" "$HIER/auftrag.py" "$Z/werkzeuge/"
   cp -r "$HIER/systemd" "$Z/werkzeuge/"
   local D
@@ -432,7 +433,30 @@ fassung_pruefen() {   # fassung_pruefen <wurzel> <fassung> -> Ausgabe; Rueckgabe
   COMPOSE_FASSUNG="$2" lauf "$1"
 }
 
+# N-107: eine DATEI aus dem Git, die in VOLUMES_OHNE steht ("liegt im
+# Git") und fehlt, darf nicht als Ordner entstehen - sonst haengt Docker
+# einen leeren Ordner an die Stelle der Konfiguration (die Narbe aus N-91).
+# Setzt GIT_GRUND; Rueckgabe 0, wenn richtig behandelt.
+gitdatei_fall() {   # gitdatei_fall <wurzel>
+  local W="$1" A
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  ( cd "$W" && git init -q && git add traefik/traefik.yml \
+      && git -c user.email=probe@prolo.me -c user.name=probe commit -qm probe ) >/dev/null 2>&1
+  rm -f "$W/traefik/traefik.yml"
+  A=$(lauf "$W")
+  GIT_GRUND=""
+  if [ -d "$W/traefik/traefik.yml" ]; then
+    GIT_GRUND="an der Stelle von traefik.yml steht jetzt ein Ordner"; return 1
+  fi
+  grep -qF "git -C $W checkout -- traefik/traefik.yml" <<<"$A" \
+    || { GIT_GRUND="der Weg zurueck (git checkout) wird nicht genannt"; return 1; }
+}
+
 if [ "$GEGENPROBE" -eq 0 ]; then
+  gitdatei_fall "$T/gitdatei" \
+    && sag ok "eine fehlende Datei aus dem Git wird gemeldet, nicht als Ordner angelegt (N-107)" \
+    || sag FEHLER "eine fehlende Datei aus dem Git wird falsch behandelt (N-107)" "$GIT_GRUND"
   A=$(fassung_pruefen "$T/alt" 2.20.0); R=$?
   [ "$R" -ne 0 ] && grep -q "2.24.4" <<<"$A" && grep -q "apt install docker-compose-plugin" <<<"$A" \
     && sag ok "Compose 2.20.0 haelt die Einrichtung an, mit Grund und Befehl (N-103)" \
@@ -663,6 +687,26 @@ drehprobe "der alte Verweis bleibt liegen (N-106)" \
   's#if tun; then rm -f "$ALT" \&\& f_tat#if tun; then true \&\& f_tat#'
 drehprobe "die Regel ist fuer alle beschreibbar (N-106)" \
   's#chmod 644 "$Z"; }#chmod 666 "$Z"; }#'
+
+# N-107: eine fehlende Datei aus dem Git wird wieder als Ordner angelegt.
+gitprobe() {
+  local NAME="$1" AUSDRUCK="$2"
+  GEFUNDEN=$((GEFUNDEN + 1))
+  # gitdatei_fall legt seine Kopie selbst an - kopieren() nimmt die Mutante.
+  sed "$AUSDRUCK" "$HIER/einrichten.sh" > "$T/einrichten-mutiert.sh"
+  if cmp -s "$HIER/einrichten.sh" "$T/einrichten-mutiert.sh"; then
+    printf '%2d. %-46s NICHT EINGEBAUT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "; return
+  fi
+  HIER_MUTIERT="$T/einrichten-mutiert.sh"
+  if gitdatei_fall "$T/g$GEFUNDEN"; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+  HIER_MUTIERT=""
+}
+gitprobe "eine Git-Datei wird wieder ein Ordner (N-107)" \
+  's#    elif \[ "$(git -C "$STACK" ls-files -- "$W/$P" 2>/dev/null)" = "$W/$P" \]; then#    elif false; then#'
 
 # N-103: eine zu alte Compose-Fassung wird durchgelassen.
 fassungsprobe() {

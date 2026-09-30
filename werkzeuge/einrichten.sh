@@ -318,6 +318,12 @@ while IFS='|' read -r W P; do
   elif { conf_liste "$KONF" ORDNER; conf_liste "$KONF" VOLUMES_OHNE; } | grep -qx "$P"; then
     if [ -d "$Z" ]; then f_ok "$W/$P/"
     elif [ -e "$Z" ]; then f_ok "$W/$P"
+    elif [ "$(git -C "$STACK" ls-files -- "$W/$P" 2>/dev/null)" = "$W/$P" ]; then
+      # N-107: eine DATEI aus dem Git (VOLUMES_OHNE "liegt im Git"). Als
+      # Ordner angelegt, haengte Docker einen leeren Ordner an die Stelle
+      # der Konfiguration - die Narbe aus N-91, vom eigenen Skript.
+      f_bad "$W/$P fehlt - die Datei steht im Git. Zurueckholen:"
+      printf '          git -C %s checkout -- %s/%s\n' "$STACK" "$W" "$P"
     elif tun; then mkdir -p "$Z" && f_tat "$W/$P/ angelegt"
     else f_wuerde "$W/$P/ anlegen"; fi
   elif [ -e "$Z" ]; then

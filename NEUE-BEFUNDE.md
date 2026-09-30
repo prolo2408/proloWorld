@@ -7276,3 +7276,36 @@ die Einheit steht auf „failed".
 | `einrichten-pruefen.sh --gegenprobe` als `pruefer` | **22 von 22** (4 neu: nicht geschrieben, Platzhalter bleibt, alter Verweis bleibt, 0666) |
 | Mutationen | jede greift genau eine Zeile, vorher einzeln nachgezählt |
 | echter Lauf auf dem Prüfserver | alten Verweis wie nach der Anleitung angelegt → `prolo einrichten`: „entfernt", „geschrieben"; `logrotate -f` Rückgabe 0; `zugriff.log` → `zugriff.log.1` (14 Zeilen), neue Datei 0640; die nächste Anfrage steht in der **neuen** Datei — Traefik hat nach `USR1` neu geöffnet |
+
+---
+
+## N-107 — `prolo einrichten` legte an der Stelle einer fehlenden Konfigurationsdatei einen Ordner an
+
+**Gefunden:** beim Lesen von Schritt 6b, während `crowdsec/` vier weitere
+Dateien aus dem Git unter `VOLUMES_OHNE` bekommen sollte. Schritt 6b geht
+jeden Bind-Mount aus dem Werkzeugordner durch. Steht der Pfad in `ORDNER`
+**oder** `VOLUMES_OHNE` und fehlt, legt er einen Ordner an — auch dann,
+wenn der Eintrag eine **Datei** aus dem Git ist („`traefik.yml|liegt im
+Git`"). Das ist genau die Narbe aus `N-91`, diesmal vom eigenen Skript:
+Docker hängt den leeren Ordner an die Stelle der Konfiguration, Traefik
+startet nicht.
+
+Gemessen, bevor etwas geändert wurde: eine Kopie mit eigenem Git,
+`traefik/traefik.yml` eingecheckt und gelöscht → nach `prolo einrichten`
+ist `traefik/traefik.yml` ein **Ordner**.
+
+### Behoben
+
+Vor dem Anlegen fragt Schritt 6b das Git: ist der Pfad dort eine **Datei**
+(`git ls-files` nennt genau ihn), wird nichts angelegt, sondern gemeldet —
+mit dem Befehl, der sie zurückholt (`git -C <stapel> checkout -- <pfad>`).
+Ordner (`log`, `dynamic`) bleiben, wie sie waren: fehlen sie, werden sie
+angelegt.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| neue Probe **vor** der Korrektur | FEHLER: „an der Stelle von traefik.yml steht jetzt ein Ordner" |
+| `einrichten-pruefen.sh` nach der Korrektur, root und `pruefer` | je **40 ok** (vorher 39) |
+| `--gegenprobe` als `pruefer` | **23 von 23** (1 neu: die Git-Abfrage abgeschaltet) |
