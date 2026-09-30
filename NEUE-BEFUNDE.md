@@ -7156,3 +7156,47 @@ lehnen Werte für `…PASS/SECRET/KEY/TOKEN/SALT/CREDENTIAL…` ab.
 | Browser, 18 Ansichten × 3 Breiten × 2 Themen | **0 Mängel** in 108 Messungen, nachdem die Gefahrenliste bei 360 px nicht mehr auf 515 px schob; der Prüfer misst bei einem Feld im Label das Label. Auf dem Bild — nicht in einer Messung — standen die Formularfelder mit halben Bildschirmen Luft untereinander (`flex: 1 1 220px` in einer Spalte ist eine Höhe); behoben |
 | **echter Lauf auf dem Prüfserver** | im Browser `traefik/whoami:v1.10.3` mit `"8081:80"` eingeworfen → Vorschlag `whoami`/`80` → angelegt (Herstellerdatei mit `8081:80` unverändert, override mit `!reset`, Startsperre frei) → gestartet → bei Traefik „Konfiguration übernehmen" (hängt danach in `netz-whoami`) → `https://whoami.prolo.me` über Traefik: **200**, Antwort von `whoami`; `127.0.0.1:8081`: **keine Antwort** |
 | Stapelprüfungen | `grenze` 73, `netze` 42, `sicherung` 14, `prolo` 101, `einrichten` 38, `geheimnisse` 161, `dockerfile`, `regeln`, `prolo-befehle` (42 Befehle): grün |
+
+---
+
+## N-104 — Die Betriebsgruppe der Admin-Seite stand außerhalb jeder Prüfung
+
+**Gefunden:** die Prüfung auf GitHub war seit `A-02` rot (Läufe 7, 8, 9),
+und das fiel erst beim Nachsehen auf. Rot war nicht der Prüfer, sondern
+seine Gegenprobe: `grenze-gegenprobe.py` suchte die Zeile
+`prolo.gruppen=admin=die Stack-Uebersicht sehen` — seit `A-02` steht dort
+`…; admin-betrieb=Werkzeuge starten, …`. Das Muster griff null Mal, die
+Probe brach ab.
+
+Lokal war das vor jedem Push sichtbar gewesen. In `A-02` und `A-03` liefen
+die Prüfer einzeln, `alle-pruefen.sh` nicht — und damit keine der
+Gegenproben, die nicht zu genau dem geänderten Teil gehörten.
+
+**Dahinter lag eine echte Lücke.** Die neue Mutation „`admin-betrieb` fehlt
+im Label" blieb **unentdeckt**: der Prüfer las nur Variablen, deren Name
+auf `_GRUPPE` **endet**, und `ADMIN_GRUPPE_BETRIEB` endet nicht so. Er sah
+von der Admin-Seite nur `admin`. Fehlt `admin-betrieb` in `prolo.gruppen`,
+nennt `prolo einrichten` die Gruppe nicht, niemand legt sie an, und jeder
+Knopf der Admin-Seite antwortet mit 403 — ohne dass eine Prüfung rot wird.
+
+### Behoben
+
+- `grenze-pruefen.sh` liest jede Variable mit `GRUPPE` im Namen, gleich an
+  welcher Stelle; ein `…PRAEFIX` ist ein Filter und zählt nicht. Die Zeile
+  nennt jetzt `admin, admin-betrieb`.
+- `grenze-gegenprobe.py`: die alte Mutation auf die heutige Zeile, dazu
+  eine neue, die nur `admin-betrieb` wegnimmt.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| Gegenprobe **vor** der Korrektur | 17 gefunden, **1 entwischt**: „die Admin-Seite nennt ihre Betriebsgruppe nicht" |
+| `grenze-pruefen.sh` nach der Korrektur | **73 ok**, die Gruppenzeile nennt `admin, admin-betrieb` |
+| Gegenprobe nach der Korrektur | **18 von 18** |
+| `alle-pruefen.sh`, ganz | alle Prüfungen und Gegenproben grün bis auf **eine**: `prolo-befehle-pruefen.py --gegenprobe` — dieselbe Ursache an anderer Stelle, eigener Befund `N-105` |
+
+**Regel dazu, keine neue:** TEIL 0 sagt „Prüfschritte werden ausgeführt".
+Gemeint sind alle, die eine Änderung treffen **kann** — und eine Änderung an
+einer Compose-Datei trifft jede Gegenprobe, die diese Datei mutiert.
+Vor dem Push läuft `alle-pruefen.sh`, nicht eine Auswahl.

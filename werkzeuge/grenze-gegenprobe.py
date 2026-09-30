@@ -32,9 +32,15 @@ MUTATIONEN = [
      "",
      "wiki: die Compose-Dateien reichen PROLO_EINLASS durch"),
 
-    ("die Admin-Seite nennt ihre Gruppe nicht mehr (N-95)",
+    ("die Admin-Seite nennt ihre Gruppen nicht mehr (N-95)",
      "admin/docker-compose.yml",
-     '      - "prolo.gruppen=admin=die Stack-Uebersicht sehen"\n', "",
+     '      - "prolo.gruppen=admin=die Stack-Uebersicht sehen; admin-betrieb=Werkzeuge '
+     'starten, anhalten, aktualisieren, Protokolle lesen"\n', "",
+     "admin: jede gepruefte Gruppe steht in prolo.gruppen"),
+
+    ("die Admin-Seite nennt ihre Betriebsgruppe nicht (N-104)",
+     "admin/docker-compose.yml",
+     "; admin-betrieb=Werkzeuge starten, anhalten, aktualisieren, Protokolle lesen", "",
      "admin: jede gepruefte Gruppe steht in prolo.gruppen"),
 
     ("das Wiki nennt nur eine seiner zwei Gruppen (N-95)",

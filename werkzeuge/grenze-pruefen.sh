@@ -374,8 +374,12 @@ for werkzeug in mit_code:
     code = lies(werkzeug, "server.py") or ""
     compose = compose_alles(werkzeug)
     gilt = {}
-    for m in re.finditer(r'os\.environ\.get\("([A-Z_]*_GRUPPE)",\s*"([^"]+)"\)', code):
-        gilt[m.group(1)] = m.group(2)
+    # Jede Variable mit GRUPPE im Namen, gleich wo das Wort steht:
+    # ADMIN_GRUPPE_BETRIEB entging dem Muster "*_GRUPPE" (N-104). Ein
+    # PRAEFIX ist ein Filter, keine Gruppe.
+    for m in re.finditer(r'os\.environ\.get\("([A-Z_]*GRUPPE[A-Z_]*)",\s*"([^"]+)"\)', code):
+        if "PRAEFIX" not in m.group(1):
+            gilt[m.group(1)] = m.group(2)
     for var in list(gilt):
         kurz = var.split("_", 1)[1] if var.count("_") > 1 else var
         for name in (var, kurz):
