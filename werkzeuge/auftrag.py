@@ -43,6 +43,7 @@ import fcntl
 import ipaddress
 import json
 import os
+import pwd
 import re
 import shutil
 import signal
@@ -149,7 +150,11 @@ IMMER_ERLAUBT = ("art", "wer", "angelegt")
 
 UMGEBUNG = {
     "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-    "HOME": "/root",
+    # Das Zuhause dessen, der den Ausfuehrer laufen laesst - auf dem Server
+    # root, also /root. Fest "/root" konnte docker als jeder andere Nutzer
+    # seine Konfiguration nicht lesen und fand danach auch "compose" nicht
+    # mehr: auf GitHub war die Pruefung seit A-03 rot (N-110).
+    "HOME": pwd.getpwuid(os.getuid()).pw_dir,
     "LANG": "C.UTF-8",
     "TERM": "dumb",
     "NO_COLOR": "1",

@@ -57,6 +57,11 @@ Wo was steht:
 - **Eine Meldung ist kein Beweis.** Eine Prüflinie, die den Text einer
   Ankündigung sucht, bleibt grün, wenn die Tat entfällt (`N-38`). Geprüft
   wird die Wirkung.
+- **Vor dem Push läuft `werkzeuge/alle-pruefen.sh` ganz — und nicht als
+  root.** Die Prüfung auf GitHub läuft als gewöhnlicher Nutzer. Zweimal war
+  sie rot, während lokal alles grün war: einmal lief lokal nur eine Auswahl
+  (`N-104`), einmal alles, aber als root, und was nur als root geht, fiel
+  nicht auf (`N-110`).
 
 ## Die drei Werkzeuge mit eigenem Code
 

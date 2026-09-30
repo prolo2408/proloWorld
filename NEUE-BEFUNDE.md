@@ -7538,3 +7538,40 @@ in den Kopfdaten —, `<` dort weiter als `<`.
 | Diff | genau 3 Zeilen |
 | `wiki/tests/alle.sh` | grün |
 | im Browser geladen | 0 JS-Fehler; Kopfdaten lesbar, kein `</` im Skriptblock |
+
+---
+
+## N-110 — Der Ausführer setzte `HOME=/root` — auf GitHub fand docker kein compose mehr
+
+**Gefunden:** beim Nachsehen, ob die Prüfung auf GitHub nach `N-104`/`N-105`
+wieder grün ist. Sie war es nicht: seit `A-03` scheiterte in
+`auftrag-pruefen.sh` jeder Fall mit `compose_pruefen` — lokal nie.
+
+Der Ausführer startet seine Kinder mit fester Umgebung (A-01), darin
+`HOME=/root`. Auf dem Server läuft er als root, dort stimmt das. Die Prüfung
+auf GitHub läuft als Nutzer `runner`: `docker` kann
+`/root/.docker/config.json` nicht lesen, lädt darum seine Erweiterungen
+nicht und meldet `unknown command: docker compose`. Nachgestellt mit dem
+Nutzer `pruefer` — derselbe Fehler, Wort für Wort.
+
+Lokal lief der Volllauf als root. Für root ist das eigene Zuhause `/root`,
+fest vorgegeben oder nicht — der Fehler war so nicht zu sehen.
+
+### Behoben
+
+- `HOME` ist das Zuhause des Nutzers, unter dem der Ausführer läuft
+  (`pwd.getpwuid(os.getuid())`) — auf dem Server weiterhin `/root`.
+- Mutation „HOME fest auf /root": ohne root wird sie gefunden; als root ist
+  sie nicht unterscheidbar, und die Gegenprobe sagt das ausdrücklich
+  („ALS ROOT NICHT PRÜFBAR"), statt sie als gefunden zu zählen.
+- CLAUDE.md TEIL 0: vor dem Push `alle-pruefen.sh` ganz **und nicht als
+  root**. Der Sandbox-Nutzer `pruefer` bekam dafür Docker-Zugang wie
+  `runner` auf GitHub.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `auftrag-pruefen.sh` als `pruefer` **vorher** | rot: `compose_pruefen` → `fehler`, Befund leer — wie auf GitHub |
+| nachher als `pruefer` / als root | **101** / **100 ok** (eine Prüfzeile läuft nur ohne root) |
+| `--gegenprobe` als `pruefer` | **31 von 31** (1 neu: „HOME fest auf /root") |

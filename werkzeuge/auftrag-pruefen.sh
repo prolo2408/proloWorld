@@ -455,6 +455,14 @@ if [ "${1:-}" = "--gegenprobe" ]; then
   DURCH=0; NR=0
   while IFS='|' read -r NAME AUSDRUCK; do
     [ -n "$NAME" ] || continue
+    # Manches ist nur ohne root zu unterscheiden (N-110): als root ist das
+    # eigene Zuhause /root, fest oder nicht. Das steht dann da - gezaehlt
+    # wird es weder als gefunden noch als entwischt. Auf GitHub prueft der
+    # Nutzer runner, dort greift sie.
+    case "$NAME" in
+      "ohne root: "*) if [ "$(id -u)" -eq 0 ]; then
+                        printf 'ALS ROOT NICHT PRUEFBAR  %s\n' "$NAME"; continue; fi ;;
+    esac
     NR=$((NR + 1))
     cp "$HIER/auftrag.py" "$T/mutant.py"; sed -i "$AUSDRUCK" "$T/mutant.py"
     if cmp -s "$HIER/auftrag.py" "$T/mutant.py"; then
@@ -498,6 +506,7 @@ firewall: die Lage bleibt nach einem Auftrag alt|s/^                    firewall
 firewall: die Lage wird jedes Mal geschrieben|s/^        if not erzwingen and os.path.exists(FIREWALL) and \\$/        if False and \\/
 firewall: eine Lage in falscher Form wird geschrieben|s/^        if not isinstance(lage, dict):$/        if False:/
 firewall: ohne crowdsec/ wird trotzdem gefragt|s/^        if not os.path.isfile(os.path.join(STACK, "crowdsec", "docker-compose.yml")):$/        if False:/
+ohne root: HOME fest auf /root (N-110)|s|^    "HOME": pwd.getpwuid(os.getuid()).pw_dir,$|    "HOME": "/root",|
 die Ursache wird zu "unlesbar"|s/(zeilen\[-1\] if zeilen else "Rueckgabe %d" % roh.returncode)\[:300\]/"unlesbar"/
 MUT
   echo "gefunden: $((NR - DURCH))   entwischt: $DURCH"
