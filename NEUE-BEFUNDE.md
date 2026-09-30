@@ -7684,3 +7684,39 @@ echten Fehler verdeckte.
 | Abbild `prolo-admin`, `import server` | 0.4.0: **1** Warnung, 0.4.1: **0** |
 | `python-pruefen.sh` | **50** Python-Dateien (= `git ls-files '*.py'`) und **41** Heredocs, von Hand: 39 aus dem ersten Suchlauf, dazu `backup.sh:144` (die Form `<<"PY"`, die dieser Suchlauf übersah) und der neue Prüfer selbst |
 | `--gegenprobe` | **5 von 5**, davor ein Leerlauf auf der unveränderten Kopie. Dass dieser Leerlauf eine untaugliche Kopie abweist, wurde selbst mit einer Mutation belegt |
+
+---
+
+## N-113 — Ein roter Lauf auf GitHub nannte die Prüfung, nicht die Ursache
+
+**Gefunden:** bei `N-112`. Auf GitHub stand nur
+
+```
+werkzeuge/auftrag-pruefen.sh                         ROT      33s  (Rueckgabe 1)
+      FEHLER Arten, Kern, Namens- und Kennungsmuster gleich in Seite und Ausfuehrer
+```
+
+Die Zeile darunter („ist: …SyntaxWarning…“) hätte die ganze Diagnose
+gewesen. `alle-pruefen.sh` zeigte aber nur die Fundzeilen selbst. Den
+Rest verwies es auf eine Protokolldatei, die es auf GitHub nicht mehr gibt,
+sobald die Maschine weg ist. Die Ursache musste deshalb hier nachgebaut
+werden: frischer Klon, Python 3.13, kein Zwischenspeicher. Bei einem
+Absturz ohne Fundzeile (ein Traceback) stand gar nichts da.
+
+### Behoben
+
+- Zu jeder Fundzeile kommen die zwei Zeilen danach (`erwartet:` / `ist:`),
+  höchstens 15 Zeilen. Ohne Fundzeile kommt das Ende der Ausgabe.
+- `aufteilung-pruefen.sh` prüft das in einem Wegwerfstapel mit einer
+  Prüfung, die „ist:“ sagt, und einer, die abstürzt. Die Protokolle des
+  roten Probelaufs landen in seinem eigenen Wegwerfordner, nicht in `/tmp`.
+- Seine Gegenprobe hat jetzt wie `python-pruefen.sh` einen Leerlauf auf der
+  unveränderten Kopie.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `aufteilung-pruefen.sh` | **5 ok**; `--liste` nennt **42** (40 + `python-pruefen.sh` samt Gegenprobe) |
+| `--gegenprobe` | **10 von 10** (2 neu). Der Leerlauf weist eine untaugliche Kopie ab (belegt, Rückgabe 1) |
+| Reste in `/tmp` | vor und nach Prüfung und Gegenprobe je **17** Verzeichnisse |

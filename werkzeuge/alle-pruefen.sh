@@ -78,8 +78,15 @@ lauf() {   # lauf <name> <befehl...>
     printf 'gruen  %4ss\n' "$((SECONDS - START))"
   else
     printf 'ROT    %4ss  (Rueckgabe %s)\n' "$((SECONDS - START))" "$R"
-    grep -E '^(FEHLER|ENTWISCHT|DURCHGERUTSCHT|ABBRUCH|DANEBEN|FAIL|ERROR)|NICHT EINGEBAUT|unentdeckt' "$DATEI" \
-      | head -5 | sed 's/^/        /'
+    # Die Ursache gehoert hierher, nicht nur ihr Name: auf GitHub ist die
+    # Protokolldatei weg, wenn man sie braucht (N-113). Zu jeder Fundzeile
+    # die zwei danach ("erwartet:", "ist:"); ohne Fundzeile - ein Absturz,
+    # ein Traceback - das Ende der Ausgabe.
+    local AUSZUG
+    AUSZUG=$(grep -E -A2 '^(FEHLER|ENTWISCHT|DURCHGERUTSCHT|ABBRUCH|DANEBEN|FAIL|ERROR)|NICHT EINGEBAUT|unentdeckt' "$DATEI" \
+      | grep -v '^--$' | head -15)
+    [ -n "$AUSZUG" ] || AUSZUG=$(tail -n 8 "$DATEI")
+    printf '%s\n' "$AUSZUG" | sed 's/^/        /'
     ROT=$((ROT + 1))
     ERGEBNIS+=("$NAME")
   fi

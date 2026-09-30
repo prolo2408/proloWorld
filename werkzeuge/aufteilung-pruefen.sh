@@ -14,6 +14,10 @@
 #   4. der Workflow schneidet die Teile aus strategy.job-index/job-total,
 #      nicht aus festen Zahlen, und der Sammeljob "alles" wird nur gruen,
 #      wenn jeder Teil gruen ist
+#   5. ein roter Lauf nennt die Ursache, nicht nur den Namen (N-113): die
+#      Zeilen nach "FEHLER" ("ist: ...") und bei einem Absturz ohne
+#      Fundzeile das Ende der Ausgabe. Auf GitHub ist die Protokolldatei
+#      weg, wenn man sie braucht - N-112 brauchte deshalb einen Nachbau.
 #
 #   ./werkzeuge/aufteilung-pruefen.sh
 #   ./werkzeuge/aufteilung-pruefen.sh --gegenprobe
@@ -134,6 +138,25 @@ PY
   else
     F=1
   fi
+  # 5. Ein roter Lauf nennt die Ursache - in einem Wegwerfstapel mit einer
+  #    Pruefung, die "ist:" sagt, und einer, die abstuerzt
+  mkdir -p "$T/rot/werkzeuge"
+  cp "$A" "$T/rot/werkzeuge/alle-pruefen.sh"
+  printf '#!/bin/bash\necho "ok     eins"\nprintf "FEHLER zwei\\n       erwartet: gleich\\n       ist:      URSACHE-EINS\\n"\nexit 1\n' \
+    > "$T/rot/werkzeuge/rot-pruefen.sh"
+  printf '#!/bin/bash\necho "Traceback (most recent call last):"\necho "ValueError: URSACHE-ZWEI"\nexit 1\n' \
+    > "$T/rot/werkzeuge/absturz-pruefen.sh"
+  TMPDIR="$T" timeout 60 "$B" "$T/rot/werkzeuge/alle-pruefen.sh" --schnell > "$T/rot.aus" 2>&1
+  R=$?
+  local fehlt_ursache=""
+  grep -q "ist:      URSACHE-EINS" "$T/rot.aus" || fehlt_ursache="die ist:-Zeile einer roten Pruefung"
+  grep -q "ValueError: URSACHE-ZWEI" "$T/rot.aus" || fehlt_ursache="$fehlt_ursache${fehlt_ursache:+, }das Ende eines Absturzes"
+  if [ "$R" -ne 0 ] && [ -z "$fehlt_ursache" ]; then
+    echo "ok     ein roter Lauf nennt die Ursache: die ist:-Zeile, bei einem Absturz das Ende der Ausgabe"
+  else
+    echo "FEHLER roter Lauf (Rueckgabe $R) zeigt nicht: ${fehlt_ursache:-?}"
+    F=1
+  fi
   rm -rf "$T"
   return "$F"
 }
@@ -148,7 +171,7 @@ fi
 # werkzeuge/, jedes <werkzeug>/tests/ und der Workflow.
 K=$(mktemp -d); trap 'rm -rf "$K"' EXIT
 GEFUNDEN=0; DURCH=""
-probe() {   # probe <name> <datei> <sed-ausdruck>
+kopie() {
   rm -rf "$K/s"; mkdir -p "$K/s/.github/workflows"
   cp -r "$STACK/werkzeuge" "$K/s/"
   local t
@@ -157,6 +180,15 @@ probe() {   # probe <name> <datei> <sed-ausdruck>
     cp -r "$t" "$K/s/$(basename "$(dirname "$t")")/"
   done
   cp "$STACK/.github/workflows/pruefen.yml" "$K/s/.github/workflows/"
+}
+# Leerlauf: die UNVERAENDERTE Kopie muss gruen sein. Sonst waere jede
+# Mutation "gefunden", nur weil die Kopie nicht taugt (wie N-112).
+kopie
+if ! pruefen "$K/s" > "$K/leerlauf" 2>&1; then
+  echo "ABBRUCH  die unveraenderte Kopie ist schon rot:"; cat "$K/leerlauf"; exit 1
+fi
+probe() {   # probe <name> <datei> <sed-ausdruck>
+  kopie
   sed -i "$3" "$K/s/$2"
   if cmp -s "$STACK/$2" "$K/s/$2"; then
     printf 'NICHT EINGEBAUT  %s\n' "$1"; DURCH="$DURCH$1; "; return
@@ -177,6 +209,10 @@ probe "--liste laesst die Gegenproben aus" werkzeuge/alle-pruefen.sh \
   's#^if \[ "\$SCHNELL" -eq 0 \]; then#if [ "$SCHNELL" -eq 0 ] \&\& [ "$LISTE" -eq 0 ]; then#'
 probe "5/4 wird angenommen" werkzeuge/alle-pruefen.sh \
   's#\[ "\${BASH_REMATCH\[1\]}" -le "\${BASH_REMATCH\[2\]}" \]#true#'
+probe "ein roter Lauf zeigt nur die FEHLER-Zeile (N-113)" werkzeuge/alle-pruefen.sh \
+  's#grep -E -A2 #grep -E #'
+probe "ein Absturz ohne Fundzeile zeigt nichts (N-113)" werkzeuge/alle-pruefen.sh \
+  's#^    \[ -n "\$AUSZUG" \] || AUSZUG=.*#    true#'
 probe "Workflow mit fester Teilzahl" .github/workflows/pruefen.yml \
   's#/\${{ strategy.job-total }}#/4#'
 probe "Sammeljob ohne if: always()" .github/workflows/pruefen.yml \
