@@ -22,9 +22,9 @@ sperre_fehler() { printf '%s\n' "$*" >&2; }
 #
 #   1. Eine veroeffentlichte ports:-Zeile. Damit ist der Dienst an Traefik,
 #      an der Anmeldung UND an der Firewall vorbei erreichbar (§19). Bei
-#      einem Fremdwerkzeug bringt der Hersteller sie fast immer mit - und
-#      unsere override-Datei kann sie nicht wieder wegnehmen, Compose
-#      haengt Listen aneinander.
+#      einem Fremdwerkzeug bringt der Hersteller sie fast immer mit - unsere
+#      override-Datei nimmt sie mit "ports: !reset []" wieder weg (N-103),
+#      die Herstellerdatei bleibt dabei unveraendert.
 #   2. Ein Router ohne Anmeldung und ohne Erklaerung. Ein fehlendes
 #      middlewares= sieht genauso aus wie ein vergessenes (N-59).
 #
@@ -42,9 +42,9 @@ start_pruefen() {
     sperre_fehler "NICHT gestartet: in $TOOL/docker-compose.yml steht noch der"
     sperre_fehler "Platzhalter von 'prolo neu'."
     sperre_fehler ""
-    sperre_fehler "  Die docker-compose.yml des Herstellers gehoert dort hinein,"
-    sperre_fehler "  ihre ports:-Zeile weg, und dann die Zeile PROLO-PLATZHALTER"
-    sperre_fehler "  loeschen. Das Warum steht in $TOOL/LIESMICH.md."
+    sperre_fehler "  Die docker-compose.yml des Herstellers gehoert dort hinein -"
+    sperre_fehler "  unveraendert -, und dann die Zeile PROLO-PLATZHALTER loeschen."
+    sperre_fehler "  Das Warum steht in $TOOL/LIESMICH.md."
     return 1
   fi
 
@@ -58,8 +58,17 @@ start_pruefen() {
       sperre_fehler "  Firewall vorbei erreichbar (CLAUDE.md §19). Erreichbar bleibt"
       sperre_fehler "  er ueber seinen Hostnamen - das macht Traefik."
       sperre_fehler ""
-      sperre_fehler "  Abhilfe: die ports:-Zeile in $TOOL/docker-compose.yml entfernen."
-      sperre_fehler "  Muss sie wirklich sein, wird sie erklaert:"
+      if [ -f "$STACK/$TOOL/docker-compose.override.yml" ]; then
+        # Fremdwerkzeug: die Herstellerdatei bleibt, wie sie ist (N-103).
+        sperre_fehler "  Abhilfe, ohne die Herstellerdatei anzufassen - in"
+        sperre_fehler "  $TOOL/docker-compose.override.yml beim Dienst $D:"
+        sperre_fehler "    services:"
+        sperre_fehler "      $D:"
+        sperre_fehler "        ports: !reset []"
+      else
+        sperre_fehler "  Abhilfe: die ports:-Zeile in $TOOL/docker-compose.yml entfernen."
+      fi
+      sperre_fehler "  Muss der Port wirklich offen sein, wird er erklaert:"
       sperre_fehler "    labels: [ \"prolo.ports=<warum>\" ]"
       FEHLT=1
     fi

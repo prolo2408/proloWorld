@@ -24,6 +24,22 @@ PRUEFER = os.path.join(HIER, "neu-pruefen.sh")
 
 # (Name, Datei, alt, neu)
 MUTATIONEN = [
+    # N-103: die override-Datei nimmt die ports:-Zeile des Herstellers weg.
+    ("prolo neu laesst die Ports des Herstellers stehen (N-103)",
+     "neu.sh",
+     "    ports: !reset []\n",
+     ""),
+
+    ("der Hinweis in prolo netze zerbricht an seinen Anfuehrungszeichen (N-103)",
+     "netze.sh",
+     "mit 'ports: !reset []' am",
+     'mit "ports: !reset []" am'),
+
+    ("die Sperre nennt wieder die Herstellerdatei als Abhilfe (N-103)",
+     "startsperre.sh",
+     '      if [ -f "$STACK/$TOOL/docker-compose.override.yml" ]; then',
+     '      if false; then'),
+
     ("prolo neu legt gar keine override-Datei an",
      "neu.sh",
      '  } > "$STACK/$NAME/docker-compose.override.yml"',

@@ -71,8 +71,19 @@ for P in docker git python3; do
   if command -v "$P" >/dev/null 2>&1; then f_ok "$P ist da"
   else f_bad "$P fehlt - ohne das geht nichts"; fi
 done
-if docker compose version >/dev/null 2>&1; then f_ok "docker compose ist da"
-else f_bad "das docker-compose-Plugin fehlt"; fi
+# Ab 2.24.4 versteht Compose "!reset" - damit nimmt die override-Datei die
+# ports:-Zeile eines Herstellers weg, ohne seine Datei anzufassen (N-103).
+# Aeltere Fassungen lehnen jede Datei mit !reset ab, und dann startet von
+# den Fremdwerkzeugen keines mehr.
+if CV=$(docker compose version --short 2>/dev/null); then
+  CV="${CV#v}"
+  if [ "$(printf '%s\n' 2.24.4 "$CV" | sort -V | head -1)" = 2.24.4 ]; then
+    f_ok "docker compose $CV ist da (!reset geht ab 2.24.4)"
+  else
+    f_bad "docker compose $CV ist zu alt - !reset geht erst ab 2.24.4 (N-103)."
+    printf '          Neuer:  apt update && apt install docker-compose-plugin\n'
+  fi
+else f_bad "das docker-compose-Plugin fehlt:  apt install docker-compose-plugin"; fi
 if command -v age >/dev/null 2>&1; then f_ok "age ist da (verschluesselt Sicherungen)"
 else f_bad "age fehlt:  apt install age"; fi
 [ "$FEHLER" -eq 0 ] || { echo; echo "Erst das oben, dann noch einmal."; exit 1; }

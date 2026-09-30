@@ -7017,3 +7017,65 @@ Behoben in einer Regel im Handy-Abschnitt; am Schreibtisch bleibt es bei
 
 Nicht gemessen: Wiki, Bordbuch und www. Sie ziehen in eigene
 Repositorys (`U-04`); dort gehört dieselbe Messung als erster Befund hin.
+
+## N-103 — Die override-Datei kann `ports:` doch wegnehmen
+
+CLAUDE.md §19 sagte: bei einem Fremdwerkzeug bringt der Hersteller die
+`ports:`-Zeile mit, „und die override-Datei kann sie nicht wieder
+wegnehmen — Compose hängt Listen aneinander". Daraus folgte die Anweisung
+an drei Stellen (`prolo neu`, die Sperre, die Anleitung): **die
+Herstellerdatei ändern** — gegen die eigene Regel, sie unverändert zu
+übernehmen. Bei n8n steht die Abweichung bis heute im Kopf der Datei.
+
+Gemessen, nicht angenommen: seit Compose 2.24.4 gibt es `!reset`.
+
+```yaml
+# docker-compose.override.yml
+services:
+  app:
+    ports: !reset []
+```
+
+`docker compose config` (hier 5.1.1) zeigt danach **keinen** Port mehr,
+die Herstellerdatei mit `"5678:5678"` bleibt Zeichen für Zeichen, wie sie
+war. Ältere Fassungen lehnen eine Datei mit `!reset` ab — laut, nicht
+still: dann startet von den Fremdwerkzeugen keines.
+
+### Geändert
+
+- `prolo neu` schreibt `ports: !reset []` an den Dienst in der
+  override-Datei; Platzhalter, `LIESMICH.md` und „Noch zu tun" sagen
+  „unverändert einsetzen", nicht mehr „Zeile entfernen".
+- Die Startsperre nennt als Abhilfe bei einem Werkzeug mit override-Datei
+  genau den Schnipsel für **diesen** Dienst; ohne override-Datei (eigener
+  Code) weiter die Zeile. `prolo netze` ebenso.
+- `prolo einrichten`, Schritt 1: Compose ab 2.24.4, sonst Abbruch mit dem
+  Befehl — **bevor** etwas angelegt wird.
+- n8n: `ports: !reset []` in der override-Datei; der Kopf der
+  Herstellerdatei sagt, dass sie bei der nächsten Fassung 1:1 die des
+  Herstellers sein darf.
+- CLAUDE.md §19 und `werkzeuge/ANLEITUNG.md`.
+
+**Und ein Fehler in dieser Änderung selbst, gefunden von der
+Mutationsprobe:** der neue Hinweis in `prolo netze` stand mit
+`"ports: !reset []"` in einem Text, der selbst in doppelten
+Anführungszeichen steht — das innere Anführungszeichen beendete ihn, und
+Bash führte `!reset` als Befehl aus (`!reset: command not found`, der
+Hinweis kam verstümmelt an). Kein Test hatte bis dahin einen
+**unerklärten** Port durch `prolo netze` geschickt; aufgefallen ist es,
+weil eine alte Mutation („erklärte Ports zählen als Beanstandung")
+plötzlich entwischte — ihre Prüflinie suchte genau den Text, den die
+Shell zerbrach. Jetzt: einfache Anführungszeichen, eine eigene
+Prüflinie, eine eigene Mutation.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `neu-pruefen.sh` | 109 ok: Herstellerdatei **mit** `"8081:80"` → `prolo start` läuft durch, im echten `docker compose config` ist kein Port, die Datei ist unverändert; ein **zweiter** Dienst mit `5432` → angehalten, die Abhilfe nennt `ports: !reset []`, den Dienst `datenbank:` und die override-Datei |
+| `neu-pruefen.sh` (Nachtrag) | 112 ok: `prolo netze` mit einem **unerklärten** Port beanstandet ihn, nennt `ports: !reset []` — und die Shell scheitert nicht an ihrem eigenen Text |
+| `neu-gegenprobe.py` | **27 von 27** (3 neu: `!reset` fehlt, Abhilfe nennt wieder die Herstellerdatei, Anführungszeichen im Hinweis) |
+| `einrichten-pruefen.sh` | 38 ok: Compose 2.20.0 hält an, mit `2.24.4` und dem Befehl, und nichts wird angelegt; 2.24.4 genügt (die Grenze selbst) |
+| `einrichten-pruefen.sh --gegenprobe` (Nicht-root) | **18 von 18** (1 neu: die Schranke lässt 2.20.0 durch) |
+| n8n, echtes `docker compose config` | `ports`: keine; Netz `netz-n8n` |
+| `grenze` 73, `netze` 42, `sicherung` 14, `aktualisieren` 85, `prolo` 101 ok, `regeln`, `prolo-befehle` | grün |

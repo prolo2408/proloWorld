@@ -368,8 +368,10 @@ befehl_uebersicht() {
       HINWEISE="$HINWEISE
   $T/$D veroeffentlicht Port(s) $PORTS auf dem Host.
      Damit ist der Dienst an Traefik, an der Anmeldung und an der Firewall
-     VORBEI erreichbar (CLAUDE.md §19). Die ports:-Zeile gehoert weg, oder
-     - wenn sie sein muss - erklaert: Label prolo.ports=<grund>.
+     VORBEI erreichbar (CLAUDE.md §19). Die ports:-Zeile gehoert weg - bei
+     einem Fremdwerkzeug in der override-Datei mit 'ports: !reset []' am
+     Dienst, die Herstellerdatei bleibt unveraendert (N-103) -, oder,
+     wenn sie sein muss, erklaert: Label prolo.ports=<grund>.
 "
     fi
     [ "$SCHUTZ" = OFFEN ] && HINWEISE="$HINWEISE

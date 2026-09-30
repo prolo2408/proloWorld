@@ -303,17 +303,13 @@ if [ "$ART" = fremd ]; then
 # beide von selbst. Bei einer neuen Fassung ersetzt man NUR diese Datei -
 # die Zutat bleibt liegen.
 #
-# Zwei Dinge sind trotzdem zu tun, bevor das hier startet:
+# Eine ports:-Zeile des Herstellers darf stehen bleiben: die override-Datei
+# nimmt sie beim Dienst "$DIENST" mit "ports: !reset []" wieder weg (N-103).
+# Erreichbar ist der Dienst ueber https://$HOST - das macht Traefik.
 #
-#   1. Die ports:-Zeile des Herstellers ENTFERNEN. Sie veroeffentlicht den
-#      Dienst direkt auf dem Server, an Traefik, an der Anmeldung und an
-#      der Firewall vorbei (CLAUDE.md §19). Erreichbar bleibt er ueber
-#      https://$HOST - das macht Traefik.
-#      "prolo start $NAME" laesst nichts mit offenen Ports los.
-#
-#   2. Heisst der Dienst beim Hersteller ANDERS als "$DIENST", entweder
-#      hier umbenennen oder den Namen in der override-Datei anpassen -
-#      sonst greift unsere Zutat ins Leere.
+# Heisst der Dienst beim Hersteller ANDERS als "$DIENST", den Namen in der
+# override-Datei anpassen - sonst greift unsere Zutat ins Leere, und
+# "prolo start $NAME" haelt an, weil der Port offen bliebe.
 #
 # Dann diese Kommentarzeile loeschen (sie ist die Sperre):
 # PROLO-PLATZHALTER
@@ -342,6 +338,11 @@ YML
 
 services:
   $DIENST:
+    # Die ports:-Zeile des Herstellers faellt hier weg - seine Datei
+    # bleibt, wie sie ist (N-103, Compose ab 2.24.4). Ohne das waere der
+    # Dienst an Traefik, an der Anmeldung und an der Firewall vorbei
+    # erreichbar (§19).
+    ports: !reset []
     networks:
       - $NETZ
 YML
@@ -378,14 +379,14 @@ cd /opt/stack/$NAME && docker compose config
 
 ## Aufsetzen
 
-1. Die \`docker-compose.yml\` des Herstellers hier hineinkopieren.
-2. Seine \`ports:\`-Zeile **entfernen** - erreichbar ist der Dienst ueber
-   \`https://$HOST\`, und eine \`ports:\`-Zeile geht an Traefik, an der
-   Anmeldung und an der Firewall vorbei (CLAUDE.md §19).
-3. Heisst der Dienst dort anders als \`$DIENST\`, den Namen in
+1. Die \`docker-compose.yml\` des Herstellers hier hineinkopieren -
+   **unveraendert**, auch mit ihrer \`ports:\`-Zeile: die override-Datei
+   nimmt sie mit \`ports: !reset []\` wieder weg (N-103). Erreichbar ist
+   der Dienst ueber \`https://$HOST\`.
+2. Heisst der Dienst dort anders als \`$DIENST\`, den Namen in
    \`docker-compose.override.yml\` angleichen.
-4. Die Zeile \`PROLO-PLATZHALTER\` loeschen.
-5. \`sudo prolo start $NAME\`
+3. Die Zeile \`PROLO-PLATZHALTER\` loeschen.
+4. \`sudo prolo start $NAME\`
 
 ## Anmeldung
 
@@ -552,10 +553,10 @@ ls -1A "$STACK/$NAME" | sed 's/^/  /'
 titel "Noch zu tun"
 N=1
 if [ "$ART" = fremd ]; then
-  melde "  $N. Die docker-compose.yml des Herstellers in"
-  melde "     $STACK/$NAME/docker-compose.yml kopieren,"
-  melde "     seine ports:-Zeile entfernen und die Zeile PROLO-PLATZHALTER"
-  melde "     loeschen.  (Das Warum steht in $NAME/LIESMICH.md)"
+  melde "  $N. Die docker-compose.yml des Herstellers unveraendert in"
+  melde "     $STACK/$NAME/docker-compose.yml kopieren und die Zeile"
+  melde "     PROLO-PLATZHALTER loeschen. Seine ports:-Zeile darf bleiben -"
+  melde "     die override-Datei nimmt sie weg.  ($NAME/LIESMICH.md)"
   N=$((N+1))
 fi
 melde "  $N. Subdomain $HOST beim Anbieter auf die Server-IP setzen."

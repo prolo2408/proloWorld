@@ -83,15 +83,15 @@ sudo prolo neu vaultwarden \
 
 ### Danach, bei einem Fremdwerkzeug
 
-1. Die `docker-compose.yml` des Herstellers in die angelegte Datei
-   kopieren — sie enthält bis dahin nur einen Platzhalter.
-2. **Seine `ports:`-Zeile entfernen.** Erreichbar ist der Dienst über
-   `https://<name>.prolo.me`; eine `ports:`-Zeile geht an Traefik, an der
-   Anmeldung **und** an der Firewall vorbei (`§19`).
-3. Heißt der Dienst dort anders, den Namen in
+1. Die `docker-compose.yml` des Herstellers **unverändert** in die
+   angelegte Datei kopieren — sie enthält bis dahin nur einen Platzhalter.
+   Ihre `ports:`-Zeile darf stehen bleiben: die override-Datei nimmt sie
+   mit `ports: !reset []` wieder weg (`N-103`). Erreichbar ist der Dienst
+   über `https://<name>.prolo.me`.
+2. Heißt der Dienst dort anders, den Namen in
    `docker-compose.override.yml` angleichen.
-4. Die Zeile `PROLO-PLATZHALTER` löschen.
-5. `sudo prolo start <name>`
+3. Die Zeile `PROLO-PLATZHALTER` löschen.
+4. `sudo prolo start <name>`
 
 ### Ein Werkzeug wieder loswerden
 
@@ -131,7 +131,7 @@ startet nicht, wenn eines davon zutrifft:
 
 | Sperre | Weg heraus |
 |---|---|
-| ein Dienst veröffentlicht einen Port | `ports:`-Zeile entfernen — oder erklären: `prolo.ports=<grund>` |
+| ein Dienst veröffentlicht einen Port | in der override-Datei `ports: !reset []` an diesem Dienst (`N-103`), bei eigenem Code die Zeile entfernen — oder erklären: `prolo.ports=<grund>` |
 | ein Router hat keine Anmeldung | `middlewares=authentik@file` — oder erklären: `prolo.anmeldung=eigene` + `prolo.anmeldung.grund` |
 | der Platzhalter steht noch drin | Herstellerdatei einsetzen, Zeile löschen |
 

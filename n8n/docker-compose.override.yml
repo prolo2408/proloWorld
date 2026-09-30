@@ -13,6 +13,10 @@ services:
   n8n:
     restart: unless-stopped
 
+    # Die ports:-Zeile des Herstellers faellt hier weg (N-103) - so darf
+    # seine Datei unveraendert bleiben. Erreichbar ist n8n ueber Traefik.
+    ports: !reset []
+
     # Grenzen nach CLAUDE.md §19. n8n fuehrt beliebige Ablaeufe aus und
     # braucht mehr Luft als die eigenen Werkzeuge. Braucht es eine
     # Linux-Faehigkeit zurueck, wird sie EINZELN ergaenzt (cap_add) -

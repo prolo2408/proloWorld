@@ -216,7 +216,9 @@ A=$("$PROLO" start fremd1 2>&1); R=$?
 pruefe "start: Platzhalter -> Rueckgabe 1" "1" "$R"
 pruefe "start: und es wird gesagt, was fehlt" "ja" "$(enthaelt "PROLO-PLATZHALTER" "$A")"
 
-# 4b. Hersteller-Datei eingesetzt, aber mit ports:
+# 4b. Hersteller-Datei UNVERAENDERT eingesetzt, mit ihrer ports:-Zeile.
+#     Die override-Datei von "prolo neu" nimmt sie weg (N-103) - gemessen
+#     am echten "docker compose config", nicht an der Datei.
 cat > "$S/fremd1/docker-compose.yml" <<'Y'
 services:
   vaultwarden:
@@ -225,9 +227,32 @@ services:
       - "8081:80"
 Y
 A=$("$PROLO" start fremd1 2>&1); R=$?
+pruefe "start: der Port des Herstellers faellt ueber die override-Datei weg (N-103)" "0" "$R"
+K=$(cd "$S/fremd1" && docker compose config --no-interpolate --format json 2>&1)
+pruefe "wirkung: in der zusammengesetzten Konfiguration ist kein Port veroeffentlicht" "keiner" \
+  "$(printf '%s' "$K" | python3 -c 'import json,sys; d=json.load(sys.stdin)["services"]["vaultwarden"]; print(d.get("ports") or "keiner")' 2>&1)"
+pruefe "wirkung: die Herstellerdatei ist unveraendert" "ja" \
+  "$(grep -q '"8081:80"' "$S/fremd1/docker-compose.yml" && echo ja || echo nein)"
+
+# 4b2. Ein ZWEITER Dienst des Herstellers mit Port: den kennt die
+#      override-Datei nicht - die Sperre haelt an und sagt, wie es geht.
+cat > "$S/fremd1/docker-compose.yml" <<'Y'
+services:
+  vaultwarden:
+    image: vaultwarden/server:1.34.1
+    ports:
+      - "8081:80"
+  datenbank:
+    image: postgres:16.10-alpine
+    ports:
+      - "5432:5432"
+Y
+A=$("$PROLO" start fremd1 2>&1); R=$?
 pruefe "start: offener Port -> Rueckgabe 1" "1" "$R"
-pruefe "start: der Port wird benannt" "ja" "$(enthaelt "8081" "$A")"
-pruefe "start: und der Weg heraus steht dabei" "ja" "$(enthaelt "ports:-Zeile" "$A")"
+pruefe "start: der Port wird benannt" "ja" "$(enthaelt "5432" "$A")"
+pruefe "start: der Weg heraus ist die override-Datei, nicht die des Herstellers (N-103)" "ja" \
+  "$([ "$(enthaelt "ports: !reset []" "$A")" = ja ] && [ "$(enthaelt "datenbank:" "$A")" = ja ] \
+     && [ "$(enthaelt "docker-compose.override.yml" "$A")" = ja ] && echo ja || echo nein)"
 
 # 4c. ohne ports: -> geht durch
 cat > "$S/fremd1/docker-compose.yml" <<'Y'
@@ -307,6 +332,22 @@ pruefe "netze: der ungeschuetzte Router faellt auf" "ja" "$(enthaelt "OFFEN" "$A
 pruefe "netze: und wird als Beanstandung gewertet" "2" "$R"
 pruefe "netze: Traefiks Ports gelten als erklaert" "nein" \
        "$(enthaelt "veroeffentlicht Port(s) 80" "$A")"
+
+# Ein UNerklaerter Port: die Beanstandung steht da, mit dem Weg ueber die
+# override-Datei (N-103) - und ohne dass die Shell an ihrem eigenen Text
+# scheitert. Der Hinweis stand in doppelten Anfuehrungszeichen, und
+# "!reset" wurde als Befehl ausgefuehrt; kein Test hatte bis dahin einen
+# unerklaerten Port durch "prolo netze" geschickt.
+mkdir -p "$S/portprobe"
+printf 'services:\n  portprobe:\n    image: x/p:1\n    ports: ["9099:80"]\n    networks: [netz-alt]\nnetworks:\n  netz-alt:\n    external: true\n' \
+  > "$S/portprobe/docker-compose.yml"
+A=$("$NETZE" 2>&1); R=$?
+pruefe "netze: ein unerklaerter Port wird beanstandet" "2" "$R"
+pruefe "netze: mit dem Weg ueber die override-Datei (N-103)" "ja" \
+       "$(enthaelt "ports: !reset []" "$A")"
+pruefe "netze: und ohne Fehler der Shell im eigenen Hinweis" "nein" \
+       "$(enthaelt "command not found" "$A")"
+rm -rf "$S/portprobe"
 
 pruefe "netze: anlegen ist beliebig oft moeglich" "0" \
        "$("$NETZE" anlegen netz-fremd1 >/dev/null 2>&1; echo $?)"

@@ -38,7 +38,9 @@ V="$DOCKER_ATTRAPPE/verbunden"; touch "$V"
 case "$1 $2" in
   "network inspect") grep -qx "$3" "$N" && exit 0 || exit 1 ;;
   "network create")  echo "$3" >> "$N"; echo "id-$3"; exit 0 ;;
-  "compose version") echo "Docker Compose version v2.0.0"; exit 0 ;;
+  # Die Fassung laesst sich vorgeben - ab 2.24.4 geht !reset (N-103).
+  "compose version") [ "${3:-}" = --short ] && echo "${COMPOSE_FASSUNG:-2.29.1}" \
+                       || echo "Docker Compose version v${COMPOSE_FASSUNG:-2.29.1}"; exit 0 ;;
 esac
 # docker inspect <id> --format '...Networks...'  -> die Netze des Containers
 if [ "$1" = "inspect" ]; then
@@ -389,7 +391,27 @@ pruefen_einmal() {
     || sag ok "--trocken schreibt keine systemd-Einheit"
 }
 
+# N-103: eine Compose-Fassung, die !reset nicht kennt, haelt die
+# Einrichtung an - VOR dem ersten Schritt, der etwas anfasst.
+fassung_pruefen() {   # fassung_pruefen <wurzel> <fassung> -> Ausgabe; Rueckgabe
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$1"
+  COMPOSE_FASSUNG="$2" lauf "$1"
+}
+
 if [ "$GEGENPROBE" -eq 0 ]; then
+  A=$(fassung_pruefen "$T/alt" 2.20.0); R=$?
+  [ "$R" -ne 0 ] && grep -q "2.24.4" <<<"$A" && grep -q "apt install docker-compose-plugin" <<<"$A" \
+    && sag ok "Compose 2.20.0 haelt die Einrichtung an, mit Grund und Befehl (N-103)" \
+    || sag FEHLER "eine zu alte Compose-Fassung faellt nicht auf" \
+           "dann startet danach kein Fremdwerkzeug mehr: !reset kennt sie nicht"
+  [ -e "$T/alt/bin-prolo" ] \
+    && sag FEHLER "bei zu alter Compose-Fassung wurde trotzdem etwas angelegt" \
+    || sag ok "... und nichts wurde angelegt"
+  A=$(fassung_pruefen "$T/grenze" 2.24.4); R=$?
+  grep -q "docker compose 2.24.4 ist da" <<<"$A" \
+    && sag ok "Compose 2.24.4 genuegt (die Grenze selbst, von Hand)" \
+    || sag FEHLER "Compose 2.24.4 wird abgelehnt" "$(grep -m1 compose <<<"$A")"
   pruefen_einmal "$T/stack"
   [ "$(readlink /usr/local/bin/prolo 2>/dev/null || echo fehlt)" = "$ECHT_VORHER" ] \
     && sag ok "der echte /usr/local/bin/prolo ist unberuehrt (N-100)" \
@@ -586,6 +608,22 @@ buchprobe "die Einheiten behalten den Platzhalter (A-01)" \
   's#SOLL=$(sed "s\#@STACK@\#$STACK\#g" "$HIER/systemd/$U")#SOLL=$(cat "$HIER/systemd/$U")#'
 buchprobe "der Waechter wird nie eingeschaltet (A-01)" \
   's#elif A=$(systemctl enable --now prolo-auftraege.path prolo-auftraege.timer 2>\&1) \\$#elif A=$(true) \\#'
+
+# N-103: eine zu alte Compose-Fassung wird durchgelassen.
+fassungsprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/f$((++GEFUNDEN))" A R
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  A=$(COMPOSE_FASSUNG=2.20.0 lauf "$W"); R=$?
+  if [ "$R" -ne 0 ] && grep -q "zu alt" <<<"$A"; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+}
+fassungsprobe "eine zu alte Compose-Fassung geht durch (N-103)" \
+  's#if \[ "$(printf .%s\\n. 2.24.4 "$CV" | sort -V | head -1)" = 2.24.4 \]; then#if true; then#'
 
 echo
 if [ -n "$DURCH" ]; then

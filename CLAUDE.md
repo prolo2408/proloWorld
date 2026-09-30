@@ -742,9 +742,11 @@ Verbindlich in jeder `docker-compose.yml`:
   dann **erklärt**: Label `prolo.ports=<grund>` am Dienst. Ohne das sieht
   eine nötige Portfreigabe genauso aus wie eine vergessene (`N-59`).
   `prolo start` misst die **zusammengesetzte** Konfiguration und lässt
-  nichts mit unerklärten offenen Ports los; bei einem Fremdwerkzeug bringt
-  der Hersteller die Zeile fast immer mit, und die override-Datei kann sie
-  nicht wieder wegnehmen — Compose hängt Listen aneinander.
+  nichts mit unerklärten offenen Ports los. Bei einem Fremdwerkzeug bringt
+  der Hersteller die Zeile fast immer mit — und die override-Datei nimmt
+  sie wieder weg, ohne die Herstellerdatei anzufassen: `ports: !reset []`
+  am Dienst (`N-103`, Compose ab 2.24.4; `prolo einrichten` prüft das).
+  `prolo neu` schreibt die Zeile von selbst.
 - **Ein eigenes Netz je Werkzeug** (`netz-<werkzeug>`, extern), zusätzlich
   `internal` für Datenbanken. Datenbanken und Hilfsdienste hängen **nur** in
   `internal`.
