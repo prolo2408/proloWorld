@@ -1,3 +1,11 @@
+# 0.4.1
+
+- Die Seite "Werkzeug anlegen" schrieb das Namensmuster mit `'\-'` in einen
+  gewoehnlichen Python-Text - eine ungueltige Escape-Folge. Ab Python 3.12
+  meldete das bei jedem Start eine `SyntaxWarning` im Protokoll, eine
+  kuenftige Fassung macht einen Fehler daraus (N-112). Jetzt `'\\-'`; das
+  ausgelieferte HTML ist Byte fuer Byte dasselbe.
+
 # 0.4.0
 
 - **Firewall** (F-02): eine eigene Seite unter `/firewall` - aktive Sperren

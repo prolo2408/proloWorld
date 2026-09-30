@@ -42,7 +42,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 
 PORT = int(os.environ.get("ADMIN_PORT", "8080"))
 DATEN = os.environ.get("ADMIN_DATEN", "/daten")
@@ -1494,7 +1494,7 @@ def ansicht_neu(name="", compose=""):
             '<form method="post" action="/neu/pruefen" class="formular">'
             '<div class="feld"><label for="name">Name - wird Ordner und Subdomain</label>'
             '<input id="name" name="name" required maxlength="40" value="%s" '
-            'pattern="[a-z0-9][a-z0-9\-]{0,39}" placeholder="z. B. uptime" '
+            'pattern="[a-z0-9][a-z0-9\\-]{0,39}" placeholder="z. B. uptime" '
             'autocomplete="off" spellcheck="false"></div>'
             '<div class="feld"><label for="compose">docker-compose.yml des Herstellers</label>'
             '<textarea id="compose" name="compose" required spellcheck="false" '

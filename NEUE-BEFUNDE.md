@@ -7627,3 +7627,60 @@ Lokal bleibt es bei der Regel aus TEIL 0: vor dem Push läuft
 | `aufteilung-pruefen.sh` | **4 ok**; `--gegenprobe` **8 von 8** |
 | Teile aus den GitHub-Zeiten geschätzt | vier Teile: rund **17 / 13 / 14 / 6** Minuten statt 51 am Stück |
 | `alle-pruefen.sh` ganz, als `pruefer` | **40 von 40 grün**, Rückgabe 0, 4.096 s — der erste Versuch brach ab, weil die Sandbox mitten im Lauf neu startete und Docker verlor; nicht gewertet |
+
+---
+
+## N-112 — `'\-'` in der Admin-Seite: eine Warnung, die nur ohne Zwischenspeicher kam
+
+**Gefunden:** mit `N-111`. Kaum lief die Prüfung auf GitHub in Teilen, war
+Teil 3 rot: in `auftrag-pruefen.sh --gegenprobe` meldete der Abgleich
+zwischen Admin-Seite und Ausführer nicht „gleich“, sondern
+
+```
+admin/server.py:1497: SyntaxWarning: invalid escape sequence '\-'
+gleich
+```
+
+Das Namensmuster auf der Seite „Werkzeug anlegen“ (`A-03`) stand als
+`'[a-z0-9\-]'` in einem gewöhnlichen Python-Text. `\-` ist dort keine
+gültige Escape-Folge. Python behält den Rückstrich zwar (das HTML stimmte),
+meldet es aber ab 3.12 als `SyntaxWarning`. Eine künftige Fassung macht einen
+Fehler daraus, und der Admin-Container könnte dann gar nicht mehr starten.
+Bis dahin stand die Warnung bei **jedem Start** im Protokoll des Containers
+(gemessen: zwei Starts, zwei Warnungen).
+
+Dass es so lange niemand sah, hatte zwei Gründe, und beide waren Zufall:
+
+- **Lokal läuft Python 3.11.** Dort ist es eine `DeprecationWarning`, und
+  die wird ohne Schalter nicht gezeigt.
+- **Die Warnung kommt nur beim Übersetzen.** Liegt ein `__pycache__` da,
+  kommt keine. Am Stück liefen auf GitHub die Admin-Tests zuerst und legten
+  ihn an, der Abgleich kam später und blieb stumm. Nach der Aufteilung lief
+  der Abgleich in einem Teil ohne die Admin-Tests.
+
+Die Prüfung war also richtig und die Aufteilung auch. Die Aufteilung hat
+eine Abhängigkeit von der Reihenfolge sichtbar gemacht, die vorher einen
+echten Fehler verdeckte.
+
+### Behoben
+
+- `admin/server.py`: `'\\-'` statt `'\-'`. Das ausgelieferte HTML ist Byte
+  für Byte dasselbe (1.705 Byte, `cmp` gleich). Admin **0.4.1** an allen
+  drei Stellen.
+- `werkzeuge/python-pruefen.sh`: übersetzt **jeden** Python-Code frisch, mit
+  jeder Warnung als Fehler, ohne etwas zu schreiben: alle `*.py`-Dateien
+  und jeden Python-Heredoc in Skripten und Workflows (`<<'PY'`, `<<"PY"`,
+  eingerückt). Das fängt es mit **jeder** Fassung, auch mit 3.11, und
+  unabhängig davon, was vorher lief.
+- Beim Bau dieses Prüfers fiel er erst über seinen eigenen Kopfkommentar,
+  der ein Heredoc-Beispiel nennt (die Falle aus `N-36`). Eine
+  Kommentarzeile beginnt jetzt keinen Heredoc.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| Nachgestellt wie auf GitHub: frischer Klon, Python 3.13, kein `__pycache__`, als `pruefer` | **vorher** 100 ok, 1 FEHLER, und in der Zeile „ist:“ steht die `SyntaxWarning`. **Nachher** 101 ok, 0 FEHLER |
+| Abbild `prolo-admin`, `import server` | 0.4.0: **1** Warnung, 0.4.1: **0** |
+| `python-pruefen.sh` | **50** Python-Dateien (= `git ls-files '*.py'`) und **41** Heredocs, von Hand: 39 aus dem ersten Suchlauf, dazu `backup.sh:144` (die Form `<<"PY"`, die dieser Suchlauf übersah) und der neue Prüfer selbst |
+| `--gegenprobe` | **5 von 5**, davor ein Leerlauf auf der unveränderten Kopie. Dass dieser Leerlauf eine untaugliche Kopie abweist, wurde selbst mit einer Mutation belegt |
