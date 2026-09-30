@@ -15,7 +15,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
+      # Die ganze Geschichte, nicht nur der letzte Commit: auslagern-pruefen.sh
+      # zieht ein Werkzeug MIT seiner Geschichte in ein eigenes Repository um
+      # und prueft, dass sie mitkommt (U-04). Flach geklont gaebe es nichts
+      # mitzunehmen.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"

@@ -6741,3 +6741,63 @@ jemand die Probe laufen lässt, wäre es genauso.
 `werkzeuge/alle-pruefen.sh` als `pruefer`: alle Werkzeugtests und alle
 Prüfungen des Stapels grün (der Lauf wurde in den Gegenproben durch einen
 Neustart des Prüfrechners abgebrochen, nicht durch einen Fehler).
+
+## U-04 — Auslagern und Umstellen als Befehl, nicht als Anleitung
+
+Der Umzug eines Werkzeugs in sein eigenes Repository hat zwei Hälften,
+und jede hat eine Stelle, an der man sich still etwas kaputt macht:
+
+- **Auslagern** ohne Geschichte (Dateien kopieren, neu anfangen) verliert
+  jede Narbe: `git blame` auf eine seltsame Zeile führt dann auf „erster
+  Commit" statt auf `N-41`. Und wer die Betriebsdateien mitnimmt, hat
+  zwei Stellen für Netz und Anmeldung, die auseinanderlaufen.
+- **Umstellen**, bevor das Abbild veröffentlicht ist, hinterlässt ein
+  Werkzeug, das sich weder bauen (Code weg) noch holen (Abbild fehlt)
+  lässt — gemerkt beim nächsten `prolo aktualisieren`, also nachts.
+
+Darum zwei Skripte statt einer Befehlsliste (`N-54`):
+
+| | tut | hält an, wenn |
+|---|---|---|
+| `werkzeuge/auslagern.sh <w> <ziel>` | `git subtree split` (ganze Geschichte), ein Commit entfernt die Betriebsdateien, `push` nach `main`. In proloWorld ändert sich nichts. `--trocken` zeigt die Wurzel und schiebt nichts. | das Ziel nicht leer ist, im Ordner nicht Eingechecktes liegt, eine der Dateien aus `U-03` fehlt, ein Zweig eines früheren Versuchs liegt |
+| `werkzeuge/umstellen.sh <w>` | Code, Tests, Schriften weg (`git rm`), `build:` aus der Herstellerdatei, `TYP="image"`, eine `LIESMICH.md`, beim Wiki das Bedienhandbuch nach `doku/` samt Verweis in `CLAUDE.md`. Vorgemerkt, **nicht** eingecheckt. | sich das Abbild nicht holen lässt (`docker manifest inspect`) — dann mit dem Befehl, der es veröffentlicht, und bei „denied" mit dem `docker login` dazu |
+
+Die Anleitung dazu: `werkzeuge/ANLEITUNG.md`, Abschnitt 7.
+
+### Der Prüfstand, und was er zuerst gefunden hat
+
+`werkzeuge/auslagern-pruefen.sh` zieht das Wiki **wirklich** in ein
+leeres (lokales) Repository um und stellt danach in einer Kopie von
+proloWorld alle drei Werkzeuge um. Zwei seiner eigenen Prüflinien waren
+zuerst falsch:
+
+- „ein alter Commit ist wiederzufinden" war rot, **obwohl** der Commit da
+  war: `git log | grep -q` unter `pipefail` — `grep` hört beim ersten
+  Treffer auf, `git log` bekommt SIGPIPE, die Leitung ist „gescheitert".
+  Jetzt wird in eine Variable gelesen. Die Betriebsskripte habe ich auf
+  dieselbe Falle durchgesehen: überall schreibt dort ein einzelnes
+  `printf`, `awk` oder Python, das seine Ausgabe in einem Stück abgibt —
+  kein Fall mit mehreren Schreibvorgängen vor einem `grep -q`.
+- „nicht Eingechecktes hält an" war grün aus dem **falschen** Grund: das
+  Ziel-Repository gab es im Test gar nicht, also hielt schon `git
+  ls-remote` an. Die Mutationsprobe hat es gefunden (die Sperre
+  abgeschaltet — und die Prüfung blieb grün). Jetzt mit einem echten
+  leeren Ziel, und geprüft wird die Wirkung: das Ziel bleibt leer.
+
+Auf GitHub klont die Prüfung seitdem mit ganzer Geschichte
+(`fetch-depth: 0`) — flach geklont gäbe es nichts mitzunehmen.
+
+### Ausgeführt
+
+`werkzeuge/auslagern-pruefen.sh --gegenprobe` (237 s):
+
+| | |
+|---|---|
+| Auslagern des Wikis | Code an der Wurzel, `CLAUDE.md` und `abbild.yml` dabei, alle 5 Betriebsdateien fehlen dort, 72 Commits am Wiki hier → 79 dort, der älteste (`B-22`) ist dabei, **`tests/alle.sh` läuft im neuen Repository allein grün** |
+| Verweigerungen | Ziel mit Inhalt, nicht Eingechecktes (Ziel bleibt leer), Abbild nicht zu holen (nichts vorgemerkt, Meldung nennt `git tag v…`) |
+| Umstellen aller drei | `wiki/` enthält danach genau 8 Betriebsdateien, kein `build:`, `TYP="image"`, Handbuch in `doku/`, `CLAUDE.md` zeigt dorthin, Volumes heißen wie vorher (`bordbuch_bordbuch_belege`, `bordbuch_bordbuch_daten`) |
+| Stapel nach dem Umzug | `grenze`, `schriften`, `regeln`, `sicherung`, `netze`, `geheimnisse`, `einrichten`, `dockerfile`, `prolo-befehle` grün; `grenze-pruefen` sieht weiter alle vier eigenen Werkzeuge |
+| gesamt | **41 ok**, 0 Fehler |
+| Mutationsprobe | **6 von 6** gefunden (Betriebsdateien gehen mit, Ziel mit Inhalt wird beschrieben, nicht Eingechecktes hält nicht an, `build:` bleibt, `TYP` bleibt `build`, Abbild wird nicht geprüft) |
+
+`actionlint` auf `pruefen.yml`: sauber.

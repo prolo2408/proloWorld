@@ -9,6 +9,7 @@ Diese Datei beschreibt drei Griffe. Die Regeln dahinter stehen in
 | sehen, wer in welchem Netz hängt | `prolo netze` |
 | ein Netz anlegen / schließen / umziehen | `sudo prolo netze anlegen\|schliessen\|umziehen …` |
 | dasselbe im Browser | `https://admin.prolo.me` |
+| ein eigenes Werkzeug in sein eigenes Repository | `werkzeuge/auslagern.sh`, dann `werkzeuge/umstellen.sh` (Abschnitt 7) |
 
 ---
 
@@ -275,3 +276,64 @@ cd admin && ./tests/alle.sh       # die Admin-Seite
 `neu-pruefen.sh` reicht `docker compose config` an das echte `docker`
 durch. Das braucht **keinen laufenden Docker-Dienst** — es ist die einzige
 Stelle, an der wirklich gemessen und nicht nachgebildet wird.
+
+---
+
+## 7. Ein eigenes Werkzeug in sein eigenes Repository umziehen
+
+`wiki`, `bordbuch` und `www` sind vorbereitet (`U-01` bis `U-03`): jedes
+bringt seine `CLAUDE.md`, seinen Arbeitsablauf zum Veröffentlichen und
+seinen Vertragstest schon mit. Umgezogen wird in drei Schritten, **in
+dieser Reihenfolge** — auf dem eigenen Rechner, nicht auf dem Server.
+
+**1. Leeres Repository anlegen.** Auf GitHub `prolo2408/<werkzeug>`,
+**ohne** README, `.gitignore` und Lizenz. Ein Ziel mit Inhalt wird nicht
+angefasst.
+
+**2. Auslagern — mit der ganzen Geschichte:**
+
+```bash
+werkzeuge/auslagern.sh bordbuch git@github.com:prolo2408/bordbuch.git
+werkzeuge/auslagern.sh bordbuch --trocken      # vorher ansehen, schiebt nichts
+```
+
+Der Code landet an der Wurzel des neuen Repositorys, jeder Commit, der das
+Werkzeug berührt hat, kommt mit. Die Dateien, die dem **Betrieb** gehören
+(`docker-compose.override.yml`, `sicherung.conf`, `aktualisierung.conf`,
+`geheimnisse.conf`, beim Wiki das Bedienhandbuch), bleiben hier. In
+proloWorld ändert sich dabei **nichts**.
+
+Dann im neuen Repository die erste Fassung veröffentlichen:
+
+```bash
+git clone git@github.com:prolo2408/bordbuch.git && cd bordbuch
+git tag v2.6.2 && git push --tags
+```
+
+Der Arbeitsablauf baut `ghcr.io/prolo2408/bordbuch:2.6.2` (Reiter
+*Actions*). Ist das Paket privat, braucht der Server einmalig
+`docker login ghcr.io -u prolo2408` mit einem Token (`read:packages`).
+
+**3. Umstellen — erst, wenn das Abbild da ist:**
+
+```bash
+werkzeuge/umstellen.sh bordbuch
+git diff --cached --stat && git commit -m "bordbuch: vom Werkzeug-Repository"
+```
+
+Es prüft **vorher**, ob sich das Abbild holen lässt, und fasst sonst
+nichts an. Danach liegen in `bordbuch/` nur noch die Betriebsdateien und
+die Herstellerdatei ohne `build:` — das Werkzeug wird behandelt wie n8n.
+Auf dem Server:
+
+```bash
+sudo prolo aktualisieren bordbuch      # holt statt zu bauen, Volumes bleiben
+```
+
+**Eine neue Fassung später:** im Werkzeug-Repository taggen, hier die
+Nummer in `<werkzeug>/docker-compose.yml` hochsetzen, `sudo prolo
+aktualisieren <werkzeug>`.
+
+Geprüft wird das alles mit `werkzeuge/auslagern-pruefen.sh` — es zieht das
+Wiki wirklich in ein (lokales) leeres Repository um, lässt dort die Tests
+des Werkzeugs allein laufen und stellt in einer Kopie alle drei um.
