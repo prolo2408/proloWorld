@@ -6922,3 +6922,76 @@ vor — Unterpfade sind also genau das, was die Regeln verlangen.
 | `--gegenprobe` | **9 von 9** (2 neu: kein Ordner im Archiv, Datei flach) |
 | `wiederherstellen-pruefen.sh` | 41 ok (vorher 38): Ordner mit Unterpfad zurück, Datei mit Unterpfad zurück **auch ohne den Ordner davor**, der zerstörte Unterordner liegt in der Sicherheitskopie |
 | `wiederherstellen-gegenprobe.py` | **18 von 18** (2 neu) |
+
+## A-02 — Die Admin-Seite bedient: Werkzeuge, Aufträge, Protokolle
+
+Die Seite (Fassung **0.2.0**) war eine lesende Übersicht. Jetzt ist sie
+die Verwaltung des Stapels — ohne je schreibend an Docker zu kommen: jeder
+Knopf legt einen Auftrag ins Auftragsbuch (`A-01`).
+
+| Ansicht | neu |
+|---|---|
+| Übersicht | Kachel „Letzte Aufträge"; Werkzeuge und Netze als Verweise |
+| Werkzeuge | **ein Werkzeug je Zeile**, auch angehaltene (aus dem Bestand), mit Zustand, Namen, Schutz |
+| Werkzeug (`/werkzeug/<name>`) | Bedienen (Starten bzw. Neu starten als einziger Primärknopf, Aktualisieren, Prüfen, Anhalten mit Rückfrage — beim Zugang gesperrt, mit dem Befehl für den Server), was auf dem Server liegt (Art, Netze, Volumes, Sicherung, die Ursache, wenn `docker compose config` scheitert), Dienste, **Protokoll** der Container, letzte Aufträge |
+| Netze | Formular „Netz anlegen" |
+| Aufträge | Liste, „Jetzt sichern"; je Auftrag Stand, Zeiten, Grund, Ausgabe, die **mitwächst**, solange er läuft |
+
+**Rechte:** `admin` sieht, `admin-betrieb` bedient und liest Protokolle.
+Beide stehen im Label `prolo.gruppen` (`N-95`).
+
+**Der Bestand.** Ein angehaltenes Werkzeug hat keinen Container, und die
+Seite sah bisher nur Container: nach „Anhalten" wäre es samt dem Knopf,
+der es wieder startet, aus der Liste verschwunden. Der Ausführer schreibt
+darum `erledigt/bestand.json` — Ordner, Art, Abbilder, Namen, Netze,
+Volumes aus der **zusammengesetzten** Konfiguration (§16), **ohne**
+Umgebung und Werte —, nach jedem Auftrag und über
+`prolo-auftraege.timer` alle fünf Minuten.
+
+**Doppelt gibt es nicht** (§10): liegt derselbe Auftrag schon offen da
+(Doppelklick, zweiter Reiter), führt die Seite zu ihm, statt einen zweiten
+abzulegen; der Knopf sperrt sich beim Absenden.
+
+**Gleichlauf.** Die Seite prüft einen Auftrag vorher, damit die Meldung
+sofort kommt; entschieden wird im Ausführer. `werkzeuge/auftrag-gleichlauf.py`
+(aus `auftrag-pruefen.sh`) hält Arten, Felder, Kern-Dienste und Muster
+beider Seiten gleich.
+
+### Was nur der Browser und der echte Lauf gefunden haben
+
+Alle Unittests waren grün — und doch:
+
+1. **Die Themenwahl ging nicht mehr.** Das neue Skript sperrt Knöpfe beim
+   Absenden; ein gesperrter Knopf fällt aus dem Formular, und System/Hell/
+   Dunkel steht im Wert des gedrückten Knopfs. Jetzt wird erst **nach**
+   dem Absenden gesperrt.
+2. **Eine Auftragsseite blieb für immer auf „wartet".** Der Auftrag lief
+   auf dem Prüfserver durch (`ok`), aber `default-src 'none'` verbot dem
+   Browser das Nachladen. `connect-src 'self'` ergänzt — mit Test und
+   Mutation.
+3. Kurze Namen („n8n") als Verweis waren 24 px breit — `min-width:44px`.
+4. Bei 360 px fiel „fehlgeschlagen" aus der Auftragsliste — Auftrag und
+   Ziel in einer Spalte, „Wer" am Handy weg, Datum und Uhrzeit
+   untereinander.
+5. Ein angehaltenes Werkzeug stand mit „kein Router" da — geraten und
+   beim Wiki falsch. Jetzt: „erst nach dem Start lesbar".
+6. Zeiten standen in UTC (der Container kennt keine Zeitzonen) — der
+   Browser setzt sie in die Ortszeit des Betrachters.
+7. `N-101`: die Sicherung scheiterte am Unterpfad `auftraege/erledigt` —
+   eigener Schritt.
+
+Und ein Fund, der älter ist als dieser Umbau: am Handy steht Schrift unter
+12 px (Tabellenköpfe, Marker) — `N-102`.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `admin/tests` | **76** Tests grün (vorher 41) |
+| `admin/tests/gegenprobe.sh` | **29 von 29** (11 neu: Sehen ist nicht Bedienen, fremde Seite, Zugang anhaltbar, Doppelklick, fremde Felder im Auftrag, Protokoll und Ausgabe ungefiltert, Rahmenköpfe im Protokoll, Kennung als Pfad, Protokolle für Nur-Seher, kein Nachladen) |
+| `werkzeuge/auftrag-pruefen.sh` | **57 ok** (vorher 49): Bestand mit Art, Namen, Netz, Abbild von Hand; kein Wert aus der Umgebung darin; Ursache im Wortlaut von docker; nicht bei jedem Lauf, aber nach jedem Auftrag neu; ein Verweis als Werkzeugordner wird abgelehnt; Gleichlauf mit der Seite |
+| `auftrag-pruefen.sh --gegenprobe` | **17 von 17** (5 neu) |
+| `werkzeuge/einrichten-pruefen.sh` | 35 ok: Zeitgeber installiert und eingeschaltet; `--gegenprobe` als Nicht-root **17 von 17** |
+| Stapelprüfungen | `grenze` 73, `netze` 42, `sicherung` 14, `geheimnisse` 161, `regeln`, `dockerfile`, `prolo-befehle`: grün; `volumes.py`: `auftraege/erledigt` gesichert, `auftraege/eingang` erklärt |
+| Browser (Kratzblock), 14 Ansichten × 360/768/1920 × dunkel/hell = 84 Messungen | kein seitliches Scrollen, nichts ragt aus einer Karte, **kein Kontrast unter 4,5:1** (oklch umgerechnet), Klickflächen ≥ 44 × 44; der Prüfer findet **5 von 5** eingebauten Mängeln; Anhalten fragt, „Abbrechen" legt nichts ab; alle Bedienelemente per Tab erreichbar, alle mit Fokusrahmen; 0 JavaScript-Fehler |
+| echter Lauf auf dem Prüfserver | `prolo aktualisieren admin` baut 0.2.0, Einhängepunkte `eingang` rw / `erledigt` ro; im Browser: **Neu starten** www → Auftrag → `auftrag.py` → `prolo neustart www` → Container neu gestartet, Seite springt von „wartet" auf „erledigt"; **Anhalten** → Container weg, www steht als „angehalten" in der Liste; **Starten** von dort → läuft wieder; Protokoll von wiki: 200 echte Zeilen über den Vermittler; admin anhalten: gesperrt; `auftrag.py liste` nennt alle vier mit `arthur` |

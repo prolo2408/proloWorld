@@ -212,10 +212,14 @@ pruefen_einmal() {
     && sag ok "die systemd-Einheiten nennen den echten Stapel, keinen Platzhalter" \
     || sag FEHLER "die systemd-Einheiten fehlen oder zeigen nicht auf diesen Stapel" \
            "dann wacht systemd ueber einen Ordner, in den nie etwas faellt"
-  grep -qx "enable --now prolo-auftraege.path" "$DOCKER_ATTRAPPE/systemctl" 2>/dev/null \
-    && sag ok "prolo-auftraege.path wird eingeschaltet" \
-    || sag FEHLER "prolo-auftraege.path wird nicht eingeschaltet" \
+  grep -qx "enable --now prolo-auftraege.path prolo-auftraege.timer" "$DOCKER_ATTRAPPE/systemctl" 2>/dev/null \
+    && sag ok "prolo-auftraege.path und .timer werden eingeschaltet" \
+    || sag FEHLER "prolo-auftraege.path/.timer werden nicht eingeschaltet" \
            "dann liegen Auftraege der Admin-Seite fuer immer im Eingang"
+  grep -qxF "Unit=prolo-auftraege.service" "$W/systemd-ziel/prolo-auftraege.timer" 2>/dev/null \
+    && sag ok "der Zeitgeber fuer den Bestand ist installiert (A-02)" \
+    || sag FEHLER "prolo-auftraege.timer fehlt" \
+           "dann verschwindet ein angehaltenes Werkzeug von der Admin-Seite"
 
   grep -q "getan" <<<"$A1" && sag ok "erster Lauf richtet wirklich etwas ein" \
     || sag FEHLER "erster Lauf hat nichts getan" "dann prueft der zweite nichts"
@@ -570,7 +574,7 @@ buchprobe() {
   lauf "$W" > /dev/null
   if [ "$(stat -c %a "$W/admin/auftraege/eingang" 2>/dev/null)" = 700 ] \
      && grep -qxF "PathExistsGlob=$W/admin/auftraege/eingang/*.json" "$W/systemd-ziel/prolo-auftraege.path" 2>/dev/null \
-     && grep -qx "enable --now prolo-auftraege.path" "$DOCKER_ATTRAPPE/systemctl" 2>/dev/null; then
+     && grep -qx "enable --now prolo-auftraege.path prolo-auftraege.timer" "$DOCKER_ATTRAPPE/systemctl" 2>/dev/null; then
     printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
   else
     printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
@@ -581,7 +585,7 @@ buchprobe "das Auftragsbuch wird nicht angelegt (A-01)" \
 buchprobe "die Einheiten behalten den Platzhalter (A-01)" \
   's#SOLL=$(sed "s\#@STACK@\#$STACK\#g" "$HIER/systemd/$U")#SOLL=$(cat "$HIER/systemd/$U")#'
 buchprobe "der Waechter wird nie eingeschaltet (A-01)" \
-  's#elif A=$(systemctl enable --now prolo-auftraege.path 2>\&1) \\$#elif A=$(true) \\#'
+  's#elif A=$(systemctl enable --now prolo-auftraege.path prolo-auftraege.timer 2>\&1) \\$#elif A=$(true) \\#'
 
 echo
 if [ -n "$DURCH" ]; then

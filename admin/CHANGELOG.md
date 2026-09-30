@@ -1,3 +1,22 @@
+# 0.2.0
+
+- **Bedienen** (A-02): Starten, Neu starten, Anhalten, Pruefen,
+  Aktualisieren je Werkzeug, "Jetzt sichern", Netze anlegen. Die Seite tut
+  es nicht selbst - sie legt einen Auftrag ins Auftragsbuch, und auf dem
+  Server fuehrt `prolo` ihn aus (A-01), mit Startsperre, Sicherung und
+  Rueckweg. Schreibenden Zugriff auf Docker hat die Seite weiterhin nicht.
+- Neue Gruppe `admin-betrieb`: wer nur `admin` hat, sieht, bedient aber
+  nicht und liest keine Protokolle.
+- Jedes Werkzeug hat eine eigene Seite: Bedienen, Dienste, was auf dem
+  Server liegt (Art, Netze, Volumes, Sicherung), das Protokoll der
+  Container, die letzten Auftraege.
+- Angehaltene Werkzeuge verschwinden nicht mehr: die Liste kommt aus
+  Docker UND aus dem Bestand der Werkzeugordner.
+- Auftraege mit Stand und Ausgabe, die waechst, solange er laeuft. Ein
+  Auftrag, der schon offen ist, wird nicht ein zweites Mal abgelegt.
+- Anhalten fragt nach; Traefik, Authentik, den Vermittler und diese Seite
+  selbst kann man von hier aus nicht anhalten (nur neu starten).
+
 # 0.1.2
 
 - Schutz wird JE ROUTER gelesen, nicht je Dienst (N-84). Ein

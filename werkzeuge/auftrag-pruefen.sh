@@ -32,9 +32,28 @@ aufbauen() {   # aufbauen <wurzel> [datei-mit-auftrag.py]
   rm -rf "$S"; mkdir -p "$S/werkzeuge"
   cp "${2:-$HIER/auftrag.py}" "$S/werkzeuge/auftrag.py"
   local w
-  for w in wiki traefik admin; do
+  for w in traefik admin; do
     mkdir -p "$S/$w"; printf 'services: {}\n' > "$S/$w/docker-compose.yml"
   done
+  # wiki fuer den Bestand (A-02): eigener Code, ein Router, ein Netz - und
+  # ein Wert in der Umgebung, der im Bestand NIE auftauchen darf.
+  mkdir -p "$S/wiki"; : > "$S/wiki/Dockerfile"
+  cat > "$S/wiki/docker-compose.yml" <<'YML'
+services:
+  wiki:
+    image: ghcr.io/prolo2408/wiki:1.4.1
+    environment:
+      GEHEIMER_WERT: nie-im-bestand
+    networks: [netz-wiki]
+    labels:
+      - "traefik.http.routers.wiki.rule=Host(`wiki.prolo.me`)"
+networks:
+  netz-wiki:
+    external: true
+YML
+  mkdir -p "$S/kaputt"; printf 'services:\n  x: [kaputt\n' > "$S/kaputt/docker-compose.yml"
+  mkdir -p "$T/draussen-werkzeug"; printf 'services: {}\n' > "$T/draussen-werkzeug/docker-compose.yml"
+  ln -sfn "$T/draussen-werkzeug" "$S/verweis"
   # prolo-Attrappe: schreibt die Argumente und die Umgebung mit. Wie sie
   # sich verhaelt, steht in einer Datei - die Umgebung reicht auftrag.py
   # mit Absicht nicht durch.
@@ -113,6 +132,29 @@ pruefen_alles() {
   pruefe "die Lage ist fuer die Seite lesbar (0644)" "644" \
     "$(stat -c %a "$S/admin/auftraege/erledigt/$K.json")"
 
+  # --- Der Bestand (A-02): jeder Ordner, auch ohne Container -----------
+  local BST="$S/admin/auftraege/erledigt/bestand.json"
+  pruefe "der Bestand nennt jeden Werkzeugordner, keinen Verweis" "admin kaputt traefik wiki" \
+    "$(python3 -c 'import json,sys; print(" ".join(w["name"] for w in json.load(open(sys.argv[1]))["werkzeuge"]))' "$BST" 2>&1)"
+  pruefe "mit Art, Namen, Netz und Abbild (von Hand)" \
+    "admin:plattform traefik:plattform wiki:eigen wiki.prolo.me netz-wiki ghcr.io/prolo2408/wiki:1.4.1" \
+    "$(python3 -c '
+import json,sys
+w={x["name"]:x for x in json.load(open(sys.argv[1]))["werkzeuge"]}
+print(" ".join("%s:%s" % (n, w[n]["art"]) for n in ("admin","traefik","wiki")),
+      " ".join(w["wiki"]["hosts"]), " ".join(w["wiki"]["netze"]), w["wiki"]["dienste"][0]["abbild"])' "$BST" 2>&1)"
+  pruefe "ein Wert aus der Umgebung steht nie im Bestand" "nein" \
+    "$(grep -q 'nie-im-bestand\|GEHEIMER_WERT' "$BST" && echo ja || echo nein)"
+  pruefe "ein kaputtes Werkzeug: die Ursache im Wortlaut von docker (N-64)" "ja" \
+    "$(python3 -c 'import json,sys; w={x["name"]:x for x in json.load(open(sys.argv[1]))["werkzeuge"]}; print("ja" if "did not find expected" in w["kaputt"].get("fehler","") else "nein: " + w["kaputt"].get("fehler","(kein Fehler)"))' "$BST")"
+  local ALT_B; ALT_B=$(stat -c %Y "$BST"); sleep 1.1
+  abarbeiten "$S"
+  pruefe "ohne Auftrag: der Bestand wird nicht jedes Mal neu geschrieben" "$ALT_B" "$(stat -c %Y "$BST")"
+  K=$(auftrag "$S" '{"art":"pruefen","werkzeug":"wiki"}'); abarbeiten "$S"
+  pruefe "nach einem Auftrag wird er neu geschrieben" "ja" \
+    "$([ "$(stat -c %Y "$BST")" != "$ALT_B" ] && echo ja || echo nein)"
+  : > "$S/werkzeuge/.aufrufe"; : > "$S/werkzeuge/.umgebung"
+
   echo fehler > "$S/werkzeuge/.verhalten"
   K=$(auftrag "$S" '{"art":"neustart","werkzeug":"wiki","wer":"artur"}')
   abarbeiten "$S"
@@ -144,6 +186,7 @@ unbekannte Art|{"art":"loeschen","werkzeug":"wiki"}
 Pfad aus dem Stapel heraus|{"art":"start","werkzeug":"../traefik"}
 Pfad, der ueber einen Umweg wieder hereinfuehrt|{"art":"start","werkzeug":"./wiki"}
 Werkzeug, das es nicht gibt|{"art":"start","werkzeug":"gibtsnicht"}
+Werkzeugordner, der ein Verweis ist|{"art":"start","werkzeug":"verweis"}
 Grossbuchstaben im Namen|{"art":"start","werkzeug":"Wiki"}
 Anhalten des Zugangs|{"art":"stop","werkzeug":"traefik"}
 Anhalten der Admin-Seite selbst|{"art":"stop","werkzeug":"admin"}
@@ -258,6 +301,12 @@ UID_DOCKERFILE=$(sed -n 's/.*useradd .*-u \([0-9]*\).*/\1/p' "$STACK/admin/Docke
 UID_AUFTRAG=$(sed -n 's/^ADMIN_UID = \([0-9]*\).*/\1/p' "$HIER/auftrag.py")
 pruefe "ADMIN_UID in auftrag.py = Nutzer in admin/Dockerfile" "$UID_DOCKERFILE" "$UID_AUFTRAG"
 
+# Die Seite prueft vorher dasselbe wie der Ausfuehrer (A-02) - laufen die
+# Listen auseinander, bietet die Seite an, was hier abgelehnt wird, oder
+# lehnt ab, was ginge.
+pruefe "Arten, Kern, Namens- und Kennungsmuster gleich in Seite und Ausfuehrer" "gleich" \
+  "$(PROLO_EINLASS=x python3 "$HIER/auftrag-gleichlauf.py" "$HIER" "$STACK/admin" 2>&1)"
+
 echo
 if [ "$FEHLER" -eq 0 ]; then echo "Alles gruen."; else echo "AUFTRAGSPRUEFUNG FEHLGESCHLAGEN." >&2; fi
 
@@ -295,6 +344,11 @@ keine Groessengrenze|s/^        if st.st_size > MAX_AUFTRAG_BYTE:$/        if Fa
 die Umgebung wird durchgereicht|s/cwd=STACK, env=umgebung,/cwd=STACK, env=dict(os.environ, **umgebung),/
 keine Sperre|s/fcntl.flock(sperre, fcntl.LOCK_EX | fcntl.LOCK_NB)/pass/
 eine doppelte Kennung wird ueberschrieben|s/^    if os.path.exists(os.path.join(ERLEDIGT, kennung + ".json")):$/    if False:/
+der Bestand nimmt den ganzen Dienst mit|s/dienste.append({"dienst": dname, "abbild": str(d.get("image") or "")})/dienste.append(dict(d, dienst=dname, abbild=str(d.get("image") or "")))/
+der Bestand wird jedes Mal geschrieben|s/^        if not erzwingen and os.path.exists(BESTAND) and \\$/        if False and \\/
+der Bestand bleibt nach einem Auftrag alt|s/^                    bestand_schreiben(erzwingen=True)$/                    pass/
+ein Verweis als Werkzeugordner wird angenommen|s/ or os.path.islink(os.path.join(STACK, w)):/:/
+die Ursache wird zu "unlesbar"|s/(zeilen\[-1\] if zeilen else "Rueckgabe %d" % roh.returncode)\[:300\]/"unlesbar"/
 MUT
   echo "gefunden: $((NR - DURCH))   entwischt: $DURCH"
   [ "$DURCH" -eq 0 ] || exit 1

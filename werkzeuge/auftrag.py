@@ -75,6 +75,14 @@ MAX_WER = 100
 # geht - danach sind sie wieder da. Anhalten geht auf dem Server.
 KERN = ("traefik", "authentik", "socket-proxy", "admin")
 
+# Was die Seite ueber die Werkzeuge wissen muss, die gerade NICHT laufen:
+# ein angehaltenes Werkzeug hat keinen Container, und die Seite sieht nur
+# Container. Ohne den Bestand verschwaende es nach "Anhalten" aus der
+# Liste - samt dem Knopf, der es wieder startet.
+BESTAND = os.path.join(ERLEDIGT, "bestand.json")
+BESTAND_ALTER_S = 240
+PLATTFORM = KERN + ("crowdsec",)
+
 MINUTE = 60
 ARTEN = {
     # art: (Felder, Zeitgrenze in s, Argumente fuer prolo)
@@ -315,6 +323,74 @@ def einer(name):
                      "rueckgabe") if k in lage}})
 
 
+HOST = re.compile(r"Host\(`([^`]+)`\)")
+
+
+def bestand_eines(name):
+    """Was die zusammengesetzte Konfiguration ueber ein Werkzeug sagt (§16) -
+    ohne Umgebung und ohne Werte: Abbilder, Namen, Netze, Volumes."""
+    ordner = os.path.join(STACK, name)
+    eintrag = {"name": name,
+               "art": ("eigen" if os.path.isfile(os.path.join(ordner, "Dockerfile"))
+                       else "plattform" if name in PLATTFORM else "fremd"),
+               "sicherung": os.path.isfile(os.path.join(ordner, "sicherung.conf"))}
+    try:
+        roh = subprocess.run(
+            ["docker", "compose", "config", "--no-interpolate", "--format", "json"],
+            cwd=ordner, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        eintrag["fehler"] = "docker compose config lief nicht: %s" % e
+        return eintrag
+    if roh.returncode != 0:
+        # Die Ursache im Wortlaut, nicht "unlesbar" (N-64).
+        zeilen = [z for z in roh.stderr.strip().splitlines() if z.strip()]
+        eintrag["fehler"] = (zeilen[-1] if zeilen else "Rueckgabe %d" % roh.returncode)[:300]
+        return eintrag
+    try:
+        c = json.loads(roh.stdout)
+    except ValueError:
+        eintrag["fehler"] = "docker compose config gab kein JSON"
+        return eintrag
+    dienste, hosts, netze = [], set(), set()
+    for dname, d in sorted((c.get("services") or {}).items()):
+        d = d or {}
+        dienste.append({"dienst": dname, "abbild": str(d.get("image") or "")})
+        labels = d.get("labels") or {}
+        if isinstance(labels, list):
+            labels = dict(x.split("=", 1) for x in labels if "=" in x)
+        for k, v in labels.items():
+            if k.startswith("traefik.http.routers.") and k.endswith(".rule"):
+                hosts.update(HOST.findall(str(v)))
+        nz = d.get("networks") or {}
+        netze.update(nz if isinstance(nz, (dict, list)) else [])
+    namen = {k: (v or {}).get("name") or k
+             for k, v in (c.get("networks") or {}).items()}
+    eintrag.update(dienste=dienste, hosts=sorted(hosts),
+                   netze=sorted(namen.get(n, n) for n in netze),
+                   volumes=sorted((v or {}).get("name") or k
+                                  for k, v in (c.get("volumes") or {}).items()))
+    return eintrag
+
+
+def bestand_schreiben(erzwingen=False):
+    """bestand.json neu schreiben - hoechstens alle BESTAND_ALTER_S, ausser
+    ein Auftrag hat etwas veraendert. Ein Fehler hier haelt keinen Auftrag
+    auf: der Bestand ist eine Anzeige, kein Teil der Arbeit (§12)."""
+    try:
+        if not erzwingen and os.path.exists(BESTAND) and \
+                datetime.datetime.now().timestamp() - os.stat(BESTAND).st_mtime < BESTAND_ALTER_S:
+            return
+        namen = sorted(n for n in os.listdir(STACK)
+                       if WERKZEUG.fullmatch(n)
+                       and not os.path.islink(os.path.join(STACK, n))
+                       and os.path.isfile(os.path.join(STACK, n, "docker-compose.yml")))
+        schreiben(BESTAND, json.dumps(
+            {"stand": jetzt(), "werkzeuge": [bestand_eines(n) for n in namen]},
+            ensure_ascii=False, indent=1) + "\n")
+    except Exception as e:     # noqa: BLE001 - siehe oben
+        sys.stderr.write("Bestand nicht geschrieben: %s\n" % e)
+
+
 def liegengeblieben():
     """Ein Auftrag, der beim letzten Mal "laeuft" war und es jetzt nicht
     mehr sein kann (wir halten die Sperre): der Ausfuehrer ist mittendrin
@@ -351,6 +427,7 @@ def abarbeiten():
             # Auftrag, er liest den Eingang, bis darin kein .json mehr liegt.
             return 0
         liegengeblieben()
+        bestand_schreiben()
         erledigt = set()
         while True:
             offen = False
@@ -379,6 +456,8 @@ def abarbeiten():
                     erledigt.add(name)
                     verwerfen(name, "unbekannter Dateiname")
             if not offen:
+                if erledigt:
+                    bestand_schreiben(erzwingen=True)
                 return 0
 
 

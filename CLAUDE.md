@@ -64,7 +64,7 @@ Wo was steht:
 | `wiki/` | Wissenssammlung, eigenständige HTML-Seiten in einem abgeschotteten Rahmen | `server.py` (`VERSION`), `docker-compose.yml` (`image:`), `CHANGELOG.md` |
 | `bordbuch/` | Fahrtenbuch, Lade- und Tankkosten | ebenso |
 | `www/` | `prolo.me`: HTML-Seiten ablegen und je Empfänger einen widerrufbaren Zugangslink ausgeben | ebenso |
-| `admin/` | Lesende Übersicht über den Stack: was läuft, in welchem Netz, unter welchem Namen — und was **nicht** geschützt ist | ebenso |
+| `admin/` | Die Verwaltung des Stacks: was läuft, in welchem Netz, unter welchem Namen, was **nicht** geschützt ist — und die Griffe dazu (starten, anhalten, aktualisieren, sichern). Bedient wird über das **Auftragsbuch**: die Seite legt Aufträge ab, `werkzeuge/auftrag.py` führt sie auf dem Server über `prolo` aus; schreibenden Zugriff auf Docker hat die Seite nie (`A-01`) | ebenso |
 
 Alle vier: Python-Standardbibliothek, SQLite, **kein Fremdpaket**. Geld in
 **ganzen Cent** (`Decimal`, kaufmännisch gerundet), niemals `float` als

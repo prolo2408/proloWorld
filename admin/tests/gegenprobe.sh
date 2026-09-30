@@ -125,7 +125,7 @@ probe "eine Absendung von einer fremden Seite wird angenommen" \
   '        if False:'
 
 probe "jeder Pfad zum Docker-Vermittler ist erlaubt" \
-  '    if pfad not in DOCKER_PFADE:' \
+  '    if not erlaubt:' \
   '    if False:'
 
 probe "ein unbekanntes Thema wird gespeichert" \
@@ -159,6 +159,42 @@ probe "SIGPIPE steht wieder auf der Voreinstellung (N-82)" \
 # Und der alte Stand im Ganzen: Voreinstellung UND jeder Schreibfehler
 # fuehrt zu einer Fehlerseite, also zu einem zweiten Schreibversuch in
 # dieselbe geschlossene Leitung. Genau so ist der Dienst gestorben.
+# --- A-02: Bedienen ueber das Auftragsbuch
+probe "wer nur sehen darf, darf auch bedienen (A-02)" \
+  '        if not nutzer["betrieb"]:' \
+  '        if False:'
+probe "ein Auftrag von einer fremden Seite wird angenommen (A-02)" \
+  '        if pfad == "/auftrag":
+            self.gleicher_ursprung()' \
+  '        if pfad == "/auftrag":'
+probe "den Zugang kann man von hier anhalten (A-02)" \
+  '    if art == "stop" and aus.get("werkzeug") in KERN:' \
+  '    if False:'
+probe "ein Doppelklick legt zwei Auftraege ab (A-02)" \
+  '    for a in auftraege_lesen(grenze=30):' \
+  '    for a in []:'
+probe "fremde Felder landen im Auftrag (A-02)" \
+  '    daten = dict(aus, art=art,' \
+  '    daten = dict(felder, art=art,'
+probe "das Protokoll eines Containers wird ungefiltert gezeigt (A-02)" \
+  'e(text) or "(leer)"' \
+  'text or "(leer)"'
+probe "die Ausgabe eines Auftrags wird ungefiltert gezeigt (A-02)" \
+  'e(ausgabe) or ("(noch keine)"' \
+  'ausgabe or ("(noch keine)"'
+probe "die Rahmenkoepfe landen im Protokoll (A-02)" \
+  '            teile.append(roh[i + 8:i + 8 + laenge])' \
+  '            teile.append(roh[i:i + 8 + laenge])'
+probe "eine Kennung darf ein Pfad sein (A-02)" \
+  '    if not KENNUNG.fullmatch(kennung or ""):' \
+  '    if False:'
+probe "die Auftragsseite darf ihren Stand nicht nachholen (A-02)" \
+  "\"connect-src 'self'; \"" \
+  '""'
+probe "wer nur sehen darf, liest die Protokolle (A-02)" \
+  '            if betrieb and laufend:' \
+  '            if laufend:'
+
 probe2 "eine abgebrochene Verbindung beendet den Dienst (N-82)" \
   '    datenbank_anlegen()
     srv = ThreadingHTTPServer' \

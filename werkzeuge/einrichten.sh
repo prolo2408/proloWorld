@@ -347,7 +347,7 @@ else
     printf '          abgeholt. Von Hand: sudo python3 %s/auftrag.py abarbeiten\n' "$HIER"
   else
     NEU=0
-    for U in prolo-auftraege.path prolo-auftraege.service; do
+    for U in prolo-auftraege.path prolo-auftraege.service prolo-auftraege.timer; do
       SOLL=$(sed "s#@STACK@#$STACK#g" "$HIER/systemd/$U")
       if [ -f "$SD/$U" ] && [ "$(cat "$SD/$U")" = "$SOLL" ]; then
         f_ok "$SD/$U"
@@ -360,18 +360,20 @@ else
     if [ "$NEU" -eq 1 ]; then
       A=$(systemctl daemon-reload 2>&1) || f_bad "systemctl daemon-reload: $A"
     fi
-    if systemctl is-enabled --quiet prolo-auftraege.path 2>/dev/null \
-       && systemctl is-active --quiet prolo-auftraege.path 2>/dev/null \
+    # Der Waechter (path) holt Auftraege ab, der Zeitgeber (timer) frischt
+    # alle fuenf Minuten den Bestand der Werkzeugordner auf (A-02).
+    if systemctl is-enabled --quiet prolo-auftraege.path prolo-auftraege.timer 2>/dev/null \
+       && systemctl is-active --quiet prolo-auftraege.path prolo-auftraege.timer 2>/dev/null \
        && [ "$NEU" -eq 0 ]; then
-      f_ok "prolo-auftraege.path wacht ueber den Eingang"
+      f_ok "prolo-auftraege.path wacht ueber den Eingang, der Zeitgeber laeuft"
     elif ! tun; then
-      f_wuerde "systemctl enable --now prolo-auftraege.path"
-    elif A=$(systemctl enable --now prolo-auftraege.path 2>&1) \
-         && A=$(systemctl restart prolo-auftraege.path 2>&1); then
-      f_tat "prolo-auftraege.path eingeschaltet - Auftraege werden jetzt abgeholt"
+      f_wuerde "systemctl enable --now prolo-auftraege.path prolo-auftraege.timer"
+    elif A=$(systemctl enable --now prolo-auftraege.path prolo-auftraege.timer 2>&1) \
+         && A=$(systemctl restart prolo-auftraege.path prolo-auftraege.timer 2>&1); then
+      f_tat "prolo-auftraege.path und .timer eingeschaltet - Auftraege werden jetzt abgeholt"
     else
       # Genau der Aufruf, und was systemd dazu sagt (N-64).
-      f_bad "systemctl enable --now prolo-auftraege.path ging nicht:"
+      f_bad "systemctl enable --now prolo-auftraege.path prolo-auftraege.timer ging nicht:"
       printf '%s\n' "$A" | tail -3 | sed 's/^/          /'
     fi
   fi

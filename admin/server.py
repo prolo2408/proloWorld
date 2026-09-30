@@ -1,31 +1,39 @@
 #!/usr/bin/env python3
-"""Prolo Admin - die Lage des Stacks auf einer Seite.
+"""Prolo Admin - die Lage des Stacks auf einer Seite, und die Griffe dazu.
 
-Was dieses Werkzeug ist: eine LESENDE Uebersicht. Welche Werkzeuge gibt es,
-laufen sie, in welchem Netz haengen sie, unter welchem Namen sind sie
-erreichbar - und vor allem: was davon ist NICHT geschuetzt.
+Was dieses Werkzeug zeigt: welche Werkzeuge es gibt, ob sie laufen, in
+welchem Netz sie haengen, unter welchem Namen sie erreichbar sind - und vor
+allem: was davon NICHT geschuetzt ist.
 
-Was es bewusst NICHT ist: eine Fernbedienung. Es startet nichts, haelt
-nichts an, legt nichts an. Der Grund steht in docker-compose.yml: dafuer
-muesste der Vermittler vor dem Docker-Socket schreibende Aufrufe
-durchlassen, und damit waere aus einer Uebersichtsseite der kuerzeste Weg
-zur Serveruebernahme geworden. Wer etwas aendern will, nimmt "prolo" auf
-dem Server. Kommt das spaeter hierher, dann mit einem eigenen Vermittler
-und einer eigenen Entscheidung, nicht nebenbei.
+Was es tut (A-02): Werkzeuge starten, neu starten, anhalten, pruefen,
+aktualisieren, sichern, Netze anlegen. Aber NICHT selbst. Die Seite hat
+keinen schreibenden Zugriff auf Docker - wer den hat, hat root, und eine
+Webseite ist genau die Stelle, an der man am ehesten hereinkommt. Sie legt
+einen AUFTRAG ins Auftragsbuch (/auftraege/eingang), und auf dem Server
+fuehrt werkzeuge/auftrag.py ihn aus - ueber prolo, mit Startsperre,
+Sicherung und Rueckweg (A-01). Was dort nicht erlaubt ist, geht auch von
+hier nicht.
 
-Woher die Daten kommen: ausschliesslich aus zwei lesenden Aufrufen an den
-Vermittler (socket-proxy), /containers/json und /networks. Dieses Werkzeug
+Woher die Daten kommen: aus lesenden Aufrufen an den Vermittler
+(socket-proxy): /containers/json, /networks und die Protokolle einzelner
+Container. Und aus dem Auftragsbuch: erledigt/ (nur lesend eingehaengt)
+mit den Ergebnissen und dem Bestand der Werkzeugordner. Dieses Werkzeug
 hat KEINEN Zugriff auf /opt/stack - keine Compose-Datei, keine .env, kein
 Zertifikat. Es kann also auch nichts davon preisgeben.
 
+Wer darf was: die Gruppe "admin" sieht, die Gruppe "admin-betrieb" handelt
+und liest Protokolle. Beide stehen im Label prolo.gruppen (N-95).
+
 Kein Fremdpaket: Standardbibliothek und SQLite (CLAUDE.md).
 """
+import datetime
 import hashlib
 import hmac
 import html
 import json
 import os
 import re
+import secrets
 import sqlite3
 import sys
 import urllib.error
@@ -33,7 +41,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.1.2"
+VERSION = "0.2.0"
 
 PORT = int(os.environ.get("ADMIN_PORT", "8080"))
 DATEN = os.environ.get("ADMIN_DATEN", "/daten")
@@ -47,6 +55,37 @@ SCHRIFTEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schriften"
 DOCKER_API = os.environ.get("ADMIN_DOCKER_API", "http://socket-proxy:2375")
 DOCKER_PFADE = ("/containers/json?all=1", "/networks")
 DOCKER_ZEIT_S = 5
+# Das Protokoll eines Containers. Die Kennung kommt NIE aus der Anfrage,
+# sondern aus der Containerliste von Docker selbst - und sie wird trotzdem
+# gegen das Muster geprueft, bevor sie in eine Adresse wandert.
+CONTAINER_ID = re.compile(r"[0-9a-f]{64}")
+PROTOKOLL_ZEILEN = 200
+PROTOKOLL_MAX_BYTE = 512 * 1024
+
+# ---------------------------------------------------- Das Auftragsbuch (A-01)
+#
+# eingang/ darf die Seite beschreiben, erledigt/ nur lesen (so eingehaengt).
+# Die Regeln unten sind dieselben wie in werkzeuge/auftrag.py - die Seite
+# prueft vorher, damit die Meldung sofort kommt und nicht erst im
+# Auftrag. ENTSCHIEDEN wird dort: was hier durchrutscht, lehnt der
+# Ausfuehrer ab. werkzeuge/auftrag-pruefen.sh haelt die Listen zusammen.
+AUFTRAEGE = os.environ.get("ADMIN_AUFTRAEGE", "/auftraege")
+EINGANG = os.path.join(AUFTRAEGE, "eingang")
+ERLEDIGT = os.path.join(AUFTRAEGE, "erledigt")
+ARTEN = {
+    # art: (Felder, Beschriftung)
+    "start": (("werkzeug",), "Starten"),
+    "neustart": (("werkzeug",), "Neu starten"),
+    "stop": (("werkzeug",), "Anhalten"),
+    "pruefen": (("werkzeug",), "Pruefen"),
+    "aktualisieren": (("werkzeug",), "Aktualisieren"),
+    "sichern": ((), "Sichern"),
+    "netz_anlegen": (("netz",), "Netz anlegen"),
+}
+KERN = ("traefik", "authentik", "socket-proxy", "admin")
+NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
+KENNUNG = re.compile(r"\d{8}-\d{6}-[0-9a-f]{8}")
+OFFEN_STATUS = ("wartet", "laeuft")
 
 # --------------------------------------------------- Die Vertrauensgrenze
 #
@@ -68,10 +107,13 @@ EINLASS_FREI = ("/gesundheit", "/api/version")
 # anfaengt, wird ausgewertet, der Rest an EINER Stelle verworfen.
 GRUPPE_PRAEFIX = os.environ.get("ADMIN_GRUPPE_PRAEFIX", "admin")
 GRUPPE_LESEN = os.environ.get("ADMIN_GRUPPE", "admin")
+# Handeln ist mehr als Sehen: wer nur die Uebersicht braucht, bekommt nicht
+# gleich den Knopf, der ein Werkzeug anhaelt.
+GRUPPE_BETRIEB = os.environ.get("ADMIN_GRUPPE_BETRIEB", "admin-betrieb")
 
 MARKE = "A"
-NAME = "Prolo Admin"
-UNTERZEILE = "STACK-UEBERSICHT"
+TITEL = "Prolo Admin"
+UNTERZEILE = "STACK-VERWALTUNG"
 
 
 class Antwort(Exception):
@@ -137,23 +179,210 @@ def thema_setzen(kennung, thema):
 
 
 # --------------------------------------------------------- Docker lesen
-def docker_lesen(pfad):
-    """Ein lesender Aufruf an den Vermittler. Nur Pfade aus DOCKER_PFADE."""
-    if pfad not in DOCKER_PFADE:
+def docker_roh(pfad, grenze=4 * 1024 * 1024):
+    """Ein lesender Aufruf an den Vermittler - nur Pfade, die hier gebaut
+    werden (DOCKER_PFADE oder das Protokoll einer bekannten Kennung)."""
+    erlaubt = pfad in DOCKER_PFADE or re.fullmatch(
+        r"/containers/[0-9a-f]{64}/logs\?stdout=1&stderr=1&tail=%d"
+        % PROTOKOLL_ZEILEN, pfad)
+    if not erlaubt:
         raise Antwort(500, "Unerlaubter Pfad zum Docker-Vermittler.")
     url = DOCKER_API.rstrip("/") + pfad
     try:
         with urllib.request.urlopen(url, timeout=DOCKER_ZEIT_S) as r:
-            return json.loads(r.read().decode("utf-8"))
+            return r.read(grenze)
+    except urllib.error.HTTPError as e:
+        raise Antwort(503, "Der Docker-Vermittler hat abgelehnt (%s %s). Auf "
+                           "dem Server nachsehen: sudo prolo protokoll "
+                           "socket-proxy" % (e.code, e.reason))
     except urllib.error.URLError as e:
         raise Antwort(503,
                       "Der Docker-Vermittler antwortet nicht (%s). Die "
                       "Uebersicht kann nichts anzeigen, solange er still "
                       "ist. Auf dem Server nachsehen: "
                       "sudo prolo protokoll socket-proxy" % e.reason)
-    except (ValueError, OSError) as e:
+    except OSError as e:
+        raise Antwort(503, "Der Docker-Vermittler hat nicht zu Ende geantwortet "
+                           "(%s)." % e)
+
+
+def docker_lesen(pfad):
+    """Ein lesender Aufruf mit JSON-Antwort. Welcher Pfad erlaubt ist,
+    entscheidet EINE Stelle: docker_roh. Eine zweite Pruefung hier waere
+    eine, deren Ausfall niemand bemerkt - die Mutationsprobe hat genau das
+    gezeigt."""
+    try:
+        return json.loads(docker_roh(pfad).decode("utf-8"))
+    except ValueError as e:
         raise Antwort(503, "Der Docker-Vermittler hat geantwortet, aber nicht "
                            "verstaendlich (%s)." % e)
+
+
+ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[()][A-Za-z0-9]|\r")
+
+
+def entmischen(roh):
+    """Das Protokoll eines Containers ohne TTY kommt in Rahmen: 8 Byte Kopf
+    (Strom, 0, 0, 0, Laenge als 4 Byte gross-endian), dann die Daten. Mit
+    TTY kommt es roh. Welche Form, sagt nur der erste Kopf - also wird er
+    geprueft, nicht angenommen."""
+    teile, i = [], 0
+    if len(roh) >= 8 and roh[0] in (0, 1, 2) and roh[1:4] == b"\0\0\0":
+        while i + 8 <= len(roh):
+            laenge = int.from_bytes(roh[i + 4:i + 8], "big")
+            teile.append(roh[i + 8:i + 8 + laenge])
+            i += 8 + laenge
+        roh = b"".join(teile)
+    return ANSI.sub("", roh.decode("utf-8", "replace"))
+
+
+def protokoll_lesen(cid):
+    if not CONTAINER_ID.fullmatch(cid or ""):
+        raise Antwort(404, "Diesen Container kennt Docker nicht.")
+    return entmischen(docker_roh(
+        "/containers/%s/logs?stdout=1&stderr=1&tail=%d" % (cid, PROTOKOLL_ZEILEN),
+        PROTOKOLL_MAX_BYTE))
+
+
+# ------------------------------------------------------- Das Auftragsbuch
+def jetzt():
+    return datetime.datetime.now().astimezone()
+
+
+def json_datei(pfad, grenze=2 * 1024 * 1024):
+    """Eine JSON-Datei aus dem Auftragsbuch - oder None. Was dort liegt,
+    hat der Ausfuehrer geschrieben; kaputt oder zu gross heisst: nicht
+    anzeigen, nicht abstuerzen."""
+    try:
+        with open(pfad, "rb") as f:
+            roh = f.read(grenze + 1)
+        if len(roh) > grenze:
+            return None
+        d = json.loads(roh.decode("utf-8"))
+        return d if isinstance(d, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def bestand_lesen():
+    """Die Werkzeugordner auf dem Server, geschrieben vom Ausfuehrer. Auch
+    die, die gerade nicht laufen - die kennt Docker nicht."""
+    d = json_datei(os.path.join(ERLEDIGT, "bestand.json"))
+    if not d or not isinstance(d.get("werkzeuge"), list):
+        return None
+    d["werkzeuge"] = [w for w in d["werkzeuge"]
+                      if isinstance(w, dict) and NAME.fullmatch(str(w.get("name", "")))]
+    return d
+
+
+def ziel_von(felder):
+    return felder.get("werkzeug") or felder.get("netz") or ""
+
+
+def auftrag_pruefen(art, felder):
+    """Dieselben Regeln wie werkzeuge/auftrag.py - die Meldung soll sofort
+    kommen, nicht erst im Ergebnis."""
+    if art not in ARTEN:
+        raise Antwort(400, "Diesen Auftrag gibt es nicht. Moeglich: %s."
+                           % ", ".join(sorted(ARTEN)))
+    noetig, _ = ARTEN[art]
+    aus = {}
+    for f in noetig:
+        wert = (felder.get(f) or "").strip()
+        if not NAME.fullmatch(wert):
+            raise Antwort(400, "%s: nur Kleinbuchstaben, Ziffern und Bindestrich, "
+                               "hoechstens 40 Zeichen." % ("Werkzeug" if f == "werkzeug" else "Netz"))
+        aus[f] = wert
+    if art == "stop" and aus.get("werkzeug") in KERN:
+        raise Antwort(400, "%s haelt den Zugang offen - ohne ihn gibt es keine "
+                           "Seite mehr, von der aus man ihn wieder startet. Neu "
+                           "starten geht; anhalten nur auf dem Server: sudo "
+                           "prolo stop %s" % (aus["werkzeug"], aus["werkzeug"]))
+    return aus
+
+
+def auftraege_lesen(grenze=60):
+    """Die Auftraege, neueste zuerst: was noch im Eingang wartet und was der
+    Ausfuehrer schon angefasst hat."""
+    aus = {}
+    try:
+        namen = os.listdir(ERLEDIGT)
+    except OSError:
+        namen = []
+    for n in sorted((n for n in namen if n.endswith(".json")
+                     and KENNUNG.fullmatch(n[:-5])), reverse=True)[:grenze]:
+        d = json_datei(os.path.join(ERLEDIGT, n))
+        if d:
+            d["kennung"] = n[:-5]
+            aus[n[:-5]] = d
+    try:
+        wartend = os.listdir(EINGANG)
+    except OSError:
+        wartend = []
+    for n in wartend:
+        k = n[:-5]
+        if n.endswith(".json") and KENNUNG.fullmatch(k) and k not in aus:
+            d = json_datei(os.path.join(EINGANG, n)) or {}
+            d.update(kennung=k, status="wartet")
+            aus[k] = d
+    return [aus[k] for k in sorted(aus, reverse=True)][:grenze]
+
+
+def auftrag_lesen(kennung):
+    """Lage und Ausgabe eines Auftrags - oder 404."""
+    if not KENNUNG.fullmatch(kennung or ""):
+        raise Antwort(404, "Diesen Auftrag gibt es nicht. Alle Auftraege: /auftraege")
+    lage = json_datei(os.path.join(ERLEDIGT, kennung + ".json"))
+    if lage is None:
+        wartet = json_datei(os.path.join(EINGANG, kennung + ".json"))
+        if wartet is None:
+            raise Antwort(404, "Diesen Auftrag gibt es nicht. Alle Auftraege: /auftraege")
+        wartet.update(kennung=kennung, status="wartet")
+        return wartet, ""
+    lage["kennung"] = kennung
+    try:
+        with open(os.path.join(ERLEDIGT, kennung + ".log"), "rb") as f:
+            ausgabe = f.read(2 * 1024 * 1024)
+    except OSError:
+        ausgabe = b""
+    return lage, ANSI.sub("", ausgabe.decode("utf-8", "replace"))
+
+
+def auftrag_ablegen(art, felder, wer):
+    """Einen Auftrag in den Eingang legen. Erst daneben (.neu), dann
+    umbenennen: der Ausfuehrer sieht nie eine halbe Datei, und systemd
+    stoesst erst beim fertigen *.json an.
+
+    Liegt derselbe Auftrag schon offen da (Doppelklick, zweiter Reiter),
+    gibt es keinen zweiten - die Kennung des offenen kommt zurueck (§10).
+    """
+    aus = auftrag_pruefen(art, felder)
+    for a in auftraege_lesen(grenze=30):
+        if a.get("status") in OFFEN_STATUS and a.get("art") == art \
+                and ziel_von(a) == ziel_von(aus):
+            return a["kennung"], False
+    if not os.access(EINGANG, os.W_OK):
+        raise Antwort(503,
+                      "Das Auftragsbuch ist nicht beschreibbar - auf dem Server "
+                      "ist es noch nicht eingerichtet. Einmal: sudo prolo "
+                      "einrichten (gefahrlos zu wiederholen, es tut nur, was "
+                      "fehlt).")
+    kennung = "%s-%s" % (jetzt().strftime("%Y%m%d-%H%M%S"), secrets.token_hex(4))
+    daten = dict(aus, art=art, wer=wer[:100],
+                 angelegt=jetzt().isoformat(timespec="seconds"))
+    neu = os.path.join(EINGANG, kennung + ".neu")
+    try:
+        with open(neu, "x", encoding="utf-8") as f:
+            json.dump(daten, f, ensure_ascii=False)
+        os.replace(neu, os.path.join(EINGANG, kennung + ".json"))
+    except OSError as e:
+        try:
+            os.unlink(neu)
+        except OSError:
+            pass
+        raise Antwort(503, "Der Auftrag liess sich nicht ablegen (%s). Auf dem "
+                           "Server: sudo prolo einrichten" % e.strerror)
+    return kennung, True
 
 
 ROUTER_REGEL = re.compile(r"^traefik\.http\.routers\.([^.]+)\.rule$")
@@ -237,6 +466,7 @@ def lage():
         werkzeuge[projekt]["dienste"].append({
             "dienst": dienst or cname,
             "container": cname,
+            "id": str(c.get("Id") or ""),
             "abbild": c.get("Image") or "",
             "zustand": c.get("State") or "",
             "lage": c.get("Status") or "",
@@ -295,6 +525,37 @@ def beanstandungen(l):
                     "haelt nicht", "%s/%s" % (w["name"], d["dienst"]),
                     "Der Container ist %s (%s)." % (d["zustand"], d["lage"])))
     return aus
+
+
+def werkzeuge_sicht(l, bestand):
+    """Jedes Werkzeug genau einmal: Docker kennt, was einen Container hat;
+    der Bestand kennt jeden Ordner - auch den eines angehaltenen Werkzeugs,
+    das Docker nicht mehr nennt."""
+    sicht = {}
+    for w in l["werkzeuge"]:
+        d = w["dienste"]
+        sicht[w["name"]] = {
+            "name": w["name"], "dienste": d, "gesamt": len(d),
+            "laufen": sum(1 for x in d if x["zustand"] == "running"),
+            "hosts": sorted({h for x in d for h in x["hosts"]}),
+            "art": "", "ordner": False, "fehler": "", "bestand": None}
+    for b in (bestand or {}).get("werkzeuge", []):
+        s = sicht.setdefault(b["name"], {
+            "name": b["name"], "dienste": [], "gesamt": 0, "laufen": 0,
+            "hosts": [], "art": "", "ordner": False, "fehler": "", "bestand": None})
+        s.update(art=str(b.get("art") or ""), ordner=True,
+                 fehler=str(b.get("fehler") or ""), bestand=b)
+        if not s["hosts"]:
+            s["hosts"] = sorted(str(h) for h in b.get("hosts") or [])
+    for s in sicht.values():
+        # Bedienen geht, wenn der Ordner bekannt ist - oder wenn es noch gar
+        # keinen Bestand gibt: dann entscheidet der Ausfuehrer, nicht die
+        # Seite, ob es das Werkzeug gibt.
+        s["bedienbar"] = bool(NAME.fullmatch(s["name"])) and (s["ordner"] or bestand is None)
+        s["zustand"] = ("laeuft" if s["gesamt"] and s["laufen"] == s["gesamt"]
+                        else "teilweise" if s["laufen"]
+                        else "angehalten")
+    return [sicht[k] for k in sorted(sicht)]
 
 
 # ---------------------------------------------------------- Darstellung
@@ -483,8 +744,63 @@ dl.konto dt{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing
   text-transform:uppercase;color:var(--ink-3)}
 dl.konto dd{margin:0;color:var(--ink-2)}
 
+/* Bedienen (A-02). Ein Primaerknopf je Ansicht (§5) - alles andere ist ein
+   Rahmenknopf. Anhalten ist rot umrandet, aber nicht rot gefuellt: es ist
+   keine Loeschung, nur eine Unterbrechung. */
+.aktionen{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:12px}
+.aktionen form{margin:0}
+.knopf-rahmen{display:inline-flex;align-items:center;justify-content:center;min-height:44px;
+  padding:0 16px;border-radius:10px;background:transparent;color:var(--ink);
+  border:1px solid var(--line);font:inherit;font-weight:600;cursor:pointer;text-decoration:none}
+.knopf-rahmen:hover{background:var(--hover)}
+.knopf-gefahr{color:var(--danger);border-color:var(--danger)}
+button:disabled{opacity:.55;cursor:not-allowed}
+.feld{display:flex;flex-direction:column;gap:6px;min-width:0;flex:1 1 220px}
+.feld label{font-size:12px;color:var(--ink-3)}
+.feld input{min-height:44px;border:1px solid var(--line);border-radius:10px;
+  background:var(--surface);color:var(--ink);font:inherit;
+  font-family:'JetBrains Mono',monospace;font-size:13px;padding:0 12px;min-width:0}
+pre.ausgabe{font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.5;
+  color:var(--ink-2);background:var(--app);border:1px solid var(--line-soft);
+  border-radius:10px;padding:12px;margin:12px 0 0;white-space:pre-wrap;
+  overflow-wrap:anywhere;max-height:60vh;overflow:auto}
+/* min-width: "n8n" ist 24 px breit - im Browser gemessen. §9 verlangt
+   44 x 44, auch fuer einen kurzen Namen. */
+a.zeile{color:var(--ink);font-weight:600;text-decoration:none;
+  display:inline-flex;align-items:center;min-height:44px;min-width:44px}
+a.zeile:hover{text-decoration:underline}
+a.mehr{color:var(--accent-ink);font-weight:600;text-decoration:none;
+  display:inline-flex;align-items:center;min-height:44px;min-width:44px}
+a.mehr:hover{text-decoration:underline}
+.reiter{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.reiter a{min-height:44px;display:inline-flex;align-items:center;padding:0 12px;
+  border-radius:10px;border:1px solid var(--line);color:var(--ink-2);text-decoration:none;
+  font-family:'JetBrains Mono',monospace;font-size:12px}
+.reiter a[aria-current=true]{background:var(--accent-soft);color:var(--accent-ink);
+  border-color:transparent}
+.zwei{grid-template-columns:minmax(0,1.55fr) minmax(0,1fr)}
+dl.fakten{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 16px;margin:12px 0 0}
+dl.fakten dt{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--ink-3);padding-top:2px}
+dl.fakten dd{margin:0;color:var(--ink-2);overflow-wrap:anywhere;min-width:0}
+a.kpi-verweis{text-decoration:none;color:inherit;display:block}
+a.kpi-verweis:hover .karte{background:var(--hover)}
+
+table.auftraege td{vertical-align:middle}
+table.auftraege td.wann{white-space:nowrap}
+/* Eine kurze Karte neben einer langen wird nicht auf deren Hoehe gezogen -
+   sonst steht unter "Jetzt sichern" eine halbe Seite Leere. */
+.reihe.oben{align-items:start}
+/* Am Handy: "Wer" weg, und Datum und Uhrzeit untereinander - sonst fiel
+   "fehlgeschlagen" rechts aus der Karte (bei 360 px gemessen). */
+@media (max-width:480px){
+  table.auftraege .wer{display:none}
+  table.auftraege td.wann{white-space:normal;width:1%}
+}
+
 .tabbar{display:none}
 @media (max-width:900px){
+  .zwei{grid-template-columns:1fr}
   .huelle{grid-template-columns:1fr}
   .seite{display:none}
   header{padding:12px 20px;min-height:auto;flex-wrap:wrap;
@@ -520,13 +836,17 @@ dl.konto dd{margin:0;color:var(--ink-2)}
 """
 
 NAV = (("/", "Uebersicht"), ("/werkzeuge", "Werkzeuge"), ("/netze", "Netze"),
-       ("/einstellungen", "Einstellungen"))
+       ("/auftraege", "Auftraege"), ("/einstellungen", "Einstellungen"))
+# Am Handy vier Eintraege, der letzte "Einstellungen" (§6). Die Netze
+# erreicht man dort ueber die Kachel auf der Uebersicht.
+TABS = (("/", "Uebersicht"), ("/werkzeuge", "Werkzeuge"), ("/auftraege", "Auftraege"),
+        ("/einstellungen", "Einstellungen"))
 
 
-def seite(titel, ktx, inhalt, pfad, ich, thema):
+def seite(titel, ktx, inhalt, pfad, ich, thema, nachher=""):
     tabs = "".join(
         '<a href="%s"%s>%s</a>' % (p, ' aria-current="page"' if p == pfad else "", e(t))
-        for p, t in NAV)
+        for p, t in TABS)
     nav = "".join(
         '<a href="%s"%s%s>%s</a>'
         % (p, ' aria-current="page"' if p == pfad else "",
@@ -575,12 +895,41 @@ def seite(titel, ktx, inhalt, pfad, ich, thema):
     window.matchMedia('(prefers-color-scheme: dark)')
           .addEventListener('change', function(){ if (w === 'system') an(); });
   }catch(err){}
+  // Ein Auftrag wird nicht doppelt abgeschickt (§10): der Knopf ist
+  // gesperrt, sobald die Absendung laeuft. Was fragen soll, fragt vorher.
+  // Gesperrt wird ERST NACH dem Absenden (setTimeout): ein gesperrter
+  // Knopf faellt aus dem Formular heraus, und die Darstellung (System /
+  // Hell / Dunkel) steht im Wert des gedrueckten Knopfs - im Browser
+  // gemessen, als die Umschaltung sonst still nichts mehr tat.
+  document.addEventListener('submit', function(ev){
+    var f = ev.target, frage = f.getAttribute('data-frage');
+    if (frage && !window.confirm(frage)) { ev.preventDefault(); return; }
+    setTimeout(function(){
+      var k = f.querySelectorAll('button');
+      for (var i = 0; i < k.length; i++) { k[i].disabled = true; }
+    }, 0);
+  });
+  // Zeiten in der Ortszeit des Betrachters (siehe zeit() im Server).
+  var z = document.querySelectorAll('time[datetime]');
+  for (var q = 0; q < z.length; q++) {
+    var d = new Date(z[q].getAttribute('datetime'));
+    if (!isNaN(d)) {
+      var zw = function(n){ return (n < 10 ? '0' : '') + n; };
+      z[q].textContent = zw(d.getDate()) + '.' + zw(d.getMonth() + 1) + '. '
+                       + zw(d.getHours()) + ':' + zw(d.getMinutes());
+    }
+  }
+  // Ein Protokoll steht mit der aeltesten Zeile oben - gebraucht wird
+  // meist die neueste. Also steht es beim Laden am Ende.
+  var p = document.querySelectorAll('pre.ausgabe');
+  for (var j = 0; j < p.length; j++) { p[j].scrollTop = p[j].scrollHeight; }
 })();
-</script>
+</script>%(nachher)s
 </body></html>""" % {
         "titel": e(titel), "ktx": e(ktx), "inhalt": inhalt, "nav": nav, "tabs": tabs,
-        "tokens": TOKENS, "stil": STIL, "marke": MARKE, "name": e(NAME),
+        "tokens": TOKENS, "stil": STIL, "marke": MARKE, "name": e(TITEL),
         "unter": e(UNTERZEILE), "ich": e(ich), "thema": json.dumps(thema),
+        "nachher": nachher,
     }
 
 
@@ -598,13 +947,101 @@ def marker_schutz(s, grund):
     return '<span class="ktx">kein Router</span>'
 
 
-def kpi(lbl, wert, sub):
-    return ('<div class="karte kpi"><div class="lbl">%s</div>'
-            '<div class="wert">%s</div><div class="sub">%s</div></div>'
-            % (e(lbl), e(wert), e(sub)))
+# Farbe ist nie die einzige Information (§2): jeder Marker traegt das Wort.
+STATUS = {
+    "ok": ("m-gut", "erledigt"),
+    "fehler": ("m-rot", "fehlgeschlagen"),
+    "zeit": ("m-rot", "Zeit abgelaufen"),
+    "abgelehnt": ("m-warm", "abgelehnt"),
+    "abgebrochen": ("m-warm", "abgebrochen"),
+    "laeuft": ("m-weg", "laeuft"),
+    "wartet": ("m-weg", "wartet"),
+}
 
 
-def ansicht_uebersicht(l):
+def marker_status(status):
+    klasse, wort = STATUS.get(status, ("m-warm", status or "?"))
+    return '<span class="marker %s">%s</span>' % (klasse, e(wort))
+
+
+def marker_zustand(z):
+    return {"laeuft": '<span class="marker m-gut">laeuft</span>',
+            "teilweise": '<span class="marker m-rot">laeuft teilweise</span>',
+            }.get(z, '<span class="marker m-warm">angehalten</span>')
+
+
+def kpi(lbl, wert, sub, verweis=""):
+    karte = ('<div class="karte kpi"><div class="lbl">%s</div>'
+             '<div class="wert">%s</div><div class="sub">%s</div></div>'
+             % (e(lbl), e(wert), e(sub)))
+    if verweis:
+        return '<a class="kpi-verweis" href="%s">%s</a>' % (e(verweis), karte)
+    return karte
+
+
+def zeit_kurz(iso):
+    """'2026-09-30T12:04:05+02:00' -> '30.09. 12:04' (§7)."""
+    try:
+        z = datetime.datetime.fromisoformat(str(iso))
+    except ValueError:
+        return ""
+    return z.strftime("%d.%m. %H:%M")
+
+
+def zeit(iso):
+    """Eine Zeit, die der Browser in die Ortszeit des Betrachters setzt.
+    Der Container laeuft in UTC und kennt keine Zeitzonen (kein tzdata im
+    Abbild); der Browser kennt die richtige. Ohne Skript steht die
+    Serverzeit da - falsch um die Zeitverschiebung, aber nicht leer."""
+    kurz = zeit_kurz(iso)
+    if not kurz:
+        return "-"
+    return '<time datetime="%s">%s</time>' % (e(iso), e(kurz))
+
+
+def ziel_text(a):
+    return ziel_von(a) or "-"
+
+
+def auftrag_zeilen(liste):
+    # Auftrag und Ziel in EINER Spalte: am Handy waren es fuenf Spalten auf
+    # 320 px, und der Stand - das Wichtigste - fiel rechts heraus.
+    return "".join(
+        '<tr><td class="mono wann">%s</td><td><a class="zeile" href="/auftrag/%s">%s</a>'
+        ' <span class="ktx mono">%s</span></td><td class="wer">%s</td><td>%s</td></tr>'
+        % (zeit(a.get("angelegt") or a.get("beginn")), e(a["kennung"]),
+           e(ARTEN.get(a.get("art"), ((), a.get("art") or "?"))[1]),
+           e(ziel_von(a)), e(a.get("wer") or "-"), marker_status(a.get("status")))
+        for a in liste)
+
+
+def auftrag_tabelle(liste, leer):
+    if not liste:
+        return '<div class="leer">%s</div>' % leer
+    return ('<div class="scroll" style="margin-top:12px"><table class="auftraege">'
+            '<thead><tr><th>Wann</th><th>Auftrag</th><th class="wer">Wer</th>'
+            '<th>Stand</th></tr></thead><tbody>%s</tbody></table></div>'
+            % auftrag_zeilen(liste))
+
+
+def knopf(art, ziel_feld, ziel, beschriftung, klasse="knopf-rahmen", frage="",
+          gesperrt=""):
+    """Ein Auftrag ist ein eigenes Formular mit versteckten Feldern - so
+    geht der Wert nicht verloren, wenn der Knopf beim Absenden gesperrt
+    wird (§10)."""
+    if gesperrt:
+        return ('<span><button type="button" class="%s" disabled>%s</button>'
+                '<span class="erkl" style="display:block">%s</span></span>'
+                % (klasse, e(beschriftung), e(gesperrt)))
+    return ('<form method="post" action="/auftrag"%s>'
+            '<input type="hidden" name="art" value="%s">%s'
+            '<button type="submit" class="%s">%s</button></form>'
+            % (' data-frage="%s"' % e(frage) if frage else "", e(art),
+               '<input type="hidden" name="%s" value="%s">' % (e(ziel_feld), e(ziel))
+               if ziel_feld else "", klasse, e(beschriftung)))
+
+
+def ansicht_uebersicht(l, auftraege, betrieb):
     mangel = beanstandungen(l)
     dienste = [d for w in l["werkzeuge"] for d in w["dienste"]]
     laeuft = sum(1 for d in dienste if d["zustand"] == "running")
@@ -628,60 +1065,195 @@ def ansicht_uebersicht(l):
         'oder eine Erklaerung, kein Dienst veroeffentlicht einen Port, und ' \
         'jeder Container haengt in dem Netz, das sein Label nennt.</div>'
 
+    letzte = auftrag_tabelle(
+        auftraege[:5],
+        "Noch kein Auftrag. Starten, Aktualisieren und Anhalten gehen auf der "
+        "Seite eines Werkzeugs &ndash; <a class=\"mehr\" href=\"/werkzeuge\">"
+        "zu den Werkzeugen</a>." if betrieb else
+        "Noch kein Auftrag. Bedienen darf die Gruppe %s." % e(GRUPPE_BETRIEB))
+
     # Die Hero-Kennzahl steht ZUERST - am Handy ist sie sonst die vierte
     # Karte, und §6 verlangt sie oben. Was der Betreiber als erstes sehen
     # soll, ist nicht "9 Werkzeuge", sondern "3 Punkte zu klaeren".
     return ('<div class="reihe kpi3">%s</div>'
             '<div class="reihe kpi3">%s%s%s</div>'
-            '<div class="reihe" style="grid-template-columns:1fr">'
+            '<div class="reihe zwei">'
             '<div class="karte"><h2>Zu klaeren</h2>'
             '<div class="ktx">Aus den Labels der laufenden Container gelesen, '
-            'nicht geraten.</div><div style="margin-top:10px">%s</div></div></div>'
+            'nicht geraten.</div><div style="margin-top:10px">%s</div></div>'
+            '<div class="karte"><h2>Letzte Auftraege</h2>'
+            '<div class="ktx">Was von hier aus angestossen wurde. '
+            '<a class="mehr" href="/auftraege">Alle</a></div>%s</div></div>'
             % (hero + kpi("Routen", len(routen), "Hostnamen mit Zertifikat")
                + kpi("Container", "%d / %d" % (laeuft, len(dienste)), "laufen / gesamt"),
-               kpi("Werkzeuge", len(l["werkzeuge"]), "Compose-Projekte"),
-               kpi("Netze", len(l["netze"]), "im Docker"),
+               kpi("Werkzeuge", len(l["werkzeuge"]), "Compose-Projekte", "/werkzeuge"),
+               kpi("Netze", len(l["netze"]), "im Docker", "/netze"),
                kpi("Fassung", VERSION, "Prolo Admin"),
-               liste))
+               liste, letzte))
 
 
-def ansicht_werkzeuge(l):
+def ansicht_werkzeuge(sicht, bestand):
     zeilen = []
-    for w in l["werkzeuge"]:
-        for d in w["dienste"]:
-            zustand = ('<span class="marker m-gut">laeuft</span>'
-                       if d["zustand"] == "running"
-                       else '<span class="marker m-rot">%s</span>' % e(d["zustand"]))
-            ports = ('<span class="marker m-rot">%s</span>' % e(", ".join(d["ports"]))
-                     if d["ports"] and not d["ports_grund"]
-                     else ('<span class="mono">%s</span> <span class="ktx">%s</span>'
-                           % (e(", ".join(d["ports"])), e(d["ports_grund"]))
-                           if d["ports"] else '<span class="ktx">-</span>'))
-            zeilen.append(
-                "<tr><td><b>%s</b><div class=\"ktx mono\">%s</div></td>"
-                "<td class=\"mono\">%s</td><td>%s<div class=\"ktx\">%s</div></td>"
-                "<td class=\"mono\">%s</td><td>%s</td><td>%s</td></tr>"
-                % (e(w["name"]), e(d["dienst"]), e(d["abbild"]), zustand, e(d["lage"]),
-                   e(", ".join(d["netze"])) or "-",
-                   "<br>".join('<span class="mono">%s</span>' % e(h)
-                               for h in d["hosts"]) or '<span class="ktx">-</span>',
-                   marker_schutz(d["schutz"], d["schutz_grund"]) + "<br>" + ports))
+    for s in sicht:
+        schutz = sorted({d["schutz"] for d in s["dienste"] if d["schutz"]})
+        offen = [d for d in s["dienste"] if d["schutz"] == "OFFEN"
+                 or (d["ports"] and not d["ports_grund"])]
+        if not s["dienste"]:
+            # Ohne Container gibt es keine Labels zu lesen - "kein Router"
+            # waere geraten, und bei einem angehaltenen Wiki falsch.
+            schutz_html = '<span class="ktx">erst nach dem Start lesbar</span>'
+        elif offen:
+            schutz_html = '<span class="marker m-rot">Luecke</span>'
+        elif "authentik" in schutz:
+            schutz_html = '<span class="marker m-gut">Authentik</span>'
+        elif schutz:
+            schutz_html = '<span class="marker m-warm">%s</span>' % e(
+                "eigene Anmeldung" if schutz[0] not in ("oeffentlich",) else "oeffentlich")
+        else:
+            schutz_html = '<span class="ktx">kein Router</span>'
+        name = ('<a class="zeile" href="/werkzeug/%s">%s</a>' % (e(s["name"]), e(s["name"]))
+                if NAME.fullmatch(s["name"]) else '<b>%s</b>' % e(s["name"]))
+        zeilen.append(
+            '<tr><td>%s<div class="ktx">%s</div></td><td>%s<div class="ktx mono">%d / %d</div></td>'
+            '<td>%s</td><td>%s</td></tr>'
+            % (name, e(s["art"] or ("-" if s["ordner"] else "ohne Ordner")),
+               marker_zustand(s["zustand"]), s["laufen"], s["gesamt"],
+               "<br>".join('<span class="mono">%s</span>' % e(h) for h in s["hosts"])
+               or '<span class="ktx">-</span>', schutz_html))
+    hinweis = ""
+    if bestand is None:
+        hinweis = ('<div class="hinweis"><div class="was">Nur, was Docker kennt: '
+                   'der Bestand der Werkzeugordner fehlt noch. Angehaltene '
+                   'Werkzeuge stehen erst hier, wenn das Auftragsbuch auf dem '
+                   'Server eingerichtet ist: <span class="mono">sudo prolo '
+                   'einrichten</span> (gefahrlos zu wiederholen).</div></div>')
     if not zeilen:
-        return ('<div class="karte"><h2>Werkzeuge</h2>'
-                '<div class="leer">Es laeuft noch nichts. Ein neues Werkzeug '
-                'legt man auf dem Server an:<br>'
-                '<span class="mono">sudo prolo neu &lt;name&gt;</span><br>'
-                'Danach steht es hier, sobald es gestartet ist.</div></div>')
+        return ('<div class="karte"><h2>Werkzeuge</h2>%s'
+                '<div class="leer">Es laeuft noch nichts, und der Bestand nennt '
+                'kein Werkzeug. Ein neues legt man auf dem Server an:<br>'
+                '<span class="mono">sudo prolo neu &lt;name&gt;</span></div></div>'
+                % hinweis)
     return ('<div class="karte"><h2>Werkzeuge</h2>'
-            '<div class="ktx">Ein Werkzeug ist ein Compose-Projekt. Die Angaben '
-            'kommen aus den Labels der Container.</div>'
+            '<div class="ktx">Ein Werkzeug ist ein Ordner mit docker-compose.yml. '
+            'Bedienen, Protokolle und Einzelheiten auf seiner Seite.</div>%s'
+            '<div class="scroll" style="margin-top:12px"><table class="liste">'
+            '<thead><tr><th>Werkzeug</th><th>Zustand</th><th>Erreichbar unter</th>'
+            '<th>Schutz</th></tr></thead><tbody>%s</tbody></table></div></div>'
+            % (hinweis, "".join(zeilen)))
+
+
+def ansicht_werkzeug(s, auftraege, betrieb, protokoll):
+    """Ein Werkzeug: Bedienen, Dienste, Protokoll, letzte Auftraege."""
+    name = s["name"]
+    b = s["bestand"] or {}
+    # Bedienen. Genau ein Primaerknopf (§5): laeuft es, ist das
+    # "Neu starten", sonst "Starten".
+    if not betrieb:
+        bedienen = ('<div class="leer">Bedienen darf die Gruppe <span class="mono">'
+                    '%s</span>. Zuweisen laesst sich das in Authentik, nicht hier.</div>'
+                    % e(GRUPPE_BETRIEB))
+    elif not s["bedienbar"]:
+        bedienen = ('<div class="leer">Zu diesem Namen gibt es auf dem Server keinen '
+                    'Werkzeugordner - der Container wurde nicht mit prolo angelegt. '
+                    'Von hier aus laesst er sich darum nicht bedienen.</div>')
+    else:
+        k = []
+        if s["zustand"] == "angehalten":
+            k.append(knopf("start", "werkzeug", name, "Starten", "knopf"))
+        else:
+            k.append(knopf("neustart", "werkzeug", name, "Neu starten", "knopf"))
+            if s["zustand"] == "teilweise":
+                k.append(knopf("start", "werkzeug", name, "Fehlende starten"))
+        k.append(knopf("aktualisieren", "werkzeug", name, "Aktualisieren"))
+        k.append(knopf("pruefen", "werkzeug", name, "Pruefen"))
+        if s["zustand"] != "angehalten":
+            k.append(knopf(
+                "stop", "werkzeug", name, "Anhalten", "knopf-rahmen knopf-gefahr",
+                frage="%s anhalten? Es ist danach nicht mehr erreichbar, bis es "
+                      "wieder gestartet wird. Daten bleiben." % name,
+                gesperrt=("Haelt den Zugang offen - anhalten nur auf dem Server: "
+                          "sudo prolo stop %s" % name) if name in KERN else ""))
+        bedienen = ('<div class="aktionen">%s</div>'
+                    '<div class="erkl">Jeder Knopf legt einen Auftrag ab; ausgefuehrt '
+                    'wird er auf dem Server mit prolo &ndash; mit Startsperre, und '
+                    'beim Aktualisieren mit Sicherung vorher und Rueckweg.</div>'
+                    % "".join(k))
+
+    dienste = "".join(
+        '<tr><td><b>%s</b><div class="ktx mono">%s</div></td><td class="mono">%s</td>'
+        '<td>%s<div class="ktx">%s</div></td><td class="mono">%s</td><td>%s</td></tr>'
+        % (e(d["dienst"]), e(d["container"]), e(d["abbild"]),
+           '<span class="marker m-gut">laeuft</span>' if d["zustand"] == "running"
+           else '<span class="marker m-rot">%s</span>' % e(d["zustand"]), e(d["lage"]),
+           e(", ".join(d["netze"])) or "-",
+           marker_schutz(d["schutz"], d["schutz_grund"])
+           + ('<br><span class="marker m-rot">Port %s offen</span>' % e(", ".join(d["ports"]))
+              if d["ports"] and not d["ports_grund"] else ""))
+        for d in s["dienste"])
+    if not dienste:
+        abb = "".join('<tr><td><b>%s</b></td><td class="mono">%s</td>'
+                      '<td><span class="marker m-warm">angehalten</span></td>'
+                      '<td class="mono">%s</td><td>-</td></tr>'
+                      % (e(d.get("dienst", "")), e(d.get("abbild", "")),
+                         e(", ".join(b.get("netze") or [])) or "-")
+                      for d in b.get("dienste") or [] if isinstance(d, dict))
+        dienste = abb or ('<tr><td colspan="5" class="leer">Kein Container und '
+                          'kein Bestand - ist der Ordner gerade erst angelegt, '
+                          'erscheint er nach dem naechsten Auftrag.</td></tr>')
+    fakten = ('<dl class="fakten"><dt>Art</dt><dd>%s</dd><dt>Erreichbar</dt><dd class="mono">%s</dd>'
+              '<dt>Netze</dt><dd class="mono">%s</dd><dt>Volumes</dt><dd class="mono">%s</dd>'
+              '<dt>Sicherung</dt><dd>%s</dd></dl>'
+              % (e({"eigen": "eigener Code", "fremd": "Fremdwerkzeug (Herstellerdatei + unsere Zutat)",
+                    "plattform": "Teil der Plattform"}.get(s["art"], s["art"] or "unbekannt")),
+                 e(", ".join(s["hosts"])) or "-",
+                 e(", ".join(b.get("netze") or sorted({n for d in s["dienste"] for n in d["netze"]})))
+                 or "-",
+                 e(", ".join(b.get("volumes") or [])) or "-",
+                 ("sicherung.conf vorhanden" if b.get("sicherung")
+                  else ('<span class="marker m-rot">keine sicherung.conf</span>'
+                        if s["ordner"] else "unbekannt"))))
+    if s["fehler"]:
+        fakten += ('<div class="hinweis"><div class="wo">docker compose config</div>'
+                   '<div class="was">%s</div></div>' % e(s["fehler"]))
+
+    if protokoll is None:
+        prot = ('<div class="leer">Protokolle liest die Gruppe <span class="mono">%s'
+                '</span>.</div>' % e(GRUPPE_BETRIEB)) if not betrieb else \
+               '<div class="leer">Kein laufender Container - kein Protokoll.</div>'
+    else:
+        wahl, text = protokoll
+        reiter = "".join(
+            '<a href="/werkzeug/%s?dienst=%s"%s>%s</a>'
+            % (e(name), e(d["dienst"]), ' aria-current="true"' if d["dienst"] == wahl else "",
+               e(d["dienst"]))
+            for d in s["dienste"]) if len(s["dienste"]) > 1 else ""
+        prot = ('%s<pre class="ausgabe">%s</pre>'
+                '<div class="aktionen"><a class="knopf-rahmen" href="/werkzeug/%s?dienst=%s">'
+                'Neu laden</a><span class="erkl">die letzten %d Zeilen</span></div>'
+                % ('<div class="reiter">%s</div>' % reiter if reiter else "",
+                   e(text) or "(leer)", e(name), e(wahl), PROTOKOLL_ZEILEN))
+
+    eigene = [a for a in auftraege if a.get("werkzeug") == name][:10]
+    return ('<div class="reihe zwei">'
+            '<div class="karte"><h2>Bedienen</h2><div class="ktx">%s</div>%s</div>'
+            '<div class="karte"><h2>Auf dem Server</h2><div class="ktx">Aus dem Bestand '
+            'der Werkzeugordner.</div>%s</div></div>'
+            '<div class="reihe" style="grid-template-columns:1fr">'
+            '<div class="karte"><h2>Dienste</h2><div class="ktx">Ein Dienst ist ein '
+            'Container aus der Compose-Datei.</div>'
             '<div class="scroll" style="margin-top:12px"><table class="werkzeuge">'
-            '<thead><tr><th>Werkzeug / Dienst</th><th>Abbild</th><th>Zustand</th>'
-            '<th>Netz</th><th>Erreichbar unter</th><th>Schutz / offene Ports</th>'
-            '</tr></thead><tbody>%s</tbody></table></div></div>' % "".join(zeilen))
+            '<thead><tr><th>Dienst</th><th>Abbild</th><th>Zustand</th><th>Netz</th>'
+            '<th>Schutz</th></tr></thead><tbody>%s</tbody></table></div></div>'
+            '<div class="karte"><h2>Protokoll</h2><div class="ktx">Was der Container '
+            'selbst ausgibt.</div>%s</div>'
+            '<div class="karte"><h2>Auftraege fuer %s</h2>%s</div></div>'
+            % (e({"laeuft": "Laeuft.", "teilweise": "Laeuft nur teilweise.",
+                  "angehalten": "Angehalten."}[s["zustand"]]),
+               bedienen, fakten, dienste, prot, e(name),
+               auftrag_tabelle(eigene, "Fuer dieses Werkzeug noch kein Auftrag.")))
 
 
-def ansicht_netze(l):
+def ansicht_netze(l, betrieb):
     zeilen = "".join(
         '<tr><td class="mono"><b>%s</b></td><td class="mono">%s</td><td>%s</td>'
         '<td class="z">%d</td><td class="mono">%s</td></tr>'
@@ -690,28 +1262,140 @@ def ansicht_netze(l):
            else '<span class="ktx">nach aussen</span>',
            len(n["container"]), e(", ".join(n["container"])) or "-")
         for n in l["netze"])
+    anlegen = ""
+    if betrieb:
+        anlegen = ('<div class="karte"><h2>Netz anlegen</h2>'
+                   '<div class="ktx">Legt das Netz in Docker an und traegt es bei '
+                   'Traefik ein (prolo netze anlegen). Danach muss Traefik neu '
+                   'angelegt werden &ndash; auf der Seite von traefik: Starten '
+                   'bzw. Neu starten reicht nicht, der Auftrag sagt es.</div>'
+                   '<form method="post" action="/auftrag" class="aktionen">'
+                   '<input type="hidden" name="art" value="netz_anlegen">'
+                   '<div class="feld"><label for="netz">Name</label>'
+                   '<input id="netz" name="netz" required maxlength="40" '
+                   'pattern="[a-z0-9][a-z0-9\\-]{0,39}" placeholder="netz-werkzeug" '
+                   'autocomplete="off" spellcheck="false"></div>'
+                   '<button type="submit" class="knopf" style="align-self:flex-end">'
+                   'Netz anlegen</button></form>'
+                   '<div class="erkl">Nur Kleinbuchstaben, Ziffern und Bindestrich. '
+                   'Ueblich: netz-&lt;werkzeug&gt; &ndash; jedes Werkzeug in seinem '
+                   'eigenen Netz, nur Traefik in allen (N-45).</div></div>')
     if not zeilen:
         # Ein leerer Zustand erklaert den naechsten Schritt (§14a.4) -
         # "keine Netze" allein ist eine Feststellung, kein Hinweis.
-        return ('<div class="karte"><h2>Netze</h2>'
+        return ('<div class="reihe" style="grid-template-columns:1fr">'
+                '<div class="karte"><h2>Netze</h2>'
                 '<div class="leer">Docker meldet keine Netze. Entweder laeuft '
                 'noch nichts, oder der Vermittler vor dem Docker-Socket '
                 'antwortet nicht. Auf dem Server nachsehen:<br>'
                 '<span class="mono">prolo netze</span> &ndash; zeigt dasselbe '
                 'aus den Dateien.<br><span class="mono">sudo prolo protokoll '
                 'socket-proxy</span> &ndash; sagt, ob der Vermittler laeuft.'
-                '</div></div>')
-    return ('<div class="karte"><h2>Netze</h2>'
+                '</div></div>%s</div>' % anlegen)
+    return ('<div class="reihe" style="grid-template-columns:1fr">'
+            '<div class="karte"><h2>Netze</h2>'
             '<div class="ktx">Jedes Werkzeug haengt in seinem eigenen Netz, nur '
-            'Traefik in allen (N-45). Anlegen, schliessen und umziehen geht auf '
-            'dem Server mit <span class="mono">prolo netze</span>.</div>'
+            'Traefik in allen (N-45). Schliessen und umziehen geht auf dem '
+            'Server mit <span class="mono">prolo netze</span>.</div>'
             '<div class="scroll" style="margin-top:12px"><table>'
             '<thead><tr><th>Netz</th><th>Treiber</th><th>Art</th>'
             '<th>Container</th><th>Wer haengt drin</th></tr></thead>'
-            '<tbody>%s</tbody></table></div></div>' % zeilen)
+            '<tbody>%s</tbody></table></div></div>%s</div>' % (zeilen, anlegen))
 
 
-def ansicht_einstellungen(nutzer, meldung):
+def ansicht_auftraege(auftraege, betrieb):
+    sichern = ""
+    if betrieb:
+        sichern = ('<div class="karte"><h2>Sicherung</h2><div class="ktx">Alle '
+                   'Werkzeuge nach ihrer sicherung.conf, verschluesselt '
+                   '(prolo sichern). Die Kopie gehoert danach weg vom Server.</div>'
+                   '<div class="aktionen">%s</div></div>'
+                   % knopf("sichern", "", "", "Jetzt sichern", "knopf"))
+    return ('<div class="reihe zwei oben"><div class="karte"><h2>Auftraege</h2>'
+            '<div class="ktx">Neueste zuerst. Ausgefuehrt werden sie auf dem Server '
+            'mit prolo; wer sie angestossen hat, steht im Protokoll des Servers.'
+            '</div>%s</div>%s</div>'
+            % (auftrag_tabelle(auftraege, "Noch kein Auftrag. Starten, Aktualisieren "
+                               "und Anhalten gehen auf der Seite eines Werkzeugs."),
+               sichern or '<div class="karte"><h2>Sicherung</h2><div class="leer">'
+                          'Anstossen darf die Gruppe %s.</div></div>' % e(GRUPPE_BETRIEB)))
+
+
+def auftrag_hinweis(lage):
+    """Was jemand wissen muss, der vor einem wartenden Auftrag steht."""
+    if lage.get("status") != "wartet":
+        return ""
+    try:
+        alter = (jetzt() - datetime.datetime.fromisoformat(lage.get("angelegt"))).total_seconds()
+    except (TypeError, ValueError):
+        alter = 0
+    if alter < 30:
+        return "Wird gleich abgeholt."
+    return ("Seit %d Sekunden nicht abgeholt. Der Waechter auf dem Server laeuft "
+            "vermutlich nicht. Nachsehen: sudo systemctl status "
+            "prolo-auftraege.path - eingerichtet wird er mit sudo prolo "
+            "einrichten." % alter)
+
+
+def auftrag_json(lage, ausgabe):
+    klasse, wort = STATUS.get(lage.get("status"), ("m-warm", lage.get("status") or "?"))
+    return {"kennung": lage["kennung"], "status": lage.get("status"),
+            "wort": wort, "klasse": klasse, "ausgabe": ausgabe,
+            "hinweis": auftrag_hinweis(lage),
+            "offen": lage.get("status") in OFFEN_STATUS}
+
+
+def ansicht_auftrag(lage, ausgabe):
+    d = auftrag_json(lage, ausgabe)
+    fakten = ('<dl class="fakten"><dt>Auftrag</dt><dd>%s</dd><dt>Ziel</dt><dd class="mono">%s</dd>'
+              '<dt>Wer</dt><dd>%s</dd><dt>Angelegt</dt><dd class="mono">%s</dd>'
+              '<dt>Beginn</dt><dd class="mono">%s</dd><dt>Ende</dt><dd class="mono">%s</dd>'
+              '<dt>Rueckgabe</dt><dd class="mono">%s</dd></dl>'
+              % (e(ARTEN.get(lage.get("art"), ((), lage.get("art") or "?"))[1]),
+                 e(ziel_text(lage)), e(lage.get("wer") or "-"),
+                 zeit(lage.get("angelegt")), zeit(lage.get("beginn")), zeit(lage.get("ende")),
+                 e(lage.get("rueckgabe") if lage.get("rueckgabe") is not None else "-")))
+    grund = ('<div class="hinweis"><div class="wo">Grund</div><div class="was">%s</div></div>'
+             % e(lage["grund"])) if lage.get("grund") else ""
+    weiter = ""
+    if lage.get("werkzeug") and NAME.fullmatch(str(lage["werkzeug"])):
+        weiter = ('<a class="mehr" href="/werkzeug/%s">zu %s</a>'
+                  % (e(lage["werkzeug"]), e(lage["werkzeug"])))
+    return ('<div class="reihe zwei"><div class="karte"><h2>Stand</h2>'
+            '<div style="margin-top:10px"><span id="stand" class="marker %s">%s</span></div>'
+            '<div id="hinweis" class="erkl">%s</div>%s%s<div>%s</div></div>'
+            '<div class="karte"><h2>Ausgabe</h2><div class="ktx">Was prolo auf dem '
+            'Server geschrieben hat.</div><pre class="ausgabe" id="ausgabe">%s</pre></div></div>'
+            % (d["klasse"], e(d["wort"]), e(d["hinweis"]), fakten, grund, weiter,
+               e(ausgabe) or ("(noch keine)" if d["offen"] else "(keine)")))
+
+
+def auftrag_nachladen(kennung):
+    """Solange ein Auftrag offen ist, holt die Seite alle zwei Sekunden den
+    Stand - ohne Neuladen, die Ausgabe waechst mit. Ist er fertig, laedt
+    die Seite einmal neu und zeigt Ende und Rueckgabe."""
+    return """<script>
+(function(){
+  var k = %s, s = document.getElementById('stand'),
+      h = document.getElementById('hinweis'), a = document.getElementById('ausgabe');
+  function holen(){
+    fetch('/api/auftrag/' + k, {credentials: 'same-origin'})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){
+        if (!d) { setTimeout(holen, 5000); return; }
+        s.textContent = d.wort; s.className = 'marker ' + d.klasse;
+        h.textContent = d.hinweis;
+        if (d.ausgabe) { a.textContent = d.ausgabe; a.scrollTop = a.scrollHeight; }
+        if (d.offen) { setTimeout(holen, 2000); } else { location.reload(); }
+      })
+      .catch(function(){ setTimeout(holen, 5000); });
+  }
+  setTimeout(holen, 1500);
+})();
+</script>""" % json.dumps(kennung)
+
+
+def ansicht_einstellungen(nutzer, meldung, betrieb):
     seg = "".join(
         '<button type="submit" name="thema" value="%s" aria-pressed="%s">%s</button>'
         % (w, "true" if nutzer["thema"] == w else "false", t)
@@ -731,18 +1415,23 @@ def ansicht_einstellungen(nutzer, meldung):
   </div>
   <div class="karte">
     <h2>Was diese Seite tut</h2>
-    <div class="ktx">Und was sie mit Absicht nicht tut.</div>
+    <div class="ktx">Und warum sie es nicht selbst tut.</div>
     <p style="font-size:13px;margin:12px 0 0">
-      Sie <b>liest</b>. Zwei Aufrufe an den Vermittler vor dem Docker-Socket
-      &ndash; die Liste der Container und die Liste der Netze &ndash; und sonst
-      nichts. Sie hat keinen Zugriff auf <span class="mono">/opt/stack</span>,
-      also auch nicht auf <span class="mono">.env</span>-Dateien oder
-      Zertifikate.</p>
+      Sie <b>liest</b> ueber den Vermittler vor dem Docker-Socket &ndash; die
+      Container, die Netze und die Protokolle &ndash; und sonst nichts. Sie hat
+      keinen Zugriff auf <span class="mono">/opt/stack</span>, also auch nicht
+      auf <span class="mono">.env</span>-Dateien oder Zertifikate.</p>
     <p style="font-size:13px;margin:10px 0 0">
-      Sie <b>startet und haelt nichts an</b>. Dafuer muesste der Vermittler
-      schreibende Aufrufe durchlassen, und damit waere aus einer
-      Uebersichtsseite der kuerzeste Weg zur Serveruebernahme geworden.
-      Geaendert wird auf dem Server mit <span class="mono">prolo</span>.</p>
+      Sie <b>handelt ueber Auftraege</b>. Starten, Anhalten, Aktualisieren,
+      Sichern: die Seite legt einen Auftrag ab, und auf dem Server fuehrt
+      <span class="mono">prolo</span> ihn aus &ndash; mit derselben Startsperre,
+      Sicherung und demselben Rueckweg wie auf der Kommandozeile. Schreibenden
+      Zugriff auf Docker hat sie nicht: wer den hat, hat den ganzen Server.</p>
+    <dl class="konto" style="margin-top:12px">
+      <dt>Sehen</dt><dd>Gruppe <span class="mono">%(lesen)s</span></dd>
+      <dt>Bedienen</dt><dd>Gruppe <span class="mono">%(betrieb_gr)s</span> &ndash;
+        %(du)s</dd>
+    </dl>
   </div>
   <div class="karte">
     <h2>Konto</h2>
@@ -759,7 +1448,9 @@ def ansicht_einstellungen(nutzer, meldung):
   </div>
 </div>""" % {"seg": seg, "id": e(nutzer["nutzer_id"]),
              "name": e(nutzer["anzeigename"] or "-"),
-             "mail": e(nutzer["email"] or "-")}
+             "mail": e(nutzer["email"] or "-"),
+             "lesen": e(GRUPPE_LESEN), "betrieb_gr": e(GRUPPE_BETRIEB),
+             "du": "du bist darin" if betrieb else "du bist nicht darin"}
 
 
 # -------------------------------------------------------------- Dienst
@@ -802,9 +1493,17 @@ class Handler(BaseHTTPRequestHandler):
                           "Dafuer braucht es die Gruppe '%s'. In Authentik "
                           "zuweisen lassen - hier kann das niemand."
                           % GRUPPE_LESEN)
-        return nutzer_holen(kennung,
-                            (self.headers.get("X-Authentik-Name") or "").strip(),
-                            (self.headers.get("X-Authentik-Email") or "").strip())
+        nutzer = nutzer_holen(kennung,
+                              (self.headers.get("X-Authentik-Name") or "").strip(),
+                              (self.headers.get("X-Authentik-Email") or "").strip())
+        nutzer["betrieb"] = GRUPPE_BETRIEB in meine
+        return nutzer
+
+    def betrieb_noetig(self, nutzer):
+        if not nutzer["betrieb"]:
+            raise Antwort(403, "Bedienen darf die Gruppe '%s'. In Authentik "
+                               "zuweisen lassen - hier kann das niemand."
+                               % GRUPPE_BETRIEB)
 
     def gleicher_ursprung(self):
         """Kommt diese Absendung von dieser Seite?
@@ -855,7 +1554,8 @@ class Handler(BaseHTTPRequestHandler):
                                   "Fehler steht im Protokoll des Servers.")
 
     def verteilen_get(self):
-        pfad = urlparse(self.path).path
+        url = urlparse(self.path)
+        pfad = url.path
         if pfad == "/gesundheit":
             return self.roh(200, b"ok", "text/plain; charset=utf-8")
         if pfad == "/api/version":
@@ -864,44 +1564,96 @@ class Handler(BaseHTTPRequestHandler):
             return self.schrift(pfad)
 
         nutzer = self.angemeldet()
+        fr = parse_qs(url.query)
+        ich = nutzer["anzeigename"] or nutzer["nutzer_id"]
+        betrieb = nutzer["betrieb"]
+
+        def zeigen(titel, ktx, inhalt, nav, nachher=""):
+            return self.html(seite(titel, ktx, inhalt, nav, ich, nutzer["thema"], nachher))
+
         if pfad == "/einstellungen":
-            fr = parse_qs(urlparse(self.path).query)
-            return self.html(seite(
-                "Einstellungen", "Darstellung und Konto",
-                ansicht_einstellungen(nutzer, (fr.get("ok") or [""])[0]),
-                pfad, nutzer["anzeigename"] or nutzer["nutzer_id"], nutzer["thema"]))
+            return zeigen("Einstellungen", "Darstellung, Rechte und Konto",
+                          ansicht_einstellungen(nutzer, (fr.get("ok") or [""])[0], betrieb),
+                          pfad)
+        # "stand", nicht "lage": der Name gehoert der Funktion lage() weiter
+        # unten, und eine lokale Zuweisung verdeckt sie in der GANZEN Methode.
+        if pfad.startswith("/api/auftrag/"):
+            stand, ausgabe = auftrag_lesen(pfad[len("/api/auftrag/"):])
+            return self.json_aus(200, auftrag_json(stand, ausgabe))
+        if pfad.startswith("/auftrag/"):
+            kennung = pfad[len("/auftrag/"):]
+            stand, ausgabe = auftrag_lesen(kennung)
+            titel = "%s %s" % (ARTEN.get(stand.get("art"), ((), stand.get("art") or "?"))[1],
+                               ziel_von(stand))
+            return zeigen(titel.strip(), "Auftrag %s" % kennung,
+                          ansicht_auftrag(stand, ausgabe), "/auftraege",
+                          auftrag_nachladen(kennung)
+                          if stand.get("status") in OFFEN_STATUS else "")
+        if pfad == "/auftraege":
+            return zeigen("Auftraege", "Was von hier aus angestossen wurde",
+                          ansicht_auftraege(auftraege_lesen(), betrieb), pfad)
         if pfad == "/api/lage":
             return self.json_aus(200, lage())
 
         l = lage()
         if pfad == "/":
-            return self.html(seite(
-                "Uebersicht", "Was laeuft, und was jemand ansehen sollte",
-                ansicht_uebersicht(l), pfad,
-                nutzer["anzeigename"] or nutzer["nutzer_id"], nutzer["thema"]))
+            return zeigen("Uebersicht", "Was laeuft, und was jemand ansehen sollte",
+                          ansicht_uebersicht(l, auftraege_lesen(grenze=5), betrieb), pfad)
         if pfad == "/werkzeuge":
-            return self.html(seite(
-                "Werkzeuge", "Container, Abbilder, Routen und Schutz",
-                ansicht_werkzeuge(l), pfad,
-                nutzer["anzeigename"] or nutzer["nutzer_id"], nutzer["thema"]))
+            bestand = bestand_lesen()
+            return zeigen("Werkzeuge", "Laufend und angehalten, mit Namen und Schutz",
+                          ansicht_werkzeuge(werkzeuge_sicht(l, bestand), bestand), pfad)
+        if pfad.startswith("/werkzeug/"):
+            name = pfad[len("/werkzeug/"):]
+            s = next((x for x in werkzeuge_sicht(l, bestand_lesen())
+                      if x["name"] == name and NAME.fullmatch(name)), None)
+            if s is None:
+                raise Antwort(404, "Ein Werkzeug %s kennt weder Docker noch der "
+                                   "Bestand. Alle Werkzeuge: /werkzeuge" % name[:40])
+            protokoll = None
+            laufend = [d for d in s["dienste"] if d["id"]]
+            if betrieb and laufend:
+                wahl = (fr.get("dienst") or [""])[0]
+                d = next((x for x in laufend if x["dienst"] == wahl), laufend[0])
+                try:
+                    text = protokoll_lesen(d["id"])
+                except Antwort as a:
+                    text = "Das Protokoll liess sich nicht lesen: %s" % a.text
+                protokoll = (d["dienst"], text)
+            ktx = "%s - %d von %d Diensten laufen" % (
+                {"eigen": "eigener Code", "fremd": "Fremdwerkzeug",
+                 "plattform": "Plattform"}.get(s["art"], "Werkzeug"),
+                s["laufen"], s["gesamt"])
+            return zeigen(name, ktx, ansicht_werkzeug(s, auftraege_lesen(), betrieb,
+                                                      protokoll), "/werkzeuge")
         if pfad == "/netze":
-            return self.html(seite(
-                "Netze", "Wer haengt wo - und was das bedeutet",
-                ansicht_netze(l), pfad,
-                nutzer["anzeigename"] or nutzer["nutzer_id"], nutzer["thema"]))
+            return zeigen("Netze", "Wer haengt wo - und was das bedeutet",
+                          ansicht_netze(l, betrieb), pfad)
         raise Antwort(404, "Diese Seite gibt es nicht. Zurueck zur Uebersicht: /")
+
+    def formular(self):
+        laenge = int(self.headers.get("Content-Length") or 0)
+        if laenge > 4096:
+            raise Antwort(413, "Das war zu viel fuer ein Formular.")
+        return parse_qs(self.rfile.read(laenge).decode("utf-8", "replace"))
 
     def verteilen_post(self):
         pfad = urlparse(self.path).path
         nutzer = self.angemeldet()
         if pfad == "/einstellungen/thema":
             self.gleicher_ursprung()
-            laenge = int(self.headers.get("Content-Length") or 0)
-            if laenge > 4096:
-                raise Antwort(413, "Das war zu viel fuer eine Einstellung.")
-            feld = parse_qs(self.rfile.read(laenge).decode("utf-8", "replace"))
+            feld = self.formular()
             thema_setzen(nutzer["nutzer_id"], (feld.get("thema") or [""])[0])
             return self.weiter("/einstellungen?ok=Darstellung+gespeichert.")
+        if pfad == "/auftrag":
+            self.gleicher_ursprung()
+            self.betrieb_noetig(nutzer)
+            feld = self.formular()
+            kennung, _ = auftrag_ablegen(
+                (feld.get("art") or [""])[0],
+                {k: (feld.get(k) or [""])[0] for k in ("werkzeug", "netz")},
+                nutzer["nutzer_id"])
+            return self.weiter("/auftrag/%s" % kennung)
         raise Antwort(404, "Diesen Weg gibt es nicht.")
 
     # ----------------------------------------------------------- Antwort
@@ -924,9 +1676,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
         # Diese Seite laedt nichts von aussen und braucht kein eval.
+        # connect-src 'self': die Auftragsseite holt ihren Stand nach (A-02).
+        # Ohne das verbot default-src 'none' dem Browser jeden fetch - der
+        # Auftrag lief durch, und die Seite stand fuer immer auf "wartet".
+        # Im Browser gemessen, nicht in den Tests: die kennen keine CSP.
         self.send_header("Content-Security-Policy",
                          "default-src 'none'; style-src 'unsafe-inline'; "
                          "font-src 'self'; script-src 'unsafe-inline'; "
+                         "connect-src 'self'; "
                          "form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
         for k, v in (extra or {}).items():
             self.send_header(k, v)
@@ -958,7 +1715,7 @@ class Handler(BaseHTTPRequestHandler):
 <p style="font-size:15px;color:var(--ink);margin:10px 0 0">%(t)s</p>
 <p style="margin:18px 0 0"><a class="knopf" href="/">Zur Uebersicht</a></p>
 </div></main></body></html>""" % {"k": kode, "t": e(text), "tokens": TOKENS,
-                                  "stil": STIL, "name": e(NAME)}).encode("utf-8")
+                                  "stil": STIL, "name": e(TITEL)}).encode("utf-8")
         self.roh(kode, koerper, "text/html; charset=utf-8")
 
 

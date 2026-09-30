@@ -8,7 +8,7 @@ Diese Datei beschreibt drei Griffe. Die Regeln dahinter stehen in
 | ein neues Werkzeug | `sudo prolo neu <name>` |
 | sehen, wer in welchem Netz hängt | `prolo netze` |
 | ein Netz anlegen / schließen / umziehen | `sudo prolo netze anlegen\|schliessen\|umziehen …` |
-| dasselbe im Browser | `https://admin.prolo.me` |
+| dasselbe im Browser, dazu starten, anhalten, aktualisieren | `https://admin.prolo.me` |
 | ein eigenes Werkzeug in sein eigenes Repository | `werkzeuge/auslagern.sh`, dann `werkzeuge/umstellen.sh` (Abschnitt 7) |
 
 ---
@@ -204,32 +204,65 @@ sudo prolo start traefik
 
 ## 5. Die Admin-Seite
 
-`https://admin.prolo.me` — hinter Authentik **und** hinter der Gruppe
-`admin`. Vier Ansichten: Übersicht, Werkzeuge, Netze, Einstellungen.
+`https://admin.prolo.me` — hinter Authentik **und** hinter den eigenen
+Gruppen der Seite:
+
+| Gruppe | darf |
+|---|---|
+| `admin` | sehen: Übersicht, Werkzeuge, Netze, Aufträge |
+| `admin-betrieb` | zusätzlich **bedienen** und Protokolle der Container lesen |
 
 Die Hero-Kennzahl ist **nicht** die Zahl der Container, sondern die Zahl
 der Punkte zum Klären: ein Router ohne Anmeldung, ein unerklärt offener
 Port, ein Container in einem anderen Netz als sein Label sagt, ein Dienst,
 der nicht läuft.
 
-**Sie liest nur.** Zwei Aufrufe an den Vermittler vor dem Docker-Socket
-(`/containers/json`, `/networks`) und sonst nichts — kein Zugriff auf
-`/opt/stack`, also auch nicht auf `.env`-Dateien oder Zertifikate.
+**Bedienen.** Jedes Werkzeug hat eine eigene Seite: *Starten* bzw. *Neu
+starten*, *Aktualisieren*, *Prüfen*, *Anhalten* (fragt nach), dazu, was auf
+dem Server liegt (Art, Netze, Volumes, Sicherung), das Protokoll der
+Container und die letzten Aufträge. Auf *Aufträge* gibt es *Jetzt
+sichern*, auf *Netze* *Netz anlegen*. Traefik, Authentik, den Vermittler
+und die Admin-Seite selbst kann man von dort nicht anhalten — danach gäbe
+es keine Seite mehr, von der aus man sie wieder startet.
 
-**Sie startet und hält nichts an.** Dafür müsste der Vermittler schreibende
-Aufrufe durchlassen, und damit wäre aus einer Übersichtsseite der kürzeste
-Weg zur Serverübernahme geworden. Geändert wird auf dem Server mit `prolo`.
-Soll das je hierher, dann mit einem **eigenen** Vermittler für genau diesen
-einen Aufruf — nicht, indem im gemeinsamen `POST: 1` gesetzt wird.
+**Die Seite tut das nicht selbst.** Sie hat keinen schreibenden Zugriff
+auf Docker — wer den hat, hat den ganzen Server. Jeder Knopf legt einen
+**Auftrag** ins Auftragsbuch (`admin/auftraege/eingang`), und auf dem
+Server führt `werkzeuge/auftrag.py` ihn aus, angestoßen von systemd — über
+`prolo`, mit Startsperre, Sicherung und Rückweg (`A-01`). Was dort nicht
+erlaubt ist, geht auch von der Seite aus nicht. Die Auftragsseite zeigt
+den Stand und die Ausgabe, die wächst, solange er läuft.
+
+```bash
+python3 /opt/stack/werkzeuge/auftrag.py liste      # wer wann was
+sudo systemctl status prolo-auftraege.path         # holt der Waechter ab?
+sudo python3 /opt/stack/werkzeuge/auftrag.py abarbeiten   # von Hand
+```
+
+Steht ein Auftrag länger als eine halbe Minute auf „wartet", sagt die
+Seite das — dann läuft der Wächter nicht; `sudo prolo einrichten` richtet
+ihn ein (Schritt 6c, gefahrlos zu wiederholen).
+
+**Lesen** tut sie über den Vermittler vor dem Docker-Socket: Container,
+Netze, Protokolle. Kein Zugriff auf `/opt/stack`, also auch nicht auf
+`.env`-Dateien oder Zertifikate. Angehaltene Werkzeuge kennt Docker nicht
+mehr — die Liste kommt darum zusätzlich aus dem **Bestand** der
+Werkzeugordner, den der Ausführer alle fünf Minuten neu schreibt.
 
 Einrichten:
 
 ```bash
 sudo prolo netze anlegen netz-admin
 sudo prolo geheimnisse --verteilen     # schreibt PROLO_EINLASS in admin/.env
+sudo prolo einrichten                  # Auftragsbuch und Waechter (6c)
 sudo prolo start traefik
 sudo prolo aktualisieren admin
 ```
+
+Dazu in Authentik: eine Anwendung für `admin.prolo.me` anlegen **und dem
+Outpost zuweisen**, und die Gruppen `admin` und `admin-betrieb` mit den
+Menschen darin. Ohne die Zuweisung antwortet die Anmeldung mit 403, und
+das sieht aus wie ein kaputtes Werkzeug.
 
 ### Wenn `--verteilen` nach einem frischen Aufbau fragt
 
@@ -257,11 +290,6 @@ sudo prolo geheimnisse --verteilen --frisch
 `--frisch` ist **kein** Generalschlüssel: steht der Wert schon irgendwo,
 wird er auch damit nicht angefasst.
 
-Dazu in Authentik: eine Anwendung für `admin.prolo.me` anlegen **und dem
-Outpost zuweisen**, und eine Gruppe `admin` mit den Menschen darin, die
-hineindürfen. Ohne die Zuweisung antwortet die Anmeldung mit 403, und das
-sieht aus wie ein kaputtes Werkzeug.
-
 ---
 
 ## 6. Prüfen
@@ -271,6 +299,7 @@ werkzeuge/neu-pruefen.sh          # prolo neu und prolo netze, ausgefuehrt
 python3 werkzeuge/neu-gegenprobe.py   # und ob die Pruefung Zaehne hat
 werkzeuge/netze-pruefen.sh        # steht die Netztrennung noch?
 cd admin && ./tests/alle.sh       # die Admin-Seite
+werkzeuge/auftrag-pruefen.sh      # der Ausfuehrer der Auftraege
 ```
 
 `neu-pruefen.sh` reicht `docker compose config` an das echte `docker`
