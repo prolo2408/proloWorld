@@ -40,6 +40,7 @@ Aufruf (root):
 import datetime
 import errno
 import fcntl
+import ipaddress
 import json
 import os
 import re
@@ -90,6 +91,12 @@ KERN = ("traefik", "authentik", "socket-proxy", "admin")
 BESTAND = os.path.join(ERLEDIGT, "bestand.json")
 BESTAND_ALTER_S = 240
 PLATTFORM = KERN + ("crowdsec",)
+# Die Lage der Firewall (F-02), im selben Takt wie der Bestand - die Seite
+# spricht nicht mit CrowdSec, sie liest, was prolo firewall hier ablegt.
+FIREWALL = os.path.join(ERLEDIGT, "firewall.json")
+FIREWALL_MAX_BYTE = 2 * 1024 * 1024
+ADRESSE_MAX = 49
+DAUER = re.compile(r"[1-9][0-9]{0,3}[mhd]")
 
 MINUTE = 60
 ARTEN = {
@@ -108,6 +115,18 @@ ARTEN = {
     "neu": (("name", "compose", "dienst", "port", "netz", "geteilt", "anmeldung", "grund",
              "werte"),
             5 * MINUTE, lambda a: neu_argumente(a)),
+    # F-02: die Firewall. Entschieden wird in prolo firewall (werkzeuge/
+    # firewall.py) - dort stehen die Regeln, welche Adresse gesperrt werden
+    # darf. Hier nur die Form.
+    "firewall_sperren": (("adresse", "dauer", "grund"), 2 * MINUTE,
+                         lambda a: ["firewall", "sperren", a["adresse"], a["dauer"], a["grund"]]),
+    "firewall_aufheben": (("adresse",), 2 * MINUTE,
+                          lambda a: ["firewall", "aufheben", a["adresse"]]),
+    "firewall_erlauben": (("adresse", "grund"), 2 * MINUTE,
+                          lambda a: ["firewall", "erlauben", a["adresse"], a["grund"]]),
+    "firewall_nicht_erlauben": (("adresse",), 2 * MINUTE,
+                                lambda a: ["firewall", "nicht-mehr-erlauben", a["adresse"]]),
+    "firewall_lesen": ((), 2 * MINUTE, lambda a: ["firewall"]),
 }
 
 
@@ -258,6 +277,21 @@ def pruefen(daten):
             raise Abgelehnt("die Compose-Datei ist leer")
         if len(daten["compose"].encode("utf-8")) > MAX_COMPOSE:
             raise Abgelehnt("die Compose-Datei ist groesser als %d KiB" % (MAX_COMPOSE // 1024))
+    if "adresse" in felder:
+        a = daten["adresse"]
+        try:
+            if len(a) > ADRESSE_MAX:
+                raise ValueError
+            ipaddress.ip_network(a, strict=False)
+        except ValueError:
+            raise Abgelehnt("%r ist keine Adresse und kein Netz" % a[:60])
+    if "dauer" in felder and not DAUER.fullmatch(daten["dauer"]):
+        raise Abgelehnt("%r ist keine Dauer (30m, 12h, 7d)" % daten["dauer"][:20])
+    if art in ("firewall_sperren", "firewall_erlauben"):
+        g = daten["grund"]
+        if not g.strip() or len(g) > FREITEXT_MAX or not g.isprintable():
+            raise Abgelehnt("ohne Grund, zu lang oder mit Steuerzeichen - der Grund "
+                            "steht spaeter an der Sperre")
     if art == "neu":
         if daten["dienst"] and not DIENST.fullmatch(daten["dienst"]):
             raise Abgelehnt("%r ist kein Dienstname" % daten["dienst"])
@@ -342,6 +376,9 @@ def prolo_ausfuehren(kennung, art, daten, zeit_s, argumente):
     befehl = [PROLO] + argumente(daten)
     log_pfad = os.path.join(ERLEDIGT, kennung + ".log")
     umgebung = dict(UMGEBUNG, PROLO_AUFTRAG=kennung)
+    if art.startswith("firewall_"):
+        # Wer es war, steht an der Sperre (prolo firewall bereinigt den Namen).
+        umgebung["PROLO_FIREWALL_WER"] = str(daten.get("wer") or "")[:60]
 
     with open(log_pfad, "wb") as log:
         os.chmod(log_pfad, 0o644)
@@ -433,7 +470,8 @@ def einer(name):
     lage = {"kennung": kennung, "beginn": jetzt()}
     for feld, grenze in (("art", 40), ("wer", MAX_WER), ("werkzeug", 40),
                          ("netz", 40), ("angelegt", 40), ("name", 40),
-                         ("dienst", 64), ("port", 5), ("anmeldung", 12)):
+                         ("dienst", 64), ("port", 5), ("anmeldung", 12),
+                         ("adresse", ADRESSE_MAX), ("dauer", 6)):
         wert = daten.get(feld)
         if isinstance(wert, str) and len(wert) <= grenze and wert.isprintable():
             lage[feld] = wert
@@ -455,8 +493,8 @@ def einer(name):
     lage.update(status=status, rueckgabe=rueckgabe, ende=jetzt())
     lage_schreiben(kennung, lage)
     protokollieren({"zeit": lage["ende"], **{k: lage[k] for k in
-                    ("kennung", "art", "werkzeug", "name", "netz", "wer", "status",
-                     "rueckgabe") if k in lage}})
+                    ("kennung", "art", "werkzeug", "name", "netz", "adresse", "wer",
+                     "status", "rueckgabe") if k in lage}})
 
 
 HOST = re.compile(r"Host\(`([^`]+)`\)")
@@ -527,6 +565,27 @@ def bestand_schreiben(erzwingen=False):
         sys.stderr.write("Bestand nicht geschrieben: %s\n" % e)
 
 
+def firewall_schreiben(erzwingen=False):
+    """firewall.json aus 'prolo firewall --json' - nur, wenn es eine
+    Firewall gibt. Wie der Bestand eine Anzeige: ein Fehler haelt nichts auf."""
+    try:
+        if not os.path.isfile(os.path.join(STACK, "crowdsec", "docker-compose.yml")):
+            return
+        if not erzwingen and os.path.exists(FIREWALL) and \
+                datetime.datetime.now().timestamp() - os.stat(FIREWALL).st_mtime < BESTAND_ALTER_S:
+            return
+        r = subprocess.run([sys.executable, os.path.join(HIER, "firewall.py"), "--json"],
+                           capture_output=True, text=True, timeout=90, env=UMGEBUNG)
+        if len(r.stdout) > FIREWALL_MAX_BYTE:
+            raise ValueError("die Lage ist groesser als %d KiB" % (FIREWALL_MAX_BYTE // 1024))
+        lage = json.loads(r.stdout)
+        if not isinstance(lage, dict):
+            raise ValueError("die Lage ist kein JSON-Objekt")
+        schreiben(FIREWALL, json.dumps(lage, ensure_ascii=False, indent=1) + "\n")
+    except Exception as e:     # noqa: BLE001 - siehe oben
+        sys.stderr.write("Firewall-Lage nicht geschrieben: %s\n" % e)
+
+
 def liegengeblieben():
     """Ein Auftrag, der beim letzten Mal "laeuft" war und es jetzt nicht
     mehr sein kann (wir halten die Sperre): der Ausfuehrer ist mittendrin
@@ -564,6 +623,7 @@ def abarbeiten():
             return 0
         liegengeblieben()
         bestand_schreiben()
+        firewall_schreiben()
         erledigt = set()
         while True:
             offen = False
@@ -594,6 +654,7 @@ def abarbeiten():
             if not offen:
                 if erledigt:
                     bestand_schreiben(erzwingen=True)
+                    firewall_schreiben(erzwingen=True)
                 return 0
 
 
@@ -662,7 +723,7 @@ def liste(anzahl):
             continue
         print("%-25s %-13s %-14s %-10s %s" % (
             a.get("zeit", "?"), a.get("art", "-"),
-            a.get("werkzeug") or a.get("netz") or "-",
+            a.get("werkzeug") or a.get("netz") or a.get("adresse") or "-",
             a.get("status", "?"), a.get("wer") or a.get("grund") or ""))
     return 0
 

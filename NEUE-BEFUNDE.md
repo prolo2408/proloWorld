@@ -7403,3 +7403,76 @@ Admin-Seite (`F-02`) und freiwillig die CrowdSec-Konsole.
   `crowdsecurity/traefik-logs`, die dieselben Felder setzen, auf die die
   eigenen Regeln schauen. Auf dem Server holt CrowdSec die echten beim
   Start.
+
+---
+
+## F-02 — Die Firewall auf der Admin-Seite
+
+**Gefunden:** mit `F-01` gab es eine Firewall, aber sehen und bedienen
+ließ sie sich nur per SSH. Gewünscht war eine Oberfläche, „damit ich alles
+sehen kann".
+
+### Was entstand
+
+Admin **0.4.0**, eine Seite `/firewall` (Navigation; am Handy über die
+Kachel „Firewall" der Übersicht):
+
+- Kennzahlen: gesperrte Adressen (dazu die Größe der
+  Gemeinschafts-Blockliste), Meldungen in sieben Tagen, ob der Bouncer
+  abholt, Freigaben.
+- **Zu klären**, je Ursache ein Satz mit dem Weg daraus: CrowdSec läuft
+  nicht, kein Bouncer, Bouncer still, eine Quelle ohne Zeilen, die Lage
+  älter als 15 Minuten, Meldungen von `prolo firewall`.
+- Aktive Sperren mit Herkunft (erkannt / von Hand), Grund, Land,
+  Restdauer — und „Aufheben" mit Rückfrage. Meldungen mit Folge (Sperre,
+  keine, beobachtet). Freigabeliste mit „Entfernen". Die eigenen Regeln aus
+  `crowdsec/regeln/`. Was gelesen wird.
+- Sperren (Adresse, Dauer, Grund), Freigeben, „Meine Adresse freigeben".
+- Die **eigene Adresse** (letzter Eintrag in `X-Forwarded-For`, §11) lässt
+  sich nicht sperren, auch nicht als Teil eines Netzes — die Seite sagt,
+  wie man es auf dem Server täte.
+
+Wie bei allem seit `A-01` spricht die Seite **nicht** mit CrowdSec: jeder
+Knopf legt einen Auftrag ab (`firewall_sperren`, `_aufheben`, `_erlauben`,
+`_nicht_erlauben`, `_lesen`), `werkzeuge/auftrag.py` führt ihn über
+`prolo firewall` aus — mit dem Namen des Auslösers als
+`PROLO_FIREWALL_WER`, der an der Sperre steht — und schreibt die Lage alle
+fünf Minuten und nach jedem Auftrag nach `auftraege/erledigt/firewall.json`.
+
+### Was nur das Bild zeigte — zweimal
+
+Die Messung meldete 0 Mängel, das Bildschirmfoto bei 360 px nicht:
+
+1. „Au…" statt „Aufheben": der Knopf stand halb verdeckt im Scrollkasten
+   der Tabelle. Überlauf **im** Scrollkasten zählt der Prüfer mit Absicht
+   nicht (eine Tabelle darf scrollen) — ein halb verdeckter **Knopf** ist
+   aber ein Mangel. Der Prüfer lernte es („verdeckt im Scrollkasten"),
+   fand es danach auf genau dieser Seite und sonst nirgends.
+2. Die Behebung (Umbruch an beliebiger Stelle) ließ die Knöpfe senkrecht in
+   Buchstaben zerfallen: „A u f h e b e n". Auch das lernte der Prüfer
+   („Wort im Knopf zerbrochen", mehr Zeilen als Wörter) — und fand es
+   zusätzlich bei 1920 px in „Entfernen". Richtig ist: Umbruch nur in der
+   Textzelle, die Knopfzelle bricht nie, und ein kürzerer Tabellenkopf
+   (Köpfe brechen nie).
+
+Beide neuen Prüfungen haben ihren eingebauten Mangel in der Gegenprobe des
+Prüfers: 7 von 7.
+
+### Eine Lücke im eigenen neuen Test
+
+„Die Lage bleibt nach einem Auftrag alt" entwischte der Gegenprobe des
+Ausführers: die Lage wurde schon **vor** dem Auftrag geschrieben (die Datei
+fehlte), und die Attrappe lieferte danach dasselbe. Jetzt ändert die
+Attrappe ihre Antwort nach einer Tat an der Firewall — wie das echte
+CrowdSec —, und die Mutation fällt auf.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `admin/tests` | **127** Tests (vorher 105): Form der Aufträge, eigene Adresse (einzeln und im Netz), letzter statt erster `X-Forwarded-For`-Eintrag, kaputte und fehlende Lage, `</script>` in einem Regelnamen maskiert, 12.345 statt 12345, jede Warnung einzeln, leere Zustände, ein Primärknopf |
+| `admin/tests/gegenprobe.sh` | **48 von 48** (13 neu) |
+| `auftrag-pruefen.sh` | **100 ok** (vorher 77); `--gegenprobe` **30 von 30** (8 neu) |
+| Gleichlauf Seite/Ausführer | gleich |
+| Browser, 19 Ansichten × 3 Breiten × 2 Themen | **0 Mängel** in 114 Messungen, Prüfer-Gegenprobe 7 von 7, Tastatur vollständig, 0 JS-Fehler; die Bilder bei 360 und 1920 px angesehen |
+| **echter Lauf auf dem Prüfserver** | CrowdSec über `prolo start crowdsec` (Startsperre frei: Port nur 127.0.0.1, erklärt), Admin 0.4.0 über `prolo start admin`. Im Browser: Sperren 93.184.216.50 / 24 h → Auftrag → `auftrag.py` → `prolo firewall` → in CrowdSec „von Hand (arthur): E2E vom Pruefserver", 23 h 59 min, danach auf der Seite; eigene Adresse als Teil von 93.184.216.0/24 → abgelehnt, **0** neue Aufträge; „Meine Adresse freigeben" → Freigabeliste `93.184.216.99`; Aufheben mit Rückfrage → in CrowdSec keine Sperre mehr; 0 JS-Fehler. Die Seite zeigte dabei die echte Lage: kein Bouncer („noch nie abgefragt"), keine `auth.log` in dieser Sandbox, 4 gelesene Traefik-Zeilen — und eine Anfrage auf `/wp-login.php` von einer Docker-internen Adresse blieb richtig ungesperrt |

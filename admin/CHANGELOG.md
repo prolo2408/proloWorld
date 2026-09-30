@@ -1,3 +1,19 @@
+# 0.4.0
+
+- **Firewall** (F-02): eine eigene Seite unter `/firewall` - aktive Sperren
+  mit Grund und Restdauer, Meldungen der letzten sieben Tage, die
+  Freigabeliste, die eigenen Regeln aus `crowdsec/regeln/`, was CrowdSec
+  liest, und ob der Bouncer auf dem Server abholt. Sperren, Aufheben,
+  Freigeben und Entfernen legen Auftraege ab (`firewall_*`), ausgefuehrt von
+  `prolo firewall` auf dem Server - die Seite spricht nie mit CrowdSec.
+- Die eigene Adresse (letzter Eintrag in `X-Forwarded-For`, §11) laesst
+  sich nicht sperren, auch nicht als Teil eines Netzes; freigeben geht mit
+  einem Knopf.
+- Die Lage schreibt `werkzeuge/auftrag.py` alle fuenf Minuten und nach
+  jedem Auftrag nach `auftraege/erledigt/firewall.json`. Was dort fehlt,
+  alt oder kaputt ist, steht unter "Zu klaeren" - mit dem Weg daraus.
+- Uebersicht: eine Kachel "Firewall"; am Handy ist sie der Weg dorthin.
+
 # 0.3.0
 
 - **Werkzeug anlegen aus einer Compose-Datei** (A-03): die Datei des

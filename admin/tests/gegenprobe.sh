@@ -214,6 +214,53 @@ probe "die Anmeldung hat doch eine Vorgabe (A-03)" \
   'name="anmeldung" value="authentik" required>' \
   'name="anmeldung" value="authentik" required checked>'
 
+# F-02: die Firewall
+probe "die eigene Adresse laesst sich sperren (F-02)" \
+  '    if art == "firewall_sperren" and eigene_betroffen(aus["adresse"], quelle):' \
+  '    if False:'
+probe "die Quelle ist der ERSTE Eintrag - frei erfunden (F-02, N-48)" \
+  '        return str(ipaddress.ip_address(teile[-1])) if teile else ""' \
+  '        return str(ipaddress.ip_address(teile[0])) if teile else ""'
+probe "ein Netz, das die eigene Adresse enthaelt, geht durch (F-02)" \
+  '        return ipaddress.ip_address(quelle) in ipaddress.ip_network(adresse, strict=False)' \
+  '        return ipaddress.ip_address(quelle) == ipaddress.ip_network(adresse, strict=False).network_address'
+probe "Sperren ohne Grund (F-02)" \
+  '    if art in ("firewall_sperren", "firewall_erlauben") and not aus["grund"]:' \
+  '    if False:'
+probe "eine Adresse wird nicht geprueft (F-02)" \
+  '                ipaddress.ip_network(wert, strict=False)
+            except ValueError:
+                raise Antwort(400, "Adresse:' \
+  '                pass
+            except ValueError:
+                raise Antwort(400, "Adresse:'
+probe "eine Dauer wird nicht geprueft (F-02)" \
+  '            if not DAUER.fullmatch(wert):' \
+  '            if False:'
+probe "ein Regelname aus CrowdSec wird ungefiltert gezeigt (F-02)" \
+  '% (e(s.get("wert")), herkunft(s.get("herkunft")), e(s.get("regel")),' \
+  '% (e(s.get("wert")), herkunft(s.get("herkunft")), s.get("regel"),'
+probe "wer nur sehen darf, bekommt die Firewall-Knoepfe (F-02)" \
+  '    if betrieb:
+        dauer = "".join(' \
+  '    if True:
+        dauer = "".join('
+probe "ein stiller Bouncer faellt nicht auf (F-02)" \
+  '        elif still > BOUNCER_STILL_S:' \
+  '        elif False:'
+probe "eine Quelle ohne Zeilen faellt nicht auf (F-02)" \
+  '        if not n.get("zeilen"):' \
+  '        if False:'
+probe "eine alte Lage faellt nicht auf (F-02)" \
+  '    if alter is None or alter > FIREWALL_ALT_S:' \
+  '    if alter is None:'
+probe "kaputte Eintraege in der Lage bleiben drin (F-02)" \
+  '        d[k] = [x for x in (d.get(k) if isinstance(d.get(k), list) else []) if isinstance(x, dict)]' \
+  '        d[k] = d.get(k) if isinstance(d.get(k), list) else []'
+probe "die Blockliste steht ohne Tausenderpunkt da (F-02, §7)" \
+  '        return "{:,}".format(int(n)).replace(",", ".")' \
+  '        return str(int(n))'
+
 probe "wer nur sehen darf, liest die Protokolle (A-02)" \
   '            if betrieb and laufend:' \
   '            if laufend:'

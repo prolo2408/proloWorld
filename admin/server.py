@@ -30,6 +30,7 @@ import datetime
 import hashlib
 import hmac
 import html
+import ipaddress
 import json
 import os
 import re
@@ -41,7 +42,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 PORT = int(os.environ.get("ADMIN_PORT", "8080"))
 DATEN = os.environ.get("ADMIN_DATEN", "/daten")
@@ -85,7 +86,22 @@ ARTEN = {
     "compose_pruefen": (("name", "compose"), "Compose-Datei pruefen"),
     "neu": (("name", "compose", "dienst", "port", "netz", "geteilt", "anmeldung", "grund",
              "werte"), "Anlegen"),
+    # F-02: die Firewall. Die Regeln, WAS gesperrt werden darf, stehen in
+    # prolo firewall; hier die Form - und dass niemand sich selbst aussperrt.
+    "firewall_sperren": (("adresse", "dauer", "grund"), "Sperren"),
+    "firewall_aufheben": (("adresse",), "Sperre aufheben"),
+    "firewall_erlauben": (("adresse", "grund"), "Freigeben"),
+    "firewall_nicht_erlauben": (("adresse",), "Freigabe entfernen"),
+    "firewall_lesen": ((), "Firewall nachsehen"),
 }
+ADRESSE_MAX = 49
+DAUER = re.compile(r"[1-9][0-9]{0,3}[mhd]")
+DAUERN = (("1h", "1 Stunde"), ("4h", "4 Stunden"), ("24h", "24 Stunden"),
+          ("7d", "7 Tage"), ("30d", "30 Tage"))
+# Der Zeitgeber schreibt alle fuenf Minuten. Aelter als das Dreifache heisst:
+# er laeuft nicht mehr, und was hier steht, ist Geschichte.
+FIREWALL_ALT_S = 15 * 60
+BOUNCER_STILL_S = 120
 VARIABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
 GEHEIM = re.compile(r"PASS|SECRET|KEY|TOKEN|SALT|CREDENTIAL", re.I)
 DIENST = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
@@ -285,12 +301,14 @@ def bestand_lesen():
 
 
 def ziel_von(felder):
-    return felder.get("werkzeug") or felder.get("name") or felder.get("netz") or ""
+    return (felder.get("werkzeug") or felder.get("name") or felder.get("netz")
+            or felder.get("adresse") or "")
 
 
-def auftrag_pruefen(art, felder):
+def auftrag_pruefen(art, felder, quelle=""):
     """Dieselben Regeln wie werkzeuge/auftrag.py - die Meldung soll sofort
-    kommen, nicht erst im Ergebnis."""
+    kommen, nicht erst im Ergebnis. quelle: die Adresse, von der aus gerade
+    jemand hier ist - die sperrt er sich nicht selbst weg."""
     if art not in ARTEN:
         raise Antwort(400, "Diesen Auftrag gibt es nicht. Moeglich: %s."
                            % ", ".join(sorted(ARTEN)))
@@ -335,6 +353,17 @@ def auftrag_pruefen(art, felder):
             if len(wert) > FREITEXT_MAX or not wert.isprintable():
                 raise Antwort(400, "Der Grund ist zu lang (hoechstens %d Zeichen, eine "
                                    "Zeile)." % FREITEXT_MAX)
+        elif f == "adresse":
+            try:
+                if len(wert) > ADRESSE_MAX:
+                    raise ValueError
+                ipaddress.ip_network(wert, strict=False)
+            except ValueError:
+                raise Antwort(400, "Adresse: eine wie 203.0.113.7 oder ein Netz wie "
+                                   "203.0.113.0/24.")
+        elif f == "dauer":
+            if not DAUER.fullmatch(wert):
+                raise Antwort(400, "Dauer: zum Beispiel 30m, 12h oder 7d.")
         elif f == "anmeldung":
             if wert not in ("authentik", "eigene"):
                 raise Antwort(400, "Anmeldung: Authentik davor oder die eigene des "
@@ -348,6 +377,14 @@ def auftrag_pruefen(art, felder):
         if aus["netz"] and aus["netz"] != "netz-" + aus["name"] and not aus["geteilt"]:
             raise Antwort(400, "Ein vorhandenes Netz teilen nur mit Grund - es hebt die "
                                "Abschottung zwischen zwei Werkzeugen auf (N-62).")
+    if art in ("firewall_sperren", "firewall_erlauben") and not aus["grund"]:
+        raise Antwort(400, "Ohne Grund wird nichts gesperrt oder freigegeben - spaeter "
+                           "weiss sonst niemand, warum.")
+    if art == "firewall_sperren" and eigene_betroffen(aus["adresse"], quelle):
+        raise Antwort(400, "Das ist deine eigene Adresse (%s) - damit sperrst du dich "
+                           "selbst aus, und mit dir diese Seite. Aufheben ginge dann nur "
+                           "noch auf dem Server: sudo prolo firewall aufheben %s"
+                           % (quelle, aus["adresse"]))
     if art == "stop" and aus.get("werkzeug") in KERN:
         raise Antwort(400, "%s haelt den Zugang offen - ohne ihn gibt es keine "
                            "Seite mehr, von der aus man ihn wieder startet. Neu "
@@ -403,7 +440,43 @@ def auftrag_lesen(kennung):
     return lage, ANSI.sub("", ausgabe.decode("utf-8", "replace"))
 
 
-def auftrag_ablegen(art, felder, wer):
+def eigene_betroffen(adresse, quelle):
+    try:
+        return ipaddress.ip_address(quelle) in ipaddress.ip_network(adresse, strict=False)
+    except ValueError:
+        return False
+
+
+def quelle_von(xff):
+    """Die Adresse des Besuchers: der LETZTE Eintrag in X-Forwarded-For - den
+    haengt Traefik an; was davor steht, hat der Aufrufer erfunden (§11, N-48)."""
+    teile = [x.strip() for x in (xff or "").split(",") if x.strip()]
+    try:
+        return str(ipaddress.ip_address(teile[-1])) if teile else ""
+    except ValueError:
+        return ""
+
+
+def firewall_lesen():
+    """Die Lage der Firewall, wie prolo firewall --json sie abgelegt hat -
+    oder None. Was fehlt oder die falsche Form hat, faellt weg."""
+    d = json_datei(os.path.join(ERLEDIGT, "firewall.json"))
+    if not d:
+        return None
+    for k in ("sperren", "meldungen", "freigaben", "regeln", "bouncer"):
+        d[k] = [x for x in (d.get(k) if isinstance(d.get(k), list) else []) if isinstance(x, dict)]
+    d["fehler"] = [str(x) for x in (d.get("fehler") if isinstance(d.get("fehler"), list) else [])]
+    d["gelesen"] = {str(k): v for k, v in (d.get("gelesen") or {}).items()
+                    if isinstance(v, dict)} if isinstance(d.get("gelesen"), dict) else {}
+    d["crowdsec"] = d.get("crowdsec") if isinstance(d.get("crowdsec"), dict) else {}
+    try:
+        d["gemeinschaft"] = int(d.get("gemeinschaft") or 0)
+    except (TypeError, ValueError):
+        d["gemeinschaft"] = 0
+    return d
+
+
+def auftrag_ablegen(art, felder, wer, quelle=""):
     """Einen Auftrag in den Eingang legen. Erst daneben (.neu), dann
     umbenennen: der Ausfuehrer sieht nie eine halbe Datei, und systemd
     stoesst erst beim fertigen *.json an.
@@ -411,7 +484,7 @@ def auftrag_ablegen(art, felder, wer):
     Liegt derselbe Auftrag schon offen da (Doppelklick, zweiter Reiter),
     gibt es keinen zweiten - die Kennung des offenen kommt zurueck (§10).
     """
-    aus = auftrag_pruefen(art, felder)
+    aus = auftrag_pruefen(art, felder, quelle)
     for a in auftraege_lesen(grenze=30):
         if a.get("status") in OFFEN_STATUS and a.get("art") == art \
                 and ziel_von(a) == ziel_von(aus):
@@ -779,6 +852,7 @@ tbody td{font-size:13px;color:var(--ink-2);padding:9px 10px 9px 0;
   border-top:1px solid var(--line-soft);vertical-align:top}
 tbody tr:hover{background:var(--hover)}
 td.z{text-align:right;font-family:'JetBrains Mono',monospace}
+th.z{text-align:right}
 .scroll{overflow:auto;max-height:70vh}
 .scroll thead th{position:sticky;top:0;background:var(--surface)}
 /* Der Scrollbalken bleibt SICHTBAR. §5 laesst ihn bei Zierflaechen
@@ -795,7 +869,9 @@ table.werkzeuge td:nth-child(3),table.werkzeuge th:nth-child(3){width:15%}
 table.werkzeuge td:nth-child(4),table.werkzeuge th:nth-child(4){width:16%}
 table.werkzeuge td:nth-child(5),table.werkzeuge th:nth-child(5){width:16%}
 table.werkzeuge td:nth-child(6),table.werkzeuge th:nth-child(6){width:16%}
-table.werkzeuge td{overflow-wrap:anywhere}
+table.werkzeuge td, td.lang{overflow-wrap:anywhere}
+/* Die Zelle mit dem Knopf bricht nie - sonst steht "Aufheben" senkrecht (F-02). */
+td.griff{white-space:nowrap;width:1%}
 @media (max-width:900px){
   table.werkzeuge{table-layout:auto;min-width:760px}
 }
@@ -956,9 +1032,10 @@ table.auftraege td.wann{white-space:nowrap}
 """
 
 NAV = (("/", "Uebersicht"), ("/werkzeuge", "Werkzeuge"), ("/netze", "Netze"),
-       ("/auftraege", "Auftraege"), ("/einstellungen", "Einstellungen"))
-# Am Handy vier Eintraege, der letzte "Einstellungen" (§6). Die Netze
-# erreicht man dort ueber die Kachel auf der Uebersicht.
+       ("/firewall", "Firewall"), ("/auftraege", "Auftraege"),
+       ("/einstellungen", "Einstellungen"))
+# Am Handy vier Eintraege, der letzte "Einstellungen" (§6). Netze und
+# Firewall erreicht man dort ueber die Kacheln auf der Uebersicht.
 TABS = (("/", "Uebersicht"), ("/werkzeuge", "Werkzeuge"), ("/auftraege", "Auftraege"),
         ("/einstellungen", "Einstellungen"))
 
@@ -1099,6 +1176,14 @@ def kpi(lbl, wert, sub, verweis=""):
     return karte
 
 
+def zahl(n):
+    """12345 -> '12.345' (§7). Was keine Zahl ist, steht als '-' da."""
+    try:
+        return "{:,}".format(int(n)).replace(",", ".")
+    except (TypeError, ValueError):
+        return "-"
+
+
 def zeit_kurz(iso):
     """'2026-09-30T12:04:05+02:00' -> '30.09. 12:04' (§7)."""
     try:
@@ -1161,7 +1246,22 @@ def knopf(art, ziel_feld, ziel, beschriftung, klasse="knopf-rahmen", frage="",
                if ziel_feld else "", klasse, e(beschriftung)))
 
 
-def ansicht_uebersicht(l, auftraege, betrieb):
+def firewall_kachel(fw):
+    if fw is None:
+        return kpi("Firewall", "-", "noch keine Lage", "/firewall")
+    b = fw["bouncer"]
+    if not fw["crowdsec"].get("laeuft"):
+        sub = "CrowdSec laeuft nicht"
+    elif not b:
+        sub = "kein Bouncer - nichts wird gesperrt"
+    elif all((x.get("still_s") is None or x.get("still_s") > BOUNCER_STILL_S) for x in b):
+        sub = "Bouncer still - nichts wird gesperrt"
+    else:
+        sub = "Sperren, der Bouncer holt ab"
+    return kpi("Firewall", len(fw["sperren"]), sub, "/firewall")
+
+
+def ansicht_uebersicht(l, auftraege, betrieb, fw=None):
     mangel = beanstandungen(l)
     dienste = [d for w in l["werkzeuge"] for d in w["dienste"]]
     laeuft = sum(1 for d in dienste if d["zustand"] == "running")
@@ -1196,7 +1296,7 @@ def ansicht_uebersicht(l, auftraege, betrieb):
     # Karte, und §6 verlangt sie oben. Was der Betreiber als erstes sehen
     # soll, ist nicht "9 Werkzeuge", sondern "3 Punkte zu klaeren".
     return ('<div class="reihe kpi3">%s</div>'
-            '<div class="reihe kpi3">%s%s%s</div>'
+            '<div class="reihe kpi4">%s%s%s%s</div>'
             '<div class="reihe zwei">'
             '<div class="karte"><h2>Zu klaeren</h2>'
             '<div class="ktx">Aus den Labels der laufenden Container gelesen, '
@@ -1208,6 +1308,7 @@ def ansicht_uebersicht(l, auftraege, betrieb):
                + kpi("Container", "%d / %d" % (laeuft, len(dienste)), "laufen / gesamt"),
                kpi("Werkzeuge", len(l["werkzeuge"]), "Compose-Projekte", "/werkzeuge"),
                kpi("Netze", len(l["netze"]), "im Docker", "/netze"),
+               firewall_kachel(fw),
                kpi("Fassung", VERSION, "Prolo Admin"),
                liste, letzte))
 
@@ -1589,6 +1690,212 @@ def ansicht_netze(l, betrieb):
             '<tbody>%s</tbody></table></div></div>%s</div>' % (zeilen, anlegen))
 
 
+HERKUNFT = {"crowdsec": ("m-weg", "erkannt"), "cscli": ("m-warm", "von Hand"),
+            "capi": ("m-weg", "Gemeinschaft"), "lists": ("m-weg", "Blockliste")}
+
+
+def firewall_warnungen(fw):
+    """Was an der Firewall nicht stimmt - je Ursache ein Satz mit dem Weg
+    daraus (§7). Leer heisst: nichts zu klaeren."""
+    w = []
+    alter = None
+    try:
+        alter = (jetzt() - datetime.datetime.fromisoformat(str(fw.get("stand")))).total_seconds()
+    except (TypeError, ValueError):
+        pass
+    if alter is None or alter > FIREWALL_ALT_S:
+        w.append(("Stand", "Die Lage ist aelter als %d Minuten - der Zeitgeber auf dem Server "
+                           "schreibt sie sonst alle fuenf. Auf dem Server: systemctl status "
+                           "prolo-auftraege.timer" % (FIREWALL_ALT_S // 60)))
+    if not fw["crowdsec"].get("laeuft"):
+        w.append(("CrowdSec", "laeuft nicht - es wird nichts erkannt und nichts Neues "
+                              "gesperrt. Starten auf der Seite von crowdsec."))
+        return w + [("Meldung", f) for f in fw["fehler"] if "laeuft nicht" not in f]
+    if not fw["bouncer"]:
+        w.append(("Bouncer", "Kein Bouncer angemeldet: CrowdSec erkennt Angriffe, aber "
+                             "niemand sperrt sie aus. Auf dem Server: sudo prolo einrichten "
+                             "(nennt die zwei Befehle, gefahrlos zu wiederholen)."))
+    for b in fw["bouncer"]:
+        still = b.get("still_s")
+        if still is None:
+            w.append(("Bouncer", "%s hat noch nie abgefragt - laeuft er? Auf dem Server: "
+                                 "systemctl status crowdsec-firewall-bouncer" % b.get("name")))
+        elif still > BOUNCER_STILL_S:
+            w.append(("Bouncer", "%s fragt seit %d Minuten nicht mehr ab - neue Sperren "
+                                 "kommen nicht an. Auf dem Server: systemctl status "
+                                 "crowdsec-firewall-bouncer" % (b.get("name"), still // 60)))
+    for quelle, n in sorted(fw["gelesen"].items()):
+        if not n.get("zeilen"):
+            w.append(("Quelle", "Aus %s kam seit dem Start von CrowdSec keine Zeile - "
+                                "stimmt der Pfad in crowdsec/erfassung/?" % quelle))
+    return w + [("Meldung", f) for f in fw["fehler"]]
+
+
+def firewall_formular(art, felder, knopf_text, klasse="knopf-rahmen"):
+    return ('<form method="post" action="/auftrag" class="formular">'
+            '<input type="hidden" name="art" value="%s">%s'
+            '<div class="aktionen"><button type="submit" class="%s">%s</button></div></form>'
+            % (e(art), felder, klasse, e(knopf_text)))
+
+
+def ansicht_firewall(fw, betrieb, quelle, auftraege):
+    if fw is None:
+        return ('<div class="reihe" style="grid-template-columns:1fr"><div class="karte">'
+                '<h2>Noch keine Lage</h2><div class="leer">Die Lage der Firewall schreibt der '
+                'Server alle fuenf Minuten - sobald es den Ordner crowdsec/ gibt und das '
+                'Auftragsbuch eingerichtet ist. Auf dem Server: sudo prolo einrichten '
+                '(gefahrlos zu wiederholen). Was die Firewall tut: crowdsec/LIESMICH.md.'
+                '</div>%s</div></div>'
+                % (knopf("firewall_lesen", "", "", "Jetzt nachsehen") if betrieb else ""))
+
+    sperren, meldungen, freigaben = fw["sperren"], fw["meldungen"], fw["freigaben"]
+    mit_sperre = sum(1 for m in meldungen if m.get("zur_sperre"))
+    lebt = [b for b in fw["bouncer"]
+            if b.get("still_s") is not None and b["still_s"] <= BOUNCER_STILL_S]
+    if lebt:
+        bouncer = kpi("Bouncer", "holt ab", "zuletzt vor %d s" % min(b["still_s"] for b in lebt))
+    elif fw["bouncer"]:
+        bouncer = kpi("Bouncer", "still", "neue Sperren kommen nicht an")
+    else:
+        bouncer = kpi("Bouncer", "fehlt", "es wird nichts gesperrt")
+    hero = ('<div class="feature"><div class="lbl">Gesperrt</div><div class="wert">%d</div>'
+            '<div class="sub">Adressen, dazu %s aus der Gemeinschafts-Blockliste</div></div>'
+            % (len(sperren), zahl(fw["gemeinschaft"])))
+
+    warnungen = firewall_warnungen(fw)
+    warn = ('<div class="reihe" style="grid-template-columns:1fr"><div class="karte">'
+            '<h2>Zu klaeren</h2>%s</div></div>'
+            % "".join('<div class="hinweis"><div class="wo">%s</div><div class="was">%s</div></div>'
+                      % (e(wo), e(was)) for wo, was in warnungen)) if warnungen else ""
+
+    def herkunft(o):
+        klasse, wort = HERKUNFT.get(str(o or "").lower(), ("m-warm", o or "?"))
+        return '<span class="marker %s">%s</span>' % (klasse, e(wort))
+
+    # Zwei Spalten, nicht drei: bei 360 px stand der Knopf sonst halb
+    # verdeckt im Scrollkasten ("Au...") - nur im Bild gefunden (F-02).
+    zeilen = "".join(
+        '<tr><td class="lang"><span class="mono">%s</span> %s<div class="ktx">%s%s &middot; noch %s</div></td>'
+        '<td class="griff">%s</td></tr>'
+        % (e(s.get("wert")), herkunft(s.get("herkunft")), e(s.get("regel")),
+           (" &middot; " + e(s.get("land"))) if s.get("land") else "", e(s.get("bleibt")),
+           knopf("firewall_aufheben", "adresse", s.get("wert") or "", "Aufheben",
+                 frage="Sperre fuer %s aufheben?" % s.get("wert")) if betrieb else "")
+        for s in sperren[:200])
+    tabelle_sperren = ('<div class="scroll" style="margin-top:12px"><table><thead><tr>'
+                       '<th>Adresse und Grund</th><th></th></tr></thead>'
+                       '<tbody>%s</tbody></table></div>' % zeilen) if sperren else \
+        ('<div class="leer">Gerade ist keine Adresse gesperrt. Wer in eine Regel laeuft, '
+         'steht hier - mit dem Grund und wie lange noch.</div>')
+
+    if betrieb:
+        dauer = "".join('<option value="%s"%s>%s</option>'
+                        % (w, " selected" if w == "24h" else "", t) for w, t in DAUERN)
+        sperren_form = firewall_formular(
+            "firewall_sperren",
+            '<div class="feld"><label for="fw-adresse">Adresse oder Netz</label>'
+            '<input id="fw-adresse" name="adresse" required maxlength="49" autocomplete="off" '
+            'spellcheck="false" placeholder="203.0.113.7 oder 203.0.113.0/24"></div>'
+            '<div class="feld"><label for="fw-dauer">Dauer</label>'
+            '<select id="fw-dauer" name="dauer">%s</select></div>'
+            '<div class="feld"><label for="fw-grund">Grund</label>'
+            '<input id="fw-grund" name="grund" required maxlength="200" '
+            'placeholder="steht spaeter an der Sperre"></div>' % dauer,
+            "Sperren", "knopf")
+        eigene = ('<div class="erkl">Deine Adresse gerade: <span class="mono">%s</span> - '
+                  'die laesst sich hier nicht sperren.</div>%s'
+                  % (e(quelle), firewall_formular(
+                      "firewall_erlauben",
+                      '<input type="hidden" name="adresse" value="%s">'
+                      '<input type="hidden" name="grund" value="eigene Adresse">' % e(quelle),
+                      "Meine Adresse freigeben"))) if quelle else ""
+        sperren_karte = ('<div class="karte"><h2>Adresse sperren</h2><div class="ktx">'
+                         'Sofort, fuer alle Werkzeuge und SSH. Interne Adressen und Netze '
+                         'groesser als /16 lehnt der Server ab.</div>%s%s</div>'
+                         % (sperren_form, eigene))
+    else:
+        sperren_karte = ('<div class="karte"><h2>Adresse sperren</h2><div class="leer">'
+                         'Sperren und Freigeben darf die Gruppe %s.</div></div>'
+                         % e(GRUPPE_BETRIEB))
+
+    mzeilen = "".join(
+        '<tr><td class="mono wann">%s</td><td class="lang"><span class="mono">%s</span>%s'
+        '<div class="ktx">%s &middot; %s Ereignis(se)</div></td><td class="griff">%s</td></tr>'
+        % (zeit(m.get("zeit")), e(m.get("adresse")),
+           (' <span class="ktx">%s</span>' % e(m.get("land"))) if m.get("land") else "",
+           e(m.get("regel")), e(m.get("anzahl")),
+           '<span class="marker m-rot">Sperre</span>' if m.get("zur_sperre") else
+           '<span class="marker m-weg">beobachtet</span>' if m.get("beobachtet") else
+           '<span class="marker m-warm">keine Sperre</span>')
+        for m in meldungen[:100])
+    tabelle_meldungen = ('<div class="scroll" style="margin-top:12px"><table><thead><tr>'
+                         '<th>Wann</th><th>Wer und was</th><th>Folge</th></tr></thead>'
+                         '<tbody>%s</tbody></table></div>' % mzeilen) if meldungen else \
+        ('<div class="leer">In den letzten sieben Tagen hat keine Regel angeschlagen. '
+         'Scanner finden jeden Server - bleibt das tagelang leer, lohnt ein Blick auf '
+         '&bdquo;Was gelesen wird&ldquo;.</div>')
+
+    fzeilen = "".join(
+        '<tr><td class="lang"><span class="mono">%s</span><div class="ktx">%s</div></td>'
+        '<td class="griff">%s</td></tr>'
+        % (e(f.get("wert")), e(f.get("grund")),
+           knopf("firewall_nicht_erlauben", "adresse", f.get("wert") or "", "Entfernen",
+                 frage="%s wieder sperrbar machen?" % f.get("wert")) if betrieb else "")
+        for f in freigaben)
+    freigabe_form = firewall_formular(
+        "firewall_erlauben",
+        '<div class="feld"><label for="fr-adresse">Adresse oder Netz</label>'
+        '<input id="fr-adresse" name="adresse" required maxlength="49" autocomplete="off" '
+        'spellcheck="false"></div><div class="feld"><label for="fr-grund">Grund</label>'
+        '<input id="fr-grund" name="grund" required maxlength="200" '
+        'placeholder="z. B. Buero, Zuhause"></div>', "Freigeben") if betrieb else ""
+    freigabe_karte = ('<div class="karte"><h2>Freigabeliste</h2><div class="ktx">Diese Adressen '
+                      'werden nie gesperrt, auch wenn sie in eine Regel laufen.</div>%s%s</div>'
+                      % (('<div class="scroll" style="margin-top:12px"><table><tbody>%s</tbody>'
+                          '</table></div>' % fzeilen) if freigaben else
+                         '<div class="leer">Noch leer. Die eigene Adresse gehoert hierher - '
+                         'wer sich selbst aussperrt, kommt nur noch ueber den Server herein.</div>',
+                         freigabe_form))
+
+    regeln = "".join(
+        '<div class="hinweis"><div class="wo mono">%s</div><div class="was">%s</div>'
+        '<div class="erkl">%s &middot; crowdsec/regeln/%s</div></div>'
+        % (e(r.get("name")), e(r.get("beschreibung")), e(r.get("mass")), e(r.get("datei")))
+        for r in fw["regeln"]) or \
+        '<div class="leer">Keine eigenen Regeln - nur die aus dem Hub.</div>'
+    gelesen = "".join(
+        '<div class="hinweis"><div class="wo mono">%s</div><div class="was">%s Zeilen, '
+        '%s erkannt</div></div>' % (e(q), zahl(n.get("zeilen")), zahl(n.get("erkannt")))
+        for q, n in sorted(fw["gelesen"].items()))
+    gelesen_karte = ('<div class="karte"><h2>Was gelesen wird</h2><div class="ktx">Seit dem '
+                     'letzten Start von CrowdSec.</div>%s<div class="erkl">Dazu, freiwillig: '
+                     'die CrowdSec-Konsole als Karte und Verlauf - <a class="mehr" '
+                     'href="https://app.crowdsec.net" rel="noopener">app.crowdsec.net</a>, '
+                     'Einrichtung in crowdsec/LIESMICH.md.</div></div>'
+                     % (gelesen or '<div class="leer">Keine Quelle eingetragen.</div>'))
+
+    letzte = auftrag_tabelle(auftraege[:5], "Noch kein Auftrag an die Firewall.")
+    nachsehen = knopf("firewall_lesen", "", "", "Jetzt nachsehen") if betrieb else ""
+
+    return ('<div class="reihe kpi4">%s%s%s%s</div>%s'
+            '<div class="reihe zwei oben"><div class="karte"><h2>Aktive Sperren</h2>'
+            '<div class="ktx">Eigene und erkannte - die Gemeinschafts-Blockliste steht nur '
+            'als Zahl oben.</div>%s</div>%s</div>'
+            '<div class="reihe zwei oben"><div class="karte"><h2>Meldungen</h2>'
+            '<div class="ktx">Die letzten sieben Tage, neueste zuerst.</div>%s</div>%s</div>'
+            '<div class="reihe zwei oben"><div class="karte"><h2>Eigene Regeln</h2>'
+            '<div class="ktx">In crowdsec/regeln/ - eine neue Datei, dann crowdsec neu '
+            'starten (crowdsec/LIESMICH.md).</div>%s</div>%s</div>'
+            '<div class="reihe" style="grid-template-columns:1fr"><div class="karte">'
+            '<h2>Letzte Auftraege an die Firewall</h2><div class="ktx">Die Lage oben frischt '
+            'der Server alle fuenf Minuten auf und nach jedem Auftrag.</div>%s'
+            '<div class="aktionen" style="margin-top:12px">%s</div></div></div>'
+            % (hero, kpi("Meldungen", len(meldungen), "in 7 Tagen, %d mit Sperre" % mit_sperre),
+               bouncer, kpi("Freigaben", len(freigaben), "werden nie gesperrt"), warn,
+               tabelle_sperren, sperren_karte, tabelle_meldungen, freigabe_karte,
+               regeln, gelesen_karte, letzte, nachsehen))
+
+
 def ansicht_auftraege(auftraege, betrieb):
     sichern = ""
     if betrieb:
@@ -1647,6 +1954,9 @@ def ansicht_auftrag(lage, ausgabe, netze=(), betrieb=False):
     ziel = lage.get("werkzeug") or (lage.get("name") if lage.get("art") == "neu" else "")
     if ziel and NAME.fullmatch(str(ziel)):
         weiter = ('<a class="mehr" href="/werkzeug/%s">zu %s</a>' % (e(ziel), e(ziel)))
+    if str(lage.get("art") or "").startswith("firewall_"):
+        weiter = ('<a class="mehr" href="/firewall">zur Firewall</a> <span class="erkl">'
+                  'Die Lage dort ist in wenigen Sekunden aufgefrischt.</span>')
     # A-03: nach dem Anlegen ist Starten der naechste Griff.
     if lage.get("art") == "neu" and lage.get("status") == "ok" and betrieb and ziel:
         weiter = ('<div class="aktionen">%s%s</div><div class="erkl">Vorher: den Namen beim '
@@ -1904,11 +2214,21 @@ class Handler(BaseHTTPRequestHandler):
                           ansicht_auftraege(auftraege_lesen(), betrieb), pfad)
         if pfad == "/api/lage":
             return self.json_aus(200, lage())
+        if pfad == "/firewall":
+            fw = firewall_lesen()
+            ktx = ("CrowdSec erkennt, der Bouncer sperrt - Stand %s" % zeit_kurz(fw.get("stand"))
+                   if fw and zeit_kurz(fw.get("stand")) else "CrowdSec erkennt, der Bouncer sperrt")
+            return zeigen("Firewall", ktx,
+                          ansicht_firewall(fw, betrieb, quelle_von(self.headers.get("X-Forwarded-For")),
+                                           [a for a in auftraege_lesen()
+                                            if str(a.get("art") or "").startswith("firewall_")]),
+                          pfad)
 
         l = lage()
         if pfad == "/":
             return zeigen("Uebersicht", "Was laeuft, und was jemand ansehen sollte",
-                          ansicht_uebersicht(l, auftraege_lesen(grenze=5), betrieb), pfad)
+                          ansicht_uebersicht(l, auftraege_lesen(grenze=5), betrieb,
+                                             firewall_lesen()), pfad)
         if pfad == "/werkzeuge":
             bestand = bestand_lesen()
             return zeigen("Werkzeuge", "Laufend und angehalten, mit Namen und Schutz",
@@ -1961,8 +2281,9 @@ class Handler(BaseHTTPRequestHandler):
             feld = self.formular()
             kennung, _ = auftrag_ablegen(
                 (feld.get("art") or [""])[0],
-                {k: (feld.get(k) or [""])[0] for k in ("werkzeug", "netz")},
-                nutzer["nutzer_id"])
+                {k: (feld.get(k) or [""])[0]
+                 for k in ("werkzeug", "netz", "adresse", "dauer", "grund")},
+                nutzer["nutzer_id"], quelle_von(self.headers.get("X-Forwarded-For")))
             return self.weiter("/auftrag/%s" % kennung)
         if pfad == "/neu/pruefen":
             self.gleicher_ursprung()

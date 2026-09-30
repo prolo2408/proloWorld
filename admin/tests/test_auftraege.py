@@ -448,7 +448,7 @@ class TestBedienen(unittest.TestCase):
                 self.assertEqual(kode, 404)
 
     def test_seiten_gehen_auf(self):
-        for p in ("/", "/werkzeuge", "/netze", "/auftraege", "/einstellungen"):
+        for p in ("/", "/werkzeuge", "/netze", "/firewall", "/auftraege", "/einstellungen"):
             with self.subTest(p=p):
                 kode, _, _ = self.hol(p, self.BEDIENEN)
                 self.assertEqual(kode, 200)
@@ -460,6 +460,220 @@ class TestBedienen(unittest.TestCase):
         self.assertIn('value="netz_anlegen"', text)
         kode, _, kopf = self.hol("/auftrag", self.BEDIENEN, b"art=netz_anlegen&netz=netz-neu")
         self.assertEqual(kode, 303)
+
+
+    # -------------------------------------------------- Firewall (F-02)
+    def firewall_datei(self, **mehr):
+        lage = firewall_lage()
+        lage.update(mehr)
+        with open(os.path.join(server.ERLEDIGT, "firewall.json"), "w") as f:
+            json.dump(lage, f)
+
+    def test_firewall_sperren_legt_einen_auftrag_ab(self):
+        self.firewall_datei()
+        kopf = dict(self.BEDIENEN, **{"X-Forwarded-For": "198.51.100.20"})
+        kode, _, antwort = self.hol("/auftrag", kopf,
+                                    b"art=firewall_sperren&adresse=93.184.216.34&dauer=24h"
+                                    b"&grund=raet+Links")
+        self.assertEqual(kode, 303)
+        k = antwort["Location"][len("/auftrag/"):]
+        with open(os.path.join(server.EINGANG, k + ".json")) as f:
+            d = json.load(f)
+        self.assertEqual((d["art"], d["adresse"], d["dauer"], d["grund"], d["wer"]),
+                         ("firewall_sperren", "93.184.216.34", "24h", "raet Links", "arthur"))
+
+    def test_die_eigene_adresse_sperrt_niemand(self):
+        kopf = dict(self.BEDIENEN, **{"X-Forwarded-For": "1.1.1.1, 93.184.216.34"})
+        kode, text, _ = self.hol("/auftrag", kopf,
+                                 b"art=firewall_sperren&adresse=93.184.216.0/24&dauer=1h&grund=x")
+        self.assertEqual(kode, 400)
+        self.assertIn("eigene Adresse", text)
+        self.assertEqual(self.eingang(), [])
+
+    def test_zaehlt_der_letzte_eintrag_nicht_der_erfundene_erste(self):
+        # Der erste Eintrag ist vom Aufrufer erfunden (§11, N-48): wer sich
+        # als 93.184.216.34 ausgibt, ist es nicht - gesperrt werden darf sie.
+        kopf = dict(self.BEDIENEN, **{"X-Forwarded-For": "93.184.216.34, 198.51.100.20"})
+        kode, _, _ = self.hol("/auftrag", kopf,
+                              b"art=firewall_sperren&adresse=93.184.216.34&dauer=1h&grund=x")
+        self.assertEqual(kode, 303)
+
+    def test_firewall_nur_fuer_den_betrieb(self):
+        kode, _, _ = self.hol("/auftrag", self.SEHEN,
+                              b"art=firewall_aufheben&adresse=93.184.216.34")
+        self.assertEqual(kode, 403)
+        self.firewall_datei()
+        _, text, _ = self.hol("/firewall", self.SEHEN)
+        self.assertNotIn('action="/auftrag"', text)
+        self.assertIn("darf die Gruppe admin-betrieb", text)
+
+    def test_die_firewall_seite(self):
+        self.firewall_datei()
+        kode, text, _ = self.hol("/firewall", dict(self.BEDIENEN,
+                                                   **{"X-Forwarded-For": "93.184.216.99"}))
+        self.assertEqual(kode, 200)
+        self.assertIn('value="firewall_sperren"', text)
+        self.assertIn("Meine Adresse freigeben", text)
+        self.assertIn('<span class="mono">93.184.216.99</span>', text)
+
+    def test_die_uebersicht_hat_die_kachel(self):
+        self.firewall_datei()
+        _, text, _ = self.hol("/", self.BEDIENEN)
+        self.assertIn('href="/firewall"', text)
+        self.assertIn("Sperren, der Bouncer holt ab", text)
+
+
+def firewall_lage(**mehr):
+    """Eine Lage, wie prolo firewall --json sie schreibt - von Hand."""
+    lage = {
+        "stand": server.jetzt().isoformat(timespec="seconds"),
+        "crowdsec": {"laeuft": True, "gesundheit": "healthy"},
+        "bouncer": [{"name": "firewall", "version": "v0.0.31", "letzte_abfrage": "x",
+                     "still_s": 5, "abgemeldet": False}],
+        "sperren": [{"wert": "198.51.100.7", "art": "ip", "regel": "prolo/falle",
+                     "herkunft": "crowdsec", "bleibt": "23 h 57 min", "land": "NL"},
+                    {"wert": "203.0.113.5", "art": "ip",
+                     "regel": "</script><script>alert(1)</script>",
+                     "herkunft": "cscli", "bleibt": "13 Tage", "land": ""}],
+        "gemeinschaft": 12345,
+        "meldungen": [{"zeit": "2026-09-30T09:39:34Z", "regel": "prolo/falle",
+                       "adresse": "198.51.100.7", "land": "NL", "anzahl": 1, "zur_sperre": True},
+                      {"zeit": "2026-09-30T09:28:36Z", "regel": "crowdsecurity/ssh-bf",
+                       "adresse": "192.0.2.50", "land": "", "anzahl": 6, "zur_sperre": True},
+                      {"zeit": "2026-09-30T09:29:39Z", "regel": "prolo/zugangslink-raten",
+                       "adresse": "203.0.113.12", "land": "", "anzahl": 10, "zur_sperre": False}],
+        "freigaben": [{"wert": "93.184.216.34", "grund": "Buero", "seit": "x"}],
+        "regeln": [{"datei": "falle.yaml", "name": "prolo/falle", "art": "trigger",
+                    "beschreibung": "Fragt nach Pfaden", "mass": "sofort"}],
+        "gelesen": {"/var/log/traefik/zugriff.log": {"zeilen": 51, "erkannt": 51},
+                    "/var/log/host/auth.log": {"zeilen": 12, "erkannt": 12}},
+        "fehler": []}
+    lage.update(mehr)
+    return lage
+
+
+class TestFirewallPruefen(unittest.TestCase):
+    def kode(self, art, quelle="", **felder):
+        with self.assertRaises(server.Antwort) as f:
+            server.auftrag_pruefen(art, felder, quelle)
+        return f.exception
+
+    def test_gueltig(self):
+        for art, felder in (
+                ("firewall_sperren", {"adresse": "93.184.216.34", "dauer": "24h", "grund": "raet"}),
+                ("firewall_sperren", {"adresse": "93.184.216.0/24", "dauer": "30m", "grund": "x"}),
+                ("firewall_sperren", {"adresse": "2a00:1450::1", "dauer": "7d", "grund": "x"}),
+                ("firewall_aufheben", {"adresse": "93.184.216.34"}),
+                ("firewall_erlauben", {"adresse": "93.184.216.34", "grund": "Buero"}),
+                ("firewall_nicht_erlauben", {"adresse": "93.184.216.34"})):
+            with self.subTest(art=art, felder=felder):
+                self.assertEqual(server.auftrag_pruefen(art, felder), felder)
+        self.assertEqual(server.auftrag_pruefen("firewall_lesen", {}), {})
+
+    def test_ungueltig(self):
+        s = {"dauer": "1h", "grund": "x"}
+        for art, felder in (
+                ("firewall_sperren", dict(s, adresse="1.2.3.4; rm -rf /")),
+                ("firewall_sperren", dict(s, adresse="")),
+                ("firewall_sperren", dict(s, adresse="1" * 50)),
+                ("firewall_sperren", dict(s, adresse="93.184.216.34", dauer="24")),
+                ("firewall_sperren", dict(s, adresse="93.184.216.34", dauer="0h")),
+                ("firewall_sperren", dict(s, adresse="93.184.216.34", dauer="5y")),
+                ("firewall_sperren", dict(s, adresse="93.184.216.34", grund="")),
+                ("firewall_sperren", dict(s, adresse="93.184.216.34", grund="a" * 201)),
+                ("firewall_sperren", dict(s, adresse="93.184.216.34", grund="a\nb")),
+                ("firewall_erlauben", {"adresse": "93.184.216.34", "grund": ""}),
+                ("firewall_aufheben", {"adresse": "hallo"})):
+            with self.subTest(art=art, felder=felder):
+                self.assertEqual(self.kode(art, **felder).kode, 400)
+
+    def test_die_eigene_adresse(self):
+        a = self.kode("firewall_sperren", quelle="93.184.216.34",
+                      adresse="93.184.216.34", dauer="1h", grund="x")
+        self.assertIn("eigene Adresse (93.184.216.34)", a.text)
+        self.assertIn("sudo prolo firewall aufheben 93.184.216.34", a.text)
+        # Ein Netz, das sie enthaelt, ebenso.
+        self.assertEqual(self.kode("firewall_sperren", quelle="93.184.216.34",
+                                   adresse="93.184.216.0/24", dauer="1h", grund="x").kode, 400)
+        # Eine andere geht, und die eigene freigeben auch.
+        server.auftrag_pruefen("firewall_sperren", {"adresse": "93.184.217.1", "dauer": "1h",
+                                                    "grund": "x"}, "93.184.216.34")
+        server.auftrag_pruefen("firewall_erlauben", {"adresse": "93.184.216.34",
+                                                     "grund": "x"}, "93.184.216.34")
+
+    def test_die_quelle_ist_der_letzte_eintrag(self):
+        for xff, soll in (("1.2.3.4, 93.184.216.34", "93.184.216.34"),
+                          ("93.184.216.34", "93.184.216.34"),
+                          (" 2a00:1450::1 ", "2a00:1450::1"),
+                          ("1.2.3.4, unsinn", ""), ("", ""), (None, "")):
+            with self.subTest(xff=xff):
+                self.assertEqual(server.quelle_von(xff), soll)
+
+
+class TestFirewallAnsicht(unittest.TestCase):
+    def setUp(self):
+        buch()
+
+    def test_ohne_lage(self):
+        self.assertIsNone(server.firewall_lesen())
+        text = server.ansicht_firewall(None, True, "", [])
+        self.assertIn("Noch keine Lage", text)
+        self.assertIn('value="firewall_lesen"', text)
+        self.assertNotIn('value="firewall_lesen"', server.ansicht_firewall(None, False, "", []))
+
+    def test_kaputte_lage(self):
+        with open(os.path.join(server.ERLEDIGT, "firewall.json"), "w") as f:
+            f.write("{kein json")
+        self.assertIsNone(server.firewall_lesen())
+        with open(os.path.join(server.ERLEDIGT, "firewall.json"), "w") as f:
+            json.dump({"sperren": "x", "meldungen": [1, {"a": 1}], "gemeinschaft": "12",
+                       "gelesen": [], "crowdsec": "ja"}, f)
+        d = server.firewall_lesen()
+        self.assertEqual((d["sperren"], d["meldungen"], d["gemeinschaft"], d["gelesen"],
+                          d["crowdsec"], d["fehler"]), ([], [{"a": 1}], 12, {}, {}, []))
+
+    def test_die_lage(self):
+        text = server.ansicht_firewall(firewall_lage(), True, "93.184.216.99", [])
+        # Von Hand: 2 Sperren, 12.345 aus der Gemeinschaft, 3 Meldungen,
+        # davon 2 mit Sperre, 1 Freigabe.
+        self.assertIn('<div class="lbl">Gesperrt</div><div class="wert">2</div>', text)
+        self.assertIn("dazu 12.345 aus der Gemeinschafts-Blockliste", text)
+        self.assertIn("in 7 Tagen, 2 mit Sperre", text)
+        self.assertIn("holt ab", text)
+        self.assertNotIn("Zu klaeren", text)
+        self.assertNotIn("<script>alert(1)", text)
+        self.assertIn("&lt;/script&gt;&lt;script&gt;alert(1)", text)
+        self.assertIn('data-frage="Sperre fuer 198.51.100.7 aufheben?"', text)
+        self.assertEqual(text.count('class="knopf"'), 1)     # ein Primaerknopf (§5)
+
+    def test_leer(self):
+        text = server.ansicht_firewall(firewall_lage(sperren=[], meldungen=[], freigaben=[]),
+                                       True, "", [])
+        for satz in ("Gerade ist keine Adresse gesperrt", "keine Regel angeschlagen",
+                     "Noch leer. Die eigene Adresse"):
+            self.assertIn(satz, text)
+
+    def test_was_zu_klaeren_ist(self):
+        alt = (server.jetzt() - server.datetime.timedelta(hours=2)).isoformat()
+        for mehr, satz in (
+                ({"bouncer": []}, "Kein Bouncer angemeldet"),
+                ({"bouncer": [{"name": "firewall", "still_s": 600}]},
+                 "fragt seit 10 Minuten nicht mehr ab"),
+                ({"bouncer": [{"name": "firewall", "still_s": None}]}, "noch nie abgefragt"),
+                ({"gelesen": {"/var/log/host/auth.log": {"zeilen": 0, "erkannt": 0}}},
+                 "Aus /var/log/host/auth.log kam seit dem Start"),
+                ({"stand": alt}, "aelter als 15 Minuten"),
+                ({"crowdsec": {"laeuft": False}}, "laeuft nicht"),
+                ({"fehler": ["Sperren: cscli antwortet nicht"]}, "cscli antwortet nicht")):
+            with self.subTest(satz=satz):
+                text = server.ansicht_firewall(firewall_lage(**mehr), True, "", [])
+                self.assertIn("Zu klaeren", text)
+                self.assertIn(satz, text)
+
+    def test_zahlen_deutsch(self):
+        for n, soll in ((0, "0"), (12345, "12.345"), (1284500, "1.284.500"),
+                        (None, "-"), ("abc", "-")):
+            self.assertEqual(server.zahl(n), soll)
 
 
 # ------------------------------------------------ Compose einwerfen (A-03)

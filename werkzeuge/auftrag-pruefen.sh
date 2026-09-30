@@ -62,7 +62,15 @@ YML
 #!/bin/bash
 D="$(dirname "$0")"
 printf '%s\n' "$*" >> "$D/.aufrufe"
-env | grep -E '^(GEHEIM|PROLO_AUFTRAG)=' | sort >> "$D/.umgebung"
+# F-02: je Argument geklammert - ob ein Grund mit Leerzeichen EIN Argument bleibt.
+printf '[%s]' "$@" >> "$D/.argumente"; echo >> "$D/.argumente"
+env | grep -E '^(GEHEIM|PROLO_AUFTRAG|PROLO_FIREWALL_WER)=' | sort >> "$D/.umgebung"
+# F-02: eine Tat an der Firewall aendert, was "prolo firewall --json" danach
+# sagt - wie beim echten CrowdSec. Nur so ist zu sehen, ob die Lage NACH
+# dem Auftrag neu geschrieben wird und nicht nur davor.
+if [ "$1" = firewall ] && [ -n "${2:-}" ]; then
+  printf '{"stand": "nach %s", "sperren": []}' "$2" > "$D/.fw-ausgabe"
+fi
 echo "prolo-attrappe: $*"
 # A-03: bei "neu" die Compose-Datei festhalten, solange es sie gibt - danach
 # muss sie weg sein (sie lag nur fuer diesen Aufruf da).
@@ -79,6 +87,19 @@ esac
 exit 0
 STUB
   chmod +x "$S/werkzeuge/prolo"
+  # F-02: eine Attrappe fuer "prolo firewall --json" - gibt aus, was in
+  # .fw-ausgabe steht. Sie liegt von Anfang an da: ob sie gerufen wird,
+  # entscheidet allein, ob es crowdsec/ gibt.
+  cat > "$S/werkzeuge/firewall.py" <<'STUB'
+import os, sys
+d = os.path.dirname(os.path.abspath(__file__))
+with open(os.path.join(d, ".fw-aufrufe"), "a") as f:
+    f.write(" ".join(sys.argv[1:]) + "\n")
+try:
+    sys.stdout.write(open(os.path.join(d, ".fw-ausgabe")).read())
+except OSError:
+    sys.stdout.write('{"stand": "attrappe", "sperren": []}')
+STUB
   PROLO_AUFTRAG_PROBE=1 python3 "$S/werkzeuge/auftrag.py" einrichten > /dev/null
 }
 
@@ -299,6 +320,61 @@ Werte als Text|{"art":"neu","name":"u2","compose":$CJ,"dienst":"","port":"","net
 FAELLE
   pruefe "neu: keine Ablehnung erreicht prolo" "" "$(aufrufe "$S")"
 
+  # --- Firewall (F-02) --------------------------------------------------
+  local FW="$S/admin/auftraege/erledigt/firewall.json"
+  pruefe "ohne crowdsec/ gibt es keine Firewall-Lage" "fehlt" "$([ -e "$FW" ] && echo da || echo fehlt)"
+  : > "$S/werkzeuge/.aufrufe"; : > "$S/werkzeuge/.argumente"; : > "$S/werkzeuge/.umgebung"
+  mkdir -p "$S/crowdsec"; printf 'services: {}\n' > "$S/crowdsec/docker-compose.yml"
+  printf '{"stand": "eins", "sperren": [{"wert": "198.51.100.7"}]}' > "$S/werkzeuge/.fw-ausgabe"
+  K=$(auftrag "$S" '{"art":"firewall_sperren","adresse":"93.184.216.34","dauer":"24h","grund":"raet Links","wer":"artur"}')
+  abarbeiten "$S"
+  pruefe "firewall_sperren: ok" "ok" "$(lage "$S" "$K" status)"
+  pruefe "firewall_sperren: Adresse, Dauer und Grund als je EIN Argument" \
+    "[firewall][sperren][93.184.216.34][24h][raet Links]" "$(tail -1 "$S/werkzeuge/.argumente")"
+  pruefe "firewall_sperren: wer es war, geht mit" "PROLO_FIREWALL_WER=artur" \
+    "$(grep PROLO_FIREWALL_WER "$S/werkzeuge/.umgebung" | tail -1)"
+  pruefe "firewall_sperren: die Lage steht in der Liste" "93.184.216.34" "$(lage "$S" "$K" adresse)"
+  pruefe "nach dem Auftrag ist die Firewall-Lage frisch geschrieben" "nach sperren" \
+    "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["stand"])' "$FW" 2>&1)"
+  printf '{"stand": "zwei", "sperren": []}' > "$S/werkzeuge/.fw-ausgabe"
+  abarbeiten "$S"
+  pruefe "ohne Auftrag und frisch: nicht jedes Mal neu (alle 5 Minuten reicht)" "nach sperren" \
+    "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["stand"])' "$FW" 2>&1)"
+  printf '[1, 2]' > "$S/werkzeuge/.fw-ausgabe"
+  K=$(auftrag "$S" '{"art":"firewall_lesen"}')
+  abarbeiten "$S"
+  pruefe "firewall_lesen: prolo firewall" "[firewall]" "$(tail -1 "$S/werkzeuge/.argumente")"
+  pruefe "eine Lage in falscher Form ersetzt die alte nicht" "nach sperren" \
+    "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["stand"])' "$FW" 2>&1)"
+  pruefe "... und der Auftrag ist trotzdem ok" "ok" "$(lage "$S" "$K" status)"
+  printf '{"stand": "drei", "sperren": []}' > "$S/werkzeuge/.fw-ausgabe"
+  for J in '{"art":"firewall_aufheben","adresse":"93.184.216.0/24"}|[firewall][aufheben][93.184.216.0/24]' \
+           '{"art":"firewall_erlauben","adresse":"2a00:1450::1","grund":"Buero"}|[firewall][erlauben][2a00:1450::1][Buero]' \
+           '{"art":"firewall_nicht_erlauben","adresse":"93.184.216.34"}|[firewall][nicht-mehr-erlauben][93.184.216.34]'; do
+    K=$(auftrag "$S" "${J%%|*}")
+    abarbeiten "$S"
+    pruefe "$(lage "$S" "$K" art): an prolo" "${J#*|}" "$(tail -1 "$S/werkzeuge/.argumente")"
+  done
+  : > "$S/werkzeuge/.aufrufe"
+  while IFS='|' read -r was json; do
+    [ -n "$was" ] || continue
+    K=$(auftrag "$S" "$json")
+    abarbeiten "$S"
+    pruefe "firewall abgelehnt: $was" "abgelehnt" "$(lage "$S" "$K" status)"
+  done <<'FAELLE'
+keine Adresse|{"art":"firewall_sperren","adresse":"1.2.3.4; rm -rf /","dauer":"1h","grund":"x"}
+leere Adresse|{"art":"firewall_aufheben","adresse":""}
+zu lange Adresse|{"art":"firewall_aufheben","adresse":"11111111111111111111111111111111111111111111111111"}
+Dauer ohne Einheit|{"art":"firewall_sperren","adresse":"93.184.216.34","dauer":"24","grund":"x"}
+Dauer in Jahren|{"art":"firewall_sperren","adresse":"93.184.216.34","dauer":"5y","grund":"x"}
+Sperren ohne Grund|{"art":"firewall_sperren","adresse":"93.184.216.34","dauer":"1h","grund":"  "}
+Freigeben ohne Grund|{"art":"firewall_erlauben","adresse":"93.184.216.34","grund":""}
+Grund mit Zeilenumbruch|{"art":"firewall_sperren","adresse":"93.184.216.34","dauer":"1h","grund":"a\nb"}
+ein fremdes Feld|{"art":"firewall_aufheben","adresse":"93.184.216.34","befehl":"reboot"}
+FAELLE
+  pruefe "firewall: keine Ablehnung erreicht prolo" "" "$(aufrufe "$S")"
+  rm -rf "$S/crowdsec"
+
   # --- Grenzen ----------------------------------------------------------
   echo schlafen > "$S/werkzeuge/.verhalten"
   K=$(auftrag "$S" '{"art":"pruefen","werkzeug":"wiki"}')
@@ -414,6 +490,14 @@ neu: den Namen gibt es schon und es geht trotzdem|s/        if art == "neu" and 
 neu: die Compose-Datei bleibt liegen|s/^            shutil.rmtree(ordner, ignore_errors=True)$/            pass/
 neu: der Grund fuer das Teilen geht verloren|s/        befehl += \["--netz", a\["netz"\], "--geteilt", a\["geteilt"\]\]/        befehl += ["--netz", a["netz"]]/
 neu: ein Geheimnis kommt ueber einen Auftrag|s/^        if GEHEIM.search(k):$/        if False:/
+firewall: jede Adresse geht|s/^            ipaddress.ip_network(a, strict=False)$/            pass/
+firewall: jede Dauer geht|s/^    if "dauer" in felder and not DAUER.fullmatch(daten\["dauer"\]):$/    if False:/
+firewall: Sperren ohne Grund|s/^        if not g.strip() or len(g) > FREITEXT_MAX or not g.isprintable():$/        if False:/
+firewall: wer es war, geht verloren|s/^        umgebung\["PROLO_FIREWALL_WER"\] = .*/        pass/
+firewall: die Lage bleibt nach einem Auftrag alt|s/^                    firewall_schreiben(erzwingen=True)$/                    pass/
+firewall: die Lage wird jedes Mal geschrieben|s/^        if not erzwingen and os.path.exists(FIREWALL) and \\$/        if False and \\/
+firewall: eine Lage in falscher Form wird geschrieben|s/^        if not isinstance(lage, dict):$/        if False:/
+firewall: ohne crowdsec/ wird trotzdem gefragt|s/^        if not os.path.isfile(os.path.join(STACK, "crowdsec", "docker-compose.yml")):$/        if False:/
 die Ursache wird zu "unlesbar"|s/(zeilen\[-1\] if zeilen else "Rueckgabe %d" % roh.returncode)\[:300\]/"unlesbar"/
 MUT
   echo "gefunden: $((NR - DURCH))   entwischt: $DURCH"
