@@ -390,6 +390,48 @@ else
   fi
 fi
 
+# ---------------------------------------------------------------- 6d
+schritt "6d. Protokolle drehen"
+# N-106: traefik/logrotate.conf stand seit B-26 im Git, eingetragen wurde
+# sie nur, wenn jemand den Kommentar darin abtippte - auf keinem Server.
+# Das Zugriffsprotokoll wuchs ohne Grenze. Was ein Werkzeug an Drehregeln
+# braucht, sagt es selbst in <werkzeug>/logrotate.conf; hier steht kein
+# Werkzeugname. @STACK@ wird ersetzt, weil logrotate nur ganze Pfade kennt.
+#
+# Ein Verweis aus der alten Anleitung (ln -sf ... logrotate.conf) muss weg:
+# dieselbe Datei in zwei Regeln laesst logrotate mit "duplicate log entry"
+# und Rueckgabe 1 aussteigen - jeden Tag, gemessen.
+LR="${PROLO_LOGROTATE_ZIEL:-/etc/logrotate.d}"   # von aussen nur fuer die Probe
+DREH=0
+for K in "$STACK"/*/logrotate.conf; do
+  [ -e "$K" ] || continue
+  DREH=1
+  W=$(basename "$(dirname "$K")"); Z="$LR/prolo-$W"
+  for ALT in "$LR"/*; do
+    [ -L "$ALT" ] && [ "$(readlink -f "$ALT")" = "$(readlink -f "$K")" ] || continue
+    if tun; then rm -f "$ALT" && f_tat "$ALT entfernt (Verweis aus der alten Anleitung, jetzt $Z)"
+    else f_wuerde "$ALT entfernen (Verweis aus der alten Anleitung)"; fi
+  done
+  SOLL=$(sed "s#@STACK@#$STACK#g" "$K")
+  if [ -f "$Z" ] && [ ! -L "$Z" ] && [ "$(cat "$Z")" = "$SOLL" ] \
+     && [ "$(stat -c %a "$Z")" = 644 ]; then
+    f_ok "$Z"
+  elif ! tun; then
+    f_wuerde "$Z schreiben ($W/logrotate.conf mit $STACK)"
+  elif [ ! -d "$LR" ]; then
+    f_bad "$LR fehlt - ist logrotate installiert? sudo apt install logrotate, danach"
+    printf '          sudo prolo einrichten (gefahrlos zu wiederholen)\n'
+  else
+    # logrotate liest keine Regel, die Gruppe oder Welt beschreiben duerfen.
+    if A=$( { rm -f "$Z" && printf '%s\n' "$SOLL" > "$Z" && chmod 644 "$Z"; } 2>&1 ); then
+      f_tat "$Z geschrieben - $W dreht seine Protokolle jetzt taeglich"
+    else
+      f_bad "$Z liess sich nicht schreiben: $A"
+    fi
+  fi
+done
+[ "$DREH" -eq 1 ] || f_ok "kein Werkzeug bringt eine Drehregel mit"
+
 # ----------------------------------------------------------------- 7
 schritt "7. Geheimnisse verteilen"
 if tun && [ -s "$SCHL" ]; then

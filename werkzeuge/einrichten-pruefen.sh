@@ -153,6 +153,11 @@ YML
   # er einhaengt. acme.json und log/ entstehen erst auf dem Server.
   cp "$STACK/traefik/sicherung.conf" "$Z/traefik/"
   cp "$STACK/traefik/traefik.yml" "$Z/traefik/"
+  # N-106: die Drehregel, und ein Verweis darauf nach der alten Anleitung
+  # (ln -sf) - der muss beim Einrichten verschwinden.
+  cp "$STACK/traefik/logrotate.conf" "$Z/traefik/"
+  mkdir -p "$Z/logrotate-ziel"
+  ln -s "$Z/traefik/logrotate.conf" "$Z/logrotate-ziel/traefik-prolo"
   # Ein Werkzeug, das eine Konfigurationsdatei einhaengt, die FEHLT - das
   # darf nicht still als leerer Ordner entstehen.
   mkdir -p "$Z/ohnekonf"
@@ -181,10 +186,30 @@ lauf() {  # lauf <wurzel> [--trocken]
   # /usr/local/bin (N-100). HOME: "git config --global" ebenso.
   # PROLO_SYSTEMD_ZIEL und PROLO_AUFTRAG_PROBE: die Einheiten und das
   # Auftragsbuch entstehen in der Kopie, ohne root (A-01).
-  mkdir -p "$1/systemd-ziel"
+  mkdir -p "$1/systemd-ziel" "$1/logrotate-ziel"
   ( cd "$1" && PATH="$T/bin:$PATH" HOME="$1" PROLO_BIN="$1/bin-prolo" \
       PROLO_SYSTEMD_ZIEL="$1/systemd-ziel" PROLO_AUFTRAG_PROBE=1 \
+      PROLO_LOGROTATE_ZIEL="$1/logrotate-ziel" \
       bash "$1/werkzeuge/einrichten.sh" ${2:-} < /dev/null 2>&1 )
+}
+
+# N-106: Wirkung, nicht Ankuendigung (N-38). Setzt DREH_GRUND.
+drehregel_heil() {
+  local W="$1" Z="$1/logrotate-ziel/prolo-traefik" R
+  DREH_GRUND=""
+  if [ ! -f "$Z" ] || [ -L "$Z" ]; then DREH_GRUND="$Z fehlt"; return 1; fi
+  if ! grep -qxF "$W/traefik/log/*.log {" "$Z" || grep -q "@STACK@" "$Z"; then
+    DREH_GRUND="die Regel nennt nicht $W/traefik/log"; return 1; fi
+  if [ "$(stat -c %a "$Z")" != 644 ]; then
+    DREH_GRUND="Rechte $(stat -c %a "$Z") - logrotate liest nur, was Gruppe und Welt nicht schreiben"; return 1; fi
+  if [ -e "$W/logrotate-ziel/traefik-prolo" ] || [ -L "$W/logrotate-ziel/traefik-prolo" ]; then
+    DREH_GRUND="der Verweis aus der alten Anleitung liegt noch da"; return 1; fi
+  if ! command -v logrotate >/dev/null 2>&1; then
+    DREH_GRUND="logrotate fehlt auf dem Pruefrechner - sudo apt install logrotate"; return 1; fi
+  R=$(logrotate -d -s "$W/logrotate-stand" "$W/logrotate-ziel" 2>&1) \
+    || { DREH_GRUND="logrotate -d: $(grep -m1 error <<<"$R")"; return 1; }
+  grep -qF "$W/traefik/log/*.log" <<<"$R" \
+    || { DREH_GRUND="logrotate -d sieht die Regel nicht"; return 1; }
 }
 
 pruefen_einmal() {
@@ -222,6 +247,14 @@ pruefen_einmal() {
     && sag ok "der Zeitgeber fuer den Bestand ist installiert (A-02)" \
     || sag FEHLER "prolo-auftraege.timer fehlt" \
            "dann verschwindet ein angehaltenes Werkzeug von der Admin-Seite"
+
+  # N-106: die Drehregel steht da, nennt diesen Stapel, und der alte
+  # Verweis ist weg. Gemessen wird mit logrotate selbst: sein Probelauf
+  # steigt bei einer doppelten Regel mit Rueckgabe 1 aus.
+  drehregel_heil "$W" \
+    && sag ok "die Drehregel ist eingetragen, nennt diesen Stapel, ohne alten Verweis (N-106)" \
+    || sag FEHLER "die Drehregel fehlt, nennt den falschen Pfad oder steht doppelt" \
+           "$DREH_GRUND"
 
   grep -q "getan" <<<"$A1" && sag ok "erster Lauf richtet wirklich etwas ein" \
     || sag FEHLER "erster Lauf hat nichts getan" "dann prueft der zweite nichts"
@@ -608,6 +641,28 @@ buchprobe "die Einheiten behalten den Platzhalter (A-01)" \
   's#SOLL=$(sed "s\#@STACK@\#$STACK\#g" "$HIER/systemd/$U")#SOLL=$(cat "$HIER/systemd/$U")#'
 buchprobe "der Waechter wird nie eingeschaltet (A-01)" \
   's#elif A=$(systemctl enable --now prolo-auftraege.path prolo-auftraege.timer 2>\&1) \\$#elif A=$(true) \\#'
+
+# N-106: die Drehregel. Massstab ist logrotate selbst (drehregel_heil).
+drehprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/d$((++GEFUNDEN))"
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  lauf "$W" > /dev/null
+  if drehregel_heil "$W"; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+}
+drehprobe "die Drehregel wird nicht geschrieben (N-106)" \
+  's#{ rm -f "$Z" \&\& printf .%s\\n. "$SOLL" > "$Z" \&\& chmod 644 "$Z"; }#{ true; }#'
+drehprobe "die Drehregel behaelt den Platzhalter (N-106)" \
+  's#SOLL=$(sed "s\#@STACK@\#$STACK\#g" "$K")#SOLL=$(cat "$K")#'
+drehprobe "der alte Verweis bleibt liegen (N-106)" \
+  's#if tun; then rm -f "$ALT" \&\& f_tat#if tun; then true \&\& f_tat#'
+drehprobe "die Regel ist fuer alle beschreibbar (N-106)" \
+  's#chmod 644 "$Z"; }#chmod 666 "$Z"; }#'
 
 # N-103: eine zu alte Compose-Fassung wird durchgelassen.
 fassungsprobe() {

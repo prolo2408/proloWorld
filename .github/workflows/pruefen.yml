@@ -31,6 +31,6 @@ jobs:
       # age fuer Sicherung und Merkzettel; docker und compose bringt der
       # Runner mit ("compose config" braucht keinen laufenden Dienst).
       - name: age
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq age
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq age logrotate
       - name: Alle Pruefungen und Gegenproben
         run: ./werkzeuge/alle-pruefen.sh

@@ -7228,3 +7228,51 @@ der Teil, um den es ihr geht; was dahinter steht, darf sich ändern.
 | `prolo-befehle-pruefen.py --gegenprobe` vorher | 7 von 8, Nr. 3 „NICHT EINGEBAUT" |
 | nachher | **8 von 8** |
 | `prolo-befehle-pruefen.py` | grün |
+
+---
+
+## N-106 — Die Drehregel für das Zugriffsprotokoll stand nur im Kommentar
+
+**Gefunden:** beim Vorbereiten der Firewall, die genau dieses Protokoll
+lesen soll. Seit `B-26` schreibt Traefik jede Anfrage als JSON-Zeile nach
+`traefik/log/zugriff.log`, und `traefik/logrotate.conf` liegt im Git. In
+`/etc/logrotate.d` kam sie nur, wenn jemand die Zeile aus ihrem Kopf
+abtippte:
+
+    sudo ln -sf /opt/stack/traefik/logrotate.conf /etc/logrotate.d/traefik-prolo
+
+`prolo einrichten` tat es nicht, keine Anleitung nannte es. Auf einem
+frischen Server wuchs das Zugriffsprotokoll damit ohne Grenze — genau das,
+wovor die Datei warnt („sonst läuft der Datenträger voll"). TEIL III sagt
+seit `N-54`: was man auf einem neuen Server tut, tut `prolo einrichten`.
+
+**Und wer es abgetippt hatte, bekäme mit der Korrektur ein neues Problem.**
+Gemessen mit logrotate 3.21: steht dieselbe Datei in zwei Regeln, steigt
+logrotate mit `duplicate log entry` und **Rückgabe 1** aus — jeden Tag,
+die Einheit steht auf „failed".
+
+### Behoben
+
+- `prolo einrichten`, neuer Schritt **6d. Protokolle drehen**: jede
+  `<werkzeug>/logrotate.conf` wird zu `/etc/logrotate.d/prolo-<werkzeug>`,
+  0644 (logrotate liest keine Regel, die Gruppe oder Welt schreiben dürfen),
+  mit dem echten Stapelpfad statt `@STACK@`. Kein Werkzeugname im Skript.
+  Sieht erst nach: steht die Regel schon so da, passiert nichts.
+- Ein Verweis in `/etc/logrotate.d`, der auf eine dieser Dateien zeigt (die
+  alte Anleitung), wird entfernt — sonst der doppelte Eintrag.
+- Schlägt das Schreiben fehl, steht die Antwort des Systems in der Meldung,
+  kein geratener Rat (§7, `N-64`).
+- `traefik/logrotate.conf`: `@STACK@` statt `/opt/stack`, Kopf und
+  Kommentar in der Compose-Datei nennen `prolo einrichten` statt `ln -sf`.
+- `.github/workflows/pruefen.yml` installiert `logrotate`: die Probe misst
+  mit logrotate selbst, und ein fehlendes Werkzeug ist dort ein Fehler, kein
+  Überspringen.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `einrichten-pruefen.sh` als root und als Nutzer `pruefer` | je **39 ok** (vorher 38). Die neue Zeile misst die Wirkung: Regel da, keine Verknüpfung, 0644, nennt den Stapel der Kopie, der alte Verweis ist weg, **`logrotate -d` gibt 0 zurück und sieht die Regel** |
+| `einrichten-pruefen.sh --gegenprobe` als `pruefer` | **22 von 22** (4 neu: nicht geschrieben, Platzhalter bleibt, alter Verweis bleibt, 0666) |
+| Mutationen | jede greift genau eine Zeile, vorher einzeln nachgezählt |
+| echter Lauf auf dem Prüfserver | alten Verweis wie nach der Anleitung angelegt → `prolo einrichten`: „entfernt", „geschrieben"; `logrotate -f` Rückgabe 0; `zugriff.log` → `zugriff.log.1` (14 Zeilen), neue Datei 0640; die nächste Anfrage steht in der **neuen** Datei — Traefik hat nach `USR1` neu geöffnet |
