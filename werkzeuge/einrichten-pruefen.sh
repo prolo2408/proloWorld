@@ -88,6 +88,20 @@ export DOCKER_ATTRAPPE="$T/att"; mkdir -p "$DOCKER_ATTRAPPE"
 printf '#!/bin/bash\n[ "$1" = "-u" ] && echo 0 || exec /usr/bin/id "$@"\n' > "$T/bin/id"
 chmod +x "$T/bin/id"
 
+# systemctl: merkt sich, was eingeschaltet ist (A-01). Geschrieben wird
+# nur in die Kopie - die Einheiten landen ueber PROLO_SYSTEMD_ZIEL dort.
+cat > "$T/bin/systemctl" <<'STUB'
+#!/bin/bash
+echo "$*" >> "$DOCKER_ATTRAPPE/systemctl"
+AN="$DOCKER_ATTRAPPE/sd-an"
+case "$1" in
+  is-enabled|is-active) [ -f "$AN" ] ;;
+  enable) touch "$AN" ;;
+  *) exit 0 ;;
+esac
+STUB
+chmod +x "$T/bin/systemctl"
+
 # Der echte Verweis vorher - nachher muss er genau so aussehen (N-100).
 ECHT_VORHER=$(readlink /usr/local/bin/prolo 2>/dev/null || echo fehlt)
 
@@ -95,7 +109,8 @@ ECHT_VORHER=$(readlink /usr/local/bin/prolo 2>/dev/null || echo fehlt)
 kopieren() {
   local Z="$1"; mkdir -p "$Z/werkzeuge"
   cp "$HIER/einrichten.sh" "$HIER/geheimnisse.py" "$HIER/prolo" \
-     "$HIER/startsperre.sh" "$HIER/netze.sh" "$Z/werkzeuge/"
+     "$HIER/startsperre.sh" "$HIER/netze.sh" "$HIER/auftrag.py" "$Z/werkzeuge/"
+  cp -r "$HIER/systemd" "$Z/werkzeuge/"
   local D
   for D in "$STACK"/*/docker-compose.yml; do
     [ -e "$D" ] || continue
@@ -162,7 +177,11 @@ YML
 lauf() {  # lauf <wurzel> [--trocken]
   # PROLO_BIN: der Verweis aus Schritt 2 landet in der Kopie, nie in
   # /usr/local/bin (N-100). HOME: "git config --global" ebenso.
+  # PROLO_SYSTEMD_ZIEL und PROLO_AUFTRAG_PROBE: die Einheiten und das
+  # Auftragsbuch entstehen in der Kopie, ohne root (A-01).
+  mkdir -p "$1/systemd-ziel"
   ( cd "$1" && PATH="$T/bin:$PATH" HOME="$1" PROLO_BIN="$1/bin-prolo" \
+      PROLO_SYSTEMD_ZIEL="$1/systemd-ziel" PROLO_AUFTRAG_PROBE=1 \
       bash "$1/werkzeuge/einrichten.sh" ${2:-} < /dev/null 2>&1 )
 }
 
@@ -180,6 +199,24 @@ pruefen_einmal() {
     && sag ok "der prolo-Verweis entsteht in der Kopie, nicht in /usr/local/bin (N-100)" \
     || sag FEHLER "der prolo-Verweis entstand nicht in der Kopie" \
            "dann biegt die Probe den echten /usr/local/bin/prolo um"
+  # A-01: das Auftragsbuch - Ordner mit den richtigen Rechten, die
+  # Einheiten mit dem echten Pfad statt des Platzhalters, eingeschaltet.
+  [ "$(stat -c %a "$W/admin/auftraege/eingang" 2>/dev/null)" = 700 ] \
+    && [ "$(stat -c %a "$W/admin/auftraege/erledigt" 2>/dev/null)" = 755 ] \
+    && sag ok "das Auftragsbuch ist angelegt: eingang 0700, erledigt 0755 (A-01)" \
+    || sag FEHLER "das Auftragsbuch fehlt oder hat die falschen Rechte" \
+           "eingang: $(stat -c %a "$W/admin/auftraege/eingang" 2>&1)"
+  grep -qxF "PathExistsGlob=$W/admin/auftraege/eingang/*.json" "$W/systemd-ziel/prolo-auftraege.path" 2>/dev/null \
+    && grep -qxF "ExecStart=/usr/bin/python3 $W/werkzeuge/auftrag.py abarbeiten" "$W/systemd-ziel/prolo-auftraege.service" 2>/dev/null \
+    && ! grep -q "@STACK@" "$W"/systemd-ziel/prolo-auftraege.* \
+    && sag ok "die systemd-Einheiten nennen den echten Stapel, keinen Platzhalter" \
+    || sag FEHLER "die systemd-Einheiten fehlen oder zeigen nicht auf diesen Stapel" \
+           "dann wacht systemd ueber einen Ordner, in den nie etwas faellt"
+  grep -qx "enable --now prolo-auftraege.path" "$DOCKER_ATTRAPPE/systemctl" 2>/dev/null \
+    && sag ok "prolo-auftraege.path wird eingeschaltet" \
+    || sag FEHLER "prolo-auftraege.path wird nicht eingeschaltet" \
+           "dann liegen Auftraege der Admin-Seite fuer immer im Eingang"
+
   grep -q "getan" <<<"$A1" && sag ok "erster Lauf richtet wirklich etwas ein" \
     || sag FEHLER "erster Lauf hat nichts getan" "dann prueft der zweite nichts"
 
@@ -341,6 +378,11 @@ pruefen_einmal() {
   N3=$(find "$W" -name '.env' | sort | xargs md5sum 2>/dev/null)
   [ "$V3" = "$N3" ] && sag ok "--trocken fasst keine Datei an" \
     || sag FEHLER "--trocken hat etwas veraendert"
+  rm -f "$W"/systemd-ziel/prolo-auftraege.*
+  lauf "$W" --trocken > /dev/null
+  ls "$W"/systemd-ziel/prolo-auftraege.* >/dev/null 2>&1 \
+    && sag FEHLER "--trocken hat eine systemd-Einheit geschrieben" \
+    || sag ok "--trocken schreibt keine systemd-Einheit"
 }
 
 if [ "$GEGENPROBE" -eq 0 ]; then
@@ -517,6 +559,29 @@ overrideprobe "Namen nur aus der Datei des Herstellers" \
   '0,/"docker-compose.yml", "docker-compose.override.yml"/! s|("docker-compose.yml", "docker-compose.override.yml")|("docker-compose.yml",)|'
 overrideprobe "Netze nur aus der Datei des Herstellers" \
   '0,/"docker-compose.yml", "docker-compose.override.yml"/ s|("docker-compose.yml", "docker-compose.override.yml")|("docker-compose.yml",)|'
+
+# A-01: das Auftragsbuch. Massstab ist, was nach dem ersten Lauf in der
+# Kopie steht - nicht, was die Ausgabe ankuendigt (N-38).
+buchprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/b$((++GEFUNDEN))"
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  lauf "$W" > /dev/null
+  if [ "$(stat -c %a "$W/admin/auftraege/eingang" 2>/dev/null)" = 700 ] \
+     && grep -qxF "PathExistsGlob=$W/admin/auftraege/eingang/*.json" "$W/systemd-ziel/prolo-auftraege.path" 2>/dev/null \
+     && grep -qx "enable --now prolo-auftraege.path" "$DOCKER_ATTRAPPE/systemctl" 2>/dev/null; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+}
+buchprobe "das Auftragsbuch wird nicht angelegt (A-01)" \
+  's#elif A=$(python3 "$HIER/auftrag.py" einrichten 2>\&1); then$#elif A=$(true); then#'
+buchprobe "die Einheiten behalten den Platzhalter (A-01)" \
+  's#SOLL=$(sed "s\#@STACK@\#$STACK\#g" "$HIER/systemd/$U")#SOLL=$(cat "$HIER/systemd/$U")#'
+buchprobe "der Waechter wird nie eingeschaltet (A-01)" \
+  's#elif A=$(systemctl enable --now prolo-auftraege.path 2>\&1) \\$#elif A=$(true) \\#'
 
 echo
 if [ -n "$DURCH" ]; then

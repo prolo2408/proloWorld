@@ -39,6 +39,10 @@ authentik/certs/
 # Kopien, die eine Migration vor dem Umbau anlegt (CLAUDE.md §24a)
 **/*.vor-stand-*
 
+# Das Auftragsbuch der Admin-Seite (A-01): Auftraege, ihre Ausgabe und wer
+# was wann tat. Betriebsdaten wie die Protokolle unten.
+admin/auftraege/
+
 # Traefik-Zugriffsprotokolle - Zugriffsdaten, gehoeren nicht ins Git (B-26)
 traefik/log/*.log
 traefik/log/*.log.*

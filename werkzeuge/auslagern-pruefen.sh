@@ -32,7 +32,11 @@ ja() { if eval "$1"; then echo ja; else echo nein; fi; }
 S="$T/stack"
 git clone -q "$QUELLE" "$S"
 git -C "$S" config user.email probe@localhost; git -C "$S" config user.name probe
-cp "$HIER"/*.sh "$HIER"/*.py "$HIER"/prolo "$S/werkzeuge/" 2>/dev/null
+# Der ganze Ordner, samt Unterordnern (systemd/ seit A-01) - nur die
+# obersten Dateien zu nehmen hiess, eine Einheit zu vergessen, die
+# einrichten-pruefen.sh dann vermisst.
+cp -r "$HIER/." "$S/werkzeuge/"
+rm -rf "$S/werkzeuge/__pycache__"
 # Einstieg fuer die Mutationsprobe: ein sed-Ausdruck auf die KOPIE (N-34).
 if [ -n "${AUSLAGERN_MUTATION:-}" ]; then
   sed -i "${AUSLAGERN_MUTATION#*|}" "$S/werkzeuge/${AUSLAGERN_MUTATION%%|*}"

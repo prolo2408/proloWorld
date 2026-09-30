@@ -6801,3 +6801,82 @@ Auf GitHub klont die Prüfung seitdem mit ganzer Geschichte
 | Mutationsprobe | **6 von 6** gefunden (Betriebsdateien gehen mit, Ziel mit Inhalt wird beschrieben, nicht Eingechecktes hält nicht an, `build:` bleibt, `TYP` bleibt `build`, Abbild wird nicht geprüft) |
 
 `actionlint` auf `pruefen.yml`: sauber.
+
+## A-01 — Das Auftragsbuch: die Admin-Seite darf handeln, ohne an den Socket zu kommen
+
+Der Wunsch: Werkzeuge im Browser starten, anhalten, aktualisieren,
+anlegen. Der kürzeste Weg dahin — dem Container der Admin-Seite
+schreibenden Zugriff auf den Docker-Socket geben, direkt oder über
+`POST: 1` im Vermittler — ist auch der kürzeste Weg zur Übernahme des
+ganzen Servers: wer den Socket schreibend hat, startet einen Container mit
+`/` eingehängt und ist root. Und eine Webseite ist genau die Stelle, an
+der man am ehesten hereinkommt. Portainer, Dockge und Komodo gehen diesen
+Weg; für einen Stapel, dessen Regeln an `prolo` hängen (Sperre, Sicherung,
+Rückweg), wäre es außerdem ein zweiter Weg an allen Regeln vorbei.
+
+**Darum spricht die Seite nicht mit Docker, sie legt Aufträge ab:**
+
+```
+admin/auftraege/eingang/<kennung>.json    schreibt die Seite (nur sie: 0700, uid 10004)
+admin/auftraege/erledigt/<kennung>.json   Lage und Ergebnis        (root, 0755 - die Seite liest)
+admin/auftraege/erledigt/<kennung>.log    die Ausgabe von prolo
+admin/auftraege/erledigt/protokoll.jsonl  wer wann was
+```
+
+`werkzeuge/auftrag.py` läuft auf dem Server als root, angestoßen von
+systemd (`werkzeuge/systemd/prolo-auftraege.path`, nur `*.json` löst aus),
+und führt **nur** aus, was in `ARTEN` steht — über `prolo`, also mit allem,
+was `prolo` ohnehin prüft:
+
+| Art | wird zu | Zeitgrenze |
+|---|---|---|
+| `start`, `neustart`, `stop`, `pruefen` | `prolo <art> <werkzeug>` | 10 min |
+| `aktualisieren` | `prolo aktualisieren <werkzeug>` (sichert vorher, rollt zurück) | 60 min |
+| `sichern` | `prolo sichern` | 60 min |
+| `netz_anlegen` | `prolo netze anlegen <netz>` | 5 min |
+
+Was im Eingang liegt, ist fremde Eingabe (§11), geschrieben von einem
+Container, der übernommen sein könnte:
+
+- nur Dateinamen nach `JJJJMMTT-HHMMSS-<8 hex>.json`; kein Symlink
+  (`O_NOFOLLOW`), nur eine gewöhnliche Datei, höchstens 256 KiB
+- nur bekannte Arten und Felder, jedes gegen sein Muster; der Werkzeugname
+  muss ein Ordner mit `docker-compose.yml` sein
+- `traefik`, `authentik`, `socket-proxy`, `admin` lassen sich von der
+  Seite aus nicht **anhalten** — danach gäbe es keine Seite mehr, von der
+  aus man sie wieder startet. Neu starten geht.
+- keine Shell, eine feste Umgebung (nichts vom Aufrufer), eigene
+  Prozessgruppe: nach der Zeitgrenze wird die ganze Gruppe beendet, nicht
+  nur `prolo`
+- Ausgabe höchstens 1 MiB, der Rest wird gelesen und verworfen
+- was sich nicht verarbeiten lässt, wandert nach `verworfen/` und ins
+  Protokoll — liegen bleiben darf nichts, sonst stieße systemd den Dienst
+  in einer Schleife an; ein Name, der zweimal auftaucht, beendet den Lauf
+  statt ihn kreisen zu lassen
+- eine Sperre (`flock`): zwei Läufe gleichzeitig gibt es nicht; was bei
+  einem Absturz „läuft" blieb, heißt beim nächsten Lauf „abgebrochen"
+
+`prolo einrichten` legt die Ordner mit den richtigen Besitzern an und
+schaltet den Wächter ein (Schritt 6c) — beides erst nach Nachsehen, beim
+zweiten Lauf passiert nichts. Ohne systemd sagt es, wie man von Hand
+abarbeitet.
+
+Die Seite selbst kommt in `A-02`; hier steht nur, was sie benutzen wird.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `werkzeuge/auftrag-pruefen.sh` | **49 ok**: Normalfall (genau `start wiki`, Lage, Ausgabe, Protokoll, 0644), Fehlschlag mit Rückgabe, 13 Ablehnungen (unbekannte Art, `../traefik`, `./wiki`, nicht vorhanden, Großbuchstaben, `stop traefik`, `stop admin`, Feld zu viel, Liste statt Text, Feld fehlt, `netz;reboot`, Zeilenumbruch in `wer`) — **keine** davon erreicht `prolo`; 6 verworfene Dateien (Symlink, 300 KB, fremder Name, kein JSON, kein Objekt, Ordner), das Ziel des Symlinks unberührt; doppelte Kennung; halbe Datei frisch/alt; Zeitgrenze samt Kind; 1-MiB-Grenze; „abgebrochen"; Sperre; `ADMIN_UID` = Nutzer in `admin/Dockerfile` |
+| `--gegenprobe` | **12 von 12** (Symlink gefolgt, Zugang anhaltbar, jeder Name, fremde Felder, nur `prolo` beendet, Ausgabe unbegrenzt, „läuft" bleibt, Verworfenes bleibt, keine Größengrenze, Umgebung durchgereicht, keine Sperre, Kennung überschrieben) |
+| `werkzeuge/einrichten-pruefen.sh` | **34 ok** (vorher 30): Ordner 0700/0755, Einheiten mit echtem Pfad statt `@STACK@`, Wächter eingeschaltet, zweiter Lauf tut nichts, `--trocken` schreibt keine Einheit |
+| `einrichten-pruefen.sh --gegenprobe` (als Nicht-root) | **17 von 17** — davon 3 neu: Auftragsbuch nicht angelegt, Einheiten mit Platzhalter, Wächter nie eingeschaltet |
+| `auslagern-pruefen.sh` | grün, 41 ok — nachdem er den **ganzen** Ordner `werkzeuge/` in seinen Klon kopiert: vorher nur die obersten Dateien, und `systemd/` fehlte dort |
+| `alle-pruefen.sh` als Nicht-root | alle Werkzeugtests, alle Stapelprüfungen und alle Gegenproben grün bis auf `auslagern-pruefen.sh` (eben dieser Fehler, im alten Stand der Kopie) |
+
+Zwei Fallen im eigenen Prüfstand, beide beim ersten Lauf aufgefallen: der
+Zähler für die Kennungen lief in `$(...)` — jede Kennung war dieselbe, und
+fast alles wurde als Doppel verworfen; und ein beendetes Kind ohne Eltern
+bleibt in diesem Container als Zombie stehen, `kill -0` hielt es für
+lebendig. Gemessen wird jetzt über eine Zählerdatei und über den
+Prozesszustand.

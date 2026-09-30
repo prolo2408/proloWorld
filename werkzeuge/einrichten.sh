@@ -319,6 +319,64 @@ while IFS='|' read -r W P; do
 done <<< "$EINHAENGEN"
 [ -n "$EINHAENGEN" ] || f_ok "kein Werkzeug haengt etwas aus seinem Ordner ein"
 
+# ---------------------------------------------------------------- 6c
+schritt "6c. Auftragsbuch der Admin-Seite"
+# A-01: die Admin-Seite spricht nicht mit Docker, sie legt Auftraege ab.
+# Ausgefuehrt werden sie hier auf dem Server, von werkzeuge/auftrag.py,
+# angestossen von systemd. Dafuer braucht es die Ordner mit den richtigen
+# Besitzern (eingang/ gehoert dem Nutzer im Container, erledigt/ root) und
+# die zwei systemd-Einheiten. Beides sieht erst nach, ob es noetig ist.
+if [ ! -f "$STACK/admin/docker-compose.yml" ]; then
+  f_ok "keine Admin-Seite in diesem Stapel - kein Auftragsbuch noetig"
+else
+  if LAGE=$(python3 "$HIER/auftrag.py" einrichten --pruefen 2>&1); then
+    f_ok "admin/auftraege: Ordner, Besitzer und Rechte stimmen"
+  elif ! tun; then
+    f_wuerde "admin/auftraege: $(printf '%s' "$LAGE" | tr '\n' ';' | sed 's/;$//; s/;/; /g')"
+  elif A=$(python3 "$HIER/auftrag.py" einrichten 2>&1); then
+    f_tat "admin/auftraege: $(printf '%s' "$A" | tr '\n' ';' | sed 's/;$//; s/;/; /g')"
+  else
+    f_bad "admin/auftraege liess sich nicht einrichten:"
+    printf '%s\n' "$A" | sed 's/^/          /'
+  fi
+
+  # Von aussen setzbar nur fuer die Probe - wie PROLO_BIN (N-100).
+  SD="${PROLO_SYSTEMD_ZIEL:-/etc/systemd/system}"
+  if ! command -v systemctl >/dev/null 2>&1; then
+    f_offen "kein systemd: Auftraege der Admin-Seite werden nicht von selbst"
+    printf '          abgeholt. Von Hand: sudo python3 %s/auftrag.py abarbeiten\n' "$HIER"
+  else
+    NEU=0
+    for U in prolo-auftraege.path prolo-auftraege.service; do
+      SOLL=$(sed "s#@STACK@#$STACK#g" "$HIER/systemd/$U")
+      if [ -f "$SD/$U" ] && [ "$(cat "$SD/$U")" = "$SOLL" ]; then
+        f_ok "$SD/$U"
+      elif tun; then
+        printf '%s\n' "$SOLL" > "$SD/$U" && NEU=1 && f_tat "$SD/$U geschrieben"
+      else
+        f_wuerde "$SD/$U schreiben"
+      fi
+    done
+    if [ "$NEU" -eq 1 ]; then
+      A=$(systemctl daemon-reload 2>&1) || f_bad "systemctl daemon-reload: $A"
+    fi
+    if systemctl is-enabled --quiet prolo-auftraege.path 2>/dev/null \
+       && systemctl is-active --quiet prolo-auftraege.path 2>/dev/null \
+       && [ "$NEU" -eq 0 ]; then
+      f_ok "prolo-auftraege.path wacht ueber den Eingang"
+    elif ! tun; then
+      f_wuerde "systemctl enable --now prolo-auftraege.path"
+    elif A=$(systemctl enable --now prolo-auftraege.path 2>&1) \
+         && A=$(systemctl restart prolo-auftraege.path 2>&1); then
+      f_tat "prolo-auftraege.path eingeschaltet - Auftraege werden jetzt abgeholt"
+    else
+      # Genau der Aufruf, und was systemd dazu sagt (N-64).
+      f_bad "systemctl enable --now prolo-auftraege.path ging nicht:"
+      printf '%s\n' "$A" | tail -3 | sed 's/^/          /'
+    fi
+  fi
+fi
+
 # ----------------------------------------------------------------- 7
 schritt "7. Geheimnisse verteilen"
 if tun && [ -s "$SCHL" ]; then
