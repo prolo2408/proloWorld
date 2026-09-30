@@ -16,6 +16,7 @@ Wo was steht:
 | `NEUE-BEFUNDE.md` | was schon einmal schiefging und warum. Fast jede Regel hier hat dort eine Narbe |
 | `wiki/vorlagen/prolo-bedienen.html` | die **Bedienung**: neuer Server, Alltag, Sichern, Wiederherstellen, Fehlersuche |
 | `werkzeuge/ANLEITUNG.md` | ein Werkzeug **anlegen**, Netze verwalten, die Admin-Seite |
+| `crowdsec/LIESMICH.md` | die **Firewall**: was sie liest, die eigenen Regeln, ausgesperrt? |
 | `wiki/EINRICHTUNG.md` | der Seitenaufbau des Wikis im Einzelnen |
 | `bordbuch/ANLEITUNG.md` | die Bedienung des Bordbuchs im Einzelnen |
 
@@ -851,6 +852,15 @@ Verbindlich in jeder `docker-compose.yml`:
   `average` die **Dauerbremse** für den, der in Schleife anklopft (50 je
   Sekunde, unverändert seit `N-46`). Wer den Vorrat aufbraucht, hängt
   danach genau wie vorher fest.
+
+- **Hinter der Ratenbremse die Firewall** (`crowdsec/`, `F-01`). Die
+  Bremse hält auf, wer zu schnell anklopft; die Firewall sperrt, wer
+  **angreift** — erkannt an den Regeln aus dem Hub und den eigenen in
+  `crowdsec/regeln/`, durchgesetzt vom Bouncer in nftables, vor jedem
+  Dienst und vor SSH. Eine eigene Regel ist eine Datei, kein Umbau.
+  Gesperrt wird nie eine interne Adresse: darüber reden die Container mit
+  Traefik. Die CrowdSec-Datenbank ist Arbeitsstand; was bleiben muss, ist
+  die Freigabeliste.
 
 ## 20. Benennung
 

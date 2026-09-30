@@ -581,6 +581,107 @@ for T in $(werkzeuge); do
   starten "$T"
 done
 
+# ---------------------------------------------------------------- 9b
+schritt "9b. Firewall-Bouncer"
+# F-01: CrowdSec (crowdsec/) erkennt Angriffe und entscheidet Sperren -
+# durchgesetzt werden sie von einem Programm auf dem Server, das sie in
+# nftables eintraegt. Ohne es erkennt CrowdSec und niemand haelt auf.
+#
+# Installiert wird es nicht von hier: ein Paket samt fremder Paketquelle ist
+# eine Entscheidung fuer den Menschen am Server (wie docker-compose-plugin
+# und age in Schritt 1). Ist es da, traegt dieser Schritt die lokale API und
+# den Schluessel aus crowdsec/.env ein - der Wert wird nie ausgegeben (§22).
+BK="${PROLO_BOUNCER_KONF:-/etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml}"   # von aussen nur fuer die Probe
+if [ ! -f "$STACK/crowdsec/docker-compose.yml" ]; then
+  f_ok "keine Firewall (crowdsec/) in diesem Stapel"
+elif [ ! -f "$BK" ]; then
+  f_offen "der Firewall-Bouncer fehlt - CrowdSec erkennt Angriffe, aber niemand sperrt sie aus."
+  printf '          Einrichten (Paketquelle von CrowdSec, dann das Paket fuer nftables):\n'
+  printf '            curl -s https://install.crowdsec.net | sudo sh\n'
+  printf '            sudo apt install crowdsec-firewall-bouncer-nftables\n'
+  printf '          danach  sudo prolo einrichten  (gefahrlos zu wiederholen)\n'
+else
+  # Antwort: GLEICH, GESCHRIEBEN, WUERDE, LEER oder FEHLER <grund>
+  STAND=$(python3 - "$BK" "$STACK/crowdsec/.env" "$TROCKEN" <<'PY'
+import os, re, sys
+konf, env, trocken = sys.argv[1], sys.argv[2], sys.argv[3] == "1"
+schluessel = ""
+try:
+    for z in open(env, encoding="utf-8"):
+        if z.startswith("CROWDSEC_BOUNCER_SCHLUESSEL="):
+            schluessel = z.split("=", 1)[1].strip().strip("'\"")
+except OSError:
+    pass
+if not schluessel:
+    print("LEER"); sys.exit(0)
+try:
+    alt = open(konf, encoding="utf-8").read()
+except OSError as e:
+    print("FEHLER %s nicht lesbar: %s" % (konf, e.strerror)); sys.exit(0)
+soll = {"api_url": "http://127.0.0.1:8080/", "api_key": schluessel}
+neu = alt
+for k, v in soll.items():
+    zeile = "%s: %s" % (k, v)
+    if re.search(r"(?m)^%s:.*$" % k, neu):
+        neu = re.sub(r"(?m)^%s:.*$" % k, lambda m: zeile, neu, count=1)
+    else:
+        neu = neu.rstrip("\n") + "\n" + zeile + "\n"
+if neu == alt:
+    print("GLEICH"); sys.exit(0)
+if trocken:
+    print("WUERDE"); sys.exit(0)
+try:
+    with open(konf + ".neu", "w", encoding="utf-8") as f:
+        f.write(neu)
+    os.chmod(konf + ".neu", 0o600)
+    os.replace(konf + ".neu", konf)
+except OSError as e:
+    print("FEHLER %s: %s" % (konf, e.strerror)); sys.exit(0)
+print("GESCHRIEBEN")
+PY
+)
+  case "$STAND" in
+    GLEICH) f_ok "$BK nennt die lokale API und den Schluessel" ;;
+    WUERDE) f_wuerde "$BK: lokale API und Schluessel eintragen, Bouncer neu starten" ;;
+    LEER)   f_offen "CROWDSEC_BOUNCER_SCHLUESSEL fehlt in crowdsec/.env - Schritt 7 fuellt ihn:"
+            printf '          sudo prolo geheimnisse --verteilen   (danach dieses Skript noch einmal)\n' ;;
+    GESCHRIEBEN)
+      f_tat "$BK: lokale API und Schluessel eingetragen"
+      if A=$(systemctl restart crowdsec-firewall-bouncer 2>&1); then
+        f_tat "crowdsec-firewall-bouncer neu gestartet"
+      else
+        f_bad "systemctl restart crowdsec-firewall-bouncer ging nicht:"
+        printf '%s\n' "$A" | tail -3 | sed 's/^/          /'
+      fi ;;
+    *) f_bad "${STAND#FEHLER }" ;;
+  esac
+  if tun && [ "$STAND" != LEER ]; then
+    # Die Wirkung, nicht die Ankuendigung (N-38): fragt der Bouncer bei
+    # CrowdSec wirklich ab? Er tut es alle 10 s - 30 s Geduld.
+    ALTER=""
+    for _ in $(seq 1 $(( ${PROLO_BOUNCER_WARTEN_S:-30} / 2 ))); do   # von aussen nur fuer die Probe
+      ALTER=$(docker exec crowdsec cscli bouncers list -o json 2>/dev/null | python3 -c '
+import datetime, json, sys
+try:
+    b = [x for x in json.load(sys.stdin) or [] if x.get("name") == "firewall"]
+    t = datetime.datetime.strptime((b[0].get("last_pull") or "")[:19], "%Y-%m-%dT%H:%M:%S")
+    jetzt = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    print(int((jetzt - t).total_seconds()))
+except Exception:
+    pass')
+      [ -n "$ALTER" ] && [ "$ALTER" -lt 60 ] && break
+      sleep 2
+    done
+    if [ -n "$ALTER" ] && [ "$ALTER" -lt 60 ]; then
+      f_ok "der Bouncer holt die Sperren ab (zuletzt vor ${ALTER} s)"
+    else
+      f_bad "der Bouncer fragt bei CrowdSec nicht ab - es wird nichts gesperrt."
+      printf '          Gefragt:    docker exec crowdsec cscli bouncers list\n'
+      printf '          Nachsehen:  sudo systemctl status crowdsec-firewall-bouncer\n'
+    fi
+  fi
+fi
+
 # ----------------------------------------------------------------- 10
 schritt "10. Was nur du tun kannst"
 # Auch hier beide Dateien (N-83): der Name eines Fremdwerkzeugs steht in

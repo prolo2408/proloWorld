@@ -1,0 +1,33 @@
+# Eigene Regel: wer Zugangslinks von prolo.me raet.
+#
+# www sperrt eine Adresse selbst nach 10 Fehlversuchen fuer eine Stunde
+# (GRENZE_VERSUCHE, SPERRE_S in www/server.py) - aber nur bei sich, und
+# nur fuer eine Stunde. Diese Regel hebt dasselbe Mass an die Firewall:
+# danach ist die Adresse fuer ALLE Werkzeuge und fuer SSH gesperrt, fuer
+# die Dauer aus profiles.yaml.
+#
+# Gezaehlt wird jede Antwort 404 (unbekannter Link) oder 429 (www hat
+# schon gesperrt) auf /z/<marke>. Ein Eimer je Adresse, der alle 6 Minuten
+# einen Tropfen verliert: 10 Fehlschlaege in kurzer Folge laufen ueber -
+# dieselben 10 je Stunde wie in www. Wer sich einmal vertippt, fuellt ihn
+# nicht.
+type: leaky
+name: prolo/zugangslink-raten
+description: "Raet Zugangslinks von www (viele unbekannte /z/-Aufrufe)"
+filter: |
+  evt.Meta.log_type == 'http_access-log' &&
+  evt.Meta.http_path startsWith '/z/' &&
+  evt.Meta.http_status in ['404', '429']
+groupby: evt.Meta.source_ip
+capacity: 9
+leakspeed: 6m
+blackhole: 5m
+labels:
+  remediation: true
+  service: http
+  confidence: 3
+  spoofable: 0
+  classification:
+    - attack.T1110
+  behavior: "http:bruteforce"
+  label: "Zugangslinks raten"

@@ -7309,3 +7309,97 @@ angelegt.
 | neue Probe **vor** der Korrektur | FEHLER: „an der Stelle von traefik.yml steht jetzt ein Ordner" |
 | `einrichten-pruefen.sh` nach der Korrektur, root und `pruefer` | je **40 ok** (vorher 39) |
 | `--gegenprobe` als `pruefer` | **23 von 23** (1 neu: die Git-Abfrage abgeschaltet) |
+
+---
+
+## F-01 — Der Stapel hatte keine Firewall
+
+**Gefunden:** Wunsch des Betreibers — „eine Firewall, die loggen kann und
+besondere Regeln bauen kann, am besten mit etwas, das schon existiert, und
+einer grafischen Oberfläche". Vorhanden war: die Ratenbremse am Eingang
+(`N-46`, sie bremst Tempo, nicht Angriffe), die Zugangsbremse von `www`
+(zehn Fehlversuche je Stunde, nur bei sich) und das Zugriffsprotokoll von
+Traefik (`B-26`), das niemand las. Wer scannt, rät oder SSH-Passwörter
+durchprobiert, durfte das beliebig lange.
+
+### Die Entscheidung
+
+**CrowdSec**, als Werkzeug `crowdsec/` im Stapel, dazu der
+**Firewall-Bouncer** auf dem Server (nftables). Verworfen:
+
+| | warum nicht |
+|---|---|
+| fail2ban | keine Oberfläche, Regeln als Regex je Protokoll, keine gemeinsamen Blocklisten |
+| OPNsense/pfSense | brauchen eigene Hardware oder eine VM vor dem Server — beim gemieteten Server keine Option |
+| BunkerWeb, SafeLine | ersetzen Traefik als Eingang; der ganze Zugang (`N-44`, `N-46`, `sniStrict`) müsste neu gebaut werden |
+| nur die Firewall des Anbieters | sperrt Ports, erkennt keine Angriffe; sie gehört **zusätzlich** davor (nur 22, 80, 443) |
+
+CrowdSec erkennt an **Regeln** — aus dem Hub gepflegt (SSH, CVEs, Scanner)
+und **eigene** als Datei in `crowdsec/regeln/` —, protokolliert jede
+Meldung und bekommt eine Blockliste der Gemeinschaft. Oberflächen: die
+Admin-Seite (`F-02`) und freiwillig die CrowdSec-Konsole.
+
+### Was entstand
+
+- `crowdsec/`: Compose mit den Grenzen aus §19, lokale API **nur auf
+  127.0.0.1** (`prolo.ports` erklärt), Erfassung von `traefik/log/` und
+  `/var/log` des Servers (je als **Ordner**, weil logrotate die Dateien
+  ersetzt, `N-106`), `profiles.yaml` (eigene Regeln 24 h, sonst 4 h und
+  jedes Wiederkommen 4 h mehr), zwei eigene Regeln:
+  `prolo/zugangslink-raten` (dasselbe Maß wie `www`, aber für alle Dienste
+  und SSH) und `prolo/falle` (ein Aufruf von `/wp-login.php`, `/.env`,
+  `/.git/` … genügt — auf diesem Server gibt es das nie).
+- `prolo firewall` (`werkzeuge/firewall.py`): Lage, `sperren`, `aufheben`,
+  `erlauben`, `nicht-mehr-erlauben`. Gesperrt wird nur, was im Internet
+  vorkommt (`is_global`): privat, Docker-intern, Tailscale `100.64.0.0/10`
+  wird abgelehnt — sonst sperrte der Stapel sich selbst. Netze höchstens
+  `/16`. Was auf der Freigabeliste steht, lässt sich nicht sperren.
+- `prolo einrichten`, Schritt **9b**: der Bouncer. Installiert wird er nicht
+  vom Skript (ein Paket samt fremder Paketquelle ist eine Entscheidung am
+  Server, wie bei `age`); fehlt er, stehen die zwei Befehle da. Ist er da,
+  werden lokale API und Schlüssel eingetragen (0600, der Wert nie in der
+  Ausgabe, §22), der Bouncer neu gestartet — und geprüft, dass er bei
+  CrowdSec **wirklich abfragt** (Wirkung, nicht Ankündigung, `N-38`).
+
+### Gemessen statt angenommen
+
+- Das Startskript des Abbilds kopiert beim ersten Start nach
+  `/etc/crowdsec` und bricht an einem schreibgeschützt eingehängten Ordner
+  ab (`rsync` Rückgabe 23). Darum liegt die Erfassung unter
+  `/prolo/erfassung`, und `config.yaml.local` zeigt dorthin.
+- `auth.log` (`syslog:adm`, 0640) ist ohne jede Fähigkeit lesbar, weil root
+  im Abbild in `adm` steht; eine fremde 0600-Datei ist es nicht — die
+  Rechte greifen. `group_add: ["4"]` steht trotzdem ausdrücklich da.
+- `register_bouncer` im Abbild legt den Bouncer nur an, wenn es ihn nicht
+  gibt — ein neuer Schlüssel in `.env` käme nie an. Darum ist er `haende`,
+  und die Erklärung nennt den Weg.
+- Beim Freigeben hebt CrowdSec 1.7.4 eine bestehende Sperre **selbst** auf,
+  gemessen beim Bouncer. Ein eigenes Löschen in `erlauben` war wirkungslos
+  — gefunden, weil seine Mutation entwischte — und ist weg. Die Probe hält
+  fest, dass es so bleibt.
+- Die erste Fassung der Probe fragte `--json` erst, als beide Quellen schon
+  Zeilen hatten — die Liste der Quellen ist aber gerade für die **ohne**
+  Zeilen da. Auch das fand eine entwischte Mutation.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `werkzeuge/crowdsec-pruefen.sh` | **33 ok** gegen echtes CrowdSec 1.7.4 aus der Compose-Datei (eigener Projektname und eigene Volumes): Kette Traefik → Datei → Erfassung, Grenzen, API nur 127.0.0.1; 10 unbekannte Links → 24 h, 9 → nichts (der Eimer fasst 9), `/wp-login.php` → 24 h, 20 normale Aufrufe → nichts, private Adresse → nichts, 6 SSH-Fehlversuche → 4 h, nach einer früheren Sperre → 8 h, Freigabe → Überlauf ohne Sperre, Bouncer mit Schlüssel genau die vier Sperren, ohne → 403; `prolo firewall`: 2 h mit Grund und Name, private/Tailscale/keine Adresse/`/8` abgelehnt, `/24` sperren und aufheben, Freigeben beim Bouncer wirksam, 13 d = 312 h, > 1 Jahr und ohne Grund abgelehnt, `--json` vollständig, beide Quellen auch mit 0 Zeilen |
+| `crowdsec-pruefen.sh --gegenprobe` | **18 von 18** — nach zwei Runden: in der ersten entwischten zwei (siehe oben, beide behoben), in der zweiten fand die neue Zeile die Mutation „--json vergisst eine Quelle", aber die Gegenprobe suchte den Wortlaut der alten; Suchmuster korrigiert und die Mutation einzeln nachgeprüft (Rückgabe 1, richtige Zeile) |
+| `einrichten-pruefen.sh` | **41 ok**; `--gegenprobe` als `pruefer` **30 von 30** (7 neu: Schlüssel fehlt, 0644, kein Neustart, kein Weg ohne Bouncer, stiller Bouncer, Schlüssel in der Ausgabe, Neustart bei jedem Lauf) |
+| Stapelprüfungen | `grenze` 73, `netze` 43, `sicherung` 14, `prolo` 101, `geheimnisse` 173, `zugriff`, `dockerfile`, `regeln`, `prolo-befehle` (43 Befehle): grün; `wiki/tests/alle.sh` grün, Bedienseite im Browser: 0 JS-Fehler |
+
+### Was hier nicht zu messen war
+
+- **Der Bouncer selbst** (nftables): seine Releases sind in dieser Umgebung
+  nicht erreichbar. Gemessen ist, dass er mit seinem Schlüssel genau die
+  richtigen Sperren bekommt. Dass er sie in nftables einträgt, zeigt auf
+  dem Server `sudo prolo firewall` (Bouncer „holt ab") und
+  `sudo nft list ruleset | grep crowdsec`.
+- **Der Hub** (`hub-data.crowdsec.net`) ist hier gesperrt. Die Probe startet
+  CrowdSec darum mit dem, was das Abbild mitbringt, und zwei
+  Stellvertretern für `crowdsecurity/non-syslog` und
+  `crowdsecurity/traefik-logs`, die dieselben Felder setzen, auf die die
+  eigenen Regeln schauen. Auf dem Server holt CrowdSec die echten beim
+  Start.

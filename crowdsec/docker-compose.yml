@@ -1,0 +1,76 @@
+# crowdsec/docker-compose.yml - die Firewall des Stapels (F-01)
+#
+# CrowdSec liest, was an der Tuer passiert - das Zugriffsprotokoll von
+# Traefik und die SSH-Anmeldungen des Servers -, erkennt darin Angriffe
+# (Regeln aus dem Hub und eigene in regeln/) und entscheidet Sperren.
+# Durchgesetzt werden sie NICHT hier, sondern vom Firewall-Bouncer auf dem
+# Server (nftables): er fragt die lokale API unten ab und wirft gesperrte
+# Adressen vor jedem Dienst weg, auch vor SSH. "prolo einrichten" richtet
+# ihn ein, "prolo firewall" zeigt, ob er lebt.
+#
+# Kein Traefik-Router: CrowdSec hat keine Oberflaeche. Zu sehen ist alles
+# mit "prolo firewall" und, wer mag, in der CrowdSec-Konsole
+# (app.crowdsec.net, siehe LIESMICH.md).
+services:
+  crowdsec:
+    image: crowdsecurity/crowdsec:v1.7.4
+    container_name: crowdsec
+    restart: unless-stopped
+    mem_limit: 512m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # auth.log gehoert auf Debian/Ubuntu syslog:adm, 0640. Ohne Faehigkeiten
+    # liest root im Container nur, was seine Gruppen hergeben. Im Abbild
+    # steht root schon in adm (gemessen) - hier steht es ausdruecklich,
+    # damit es nicht an einer Eigenheit des Abbilds haengt.
+    group_add:
+      - "4"
+    labels:
+      # Die lokale API NUR auf 127.0.0.1: dort fragt der Firewall-Bouncer
+      # des Servers nach Sperren. Von aussen ist sie nicht erreichbar (N-59).
+      - "prolo.ports=lokale API fuer den Firewall-Bouncer, nur 127.0.0.1"
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      # Was CrowdSec aus dem Hub holt: Linux und SSH, Traefik samt der
+      # allgemeinen HTTP-Angriffe und bekannter Luecken (CVE).
+      COLLECTIONS: "crowdsecurity/linux crowdsecurity/traefik crowdsecurity/base-http-scenarios crowdsecurity/http-cve"
+      # Der Bouncer auf dem Server meldet sich mit diesem Schluessel an.
+      # Er steht ein zweites Mal in /etc/crowdsec/bouncers/ - "prolo
+      # einrichten" zieht ihn dorthin nach (geheimnisse.conf: haende).
+      BOUNCER_KEY_firewall: "${CROWDSEC_BOUNCER_SCHLUESSEL:?CROWDSEC_BOUNCER_SCHLUESSEL fehlt in crowdsec/.env - sudo prolo geheimnisse --verteilen}"
+      # Freiwillig: die CrowdSec-Konsole als Oberflaeche (LIESMICH.md).
+      # Leer heisst: nicht angemeldet.
+      ENROLL_KEY: "${CROWDSEC_KONSOLE_SCHLUESSEL:-}"
+      ENROLL_INSTANCE_NAME: "prolo"
+      USE_WAL: "true"
+    volumes:
+      - crowdsec-daten:/var/lib/crowdsec/data
+      - crowdsec-konfig:/etc/crowdsec
+      # Unsere Zutaten, alle im Git und nur lesend. Die Erfassung liegt
+      # ausserhalb von /etc/crowdsec: das Startskript des Abbilds kopiert
+      # beim ersten Start dorthin und bricht an einem schreibgeschuetzten
+      # Ordner ab (gemessen: rsync, Rueckgabe 23). config.yaml.local
+      # zeigt CrowdSec den Weg.
+      - ./config.yaml.local:/etc/crowdsec/config.yaml.local:ro
+      - ./profiles.yaml:/etc/crowdsec/profiles.yaml:ro
+      - ./erfassung:/prolo/erfassung:ro
+      - ./regeln:/etc/crowdsec/scenarios/prolo:ro
+      # Was gelesen wird - je der ORDNER, nicht die Datei: logrotate
+      # ersetzt die Dateien (N-106), eine einzeln eingehaengte bliebe beim
+      # alten Stand stehen.
+      - ../traefik/log:/var/log/traefik:ro
+      - /var/log:/var/log/host:ro
+    healthcheck:
+      test: ["CMD", "cscli", "lapi", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+volumes:
+  crowdsec-daten:
+  crowdsec-konfig:

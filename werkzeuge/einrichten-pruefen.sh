@@ -42,6 +42,14 @@ case "$1 $2" in
   "compose version") [ "${3:-}" = --short ] && echo "${COMPOSE_FASSUNG:-2.29.1}" \
                        || echo "Docker Compose version v${COMPOSE_FASSUNG:-2.29.1}"; exit 0 ;;
 esac
+# F-01: "docker exec crowdsec cscli bouncers list" - hat der Bouncer
+# gerade abgefragt? Das entscheidet eine Datei.
+if [ "$1 $2 $3 $4 $5" = "exec crowdsec cscli bouncers list" ]; then
+  if [ -f "$DOCKER_ATTRAPPE/bouncer-lebt" ]; then
+    printf '[{"name":"firewall","last_pull":"%s"}]\n' "$(date -u +%Y-%m-%dT%H:%M:%S.000000000Z)"
+  else echo '[{"name":"firewall","last_pull":null}]'; fi
+  exit 0
+fi
 # docker inspect <id> --format '...Networks...'  -> die Netze des Containers
 if [ "$1" = "inspect" ]; then
   case "$*" in
@@ -154,6 +162,12 @@ YML
   # er einhaengt. acme.json und log/ entstehen erst auf dem Server.
   cp "$STACK/traefik/sicherung.conf" "$Z/traefik/"
   cp "$STACK/traefik/traefik.yml" "$Z/traefik/"
+  # F-01: was crowdsec aus seinem Ordner einhaengt - aus dem Git.
+  if [ -d "$STACK/crowdsec" ]; then
+    cp -r "$STACK/crowdsec/config.yaml.local" "$STACK/crowdsec/profiles.yaml" \
+          "$STACK/crowdsec/erfassung" "$STACK/crowdsec/regeln" \
+          "$STACK/crowdsec/sicherung.conf" "$Z/crowdsec/"
+  fi
   # N-106: die Drehregel, und ein Verweis darauf nach der alten Anleitung
   # (ln -sf) - der muss beim Einrichten verschwinden.
   cp "$STACK/traefik/logrotate.conf" "$Z/traefik/"
@@ -191,6 +205,7 @@ lauf() {  # lauf <wurzel> [--trocken]
   ( cd "$1" && PATH="$T/bin:$PATH" HOME="$1" PROLO_BIN="$1/bin-prolo" \
       PROLO_SYSTEMD_ZIEL="$1/systemd-ziel" PROLO_AUFTRAG_PROBE=1 \
       PROLO_LOGROTATE_ZIEL="$1/logrotate-ziel" \
+      PROLO_BOUNCER_KONF="$1/bouncer.yaml" PROLO_BOUNCER_WARTEN_S=4 \
       bash "$1/werkzeuge/einrichten.sh" ${2:-} < /dev/null 2>&1 )
 }
 
@@ -453,7 +468,53 @@ gitdatei_fall() {   # gitdatei_fall <wurzel>
     || { GIT_GRUND="der Weg zurueck (git checkout) wird nicht genannt"; return 1; }
 }
 
+# F-01: der Firewall-Bouncer. Setzt BOUNCER_GRUND; Rueckgabe 0 = richtig.
+PROBE_SCHLUESSEL="probe-bouncer-$$-schluessel"
+bouncer_fall() {   # bouncer_fall <wurzel>
+  local W="$1" A A2
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  BOUNCER_GRUND=""
+  # (a) ohne Bouncer: offen, mit genau den zwei Befehlen
+  A=$(lauf "$W")
+  grep -qF "curl -s https://install.crowdsec.net | sudo sh" <<<"$A" \
+    && grep -qF "sudo apt install crowdsec-firewall-bouncer-nftables" <<<"$A" \
+    || { BOUNCER_GRUND="ohne Bouncer fehlen die zwei Befehle"; return 1; }
+  # (b) wie nach der Paketinstallation, Schluessel in crowdsec/.env
+  printf 'mode: nftables\nupdate_frequency: 10s\napi_url: http://localhost:9999/\napi_key: ${API_KEY}\ndeny_log: false\n' \
+    > "$W/bouncer.yaml"
+  printf 'CROWDSEC_BOUNCER_SCHLUESSEL=%s\nCROWDSEC_KONSOLE_SCHLUESSEL=\n' "$PROBE_SCHLUESSEL" > "$W/crowdsec/.env"
+  touch "$DOCKER_ATTRAPPE/bouncer-lebt"; : > "$DOCKER_ATTRAPPE/systemctl"
+  A=$(lauf "$W")
+  [ "$(grep -c '^api_key: ' "$W/bouncer.yaml")" = 1 ] && grep -qxF "api_key: $PROBE_SCHLUESSEL" "$W/bouncer.yaml" \
+    && grep -qxF "api_url: http://127.0.0.1:8080/" "$W/bouncer.yaml" \
+    || { BOUNCER_GRUND="Schluessel oder lokale API stehen nicht in der Bouncer-Konfiguration"; return 1; }
+  grep -qxF "mode: nftables" "$W/bouncer.yaml" && grep -qxF "deny_log: false" "$W/bouncer.yaml" \
+    || { BOUNCER_GRUND="der Rest der Konfiguration wurde angefasst"; return 1; }
+  [ "$(stat -c %a "$W/bouncer.yaml")" = 600 ] \
+    || { BOUNCER_GRUND="Rechte $(stat -c %a "$W/bouncer.yaml") - der Schluessel gehoert nur root"; return 1; }
+  grep -qx "restart crowdsec-firewall-bouncer" "$DOCKER_ATTRAPPE/systemctl" \
+    || { BOUNCER_GRUND="der Bouncer wird nicht neu gestartet"; return 1; }
+  grep -q "holt die Sperren ab" <<<"$A" \
+    || { BOUNCER_GRUND="die Abfrage des Bouncers wird nicht bestaetigt"; return 1; }
+  if grep -qF "$PROBE_SCHLUESSEL" <<<"$A"; then
+    BOUNCER_GRUND="der Schluessel steht in der Ausgabe (§22)"; return 1; fi
+  # (c) zweiter Lauf: nichts mehr zu tun
+  A2=$(lauf "$W")
+  [ "$(grep -c "restart crowdsec-firewall-bouncer" "$DOCKER_ATTRAPPE/systemctl")" = 1 ] \
+    && grep -q "nennt die lokale API und den Schluessel" <<<"$A2" \
+    || { BOUNCER_GRUND="der zweite Lauf startet den Bouncer noch einmal"; return 1; }
+  # (d) der Bouncer fragt nicht ab: das faellt auf
+  rm -f "$DOCKER_ATTRAPPE/bouncer-lebt"
+  A2=$(lauf "$W")
+  grep -q "fragt bei CrowdSec nicht ab" <<<"$A2" \
+    || { BOUNCER_GRUND="ein stiller Bouncer faellt nicht auf"; return 1; }
+}
+
 if [ "$GEGENPROBE" -eq 0 ]; then
+  bouncer_fall "$T/bouncer" \
+    && sag ok "der Firewall-Bouncer: Befehle ohne ihn, Schluessel 0600 und Neustart mit ihm, nie in der Ausgabe (F-01)" \
+    || sag FEHLER "der Firewall-Bouncer wird falsch eingerichtet (F-01)" "$BOUNCER_GRUND"
   gitdatei_fall "$T/gitdatei" \
     && sag ok "eine fehlende Datei aus dem Git wird gemeldet, nicht als Ordner angelegt (N-107)" \
     || sag FEHLER "eine fehlende Datei aus dem Git wird falsch behandelt (N-107)" "$GIT_GRUND"
@@ -707,6 +768,37 @@ gitprobe() {
 }
 gitprobe "eine Git-Datei wird wieder ein Ordner (N-107)" \
   's#    elif \[ "$(git -C "$STACK" ls-files -- "$W/$P" 2>/dev/null)" = "$W/$P" \]; then#    elif false; then#'
+
+# F-01: der Firewall-Bouncer. Massstab ist bouncer_fall.
+bouncerprobe() {
+  local NAME="$1" AUSDRUCK="$2"
+  GEFUNDEN=$((GEFUNDEN + 1))
+  sed "$AUSDRUCK" "$HIER/einrichten.sh" > "$T/einrichten-mutiert.sh"
+  if cmp -s "$HIER/einrichten.sh" "$T/einrichten-mutiert.sh"; then
+    printf '%2d. %-46s NICHT EINGEBAUT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "; return
+  fi
+  HIER_MUTIERT="$T/einrichten-mutiert.sh"
+  if bouncer_fall "$T/b$GEFUNDEN"; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+  HIER_MUTIERT=""
+}
+bouncerprobe "der Schluessel kommt nicht an (F-01)" \
+  's#^soll = {"api_url": "http://127.0.0.1:8080/", "api_key": schluessel}$#soll = {"api_url": "http://127.0.0.1:8080/"}#'
+bouncerprobe "die Bouncer-Konfiguration ist fuer alle lesbar (F-01)" \
+  's#os.chmod(konf + ".neu", 0o600)#os.chmod(konf + ".neu", 0o644)#'
+bouncerprobe "der Bouncer wird nicht neu gestartet (F-01)" \
+  's#      if A=$(systemctl restart crowdsec-firewall-bouncer 2>\&1); then#      if A=$(true); then#'
+bouncerprobe "ohne Bouncer fehlt der Weg (F-01)" \
+  "s#^  printf '            curl -s https://install.crowdsec.net | sudo sh\\\\n'#  :#"
+bouncerprobe "ein stiller Bouncer faellt nicht auf (F-01)" \
+  's#      \[ -n "$ALTER" \] \&\& \[ "$ALTER" -lt 60 \] \&\& break#      ALTER=1; break#'
+bouncerprobe "der Schluessel steht in der Ausgabe (F-01, §22)" \
+  's#^print("GESCHRIEBEN")$#print("GESCHRIEBEN " + schluessel)#'
+bouncerprobe "jeder Lauf startet den Bouncer neu (F-01)" \
+  's#^if neu == alt:$#if False:#'
 
 # N-103: eine zu alte Compose-Fassung wird durchgelassen.
 fassungsprobe() {

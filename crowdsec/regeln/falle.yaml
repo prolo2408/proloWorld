@@ -1,0 +1,27 @@
+# Eigene Regel: die Falle.
+#
+# Auf diesem Server laeuft kein PHP, kein WordPress, keine .env im
+# Web-Verzeichnis. Wer danach fragt, sucht nicht diese Seite, sondern
+# irgendeine - ein Scanner. Ein einziger Aufruf genuegt (type: trigger).
+#
+# Kommt ein Werkzeug dazu, das einen dieser Pfade WIRKLICH hat, gehoert
+# er hier heraus - sonst sperrt der eigene Stack seine Nutzer aus.
+type: trigger
+name: prolo/falle
+description: "Fragt nach Pfaden, die es auf diesem Server nie gibt (WordPress, PHP, .env, .git)"
+filter: |
+  evt.Meta.log_type == 'http_access-log' &&
+  any(['/.env', '/.git/', '/wp-login.php', '/wp-admin', '/xmlrpc.php',
+       '/phpmyadmin', '/vendor/phpunit', '/.aws/', '/cgi-bin/', '/boaform/'],
+      { lower(evt.Meta.http_path) startsWith # })
+groupby: evt.Meta.source_ip
+blackhole: 5m
+labels:
+  remediation: true
+  service: http
+  confidence: 3
+  spoofable: 0
+  classification:
+    - attack.T1595
+  behavior: "http:scan"
+  label: "Falle: Pfad, den es hier nicht gibt"

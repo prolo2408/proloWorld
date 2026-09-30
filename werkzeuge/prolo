@@ -772,6 +772,14 @@ prolo - ein Einstiegspunkt fuer den Stack unter $STACK
                               Liest das Zugriffsprotokoll von Traefik.
                               Erste Frage, wenn eine Seite beim ersten
                               Aufruf leer bleibt (N-79, auch: zugriff)
+  firewall                    Die Firewall (CrowdSec, F-01): Sperren,
+                              Meldungen, Freigaben - und holt der
+                              Bouncer auf dem Server die Sperren ab?
+    --json                    dasselbe maschinenlesbar
+    sperren <adresse> <dauer> <grund>   z.B. 203.0.113.7 12h "raet"
+    aufheben <adresse>
+    erlauben <adresse> <grund>          nie sperren (Freigabeliste)
+    nicht-mehr-erlauben <adresse>
   sichern                     auch: backup
   wiederherstellen            einen gesicherten Stand zurueckholen
     --probe                   nur ueben: auspacken, nachpruefen, nichts
@@ -823,6 +831,8 @@ case "$BEFEHL" in
   protokoll|logs)             root_noetig protokoll "$@"; befehl_protokoll "$@" ;;
   abweisungen|zugriff)        root_noetig abweisungen "$@"
                               exec python3 "$HIER/zugriff.py" "$@" ;;
+  firewall)                   root_noetig firewall "$@"
+                              exec python3 "$HIER/firewall.py" "$@" ;;
   neu|new)                    exec "$HIER/neu.sh" "$@" ;;
   netze|netz|networks)        exec "$HIER/netze.sh" "$@" ;;
   suchen|search)              befehl_suchen "$@" ;;

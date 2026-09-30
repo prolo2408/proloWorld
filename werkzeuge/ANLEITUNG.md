@@ -10,6 +10,7 @@ Diese Datei beschreibt drei Griffe. Die Regeln dahinter stehen in
 | ein Netz anlegen / schließen / umziehen | `sudo prolo netze anlegen\|schliessen\|umziehen …` |
 | dasselbe im Browser, dazu starten, anhalten, aktualisieren | `https://admin.prolo.me` |
 | ein eigenes Werkzeug in sein eigenes Repository | `werkzeuge/auslagern.sh`, dann `werkzeuge/umstellen.sh` (Abschnitt 7) |
+| sehen, wer gesperrt ist; sperren, freigeben | `sudo prolo firewall` (Abschnitt 8) |
 
 ---
 
@@ -328,6 +329,7 @@ python3 werkzeuge/neu-gegenprobe.py   # und ob die Pruefung Zaehne hat
 werkzeuge/netze-pruefen.sh        # steht die Netztrennung noch?
 cd admin && ./tests/alle.sh       # die Admin-Seite
 werkzeuge/auftrag-pruefen.sh      # der Ausfuehrer der Auftraege
+werkzeuge/crowdsec-pruefen.sh     # die Firewall unter echtem CrowdSec
 ```
 
 `neu-pruefen.sh` reicht `docker compose config` an das echte `docker`
@@ -394,3 +396,39 @@ aktualisieren <werkzeug>`.
 Geprüft wird das alles mit `werkzeuge/auslagern-pruefen.sh` — es zieht das
 Wiki wirklich in ein (lokales) leeres Repository um, lässt dort die Tests
 des Werkzeugs allein laufen und stellt in einer Kopie alle drei um.
+
+---
+
+## 8. Die Firewall
+
+Was sie tut, was sie liest und wie man eine eigene Regel baut, steht in
+`crowdsec/LIESMICH.md`. Hier die Griffe.
+
+**Einrichten.** `crowdsec/` ist ein Werkzeug wie jedes andere:
+`sudo prolo einrichten` legt `crowdsec/.env` an, würfelt den
+Bouncer-Schlüssel (fragt, weil er `haende` ist) und startet CrowdSec.
+Schritt **9b** kümmert sich um den **Firewall-Bouncer** auf dem Server —
+das Programm, das die Sperren in nftables einträgt. Fehlt er, nennt der
+Schritt die zwei Befehle dafür; ist er da, trägt er lokale API und Schlüssel
+ein und prüft, dass der Bouncer wirklich abfragt.
+
+**Ansehen und bedienen:**
+
+```bash
+sudo prolo firewall                                   # die Lage
+sudo prolo firewall sperren 203.0.113.7 12h "raet Zugangslinks"
+sudo prolo firewall aufheben 203.0.113.7
+sudo prolo firewall erlauben 198.51.100.20 "Buero"    # nie sperren
+sudo prolo firewall nicht-mehr-erlauben 198.51.100.20
+```
+
+Gesperrt wird nur, was im Internet vorkommt: private, Docker-interne und
+Tailscale-Adressen (`100.64.0.0/10`) lehnt `prolo firewall` ab — darüber
+reden die Container mit Traefik, gesperrt wäre der Stapel selbst. Netze
+größer als `/16` ebenso. Was auf der Freigabeliste steht, lässt sich nicht
+sperren, bis es dort wieder herunter ist.
+
+**Wer draußen gesperrt ist,** bleibt ganz draußen: der Bouncer wirft die
+Pakete vor jedem Dienst weg, auch vor SSH. Die eigene Adresse gehört darum
+auf die Freigabeliste, bevor es darauf ankommt.
+
