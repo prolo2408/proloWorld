@@ -98,7 +98,7 @@ def parser():
     lg.add_argument("name")
     lg.add_argument("--zeilen", default="100")
     lg.add_argument("-f", "--folgen", action="store_true")
-    st = ts.add_parser("set", aliases=["aendern"], help="Port, Anmeldung, Dienst oder Name ändern")
+    st = ts.add_parser("set", aliases=["aendern"], help="Port, Anmeldung, Dienst oder Adresse ändern")
     st.add_argument("name")
     st.add_argument("--port")
     st.add_argument("--anmeldung", choices=("authentik", "keine"))
