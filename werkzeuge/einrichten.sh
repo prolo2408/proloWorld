@@ -34,6 +34,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Dieselbe Sperre wie "prolo start" (N-85): auch beim Einrichten geht
+# nichts mit einem unerklaerten offenen Port oder einem Router ohne
+# Anmeldung los.
+# shellcheck source=werkzeuge/startsperre.sh
+. "$HIER/startsperre.sh"
+
 OFFEN=0        # was der Mensch noch tun muss
 FEHLER=0       # was schiefging
 
@@ -65,15 +71,29 @@ for P in docker git python3; do
   if command -v "$P" >/dev/null 2>&1; then f_ok "$P ist da"
   else f_bad "$P fehlt - ohne das geht nichts"; fi
 done
-if docker compose version >/dev/null 2>&1; then f_ok "docker compose ist da"
-else f_bad "das docker-compose-Plugin fehlt"; fi
+# Ab 2.24.4 versteht Compose "!reset" - damit nimmt die override-Datei die
+# ports:-Zeile eines Herstellers weg, ohne seine Datei anzufassen (N-103).
+# Aeltere Fassungen lehnen jede Datei mit !reset ab, und dann startet von
+# den Fremdwerkzeugen keines mehr.
+if CV=$(docker compose version --short 2>/dev/null); then
+  CV="${CV#v}"
+  if [ "$(printf '%s\n' 2.24.4 "$CV" | sort -V | head -1)" = 2.24.4 ]; then
+    f_ok "docker compose $CV ist da (!reset geht ab 2.24.4)"
+  else
+    f_bad "docker compose $CV ist zu alt - !reset geht erst ab 2.24.4 (N-103)."
+    printf '          Neuer:  apt update && apt install docker-compose-plugin\n'
+  fi
+else f_bad "das docker-compose-Plugin fehlt:  apt install docker-compose-plugin"; fi
 if command -v age >/dev/null 2>&1; then f_ok "age ist da (verschluesselt Sicherungen)"
 else f_bad "age fehlt:  apt install age"; fi
 [ "$FEHLER" -eq 0 ] || { echo; echo "Erst das oben, dann noch einmal."; exit 1; }
 
 # ----------------------------------------------------------------- 2
 schritt "2. prolo im PATH"
-ZIEL=/usr/local/bin/prolo
+# Von aussen setzbar nur fuer die Probe (N-100): einrichten-pruefen.sh lief
+# als root und bog dabei den ECHTEN /usr/local/bin/prolo auf seinen
+# Wegwerfordner um - danach war "prolo" auf dem Server weg.
+ZIEL="${PROLO_BIN:-/usr/local/bin/prolo}"
 if [ "$(readlink -f "$ZIEL" 2>/dev/null)" = "$HIER/prolo" ]; then
   f_ok "$ZIEL zeigt hierher"
 elif tun; then
@@ -132,6 +152,13 @@ schritt "5. Netze"
 # keine feste Liste, sonst uebersieht das Skript das naechste Werkzeug.
 # Welche EXTERNEN Netze nennt eine Compose-Datei? (ein Name je Zeile)
 # Ein Werkzeug ohne Argument heisst: alle Compose-Dateien zusammen.
+#
+# BEIDE Compose-Dateien je Werkzeug (N-83, dieselbe Falle wie N-70): bei
+# einem Fremdwerkzeug steht das Netz nicht in der Datei des Herstellers,
+# sondern in unserer docker-compose.override.yml. Wer nur die erste liest,
+# legt es auf einem frischen Server nie an - und der Router bleibt tot,
+# ohne Fehlermeldung. Die override-Datei gewinnt je Schluessel, wie bei
+# "docker compose" selbst.
 externe_netze() {
 python3 - "$STACK" "${1:-}" <<'PY'
 import os, re, sys
@@ -140,22 +167,27 @@ aus, erzeugt = set(), set()
 for d in sorted(os.listdir(stack)):
     if nur and d != nur:
         continue
-    p = os.path.join(stack, d, "docker-compose.yml")
-    if not os.path.isfile(p):
+    if not os.path.isfile(os.path.join(stack, d, "docker-compose.yml")):
         continue
-    t = open(p, encoding="utf-8", errors="replace").read()
-    block = re.search(r"^networks:\s*$(.*)", t, re.S | re.M)
-    if not block:
-        continue
-    for m in re.finditer(r"^  ([A-Za-z0-9_.-]+):\s*$((?:\n    .*)*)",
-                         block.group(1), re.M):
-        name, rumpf = m.group(1), m.group(2)
-        # "name:" gewinnt: socket-proxy nennt sein Netz "socket".
-        echt = re.search(r"^\s+name:\s*(\S+)", rumpf, re.M)
-        if echt:
-            name = echt.group(1)
-        (aus if re.search(r"^\s+external:\s*true", rumpf, re.M)
-         else erzeugt).add(name)
+    je_schluessel = {}
+    for datei in ("docker-compose.yml", "docker-compose.override.yml"):
+        p = os.path.join(stack, d, datei)
+        if not os.path.isfile(p):
+            continue
+        t = open(p, encoding="utf-8", errors="replace").read()
+        block = re.search(r"^networks:\s*$(.*)", t, re.S | re.M)
+        if not block:
+            continue
+        for m in re.finditer(r"^  ([A-Za-z0-9_.-]+):\s*$((?:\n    .*)*)",
+                             block.group(1), re.M):
+            schluessel, rumpf = m.group(1), m.group(2)
+            # "name:" gewinnt: socket-proxy nennt sein Netz "socket".
+            echt = re.search(r"^\s+name:\s*(\S+)", rumpf, re.M)
+            je_schluessel[schluessel] = (
+                echt.group(1) if echt else schluessel,
+                bool(re.search(r"^\s+external:\s*true", rumpf, re.M)))
+    for name, extern in je_schluessel.values():
+        (aus if extern else erzeugt).add(name)
 # Was ein Compose SELBST anlegt, legt man nicht von Hand an: "socket"
 # entsteht mit socket-proxy und ist "internal: true". Von Hand angelegt
 # waere es ein gewoehnliches Bridge-Netz - und socket-proxy kaeme nicht
@@ -212,6 +244,199 @@ for W in $(werkzeuge); do
     fi
   done < "$CONF"
 done
+
+# ---------------------------------------------------------------- 6b
+schritt "6b. Was eingehaengt wird, muss vor dem ersten Start da sein"
+# N-91, gemessen auf einem frischen Server: traefik/acme.json gab es noch
+# nicht. Docker legt fuer eine fehlende Quelle eines Bind-Mounts einen
+# ORDNER an - Traefik meldete "permissions 755 for acme.json are too
+# open", schaltete Let's Encrypt ab, und jede Seite zeigte "nicht sicher".
+# Die Narbe aus N-05, auf jedem neuen Server.
+#
+# Was ein Werkzeug braucht, sagt es selbst, in seiner sicherung.conf:
+#   DATEIEN                eine Datei mit Daten    -> leere Datei, 0600
+#   ORDNER / VOLUMES_OHNE  ein Ordner              -> leerer Ordner
+# Alles andere, das eingehaengt wird und fehlt, ist Konfiguration aus dem
+# Git - das wird gemeldet, nicht erfunden. Ein leerer Ordner, wo eine
+# Datei hingehoert, ist das Ueberbleibsel eines frueheren Starts und wird
+# ersetzt - aber nur, wenn er LEER ist.
+einhaengepunkte() {   # je Zeile: <werkzeug>|<pfad relativ zum Werkzeug>
+python3 - "$STACK" <<'PY'
+import json, os, subprocess, sys
+stack = sys.argv[1]
+for w in sorted(os.listdir(stack)):
+    ordner = os.path.join(stack, w)
+    if not os.path.isfile(os.path.join(ordner, "docker-compose.yml")):
+        continue
+    try:
+        roh = subprocess.run(["docker", "compose", "config", "--no-interpolate",
+                              "--format", "json"], cwd=ordner,
+                             capture_output=True, text=True, timeout=60)
+        c = json.loads(roh.stdout) if roh.returncode == 0 else {}
+    except Exception:
+        c = {}
+    for dienst in (c.get("services") or {}).values():
+        for m in dienst.get("volumes") or []:
+            if not isinstance(m, dict) or m.get("type") != "bind":
+                continue
+            quelle = os.path.realpath(str(m.get("source") or ""))
+            wurzel = os.path.realpath(ordner)
+            if quelle.startswith(wurzel + os.sep):
+                print("%s|%s" % (w, os.path.relpath(quelle, wurzel)))
+PY
+}
+conf_liste() {   # $1 = conf-Datei, $2 = Feld -> ein Eintrag je Zeile, ohne "?"
+  [ -f "$1" ] || return 0
+  python3 - "$1" "$2" <<'PY'
+import re, signal, sys
+# Ein Kommandozeilenstueck, dessen Ausgabe in "grep -q" laeuft: das
+# schliesst nach dem ersten Treffer. Hier ist SIG_DFL richtig - anders als
+# in einem Dienst (N-82).
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+t = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+m = re.search(r'(?m)^%s="([^"]*)"' % re.escape(sys.argv[2]), t)
+for z in (m.group(1) if m else "").split("\n"):
+    for e in (z.split("|")[0].split() if sys.argv[2] == "VOLUMES_OHNE" else z.split()):
+        print(e.lstrip("?"))
+PY
+}
+EINHAENGEN=$(einhaengepunkte | sort -u)
+while IFS='|' read -r W P; do
+  [ -n "$W" ] || continue
+  Z="$STACK/$W/$P"; KONF="$STACK/$W/sicherung.conf"
+  if conf_liste "$KONF" DATEIEN | grep -qx "$P"; then
+    if [ -f "$Z" ]; then f_ok "$W/$P"
+    elif [ -d "$Z" ] && [ -z "$(ls -A "$Z")" ]; then
+      if tun; then rmdir "$Z" && : > "$Z" && chmod 600 "$Z" \
+                     && f_tat "$W/$P war ein leerer Ordner (Ueberbleibsel eines Starts) - jetzt eine Datei, 0600"
+      else f_wuerde "$W/$P: leeren Ordner durch eine Datei ersetzen"; fi
+    elif [ -d "$Z" ]; then
+      f_bad "$W/$P ist ein Ordner mit Inhalt, gehoert aber eine Datei hin - von Hand ansehen"
+    elif tun; then
+      : > "$Z" && chmod 600 "$Z" && f_tat "$W/$P angelegt (leer, 0600)"
+    else f_wuerde "$W/$P anlegen (leer, 0600)"; fi
+  elif { conf_liste "$KONF" ORDNER; conf_liste "$KONF" VOLUMES_OHNE; } | grep -qx "$P"; then
+    if [ -d "$Z" ]; then f_ok "$W/$P/"
+    elif [ -e "$Z" ]; then f_ok "$W/$P"
+    elif [ "$(git -C "$STACK" ls-files -- "$W/$P" 2>/dev/null)" = "$W/$P" ]; then
+      # N-107: eine DATEI aus dem Git (VOLUMES_OHNE "liegt im Git"). Als
+      # Ordner angelegt, haengte Docker einen leeren Ordner an die Stelle
+      # der Konfiguration - die Narbe aus N-91, vom eigenen Skript.
+      f_bad "$W/$P fehlt - die Datei steht im Git. Zurueckholen:"
+      printf '          git -C %s checkout -- %s/%s\n' "$STACK" "$W" "$P"
+    elif tun; then mkdir -p "$Z" && f_tat "$W/$P/ angelegt"
+    else f_wuerde "$W/$P/ anlegen"; fi
+  elif [ -e "$Z" ]; then
+    f_ok "$W/$P"
+  else
+    f_bad "$W/$P fehlt - Docker wuerde dort einen leeren Ordner anlegen."
+    printf '          Steht es im Git:  git -C %s checkout -- %s/%s\n' "$STACK" "$W" "$P"
+    printf '          Sind es Daten, gehoert es in %s/sicherung.conf (DATEIEN oder ORDNER).\n' "$W"
+  fi
+done <<< "$EINHAENGEN"
+[ -n "$EINHAENGEN" ] || f_ok "kein Werkzeug haengt etwas aus seinem Ordner ein"
+
+# ---------------------------------------------------------------- 6c
+schritt "6c. Auftragsbuch der Admin-Seite"
+# A-01: die Admin-Seite spricht nicht mit Docker, sie legt Auftraege ab.
+# Ausgefuehrt werden sie hier auf dem Server, von werkzeuge/auftrag.py,
+# angestossen von systemd. Dafuer braucht es die Ordner mit den richtigen
+# Besitzern (eingang/ gehoert dem Nutzer im Container, erledigt/ root) und
+# die zwei systemd-Einheiten. Beides sieht erst nach, ob es noetig ist.
+if [ ! -f "$STACK/admin/docker-compose.yml" ]; then
+  f_ok "keine Admin-Seite in diesem Stapel - kein Auftragsbuch noetig"
+else
+  if LAGE=$(python3 "$HIER/auftrag.py" einrichten --pruefen 2>&1); then
+    f_ok "admin/auftraege: Ordner, Besitzer und Rechte stimmen"
+  elif ! tun; then
+    f_wuerde "admin/auftraege: $(printf '%s' "$LAGE" | tr '\n' ';' | sed 's/;$//; s/;/; /g')"
+  elif A=$(python3 "$HIER/auftrag.py" einrichten 2>&1); then
+    f_tat "admin/auftraege: $(printf '%s' "$A" | tr '\n' ';' | sed 's/;$//; s/;/; /g')"
+  else
+    f_bad "admin/auftraege liess sich nicht einrichten:"
+    printf '%s\n' "$A" | sed 's/^/          /'
+  fi
+
+  # Von aussen setzbar nur fuer die Probe - wie PROLO_BIN (N-100).
+  SD="${PROLO_SYSTEMD_ZIEL:-/etc/systemd/system}"
+  if ! command -v systemctl >/dev/null 2>&1; then
+    f_offen "kein systemd: Auftraege der Admin-Seite werden nicht von selbst"
+    printf '          abgeholt. Von Hand: sudo python3 %s/auftrag.py abarbeiten\n' "$HIER"
+  else
+    NEU=0
+    for U in prolo-auftraege.path prolo-auftraege.service prolo-auftraege.timer; do
+      SOLL=$(sed "s#@STACK@#$STACK#g" "$HIER/systemd/$U")
+      if [ -f "$SD/$U" ] && [ "$(cat "$SD/$U")" = "$SOLL" ]; then
+        f_ok "$SD/$U"
+      elif tun; then
+        printf '%s\n' "$SOLL" > "$SD/$U" && NEU=1 && f_tat "$SD/$U geschrieben"
+      else
+        f_wuerde "$SD/$U schreiben"
+      fi
+    done
+    if [ "$NEU" -eq 1 ]; then
+      A=$(systemctl daemon-reload 2>&1) || f_bad "systemctl daemon-reload: $A"
+    fi
+    # Der Waechter (path) holt Auftraege ab, der Zeitgeber (timer) frischt
+    # alle fuenf Minuten den Bestand der Werkzeugordner auf (A-02).
+    if systemctl is-enabled --quiet prolo-auftraege.path prolo-auftraege.timer 2>/dev/null \
+       && systemctl is-active --quiet prolo-auftraege.path prolo-auftraege.timer 2>/dev/null \
+       && [ "$NEU" -eq 0 ]; then
+      f_ok "prolo-auftraege.path wacht ueber den Eingang, der Zeitgeber laeuft"
+    elif ! tun; then
+      f_wuerde "systemctl enable --now prolo-auftraege.path prolo-auftraege.timer"
+    elif A=$(systemctl enable --now prolo-auftraege.path prolo-auftraege.timer 2>&1) \
+         && A=$(systemctl restart prolo-auftraege.path prolo-auftraege.timer 2>&1); then
+      f_tat "prolo-auftraege.path und .timer eingeschaltet - Auftraege werden jetzt abgeholt"
+    else
+      # Genau der Aufruf, und was systemd dazu sagt (N-64).
+      f_bad "systemctl enable --now prolo-auftraege.path prolo-auftraege.timer ging nicht:"
+      printf '%s\n' "$A" | tail -3 | sed 's/^/          /'
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------- 6d
+schritt "6d. Protokolle drehen"
+# N-106: traefik/logrotate.conf stand seit B-26 im Git, eingetragen wurde
+# sie nur, wenn jemand den Kommentar darin abtippte - auf keinem Server.
+# Das Zugriffsprotokoll wuchs ohne Grenze. Was ein Werkzeug an Drehregeln
+# braucht, sagt es selbst in <werkzeug>/logrotate.conf; hier steht kein
+# Werkzeugname. @STACK@ wird ersetzt, weil logrotate nur ganze Pfade kennt.
+#
+# Ein Verweis aus der alten Anleitung (ln -sf ... logrotate.conf) muss weg:
+# dieselbe Datei in zwei Regeln laesst logrotate mit "duplicate log entry"
+# und Rueckgabe 1 aussteigen - jeden Tag, gemessen.
+LR="${PROLO_LOGROTATE_ZIEL:-/etc/logrotate.d}"   # von aussen nur fuer die Probe
+DREH=0
+for K in "$STACK"/*/logrotate.conf; do
+  [ -e "$K" ] || continue
+  DREH=1
+  W=$(basename "$(dirname "$K")"); Z="$LR/prolo-$W"
+  for ALT in "$LR"/*; do
+    [ -L "$ALT" ] && [ "$(readlink -f "$ALT")" = "$(readlink -f "$K")" ] || continue
+    if tun; then rm -f "$ALT" && f_tat "$ALT entfernt (Verweis aus der alten Anleitung, jetzt $Z)"
+    else f_wuerde "$ALT entfernen (Verweis aus der alten Anleitung)"; fi
+  done
+  SOLL=$(sed "s#@STACK@#$STACK#g" "$K")
+  if [ -f "$Z" ] && [ ! -L "$Z" ] && [ "$(cat "$Z")" = "$SOLL" ] \
+     && [ "$(stat -c %a "$Z")" = 644 ]; then
+    f_ok "$Z"
+  elif ! tun; then
+    f_wuerde "$Z schreiben ($W/logrotate.conf mit $STACK)"
+  elif [ ! -d "$LR" ]; then
+    f_bad "$LR fehlt - ist logrotate installiert? sudo apt install logrotate, danach"
+    printf '          sudo prolo einrichten (gefahrlos zu wiederholen)\n'
+  else
+    # logrotate liest keine Regel, die Gruppe oder Welt beschreiben duerfen.
+    if A=$( { rm -f "$Z" && printf '%s\n' "$SOLL" > "$Z" && chmod 644 "$Z"; } 2>&1 ); then
+      f_tat "$Z geschrieben - $W dreht seine Protokolle jetzt taeglich"
+    else
+      f_bad "$Z liess sich nicht schreiben: $A"
+    fi
+  fi
+done
+[ "$DREH" -eq 1 ] || f_ok "kein Werkzeug bringt eine Drehregel mit"
 
 # ----------------------------------------------------------------- 7
 schritt "7. Geheimnisse verteilen"
@@ -277,8 +502,34 @@ netze_fehlen() {
   done
 }
 
+# Was docker gesagt hat, ohne das Rauschen (N-90). "docker compose up"
+# schreibt beim ersten Start seitenweise Fortschritt nach stderr - die
+# eigentliche Ursache steht in den letzten Zeilen. Vorher lief alles nach
+# /dev/null, und die Meldung verwies auf "prolo protokoll": das zeigt bei
+# einem Container, der nie angelegt wurde, gar nichts.
+RAUSCHEN='Pulling|Pulled|Download|Extracting|Waiting|Verifying|Pull complete|Already exists|fs layer|Building|Built|Creating|Created|Starting|Started|Running|^ *#[0-9]|^ *$'
+docker_sagt() {   # $1 = Werkzeug, $2 = Ausgabe von docker compose
+  local T="$1" A="$2" KERN
+  KERN=$(printf '%s\n' "$A" | grep -v -E "$RAUSCHEN" | tail -4)
+  printf '          docker sagt:\n'
+  printf '%s\n' "${KERN:-(keine Meldung)}" | sed 's/^/            /'
+  # Die zwei haeufigen Ursachen beim Einrichten, mit dem Weg daraus. Die
+  # Folgerung kommt nur, wenn die Meldung sie hergibt (§7, N-64).
+  case "$KERN" in
+    *"declared as external, but could not be found"*)
+      printf '          Ein Netz fehlt. Ist es "socket", muss socket-proxy zuerst\n'
+      printf '          laufen - steht es oben als Fehler, ist das die Ursache.\n'
+      printf '          Sonst:  sudo prolo netze anlegen <netz>\n' ;;
+    *"fehlt in"*|*"required variable"*|*"is missing a value"*|*"required"*)
+      printf '          Ein Wert fehlt in %s/.env - Schritt 7 hat ihn offen gelassen.\n' "$T"
+      printf '          Bei einem frischen Aufbau (noch keine Daten) fuellt ihn:\n'
+      printf '            sudo prolo geheimnisse --verteilen --frisch\n'
+      printf '          Beliebig oft aufrufbar - vorhandene Werte bleiben stehen.\n' ;;
+  esac
+}
+
 starten() {
-  local T="$1"
+  local T="$1" AUSGABE
   [ -f "$STACK/$T/docker-compose.yml" ] || return 0
   local LAUFEN FEHLT
   LAUFEN=$(docker compose --project-directory "$STACK/$T" ps -q 2>/dev/null | grep -c .)
@@ -292,20 +543,36 @@ starten() {
     FEHLT=$(netze_fehlen "$T")
     if [ -z "$FEHLT" ]; then f_ok "$T laeuft"; return 0; fi
     if ! tun; then f_wuerde "$T neu verbinden (fehlt: $FEHLT)"; return 0; fi
-    if (cd "$STACK/$T" && docker compose up -d >/dev/null 2>&1); then
+    # Neu verbinden heisst neu anlegen - mit der Konfiguration von JETZT.
+    # Also dieselbe Sperre wie beim ersten Start (N-85).
+    local SPERRE
+    if ! SPERRE=$(start_pruefen "$T" 2>&1); then
+      f_bad "$T NICHT neu verbunden:"
+      printf '%s\n' "$SPERRE" | sed 's/^/          /'
+      return 0
+    fi
+    if AUSGABE=$(cd "$STACK/$T" && docker compose up -d 2>&1); then
       FEHLT=$(netze_fehlen "$T")
       if [ -z "$FEHLT" ]; then f_tat "$T neu verbunden"
       else f_bad "$T haengt weiter nicht in: $FEHLT"; fi
     else
-      f_bad "$T liess sich nicht neu verbinden:  sudo prolo protokoll $T"
+      f_bad "$T liess sich nicht neu verbinden:"
+      docker_sagt "$T" "$AUSGABE"
     fi
     return 0
   fi
   if ! tun; then f_wuerde "$T starten"; return 0; fi
-  if (cd "$STACK/$T" && docker compose up -d >/dev/null 2>&1); then
+  local SPERRE
+  if ! SPERRE=$(start_pruefen "$T" 2>&1); then
+    f_bad "$T NICHT gestartet:"
+    printf '%s\n' "$SPERRE" | sed 's/^/          /'
+    return 0
+  fi
+  if AUSGABE=$(cd "$STACK/$T" && docker compose up -d 2>&1); then
     f_tat "$T gestartet"
   else
-    f_bad "$T kam nicht hoch:  sudo prolo protokoll $T"
+    f_bad "$T kam nicht hoch:"
+    docker_sagt "$T" "$AUSGABE"
   fi
 }
 for T in $ZUERST; do starten "$T"; done
@@ -314,19 +581,125 @@ for T in $(werkzeuge); do
   starten "$T"
 done
 
+# ---------------------------------------------------------------- 9b
+schritt "9b. Firewall-Bouncer"
+# F-01: CrowdSec (crowdsec/) erkennt Angriffe und entscheidet Sperren -
+# durchgesetzt werden sie von einem Programm auf dem Server, das sie in
+# nftables eintraegt. Ohne es erkennt CrowdSec und niemand haelt auf.
+#
+# Installiert wird es nicht von hier: ein Paket samt fremder Paketquelle ist
+# eine Entscheidung fuer den Menschen am Server (wie docker-compose-plugin
+# und age in Schritt 1). Ist es da, traegt dieser Schritt die lokale API und
+# den Schluessel aus crowdsec/.env ein - der Wert wird nie ausgegeben (§22).
+BK="${PROLO_BOUNCER_KONF:-/etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml}"   # von aussen nur fuer die Probe
+if [ ! -f "$STACK/crowdsec/docker-compose.yml" ]; then
+  f_ok "keine Firewall (crowdsec/) in diesem Stapel"
+elif [ ! -f "$BK" ]; then
+  f_offen "der Firewall-Bouncer fehlt - CrowdSec erkennt Angriffe, aber niemand sperrt sie aus."
+  printf '          Einrichten (Paketquelle von CrowdSec, dann das Paket fuer nftables):\n'
+  printf '            curl -s https://install.crowdsec.net | sudo sh\n'
+  printf '            sudo apt install crowdsec-firewall-bouncer-nftables\n'
+  printf '          danach  sudo prolo einrichten  (gefahrlos zu wiederholen)\n'
+else
+  # Antwort: GLEICH, GESCHRIEBEN, WUERDE, LEER oder FEHLER <grund>
+  STAND=$(python3 - "$BK" "$STACK/crowdsec/.env" "$TROCKEN" <<'PY'
+import os, re, sys
+konf, env, trocken = sys.argv[1], sys.argv[2], sys.argv[3] == "1"
+schluessel = ""
+try:
+    for z in open(env, encoding="utf-8"):
+        if z.startswith("CROWDSEC_BOUNCER_SCHLUESSEL="):
+            schluessel = z.split("=", 1)[1].strip().strip("'\"")
+except OSError:
+    pass
+if not schluessel:
+    print("LEER"); sys.exit(0)
+try:
+    alt = open(konf, encoding="utf-8").read()
+except OSError as e:
+    print("FEHLER %s nicht lesbar: %s" % (konf, e.strerror)); sys.exit(0)
+soll = {"api_url": "http://127.0.0.1:8080/", "api_key": schluessel}
+neu = alt
+for k, v in soll.items():
+    zeile = "%s: %s" % (k, v)
+    if re.search(r"(?m)^%s:.*$" % k, neu):
+        neu = re.sub(r"(?m)^%s:.*$" % k, lambda m: zeile, neu, count=1)
+    else:
+        neu = neu.rstrip("\n") + "\n" + zeile + "\n"
+if neu == alt:
+    print("GLEICH"); sys.exit(0)
+if trocken:
+    print("WUERDE"); sys.exit(0)
+try:
+    with open(konf + ".neu", "w", encoding="utf-8") as f:
+        f.write(neu)
+    os.chmod(konf + ".neu", 0o600)
+    os.replace(konf + ".neu", konf)
+except OSError as e:
+    print("FEHLER %s: %s" % (konf, e.strerror)); sys.exit(0)
+print("GESCHRIEBEN")
+PY
+)
+  case "$STAND" in
+    GLEICH) f_ok "$BK nennt die lokale API und den Schluessel" ;;
+    WUERDE) f_wuerde "$BK: lokale API und Schluessel eintragen, Bouncer neu starten" ;;
+    LEER)   f_offen "CROWDSEC_BOUNCER_SCHLUESSEL fehlt in crowdsec/.env - Schritt 7 fuellt ihn:"
+            printf '          sudo prolo geheimnisse --verteilen   (danach dieses Skript noch einmal)\n' ;;
+    GESCHRIEBEN)
+      f_tat "$BK: lokale API und Schluessel eingetragen"
+      if A=$(systemctl restart crowdsec-firewall-bouncer 2>&1); then
+        f_tat "crowdsec-firewall-bouncer neu gestartet"
+      else
+        f_bad "systemctl restart crowdsec-firewall-bouncer ging nicht:"
+        printf '%s\n' "$A" | tail -3 | sed 's/^/          /'
+      fi ;;
+    *) f_bad "${STAND#FEHLER }" ;;
+  esac
+  if tun && [ "$STAND" != LEER ]; then
+    # Die Wirkung, nicht die Ankuendigung (N-38): fragt der Bouncer bei
+    # CrowdSec wirklich ab? Er tut es alle 10 s - 30 s Geduld.
+    ALTER=""
+    for _ in $(seq 1 $(( ${PROLO_BOUNCER_WARTEN_S:-30} / 2 ))); do   # von aussen nur fuer die Probe
+      ALTER=$(docker exec crowdsec cscli bouncers list -o json 2>/dev/null | python3 -c '
+import datetime, json, sys
+try:
+    b = [x for x in json.load(sys.stdin) or [] if x.get("name") == "firewall"]
+    t = datetime.datetime.strptime((b[0].get("last_pull") or "")[:19], "%Y-%m-%dT%H:%M:%S")
+    jetzt = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    print(int((jetzt - t).total_seconds()))
+except Exception:
+    pass')
+      [ -n "$ALTER" ] && [ "$ALTER" -lt 60 ] && break
+      sleep 2
+    done
+    if [ -n "$ALTER" ] && [ "$ALTER" -lt 60 ]; then
+      f_ok "der Bouncer holt die Sperren ab (zuletzt vor ${ALTER} s)"
+    else
+      f_bad "der Bouncer fragt bei CrowdSec nicht ab - es wird nichts gesperrt."
+      printf '          Gefragt:    docker exec crowdsec cscli bouncers list\n'
+      printf '          Nachsehen:  sudo systemctl status crowdsec-firewall-bouncer\n'
+    fi
+  fi
+fi
+
 # ----------------------------------------------------------------- 10
 schritt "10. Was nur du tun kannst"
+# Auch hier beide Dateien (N-83): der Name eines Fremdwerkzeugs steht in
+# unserer override-Datei, nicht in der des Herstellers.
 python3 - "$STACK" <<'PY'
 import os, re, sys
 stack = sys.argv[1]
 namen = set()
 for d in sorted(os.listdir(stack)):
-    p = os.path.join(stack, d, "docker-compose.yml")
-    if not os.path.isfile(p):
+    if not os.path.isfile(os.path.join(stack, d, "docker-compose.yml")):
         continue
-    t = open(p, encoding="utf-8", errors="replace").read()
-    for m in re.finditer(r"Host\(`([^`]+)`\)", t):
-        namen.add(m.group(1))
+    for datei in ("docker-compose.yml", "docker-compose.override.yml"):
+        p = os.path.join(stack, d, datei)
+        if not os.path.isfile(p):
+            continue
+        t = open(p, encoding="utf-8", errors="replace").read()
+        for m in re.finditer(r"Host\(`([^`]+)`\)", t):
+            namen.add(m.group(1))
 if namen:
     print("  DNS - je ein A-Record auf die Server-IP, KEIN AAAA:")
     for n in sorted(namen):
@@ -342,10 +715,36 @@ cat <<'HINWEIS'
     Schritt 3 wird am haeufigsten vergessen. Ohne ihn antwortet Authentik
     mit "Not Found", und man sucht den Fehler ueberall, nur nicht dort.
 
-  Gruppen in Authentik anlegen und sich selbst zuweisen:
-    wiki-editor, wiki-admin   Wiki: schreiben bzw. verwalten
-    stack-admin               Verwaltung auf prolo.me
 HINWEIS
+
+# Die Gruppen sagt jedes Werkzeug selbst, im Label prolo.gruppen (N-95).
+# Vorher stand hier eine feste Liste - und in ihr fehlte "admin", ohne die
+# die Admin-Seite jeden mit 403 abweist. Beide Compose-Dateien (N-83).
+python3 - "$STACK" <<'PY'
+import os, re, sys
+stack = sys.argv[1]
+zeilen = []
+for d in sorted(os.listdir(stack)):
+    if not os.path.isfile(os.path.join(stack, d, "docker-compose.yml")):
+        continue
+    for datei in ("docker-compose.yml", "docker-compose.override.yml"):
+        p = os.path.join(stack, d, datei)
+        if not os.path.isfile(p):
+            continue
+        t = open(p, encoding="utf-8", errors="replace").read()
+        for m in re.finditer(r"prolo\.gruppen=([^\"\n]+)", t):
+            for teil in m.group(1).split(";"):
+                gruppe, _, wozu = teil.strip().partition("=")
+                if gruppe:
+                    zeilen.append((gruppe.strip(), wozu.strip(), d))
+if zeilen:
+    print("")
+    print("  Gruppen in Authentik anlegen und sich selbst zuweisen:")
+    for gruppe, wozu, werkzeug in sorted(set(zeilen)):
+        print("    %-16s %-12s %s" % (gruppe, werkzeug, wozu))
+    print("  Ohne die Gruppe weist das Werkzeug mit 403 ab - mit der")
+    print("  Gruppe im Namen, damit man weiss, welche fehlt.")
+PY
 
 # -----------------------------------------------------------------
 schritt "Stand"

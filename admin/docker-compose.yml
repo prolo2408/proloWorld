@@ -1,17 +1,22 @@
 # /opt/stack/admin/docker-compose.yml
 #
-# Die Uebersichtsseite ueber den Stack. Eigener Code, also gilt §17 ohne
+# Die Verwaltungsseite des Stacks. Eigener Code, also gilt §17 ohne
 # Ausnahme: die Anmeldung macht Authentik, und zusaetzlich verlangt das
-# Werkzeug die Gruppe "admin". Zwei Tueren - Authentik laesst aufs
-# Grundstueck, das Werkzeug ins Haus.
+# Werkzeug die Gruppe "admin" (sehen) bzw. "admin-betrieb" (bedienen). Zwei
+# Tueren - Authentik laesst aufs Grundstueck, das Werkzeug ins Haus.
 #
-# WARUM DIESE SEITE NICHTS STARTEN KANN
+# WARUM DIESE SEITE NICHT SELBST STARTET
 #
-# Sie haengt im Netz "socket" und liest ueber den Vermittler
-# (socket-proxy) zwei Listen: Container und Netze. Der Vermittler laesst
-# POST nicht durch (POST: 0), also kann von hier aus kein Container
-# gestartet, angehalten oder angelegt werden - auch nicht, wenn dieses
-# Werkzeug uebernommen wuerde.
+# Sie haengt im Netz "socket" und liest ueber den Vermittler (socket-proxy)
+# Container, Netze und Protokolle. Der Vermittler laesst POST nicht durch
+# (POST: 0) - von hier aus kann kein Container gestartet, angehalten oder
+# angelegt werden, auch nicht, wenn dieses Werkzeug uebernommen wuerde.
+#
+# Bedient wird trotzdem von hier: die Seite legt AUFTRAEGE in
+# ./auftraege/eingang, und auf dem Server fuehrt werkzeuge/auftrag.py sie
+# aus - ueber prolo, nur was dort erlaubt ist (A-01, A-02). Das Ergebnis
+# liest die Seite aus ./auftraege/erledigt, das sie NUR LESEND sieht: dort
+# steht auch das Protokoll, wer was wann tat.
 #
 # Was der Vermittler durchlaesst, ist trotzdem nicht nichts: wer lesend an
 # der Docker-API sitzt, kann auch die Umgebungsvariablen von Containern
@@ -22,17 +27,13 @@
 #   - read_only: das Programmverzeichnis ist schreibgeschuetzt
 #   - cap_drop ALL, no-new-privileges
 #   - kein Zugriff auf /opt/stack: keine .env, kein acme.json, kein Volume
-#     ausser dem eigenen
+#     ausser dem eigenen und dem Auftragsbuch
 #   - das Netz "socket" ist internal - von dort geht nichts nach draussen
-#
-# Soll hier je ein Knopf "Neustarten" hin, dann mit einem EIGENEN
-# Vermittler, der genau diesen einen Aufruf durchlaesst, und als eigene
-# Entscheidung - nicht, indem hier POST: 1 gesetzt wird.
 
 services:
   admin:
     build: .
-    image: prolo-admin:0.1.0          # feste Fassung, nie latest (§19)
+    image: prolo-admin:0.4.1          # feste Fassung, nie latest (§19)
     container_name: admin
     restart: unless-stopped
 
@@ -58,10 +59,17 @@ services:
       # Wer hier hereindarf. Ausgewertet werden nur Gruppen, die mit
       # ADMIN_GRUPPE_PRAEFIX anfangen - der Rest wird verworfen (§17).
       ADMIN_GRUPPE: admin
+      ADMIN_GRUPPE_BETRIEB: admin-betrieb
       ADMIN_GRUPPE_PRAEFIX: admin
+      ADMIN_AUFTRAEGE: /auftraege
 
     volumes:
       - admin_daten:/daten
+      # Das Auftragsbuch (A-01). eingang: schreiben (0700, gehoert dem
+      # Nutzer 10004 aus dem Dockerfile). erledigt: nur lesen. Angelegt
+      # mit den richtigen Besitzern von "sudo prolo einrichten".
+      - ./auftraege/eingang:/auftraege/eingang
+      - ./auftraege/erledigt:/auftraege/erledigt:ro
 
     networks:
       # netz-admin: der Weg von Traefik herein.
@@ -71,6 +79,11 @@ services:
       - socket
 
     labels:
+      # Welche Gruppen dieses Werkzeug in Authentik erwartet (N-95). Das
+      # Werkzeug sagt es selbst - "prolo einrichten" liest es von hier,
+      # statt eine eigene Liste zu fuehren, die veraltet.
+      # Form: <gruppe>=<wozu>; <gruppe>=<wozu>
+      - "prolo.gruppen=admin=die Stack-Uebersicht sehen; admin-betrieb=Werkzeuge starten, anhalten, aktualisieren, Protokolle lesen"
       - "traefik.enable=true"
       - "traefik.docker.network=netz-admin"
       - "traefik.http.services.admin.loadbalancer.server.port=8080"

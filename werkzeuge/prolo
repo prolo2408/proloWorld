@@ -47,6 +47,10 @@ while [ -L "$QUELLE" ]; do
 done
 HIER="$(cd "$(dirname "$QUELLE")" && pwd)"
 STACK="$(dirname "$HIER")"
+# Das Hilfsabbild fuer tar in Volumes - feste Fassung, nie latest (§19,
+# N-108). Steht gleich in backup.sh, werkzeuge/prolo und
+# werkzeuge/wiederherstellen.sh; werkzeuge/abbilder-pruefen.sh haelt es zusammen.
+HILFSABBILD="alpine:3.22.6"
 ARCHIV="$STACK/.archiv"
 DOMAENE="${PROLO_DOMAENE:-prolo.me}"
 
@@ -535,7 +539,7 @@ befehl_entfernen() {
     melde "Sichere die Volumes dazu ..."
     local V ok=1
     for V in $VOLUMES; do
-      docker run --rm -v "$V":/daten -v "$ZIEL":/ab alpine \
+      docker run --rm -v "$V":/daten -v "$ZIEL":/ab "$HILFSABBILD" \
         tar czf "/ab/$STAND.volume.$V.tar.gz" -C /daten . 2>/dev/null \
         || { melde "  WARNUNG: Volume $V nicht gefunden"; ok=0; }
     done
@@ -649,7 +653,7 @@ befehl_zurueckholen() {
     V=$(basename "$f" .tar.gz); V="${V#"$STAND".volume.}"
     melde "  Volume $V ..."
     docker volume create "$V" >/dev/null
-    docker run --rm -v "$V":/daten -v "$Q":/ab alpine \
+    docker run --rm -v "$V":/daten -v "$Q":/ab "$HILFSABBILD" \
       sh -c "cd /daten && tar xzf '/ab/$(basename "$f")'" \
       || melde "  WARNUNG: Volume $V liess sich nicht einspielen"
   done
@@ -662,66 +666,11 @@ befehl_zurueckholen() {
 }
 
 # ----------------------------------------------------------------------
-# Bevor etwas losgelassen wird: zwei Dinge, die man einem Werkzeug von
-# aussen nicht ansieht und die beide den ganzen Schutz aufheben (N-61).
-#
-#   1. Eine veroeffentlichte ports:-Zeile. Damit ist der Dienst an Traefik,
-#      an der Anmeldung UND an der Firewall vorbei erreichbar (§19). Bei
-#      einem Fremdwerkzeug bringt der Hersteller sie fast immer mit - und
-#      unsere override-Datei kann sie nicht wieder wegnehmen, Compose
-#      haengt Listen aneinander.
-#   2. Ein Router ohne Anmeldung und ohne Erklaerung. Ein fehlendes
-#      middlewares= sieht genauso aus wie ein vergessenes (N-59).
-#
-# Gemessen wird an der ZUSAMMENGESETZTEN Konfiguration ("docker compose
-# config"), nicht an einer Datei - sonst sieht die Pruefung die Haelfte.
-#
-# Das ist eine Sperre in "prolo start", nicht in Docker: wer es wirklich
-# will, kann immer noch "cd <ordner> && docker compose up -d" tippen. Der
-# gefuehrte Weg soll nur nicht der sein, auf dem man aus Versehen einen
-# Dienst ins offene Netz stellt.
-start_pruefen() {
-  local TOOL="$1" Z T D NN TN SCHUTZ PORTS GRUND GETEILT HOSTS FEHLT=0
-
-  if grep -q 'PROLO-PLATZHALTER' "$STACK/$TOOL/docker-compose.yml" 2>/dev/null; then
-    fehler "NICHT gestartet: in $TOOL/docker-compose.yml steht noch der"
-    fehler "Platzhalter von 'prolo neu'."
-    fehler ""
-    fehler "  Die docker-compose.yml des Herstellers gehoert dort hinein,"
-    fehler "  ihre ports:-Zeile weg, und dann die Zeile PROLO-PLATZHALTER"
-    fehler "  loeschen. Das Warum steht in $TOOL/LIESMICH.md."
-    return 1
-  fi
-
-  [ -x "$HIER/netze.sh" ] || return 0
-  while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND GETEILT HOSTS; do
-    [ "$Z" = dienst ] || continue
-    if [ -n "$PORTS" ] && [ -z "$GRUND" ]; then
-      fehler "NICHT gestartet: $TOOL/$D veroeffentlicht Port(s) $PORTS auf dem Host."
-      fehler ""
-      fehler "  Damit waere der Dienst an Traefik, an der Anmeldung und an der"
-      fehler "  Firewall vorbei erreichbar (CLAUDE.md §19). Erreichbar bleibt"
-      fehler "  er ueber seinen Hostnamen - das macht Traefik."
-      fehler ""
-      fehler "  Abhilfe: die ports:-Zeile in $TOOL/docker-compose.yml entfernen."
-      fehler "  Muss sie wirklich sein, wird sie erklaert:"
-      fehler "    labels: [ \"prolo.ports=<warum>\" ]"
-      FEHLT=1
-    fi
-    if [ "$SCHUTZ" = OFFEN ]; then
-      fehler "NICHT gestartet: $TOOL/$D hat einen Router ohne Anmeldung."
-      fehler ""
-      fehler "  Entweder Authentik davor:"
-      fehler "    - \"traefik.http.routers.$TOOL.middlewares=authentik@file\""
-      fehler "  oder - wenn das Werkzeug seine eigene Anmeldung mitbringt -"
-      fehler "  erklaert (CLAUDE.md §17a):"
-      fehler "    - \"prolo.anmeldung=eigene\""
-      fehler "    - \"prolo.anmeldung.grund=<warum>\""
-      FEHLT=1
-    fi
-  done < <("$HIER/netze.sh" --dienste "$TOOL" 2>/dev/null)
-  return "$FEHLT"
-}
+# Die Startsperre steht in einer eigenen Datei (N-85): nicht nur "prolo
+# start" laesst Dienste los, sondern auch "prolo aktualisieren" und "prolo
+# einrichten". Vorher kannte nur dieser eine Weg die Sperre.
+# shellcheck source=werkzeuge/startsperre.sh
+. "$HIER/startsperre.sh"
 
 # Legt dieses Werkzeug Daten ab, die in keiner sicherung.conf stehen?
 #
@@ -827,6 +776,14 @@ prolo - ein Einstiegspunkt fuer den Stack unter $STACK
                               Liest das Zugriffsprotokoll von Traefik.
                               Erste Frage, wenn eine Seite beim ersten
                               Aufruf leer bleibt (N-79, auch: zugriff)
+  firewall                    Die Firewall (CrowdSec, F-01): Sperren,
+                              Meldungen, Freigaben - und holt der
+                              Bouncer auf dem Server die Sperren ab?
+    --json                    dasselbe maschinenlesbar
+    sperren <adresse> <dauer> <grund>   z.B. 203.0.113.7 12h "raet"
+    aufheben <adresse>
+    erlauben <adresse> <grund>          nie sperren (Freigabeliste)
+    nicht-mehr-erlauben <adresse>
   sichern                     auch: backup
   wiederherstellen            einen gesicherten Stand zurueckholen
     --probe                   nur ueben: auspacken, nachpruefen, nichts
@@ -878,6 +835,8 @@ case "$BEFEHL" in
   protokoll|logs)             root_noetig protokoll "$@"; befehl_protokoll "$@" ;;
   abweisungen|zugriff)        root_noetig abweisungen "$@"
                               exec python3 "$HIER/zugriff.py" "$@" ;;
+  firewall)                   root_noetig firewall "$@"
+                              exec python3 "$HIER/firewall.py" "$@" ;;
   neu|new)                    exec "$HIER/neu.sh" "$@" ;;
   netze|netz|networks)        exec "$HIER/netze.sh" "$@" ;;
   suchen|search)              befehl_suchen "$@" ;;

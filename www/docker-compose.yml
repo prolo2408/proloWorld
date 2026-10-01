@@ -1,15 +1,31 @@
+# www/docker-compose.yml
+#
+# DIE HERSTELLERDATEI von prolo.me. Sie gehoert zum Werkzeug, nicht zum
+# Betrieb: im eigenen Repository (prolo2408/www) liegt dieselbe Datei, und
+# proloWorld uebernimmt sie unveraendert - wie die Datei von n8n.
+#
+# EINE Abweichung vom Muster der anderen Werkzeuge, und sie ist Absicht:
+# die beiden ROUTER stehen hier und nicht in der override-Datei. Welche
+# Pfade oeffentlich sind und welche nicht, ist bei diesem Werkzeug keine
+# Frage des Betriebs, sondern seine Sicherheitsgrenze (N-74) - und
+# tests/test_freigabe.py haelt Code und Regel zusammen. Das geht nur, wenn
+# beide im selben Repository liegen. Netz und Speichergrenzen sind wie
+# ueberall Sache des Betriebs: docker-compose.override.yml.
+
+# Fester Projektname: danach heissen die Volumes (www_www_daten ...).
+name: www
+
 services:
   www:
+    # build: nur fuer den Bau aus dem Quellcode. Ist das Abbild einmal
+    # veroeffentlicht, holt der Betrieb es von ghcr.io.
     build: .
     # image: ist Pflicht, auch beim eigenen Dockerfile. Das zentrale
     # aktualisieren.sh liest genau diese Zeile, um sich die bisherige
     # Fassung zu merken - ohne sie gibt es keinen Rueckweg.
     # Die Fassung passt zum CHANGELOG.md und wird dort mitgezogen.
-    image: www:1.1.1
+    image: ghcr.io/prolo2408/www:1.1.1
     container_name: www
-    # Grenzen nach CLAUDE.md §19.
-    mem_limit: 512m
-    pids_limit: 256
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -23,17 +39,19 @@ services:
       # Die Marke der Vertrauensgrenze (N-44). Mit ":?" bricht schon
       # "docker compose up" ab und sagt, was fehlt - besser als ein
       # Container, der startet und dann jede Anfrage mit 401 abweist.
-      PROLO_EINLASS: "${PROLO_EINLASS:?PROLO_EINLASS fehlt in www/.env - siehe traefik/dynamic/einlass.yml.beispiel}"
+      PROLO_EINLASS: "${PROLO_EINLASS:?PROLO_EINLASS fehlt in www/.env - sudo prolo geheimnisse --verteilen}"
       WWW_ADMIN_GRUPPE: "${WWW_ADMIN_GRUPPE:-stack-admin}"
       WWW_MAX_UPLOAD_B: "${WWW_MAX_UPLOAD_B:-20971520}"
     volumes:
       - www_daten:/daten
       - www_seiten:/seiten
-    networks:
-      - netz-www
     labels:
+      # Welche Gruppen dieses Werkzeug in Authentik erwartet (N-95). Das
+      # Werkzeug sagt es selbst - "prolo einrichten" liest es von hier,
+      # statt eine eigene Liste zu fuehren, die veraltet.
+      # Form: <gruppe>=<wozu>; <gruppe>=<wozu>
+      - "prolo.gruppen=stack-admin=Seiten und Zugangslinks auf prolo.me verwalten"
       - "traefik.enable=true"
-      - "traefik.docker.network=netz-www"
       - "traefik.http.services.www.loadbalancer.server.port=8080"
 
       # ZWEI Router auf denselben Namen - das ist der Kern dieses Werkzeugs.
@@ -81,12 +99,3 @@ services:
 volumes:
   www_daten:
   www_seiten:
-
-networks:
-  # Eigenes Netz je Werkzeug (N-45). Vorher hingen alle im selben Netz, und
-  # dort erreicht jeder Container jeden anderen direkt, ohne Traefik und
-  # ohne Anmeldung. Nur Traefik haengt in allen Netzen.
-  #
-  # Anlegen, einmalig je Server:  docker network create netz-www
-  netz-www:
-    external: true

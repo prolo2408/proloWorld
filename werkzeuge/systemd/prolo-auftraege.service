@@ -1,0 +1,17 @@
+# werkzeuge/systemd/prolo-auftraege.service  (A-01)
+#
+# Fuehrt aus, was im Eingang liegt - ueber prolo, mit allem, was prolo
+# ohnehin prueft. Was erlaubt ist, steht in werkzeuge/auftrag.py (ARTEN),
+# nicht hier. Installiert von "sudo prolo einrichten".
+[Unit]
+Description=Prolo: Auftraege der Admin-Seite ausfuehren
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 @STACK@/werkzeuge/auftrag.py abarbeiten
+# Jeder Auftrag begrenzt sich selbst (ARTEN in auftrag.py, hoechstens eine
+# Stunde); mehrere hintereinander duerfen zusammen laenger dauern.
+TimeoutStartSec=0
+Nice=5

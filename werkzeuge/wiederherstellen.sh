@@ -23,6 +23,10 @@ set -uo pipefail
 
 HIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STACK="$(dirname "$HIER")"
+# Das Hilfsabbild fuer tar in Volumes - feste Fassung, nie latest (§19,
+# N-108). Steht gleich in backup.sh, werkzeuge/prolo und
+# werkzeuge/wiederherstellen.sh; werkzeuge/abbilder-pruefen.sh haelt es zusammen.
+HILFSABBILD="alpine:3.22.6"
 BACKUPS="${PROLO_BACKUPS:-/opt/backups}"
 
 PROBE=0; STAND=""; SCHLUESSEL=""; JA=0; TOOLS=()
@@ -178,8 +182,22 @@ plan_bauen() {
     for d in "$STANDORDNER"/*/; do [ -d "$d" ] && liste+=("$(basename "$d")"); done
   fi
   STUECKE=""
+  NEU_ANLEGEN=""
   for t in "${liste[@]}"; do
     conf="$STACK/$t/sicherung.conf"
+    # Das Werkzeug gibt es hier nicht - aber sein Ordner liegt in der
+    # Sicherung (N-87). Das ist der Fall nach einem Serververlust fuer
+    # alles, was "prolo neu" angelegt hat und nie im Git stand. Gelesen
+    # wird seine sicherung.conf aus dem Archiv; angelegt wird der Ordner
+    # erst beim Einspielen, nie bei --probe.
+    if [ ! -e "$STACK/$t" ] && [ -f "$STANDORDNER/$t/werkzeug.tar.gz" ]; then
+      mkdir -p "$AUSPACK/ordner"
+      if tar xzf "$STANDORDNER/$t/werkzeug.tar.gz" -C "$AUSPACK/ordner" \
+           "$t/sicherung.conf" 2>/dev/null; then
+        conf="$AUSPACK/ordner/$t/sicherung.conf"
+        NEU_ANLEGEN="$NEU_ANLEGEN $t"
+      fi
+    fi
     if [ ! -f "$conf" ]; then
       STUECKE="$STUECKE$t|-|-|OHNE-CONF"$'\n'
       continue
@@ -196,6 +214,9 @@ plan_bauen() {
     for x in $D2; do stueck "$t" datei    "${x#\?}"        "$STANDORDNER" "${x:0:1}"; done
     for x in $S;  do stueck "$t" sqlite   "$(basename "${x#*:}")" "$STANDORDNER"; done
     [ -n "$DB" ] && stueck "$t" datenbank "datenbank.sql.gz" "$STANDORDNER"
+    # Der Werkzeugordner (N-87). Aeltere Sicherungen haben ihn nicht -
+    # darum darf er fehlen.
+    stueck "$t" werkzeug "werkzeug.tar.gz" "$STANDORDNER" "?"
   done
 }
 
@@ -219,7 +240,7 @@ pruefen_lesbar() {
     [ "$lage" = "da" ] || continue
     p="$STANDORDNER/$t/$datei"
     case "$art" in
-      volume|ordner)
+      volume|ordner|werkzeug)
         if ! tar tzf "$p" >/dev/null 2>&1; then
           melde "  KAPUTT  $t/$datei - laesst sich nicht lesen"; kaputt=1; fi ;;
       datenbank)
@@ -272,6 +293,11 @@ plan_bauen "$STANDORDNER" ${TOOLS[@]+"${TOOLS[@]}"}
 
 blau "Was im Archiv liegt"
 bericht; VOLLSTAENDIG=$?
+if [ -n "$NEU_ANLEGEN" ]; then
+  melde ""
+  melde "  Hier nicht vorhanden, der Ordner liegt aber in der Sicherung und"
+  melde "  wird beim Einspielen angelegt:$NEU_ANLEGEN"
+fi
 # Nichts zu tun heisst hier NICHT "alles in Ordnung". Ein leerer Plan
 # bedeutet: im Archiv steht kein Werkzeug, das heute noch eine
 # sicherung.conf hat. Das als "vollstaendig und lesbar" zu melden waere
@@ -308,7 +334,9 @@ if [ "$VOLLSTAENDIG" -ne 0 ] || [ "$LESBAR" -ne 0 ]; then
   fehler "            Meist heisst das: es wurde erst nach dieser Sicherung"
   fehler "            eingetragen. Ein neuer Lauf holt es:  sudo prolo sichern"
   fehler "  OHNE-CONF das Werkzeug liegt im Archiv, hat aber heute keine"
-  fehler "            sicherung.conf mehr - entfernt oder umbenannt."
+  fehler "            sicherung.conf mehr - entfernt oder umbenannt - und"
+  fehler "            sein Ordner steht nicht in der Sicherung (die gibt es"
+  fehler "            erst seit N-87)."
   fehler "  KAPUTT    die Datei ist da und laesst sich nicht lesen. Das ist"
   fehler "            der Fall, fuer den es diese Probe gibt."
   exit 1
@@ -396,6 +424,18 @@ PY
 FEHLER=0
 for t in $BETROFFEN; do
   blau "$t"
+  # Fehlt der Ordner hier, kommt er aus der Sicherung (N-87). Ein
+  # VORHANDENER Ordner wird nie ueberschrieben (§15): dort liegt, was
+  # jemand nach der Sicherung geaendert hat - und das Git ist fuer die
+  # Konfiguration der bessere Rueckweg.
+  if [ ! -e "$STACK/$t" ] && [ -f "$STANDORDNER/$t/werkzeug.tar.gz" ]; then
+    if tar xzf "$STANDORDNER/$t/werkzeug.tar.gz" -C "$STACK"; then
+      melde "  Werkzeugordner aus der Sicherung angelegt: $STACK/$t"
+    else
+      fehler "  Der Werkzeugordner liess sich nicht auspacken - $t uebersprungen."
+      FEHLER=1; continue
+    fi
+  fi
   conf="$STACK/$t/sicherung.conf"
   V=$(conf_wert "$conf" VOLUMES)
   O=$(conf_wert "$conf" ORDNER)
@@ -414,10 +454,10 @@ for t in $BETROFFEN; do
 
   # --- Volumes: erst der jetzige Stand zur Seite, dann ersetzen --------
   for vol in $V; do
-    docker run --rm -v "$vol":/daten -v "$SICHERHEITSKOPIE/$t":/ab alpine \
+    docker run --rm -v "$vol":/daten -v "$SICHERHEITSKOPIE/$t":/ab "$HILFSABBILD" \
       tar czf "/ab/$vol.tar.gz" -C /daten . >/dev/null 2>&1 \
       || melde "  (kein jetziger Stand von $vol - das Volume gibt es noch nicht)"
-    if docker run --rm -v "$vol":/daten -v "$STANDORDNER/$t":/ein alpine \
+    if docker run --rm -v "$vol":/daten -v "$STANDORDNER/$t":/ein "$HILFSABBILD" \
          sh -c 'rm -rf /daten/..?* /daten/.[!.]* /daten/* 2>/dev/null; \
                 tar xzf "/ein/'"$vol"'.tar.gz" -C /daten' >/dev/null 2>&1; then
       melde "  Volume  $vol"
@@ -430,6 +470,9 @@ for t in $BETROFFEN; do
   for o in $O; do
     o="${o#\?}"
     [ -f "$STANDORDNER/$t/$o.tar.gz" ] || continue
+    # Unterpfade ("auftraege/erledigt") brauchen ihren Ordner auch in der
+    # Sicherheitskopie (N-101).
+    mkdir -p "$(dirname "$SICHERHEITSKOPIE/$t/$o.tar.gz")"
     [ -d "$STACK/$t/$o" ] && tar czf "$SICHERHEITSKOPIE/$t/$o.tar.gz" -C "$STACK/$t" "$o" 2>/dev/null
     rm -rf "${STACK:?}/$t/$o"
     if tar xzf "$STANDORDNER/$t/$o.tar.gz" -C "$STACK/$t" 2>/dev/null; then
@@ -441,6 +484,7 @@ for t in $BETROFFEN; do
   for d in $D2; do
     d="${d#\?}"
     [ -f "$STANDORDNER/$t/$d" ] || continue
+    mkdir -p "$(dirname "$SICHERHEITSKOPIE/$t/$d")" "$(dirname "$STACK/$t/$d")"
     [ -f "$STACK/$t/$d" ] && cp -p "$STACK/$t/$d" "$SICHERHEITSKOPIE/$t/$d"
     if cp "$STANDORDNER/$t/$d" "$STACK/$t/$d"; then
       # acme.json und .env sind Geheimnisse - die Rechte gehen mit (§21).
@@ -470,7 +514,7 @@ for t in $BETROFFEN; do
       FEHLER=1; continue
     fi
     set -- $ORT
-    if docker run --rm -v "$1":/daten -v "$STANDORDNER/$t":/ein alpine \
+    if docker run --rm -v "$1":/daten -v "$STANDORDNER/$t":/ein "$HILFSABBILD" \
          sh -c 'cp "/ein/'"$name"'" "/daten/'"$2"'" && \
                 rm -f "/daten/'"$2"'-wal" "/daten/'"$2"'-shm"' >/dev/null 2>&1; then
       melde "  SQLite  $name  (nach $1:/$2, -wal und -shm entfernt)"

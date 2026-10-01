@@ -24,6 +24,49 @@ PRUEFER = os.path.join(HIER, "neu-pruefen.sh")
 
 # (Name, Datei, alt, neu)
 MUTATIONEN = [
+    # A-03: prolo neu --compose
+    ("eine Compose-Datei mit Gefahren wird angelegt (A-03)",
+     "neu.sh", '  if [ "$N_GEFAHR" -gt 0 ]; then', '  if false; then'),
+    ("aus der Admin-Seite wird bei Gefahr nur allgemein abgelehnt (A-03)",
+     "neu.sh", '    if [ -n "${PROLO_AUFTRAG:-}" ]; then', '    if false; then'),
+    ("die Herstellerdatei wird veraendert uebernommen (A-03)",
+     "neu.sh", '    cp "$COMPOSE" "$STACK/$NAME/docker-compose.yml"',
+     "    sed '/ports:/,+1d' \"$COMPOSE\" > \"$STACK/$NAME/docker-compose.yml\""),
+    ("der Dienst verliert das Projektnetz und damit seine Datenbank (A-03)",
+     "neu.sh", "      - default\n", ""),
+    ("die Datenbank des Herstellers behaelt ihren Port (A-03)",
+     "neu.sh", '    if d["name"] != sys.argv[2] and d["ports"]:', '    if False:'),
+    ("die Volumes der Herstellerdatei fehlen in der Sicherung (A-03)",
+     "neu.sh", """  B_VOLUMES=$(aus_befund '" ".join(b["volumes"])')""", '  B_VOLUMES=""'),
+    ("geheime Variablen bleiben leer (A-03)",
+     "neu.sh", '    if not v["geheim"]:\n        continue', '    if True:\n        continue'),
+    ("ein Geheimnis kommt per --wert herein (A-03)",
+     "neu.sh", 'if bekannt[name]["geheim"]:', 'if False:'),
+    # Die Zeile, die ABBRICHT - nicht die Meldung davor: sonst setzt die
+    # Mutation 8080 und bricht trotzdem ab, und die Probe prueft nichts
+    # (so beim ersten Lauf entwischt).
+    ("ohne eindeutigen Port wird still 8080 genommen (A-03, §11)",
+     "neu.sh", '"Er steht in der Doku des Herstellers:  --port <zahl>"; exit 1',
+     '"Er steht in der Doku des Herstellers:  --port <zahl>"; PORT=8080'),
+    ("ein fremdes Netz geht ohne Grund (A-03)",
+     "neu.sh", '[ "$NETZ" = "netz-$NAME" ] || [ -n "$GETEILT" ] \\', 'true || [ -n "$GETEILT" ] \\'),
+
+    # N-103: die override-Datei nimmt die ports:-Zeile des Herstellers weg.
+    ("prolo neu laesst die Ports des Herstellers stehen (N-103)",
+     "neu.sh",
+     "    ports: !reset []\n",
+     ""),
+
+    ("der Hinweis in prolo netze zerbricht an seinen Anfuehrungszeichen (N-103)",
+     "netze.sh",
+     "mit 'ports: !reset []' am",
+     'mit "ports: !reset []" am'),
+
+    ("die Sperre nennt wieder die Herstellerdatei als Abhilfe (N-103)",
+     "startsperre.sh",
+     '      if [ -f "$STACK/$TOOL/docker-compose.override.yml" ]; then',
+     '      if false; then'),
+
     ("prolo neu legt gar keine override-Datei an",
      "neu.sh",
      '  } > "$STACK/$NAME/docker-compose.override.yml"',
@@ -74,14 +117,29 @@ MUTATIONEN = [
      '''  if false; then'''),
 
     ("prolo start sieht ueber offene Ports hinweg",
-     "prolo",
+     "startsperre.sh",
      '''    if [ -n "$PORTS" ] && [ -z "$GRUND" ]; then''',
      '''    if false; then'''),
 
     ("prolo start laesst einen Router ohne Anmeldung los",
-     "prolo",
+     "startsperre.sh",
      '''    if [ "$SCHUTZ" = OFFEN ]; then''',
      '''    if false; then'''),
+
+    ('ein authentik@file irgendwo schuetzt den ganzen Dienst (N-84)',
+     'netze.sh',
+     '''        and "authentik@file" not in label.get("traefik.http.routers.%s.middlewares" % r, "")]''',
+     '''        and "authentik@file" not in " ".join(w for k, w in label.items() if k.endswith(".middlewares"))]'''),
+
+    ('ein als oeffentlich erklaerter Router zaehlt trotzdem als offen (N-84)',
+     'netze.sh',
+     '''        if r not in oeffentlich''',
+     '''        if True'''),
+
+    ('prolo start nennt nicht den offenen Router, sondern das Werkzeug (N-84)',
+     'startsperre.sh',
+     '''      local R="${OFFENR%%,*}"''',
+     '''      local R="$TOOL"'''),
 
     ("ein geteiltes Netz faellt nicht auf (N-68)",
      "netze.sh",

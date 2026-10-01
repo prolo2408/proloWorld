@@ -16,6 +16,7 @@ Wo was steht:
 | `NEUE-BEFUNDE.md` | was schon einmal schiefging und warum. Fast jede Regel hier hat dort eine Narbe |
 | `wiki/vorlagen/prolo-bedienen.html` | die **Bedienung**: neuer Server, Alltag, Sichern, Wiederherstellen, Fehlersuche |
 | `werkzeuge/ANLEITUNG.md` | ein Werkzeug **anlegen**, Netze verwalten, die Admin-Seite |
+| `crowdsec/LIESMICH.md` | die **Firewall**: was sie liest, die eigenen Regeln, ausgesperrt? |
 | `wiki/EINRICHTUNG.md` | der Seitenaufbau des Wikis im Einzelnen |
 | `bordbuch/ANLEITUNG.md` | die Bedienung des Bordbuchs im Einzelnen |
 
@@ -56,6 +57,11 @@ Wo was steht:
 - **Eine Meldung ist kein Beweis.** Eine Prüflinie, die den Text einer
   Ankündigung sucht, bleibt grün, wenn die Tat entfällt (`N-38`). Geprüft
   wird die Wirkung.
+- **Vor dem Push läuft `werkzeuge/alle-pruefen.sh` ganz — und nicht als
+  root.** Die Prüfung auf GitHub läuft als gewöhnlicher Nutzer. Zweimal war
+  sie rot, während lokal alles grün war: einmal lief lokal nur eine Auswahl
+  (`N-104`), einmal alles, aber als root, und was nur als root geht, fiel
+  nicht auf (`N-110`).
 
 ## Die drei Werkzeuge mit eigenem Code
 
@@ -64,7 +70,7 @@ Wo was steht:
 | `wiki/` | Wissenssammlung, eigenständige HTML-Seiten in einem abgeschotteten Rahmen | `server.py` (`VERSION`), `docker-compose.yml` (`image:`), `CHANGELOG.md` |
 | `bordbuch/` | Fahrtenbuch, Lade- und Tankkosten | ebenso |
 | `www/` | `prolo.me`: HTML-Seiten ablegen und je Empfänger einen widerrufbaren Zugangslink ausgeben | ebenso |
-| `admin/` | Lesende Übersicht über den Stack: was läuft, in welchem Netz, unter welchem Namen — und was **nicht** geschützt ist | ebenso |
+| `admin/` | Die Verwaltung des Stacks: was läuft, in welchem Netz, unter welchem Namen, was **nicht** geschützt ist — und die Griffe dazu (starten, anhalten, aktualisieren, sichern). Bedient wird über das **Auftragsbuch**: die Seite legt Aufträge ab, `werkzeuge/auftrag.py` führt sie auf dem Server über `prolo` aus; schreibenden Zugriff auf Docker hat die Seite nie (`A-01`) | ebenso |
 
 Alle vier: Python-Standardbibliothek, SQLite, **kein Fremdpaket**. Geld in
 **ganzen Cent** (`Decimal`, kaufmännisch gerundet), niemals `float` als
@@ -555,7 +561,7 @@ abschalten und den Endzustand prüfen.
 
 - Löschen fragt nach — bei mehreren Datensätzen mit Nennung der Anzahl.
 - Wo möglich: erst als gelöscht markieren, später endgültig entfernen.
-- **Vor Migrationen, die Daten verändern**, gilt der Dreischritt aus §19a:
+- **Vor Migrationen, die Daten verändern**, gilt der Dreischritt aus §24a:
   Hinweis **vor** der ersten Änderung, Kopie des bisherigen Stands,
   Transaktion. Eine bestehende Kopie wird nicht überschrieben — sonst
   ersetzt ein zweiter, ebenfalls gescheiterter Lauf den einzigen brauchbaren
@@ -610,7 +616,8 @@ Der Ordnername ist kleingeschrieben, ohne Leerzeichen und Umlaute, und
 **identisch mit der Subdomain**: Ordner `bordbuch` → `bordbuch.prolo.me`.
 
 **Angelegt wird ein Werkzeug mit `prolo neu <name>`** (`N-61`), nicht von
-Hand. Das Skript fragt nach Art, Netz und Anmeldung, schreibt alle Dateien,
+Hand — aus der Compose-Datei eines Herstellers mit `prolo neu <name>
+--compose <datei>` oder in der Admin-Seite (`A-03`). Das Skript fragt nach Art, Netz und Anmeldung, schreibt alle Dateien,
 legt das Netz an und trägt es bei Traefik ein — und zwar **bevor** der
 Ordner entsteht: geht das Netz nicht, entsteht gar nichts, statt eines
 Ordners, den niemand von einem fertigen Werkzeug unterscheiden kann (`§12`).
@@ -742,9 +749,11 @@ Verbindlich in jeder `docker-compose.yml`:
   dann **erklärt**: Label `prolo.ports=<grund>` am Dienst. Ohne das sieht
   eine nötige Portfreigabe genauso aus wie eine vergessene (`N-59`).
   `prolo start` misst die **zusammengesetzte** Konfiguration und lässt
-  nichts mit unerklärten offenen Ports los; bei einem Fremdwerkzeug bringt
-  der Hersteller die Zeile fast immer mit, und die override-Datei kann sie
-  nicht wieder wegnehmen — Compose hängt Listen aneinander.
+  nichts mit unerklärten offenen Ports los. Bei einem Fremdwerkzeug bringt
+  der Hersteller die Zeile fast immer mit — und die override-Datei nimmt
+  sie wieder weg, ohne die Herstellerdatei anzufassen: `ports: !reset []`
+  am Dienst (`N-103`, Compose ab 2.24.4; `prolo einrichten` prüft das).
+  `prolo neu` schreibt die Zeile von selbst.
 - **Ein eigenes Netz je Werkzeug** (`netz-<werkzeug>`, extern), zusätzlich
   `internal` für Datenbanken. Datenbanken und Hilfsdienste hängen **nur** in
   `internal`.
@@ -848,6 +857,15 @@ Verbindlich in jeder `docker-compose.yml`:
   `average` die **Dauerbremse** für den, der in Schleife anklopft (50 je
   Sekunde, unverändert seit `N-46`). Wer den Vorrat aufbraucht, hängt
   danach genau wie vorher fest.
+
+- **Hinter der Ratenbremse die Firewall** (`crowdsec/`, `F-01`). Die
+  Bremse hält auf, wer zu schnell anklopft; die Firewall sperrt, wer
+  **angreift** — erkannt an den Regeln aus dem Hub und den eigenen in
+  `crowdsec/regeln/`, durchgesetzt vom Bouncer in nftables, vor jedem
+  Dienst und vor SSH. Eine eigene Regel ist eine Datei, kein Umbau.
+  Gesperrt wird nie eine interne Adresse: darüber reden die Container mit
+  Traefik. Die CrowdSec-Datenbank ist Arbeitsstand; was bleiben muss, ist
+  die Freigabeliste.
 
 ## 20. Benennung
 

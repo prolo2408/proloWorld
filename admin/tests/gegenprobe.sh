@@ -16,7 +16,9 @@ T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 GEFUNDEN=0; ENTWISCHT=0
 
-cp -a "$QUELLE/server.py" "$QUELLE/tests" "$T/"
+# Die Schriften gehoeren dazu: die Probe zu N-82 holt eine davon, und ohne
+# sie antwortet die Kopie mit einer kleinen 404 statt mit der Datei.
+cp -a "$QUELLE/server.py" "$QUELLE/tests" "$QUELLE/schriften" "$T/"
 rm -rf "$T/tests/__pycache__"
 
 probe() {
@@ -47,9 +49,39 @@ PY
   fi
 }
 
+# Zwei Stellen auf einmal - fuer einen Fehler, der erst aus beiden entsteht.
+probe2() {
+  local name="$1"
+  cp "$QUELLE/server.py" "$T/server.py"
+  rm -rf "$T/tests/__pycache__" "$T/__pycache__"
+  if ! python3 - "$T/server.py" "$2" "$3" "$4" "$5" <<'PY'
+import io, sys
+p = sys.argv[1]
+s = io.open(p, encoding="utf-8").read()
+for alt, neu in ((sys.argv[2], sys.argv[3]), (sys.argv[4], sys.argv[5])):
+    if s.count(alt) != 1:
+        sys.stderr.write("Muster %dx gefunden: %r\n" % (s.count(alt), alt))
+        sys.exit(1)
+    s = s.replace(alt, neu)
+io.open(p, "w", encoding="utf-8").write(s)
+PY
+  then
+    printf 'ABBRUCH   %s (Mutation liess sich nicht einbauen)\n' "$name"
+    ENTWISCHT=$((ENTWISCHT + 1)); return
+  fi
+  if (cd "$T" && python3 -m unittest discover -s tests -t tests >"$T/lauf.txt" 2>&1); then
+    printf 'ENTWISCHT %s  <-- Testluecke\n' "$name"
+    ENTWISCHT=$((ENTWISCHT + 1))
+  else
+    printf 'gefunden  %s\n' "$name"
+    grep -E '^(FAIL|ERROR):' "$T/lauf.txt" | sed 's/^/            /' | head -4
+    GEFUNDEN=$((GEFUNDEN + 1))
+  fi
+}
+
 probe "ein Router ohne Anmeldung gilt als geschuetzt" \
-  '    return ("OFFEN", "")' \
-  '    return ("authentik", "")'
+  '        return ("OFFEN", ", ".join(ungeschuetzt))' \
+  '        return ("authentik", "")'
 
 probe "die Marke von Traefik wird nicht mehr geprueft (N-44)" \
   '        mit = (self.headers.get(EINLASS_KOPF) or "").encode("utf-8", "replace")' \
@@ -93,7 +125,7 @@ probe "eine Absendung von einer fremden Seite wird angenommen" \
   '        if False:'
 
 probe "jeder Pfad zum Docker-Vermittler ist erlaubt" \
-  '    if pfad not in DOCKER_PFADE:' \
+  '    if not erlaubt:' \
   '    if False:'
 
 probe "ein unbekanntes Thema wird gespeichert" \
@@ -105,6 +137,142 @@ probe "ein Dienst ohne Router gilt als offen" \
         return ("", "")''' \
   '''    if False:
         return ("", "")'''
+
+# N-84: ein authentik@file an irgendeinem Router schuetzt den ganzen Dienst.
+probe "ein zweiter Router ohne Anmeldung faellt nicht auf (N-84)" \
+  '        and "authentik@file" not in labels.get("traefik.http.routers.%s.middlewares" % r, "")]' \
+  '        and "authentik@file" not in " ".join(w for k, w in labels.items() if k.endswith(".middlewares"))]'
+
+probe "ein als oeffentlich erklaerter Router gilt trotzdem als offen (N-84)" \
+  '        if r not in oeffentlich' \
+  '        if True'
+
+# N-82: SIGPIPE auf die Voreinstellung - ein Browser, der wegklickt,
+# beendet dann den ganzen Dienst.
+probe "SIGPIPE steht wieder auf der Voreinstellung (N-82)" \
+  '    datenbank_anlegen()
+    srv = ThreadingHTTPServer' \
+  '    import signal; signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    datenbank_anlegen()
+    srv = ThreadingHTTPServer'
+
+# Und der alte Stand im Ganzen: Voreinstellung UND jeder Schreibfehler
+# fuehrt zu einer Fehlerseite, also zu einem zweiten Schreibversuch in
+# dieselbe geschlossene Leitung. Genau so ist der Dienst gestorben.
+# --- A-02: Bedienen ueber das Auftragsbuch
+probe "wer nur sehen darf, darf auch bedienen (A-02)" \
+  '        if not nutzer["betrieb"]:' \
+  '        if False:'
+probe "ein Auftrag von einer fremden Seite wird angenommen (A-02)" \
+  '        if pfad == "/auftrag":
+            self.gleicher_ursprung()' \
+  '        if pfad == "/auftrag":'
+probe "den Zugang kann man von hier anhalten (A-02)" \
+  '    if art == "stop" and aus.get("werkzeug") in KERN:' \
+  '    if False:'
+probe "ein Doppelklick legt zwei Auftraege ab (A-02)" \
+  '    for a in auftraege_lesen(grenze=30):' \
+  '    for a in []:'
+probe "fremde Felder landen im Auftrag (A-02)" \
+  '    daten = dict(aus, art=art,' \
+  '    daten = dict(felder, art=art,'
+probe "das Protokoll eines Containers wird ungefiltert gezeigt (A-02)" \
+  'e(text) or "(leer)"' \
+  'text or "(leer)"'
+probe "die Ausgabe eines Auftrags wird ungefiltert gezeigt (A-02)" \
+  'e(ausgabe) or ("(noch keine)"' \
+  'ausgabe or ("(noch keine)"'
+probe "die Rahmenkoepfe landen im Protokoll (A-02)" \
+  '            teile.append(roh[i + 8:i + 8 + laenge])' \
+  '            teile.append(roh[i:i + 8 + laenge])'
+probe "eine Kennung darf ein Pfad sein (A-02)" \
+  '    if not KENNUNG.fullmatch(kennung or ""):' \
+  '    if False:'
+probe "die Auftragsseite darf ihren Stand nicht nachholen (A-02)" \
+  "\"connect-src 'self'; \"" \
+  '""'
+# --- A-03: Compose einwerfen
+probe "eine Compose-Datei mit Gefahren laesst sich anlegen (A-03)" \
+  '    if befund.get("gefahren"):' \
+  '    if False:'
+probe "angelegt wird die Datei aus dem Formular statt der gepruefen (A-03)" \
+  '    return {"name": str(stand.get("name") or ""), "compose": compose,' \
+  '    return {"name": str(stand.get("name") or ""), "compose": w("compose") or compose,'
+probe "wer nur sehen darf, wirft Compose-Dateien ein (A-03)" \
+  '        if pfad == "/neu/pruefen":
+            self.gleicher_ursprung()
+            self.betrieb_noetig(nutzer)' \
+  '        if pfad == "/neu/pruefen":
+            self.gleicher_ursprung()'
+probe "eigene Anmeldung ohne Grund geht durch (A-03)" \
+  '        if aus["anmeldung"] == "eigene" and not aus["grund"]:' \
+  '        if False:'
+probe "eine Gefahr aus der Datei wird ungefiltert gezeigt (A-03)" \
+  '% (e(g["dienst"]), e(g["was"]))' \
+  '% (e(g["dienst"]), g["was"])'
+probe "die Anmeldung hat doch eine Vorgabe (A-03)" \
+  'name="anmeldung" value="authentik" required>' \
+  'name="anmeldung" value="authentik" required checked>'
+
+# F-02: die Firewall
+probe "die eigene Adresse laesst sich sperren (F-02)" \
+  '    if art == "firewall_sperren" and eigene_betroffen(aus["adresse"], quelle):' \
+  '    if False:'
+probe "die Quelle ist der ERSTE Eintrag - frei erfunden (F-02, N-48)" \
+  '        return str(ipaddress.ip_address(teile[-1])) if teile else ""' \
+  '        return str(ipaddress.ip_address(teile[0])) if teile else ""'
+probe "ein Netz, das die eigene Adresse enthaelt, geht durch (F-02)" \
+  '        return ipaddress.ip_address(quelle) in ipaddress.ip_network(adresse, strict=False)' \
+  '        return ipaddress.ip_address(quelle) == ipaddress.ip_network(adresse, strict=False).network_address'
+probe "Sperren ohne Grund (F-02)" \
+  '    if art in ("firewall_sperren", "firewall_erlauben") and not aus["grund"]:' \
+  '    if False:'
+probe "eine Adresse wird nicht geprueft (F-02)" \
+  '                ipaddress.ip_network(wert, strict=False)
+            except ValueError:
+                raise Antwort(400, "Adresse:' \
+  '                pass
+            except ValueError:
+                raise Antwort(400, "Adresse:'
+probe "eine Dauer wird nicht geprueft (F-02)" \
+  '            if not DAUER.fullmatch(wert):' \
+  '            if False:'
+probe "ein Regelname aus CrowdSec wird ungefiltert gezeigt (F-02)" \
+  '% (e(s.get("wert")), herkunft(s.get("herkunft")), e(s.get("regel")),' \
+  '% (e(s.get("wert")), herkunft(s.get("herkunft")), s.get("regel"),'
+probe "wer nur sehen darf, bekommt die Firewall-Knoepfe (F-02)" \
+  '    if betrieb:
+        dauer = "".join(' \
+  '    if True:
+        dauer = "".join('
+probe "ein stiller Bouncer faellt nicht auf (F-02)" \
+  '        elif still > BOUNCER_STILL_S:' \
+  '        elif False:'
+probe "eine Quelle ohne Zeilen faellt nicht auf (F-02)" \
+  '        if not n.get("zeilen"):' \
+  '        if False:'
+probe "eine alte Lage faellt nicht auf (F-02)" \
+  '    if alter is None or alter > FIREWALL_ALT_S:' \
+  '    if alter is None:'
+probe "kaputte Eintraege in der Lage bleiben drin (F-02)" \
+  '        d[k] = [x for x in (d.get(k) if isinstance(d.get(k), list) else []) if isinstance(x, dict)]' \
+  '        d[k] = d.get(k) if isinstance(d.get(k), list) else []'
+probe "die Blockliste steht ohne Tausenderpunkt da (F-02, §7)" \
+  '        return "{:,}".format(int(n)).replace(",", ".")' \
+  '        return str(int(n))'
+
+probe "wer nur sehen darf, liest die Protokolle (A-02)" \
+  '            if betrieb and laufend:' \
+  '            if laufend:'
+
+probe2 "eine abgebrochene Verbindung beendet den Dienst (N-82)" \
+  '    datenbank_anlegen()
+    srv = ThreadingHTTPServer' \
+  '    import signal; signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    datenbank_anlegen()
+    srv = ThreadingHTTPServer' \
+  '        except (BrokenPipeError, ConnectionResetError):' \
+  '        except ZeroDivisionError:'
 
 echo
 echo "gefunden: $GEFUNDEN   entwischt: $ENTWISCHT"

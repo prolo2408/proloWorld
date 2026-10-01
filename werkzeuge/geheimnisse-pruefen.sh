@@ -566,6 +566,85 @@ with tempfile.TemporaryDirectory(prefix="geheimnis-probe-") as tmp:
             "verteilen: bei einem anderen Grund kommt der Hinweis NICHT",
             "ein Rat, der immer danebensteht, ist nach dem dritten Mal Tapete")
 
+# --- 7. Wer wird neu gestartet? (N-94) ---------------------------------
+# Nur, was LAEUFT - und nur durch dieselbe Sperre wie "prolo start". Die
+# Docker-Attrappe schreibt jeden Aufruf mit und reicht "compose config"
+# an das echte docker durch (die Sperre misst damit wirklich).
+if shutil.which("age") and shutil.which("age-keygen") and shutil.which("docker"):
+    with tempfile.TemporaryDirectory(prefix="geheimnis-neustart-") as tmp:
+        os.makedirs(os.path.join(tmp, "werkzeuge"))
+        os.makedirs(os.path.join(tmp, "bin"))
+        for d in ("geheimnisse.py", "startsperre.sh", "netze.sh"):
+            shutil.copy(os.path.join(stack, "werkzeuge", d),
+                        os.path.join(tmp, "werkzeuge", d))
+        echt = shutil.which("docker")
+        protokoll = os.path.join(tmp, "docker.protokoll")
+        attrappe = os.path.join(tmp, "bin", "docker")
+        open(attrappe, "w").write(
+            "#!/bin/bash\n"
+            "echo \"$(basename \"$PWD\") $*\" >> %s\n"
+            "case \" $* \" in *\" --no-interpolate \"*) exec %s \"$@\" ;; esac\n"
+            "if [ \"$1 $2\" = \"compose ps\" ]; then\n"
+            "  case \"$(basename \"$PWD\")\" in laeuft|offenport) echo id-1 ;; esac; exit 0\n"
+            "fi\n"
+            "[ \"$1\" = inspect ] && { echo healthy; exit 0; }\n"
+            "exit 0\n" % (protokoll, echt))
+        os.chmod(attrappe, 0o755)
+        # Die Reihenfolge ist alphabetisch, und nach einer Sperre bricht die
+        # Schleife ab. "halt" (laeuft nicht) muss darum VOR den anderen
+        # drankommen - sonst waere seine Prueflinie gruen, weil es gar
+        # nicht erreicht wird.
+        for name, zusatz in (("laeuft", ""), ("halt", ""),
+                             ("offenport", "    ports:\n      - \"8098:80\"\n")):
+            d = os.path.join(tmp, name)
+            os.makedirs(d)
+            open(os.path.join(d, "docker-compose.yml"), "w").write(
+                "services:\n  %s:\n    image: x:1\n%s" % (name, zusatz))
+            open(os.path.join(d, "geheimnisse.conf"), "w").write(
+                "MARKE|.env|env|harmlos|Eine Marke.\n")
+            open(os.path.join(d, ".env"), "w").write("MARKE=\n")
+        k = subprocess.run(["age-keygen"], capture_output=True, text=True)
+        open(os.path.join(tmp, ".backup-schluessel.pub"), "w").write(
+            [z.split(": ")[1] for z in k.stdout.splitlines()
+             if z.startswith("# public key:")][0] + "\n")
+        umg = dict(os.environ, PATH=os.path.join(tmp, "bin") + os.pathsep + os.environ["PATH"])
+        p = subprocess.run([sys.executable, os.path.join(tmp, "werkzeuge", "geheimnisse.py"),
+                            "--verteilen"], capture_output=True, text=True,
+                           timeout=180, env=umg, input="")
+        aufrufe = open(protokoll).read() if os.path.exists(protokoll) else ""
+        hoch = [z.split()[0] for z in aufrufe.splitlines() if " compose up" in z]
+        sag("laeuft" in hoch,
+            "neu gestartet wird, was laeuft (N-94)", "gestartet: %s" % hoch)
+        sag("halt" not in hoch and "halt laeuft nicht" in p.stdout,
+            "was NICHT laeuft, wird nicht gestartet (N-94)",
+            "vorher startete dieser Schritt alles - auf einem frischen Server "
+            "Traefik vor socket-proxy, mitten in 'prolo einrichten'")
+        sag("offenport" not in hoch,
+            "ein laufender Dienst mit offenem Port geht nicht durch die Sperre vorbei",
+            "das waere die vierte Tuer ohne Sperre (N-85)")
+        sag("offenport NICHT neu gestartet" in p.stdout and "8098" in p.stdout,
+            "und es wird gesagt, warum - mit dem Port")
+
+        # Scheitert der Neustart, steht die URSACHE da - sie kommt bei
+        # docker am Ende, vorne steht nur Fortschritt (N-94).
+        import importlib.util
+        spez = importlib.util.spec_from_file_location(
+            "geheimnisse_probe", os.path.join(tmp, "werkzeuge", "geheimnisse.py"))
+        modul = importlib.util.module_from_spec(spez)
+        spez.loader.exec_module(modul)
+        roh = (" Image traefik:v3.6.13 Pulling \n 7e8a Pulling fs layer\n"
+               " 7e8a Download complete\n 6a0a Extracting 1B\n"
+               "network socket declared as external, but could not be found\n")
+        ursache = modul.docker_ursache(roh)
+        sag(ursache[-1:] == ["network socket declared as external, but could not be found"]
+            and not any("fs layer" in z for z in ursache),
+            "ein gescheiterter Neustart nennt die Ursache, nicht den Fortschritt (N-94)",
+            "vorher: die ersten 300 Zeichen - 'Pulling fs layer', die Ursache abgeschnitten")
+else:
+    sag(False, "age, age-keygen und docker sind da",
+        "ohne sie bleibt die Neustart-Probe ungemessen - ein "
+        "uebersprungener Test ist kein gruener Test")
+
 print("")
 print("Alles gruen." if not fehler else "%d Fehler." % fehler)
 sys.exit(1 if fehler else 0)

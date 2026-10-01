@@ -10,12 +10,12 @@
 # in image: hoch, fertig. Unsere Zeilen bleiben liegen und koennen nicht
 # beim Abschreiben verloren gehen.
 #
-# EINE Abweichung vom Vorschlag des Herstellers, und sie ist Absicht:
-# seine ports: - "5678:5678" ist hier nicht. Sie wuerde n8n direkt auf dem
-# Server veroeffentlichen, an Traefik, an der Ratenbremse und an der
-# Firewall vorbei (CLAUDE.md §19). Erreichbar ist n8n ueber
-# https://n8n.prolo.me - das macht Traefik. "prolo start" laesst nichts
-# mit offenen Ports los und wuerde es auch sagen.
+# EINE Abweichung vom Vorschlag des Herstellers: seine ports: - "5678:5678"
+# fehlt hier. Sie wuerde n8n direkt auf dem Server veroeffentlichen, an
+# Traefik, an der Ratenbremse und an der Firewall vorbei (CLAUDE.md §19).
+# Seit N-103 ist die Abweichung nicht mehr noetig: die override-Datei
+# nimmt die Zeile mit "ports: !reset []" wieder weg. Bei der naechsten
+# Fassung darf diese Datei also 1:1 die des Herstellers sein.
 
 services:
   n8n:

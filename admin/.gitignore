@@ -8,3 +8,6 @@ daten/
 __pycache__/
 .vorschau/
 *.vor-stand-*
+# Das Auftragsbuch (A-01): Auftraege, ihre Ausgabe und wer was wann tat.
+# Gehoert auf den Server und in die Sicherung, nicht ins Git.
+auftraege/

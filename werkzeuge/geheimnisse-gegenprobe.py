@@ -29,6 +29,9 @@ KOPIEREN = [
     "werkzeuge/prolo",
     "werkzeuge/geheimnisse.py",
     "werkzeuge/geheimnisse-pruefen.sh",
+    # Die Neustart-Probe (N-94) laesst die Startsperre wirklich laufen.
+    "werkzeuge/startsperre.sh",
+    "werkzeuge/netze.sh",
 ]
 JE_WERKZEUG = ["docker-compose.yml", "geheimnisse.conf", ".env.beispiel",
                "dynamic/einlass.yml.beispiel", ".gitignore"]
@@ -366,7 +369,33 @@ def m_einrichtungshinweis_nie(w):
            '''    if False:''')
 
 
+def m_startet_was_nicht_laeuft(w):
+    """N-94: neu gestartet wird wieder alles, dessen Datei angefasst wurde -
+    auf einem frischen Server also mitten in "prolo einrichten"."""
+    tausch(w, "werkzeuge/geheimnisse.py",
+           "        if ps.returncode == 0 and not ps.stdout.strip():\n",
+           "        if False:\n")
+
+
+def m_neustart_ohne_sperre(w):
+    """N-94: die vierte Tuer ohne Startsperre (N-85)."""
+    tausch(w, "werkzeuge/geheimnisse.py",
+           "        if sperre.returncode != 0:\n",
+           "        if False:\n")
+
+
+def m_ursache_vom_anfang(w):
+    """N-94: wieder der Anfang der Ausgabe statt des Endes - dort steht
+    nur Fortschritt, die Ursache ist abgeschnitten."""
+    tausch(w, "werkzeuge/geheimnisse.py",
+           "    return kern[-zeilen:] or [\"(keine Meldung)\"]",
+           "    return ausgabe.splitlines()[:zeilen] or [\"(keine Meldung)\"]")
+
+
 MUTATIONEN = [
+    ("es wird neu gestartet, was gar nicht laeuft (N-94)", m_startet_was_nicht_laeuft),
+    ("neu gestartet wird an der Sperre vorbei (N-94)",     m_neustart_ohne_sperre),
+    ("die Ursache wird vom Anfang der Ausgabe genommen (N-94)", m_ursache_vom_anfang),
     ("conf-Zeile hat nur vier Felder",              m_conf_vier_felder),
     ("conf nennt eine erfundene FORM",              m_conf_form_erfunden),
     ("conf nennt eine erfundene WECHSEL-Art",       m_conf_wechsel_erfunden),

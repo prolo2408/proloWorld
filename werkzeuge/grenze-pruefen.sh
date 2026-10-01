@@ -220,24 +220,44 @@ sag(not treffer, "der Platzhalter steht nur in der Beispieldatei",
 # --- 4. Jedes Werkzeug, das die Marke prueft, bekommt sie auch ----------
 # Die Werkzeuge finden sich selbst. Eine feste Liste haette das naechste
 # uebersehen - genau das ist beim Anlegen von www/ beinahe passiert.
+#
+# Erkannt wird ein solches Werkzeug an seinen COMPOSE-Dateien, nicht am
+# Code (U-02): seit wiki, bordbuch und www in eigenen Repositorys liegen,
+# steht hier nur ihre Herstellerdatei. Eine Suche nach server.py haette sie
+# still verloren - die Pruefung waere kuerzer geworden, nicht rot (N-70).
+# Was nur am Code pruefbar ist, wird geprueft, wo der Code HIER liegt; bei
+# den anderen prueft es ihr eigenes Repository (Vertrag in dessen CLAUDE.md).
+def compose_beide(w):
+    return "\n".join(lies(w, d) or ""
+                     for d in ("docker-compose.yml", "docker-compose.override.yml"))
+
+# Erkannt wird ein EIGENES Werkzeug an etwas, das nicht von der Pruefung
+# abhaengt: Code hier (server.py) oder ein Abbild aus unserem Verzeichnis
+# ghcr.io/prolo2408/. Wer PROLO_EINLASS aus einer Compose-Datei nimmt, soll
+# rot werden - nicht aus der Liste fallen (N-70).
+EIGENES_ABBILD = re.compile(r"^\s*image:\s*ghcr\.io/prolo2408/", re.M)
 werkzeuge = sorted(
     o for o in os.listdir(stack)
-    if os.path.exists(os.path.join(stack, o, "server.py"))
-    and "PROLO_EINLASS" in (lies(o, "server.py") or ""))
+    if os.path.isfile(os.path.join(stack, o, "docker-compose.yml"))
+    and (os.path.isfile(os.path.join(stack, o, "server.py"))
+         or EIGENES_ABBILD.search(compose_beide(o))))
+mit_code = [w for w in werkzeuge
+            if os.path.isfile(os.path.join(stack, w, "server.py"))]
 sag(len(werkzeuge) >= 2,
     "Werkzeuge mit eigener Vertrauensgrenze gefunden (%d: %s)"
     % (len(werkzeuge), ", ".join(werkzeuge)),
     "ohne sie prueft der Rest dieses Skripts nichts")
 for werkzeug in werkzeuge:
-    code = lies(werkzeug, "server.py") or ""
-    compose = lies(werkzeug, "docker-compose.yml") or ""
-    sag("PROLO_EINLASS" in compose,
-        "%s/docker-compose.yml reicht PROLO_EINLASS durch" % werkzeug)
+    compose = compose_beide(werkzeug)
+    sag(re.search(r"^\s+PROLO_EINLASS:", compose, re.M) is not None,
+        "%s: die Compose-Dateien reichen PROLO_EINLASS durch" % werkzeug)
     sag("${PROLO_EINLASS:?" in compose,
         "%s: fehlender Wert bricht schon beim Hochfahren ab" % werkzeug,
         'ohne ":?" startet der Container und weist dann jede Anfrage ab')
     sag("PROLO_EINLASS" in (lies(werkzeug, ".env.beispiel") or ""),
         "%s/.env.beispiel nennt PROLO_EINLASS" % werkzeug)
+for werkzeug in mit_code:
+    code = lies(werkzeug, "server.py") or ""
     # Beide Einstiege muessen an der Grenze vorbei. Gezaehlt wird NICHT,
     # wie oft der Aufruf dasteht: ein Werkzeug darf ihn aus einem
     # gemeinsamen Helfer rufen, den do_GET und do_POST beide benutzen.
@@ -345,15 +365,72 @@ sag(not uebersehen,
     "kein Werkzeug mit Router blieb ungeprueft (%d angesehen)" % len(geprueft),
     "uebersehen: %s" % ", ".join(uebersehen))
 
+# --- 4a. Jede Gruppe, die ein Werkzeug prueft, nennt es auch (N-95) ----
+# "prolo einrichten" liest die Gruppen aus dem Label prolo.gruppen. Prueft
+# ein Werkzeug eine Gruppe, die dort nicht steht, legt niemand sie an - und
+# das Werkzeug weist jeden mit 403 ab. Gelesen wird, was WIRKLICH gilt:
+# die Vorgabe im Code, ueberschrieben von der Compose-Datei.
+for werkzeug in mit_code:
+    code = lies(werkzeug, "server.py") or ""
+    compose = compose_alles(werkzeug)
+    gilt = {}
+    # Jede Variable mit GRUPPE im Namen, gleich wo das Wort steht:
+    # ADMIN_GRUPPE_BETRIEB entging dem Muster "*_GRUPPE" (N-104). Ein
+    # PRAEFIX ist ein Filter, keine Gruppe.
+    for m in re.finditer(r'os\.environ\.get\("([A-Z_]*GRUPPE[A-Z_]*)",\s*"([^"]+)"\)', code):
+        if "PRAEFIX" not in m.group(1):
+            gilt[m.group(1)] = m.group(2)
+    for var in list(gilt):
+        kurz = var.split("_", 1)[1] if var.count("_") > 1 else var
+        for name in (var, kurz):
+            u = re.search(r"^\s+%s:\s*\"?(?:\$\{%s:-)?([A-Za-z0-9_.-]+)" % (name, name), compose, re.M)
+            if u:
+                gilt[var] = u.group(1)
+    genannt = set()
+    for m in re.finditer(r"prolo\.gruppen=([^\"\n]+)", compose):
+        genannt |= {t.strip().partition("=")[0].strip() for t in m.group(1).split(";")}
+    fehlt = sorted(set(gilt.values()) - genannt)
+    sag(gilt and not fehlt,
+        "%s: jede gepruefte Gruppe steht in prolo.gruppen (%s)"
+        % (werkzeug, ", ".join(sorted(set(gilt.values()))) or "keine gefunden"),
+        "fehlt: %s - 'prolo einrichten' nennt sie dann nicht, und niemand legt sie an"
+        % ", ".join(fehlt))
+
+# --- 4b. sniStrict steht dort, wo Traefik es liest (N-93) --------------
+# Fuer einen UNBEKANNTEN Namen gibt es keinen Router, also nur die Option
+# "default". Unter einem anderen Namen galt sniStrict nur fuer Namen, die
+# ohnehin einen Router haben - gemessen: fremder Name -> Notzertifikat, 404.
+sicher = lies("traefik", "dynamic/sicherheit.yml") or ""
+m = re.search(r"^tls:\n  options:\n(?:    #.*\n)*    default:\n((?:      .*\n|\s*\n)+)", sicher, re.M)
+sag(m is not None and re.search(r"^      sniStrict:\s*true\s*$", m.group(1), re.M) is not None,
+    "sniStrict steht in der TLS-Option 'default' (N-93)",
+    "in einer anders benannten Option gilt es fuer fremde Namen nicht")
+statisch_tls = lies("traefik", "traefik.yml") or ""
+sag(not re.search(r"^\s+options:\s*(?!default)\S+@file", statisch_tls, re.M),
+    "der Eingang verweist auf keine andere TLS-Option als 'default'",
+    "sonst gilt fuer die Router etwas anderes als fuer fremde Namen")
+
+# --- 4c. Der Vermittler startet auch ohne IPv6 (N-92) ------------------
+# Ohne ihn kein einziger Router. Auf einem Kern ohne IPv6 bindet er sonst
+# an [::] und startet in Schleife neu - gemessen.
+vermittler = lies("socket-proxy", "docker-compose.yml") or ""
+sag(re.search(r"^\s+DISABLE_IPV6:\s*[\"']?(1|true)[\"']?\s*$", vermittler, re.M) is not None,
+    "socket-proxy bindet nur IPv4 und startet auch ohne IPv6 (N-92)",
+    "ohne DISABLE_IPV6 stirbt er auf einem Kern ohne IPv6 - und Traefik findet keinen Router")
+
 # --- 5. Die Pruefadresse liegt auf einem freien Pfad --------------------
+# Liegt der Code hier, wird am Code gelesen, welche Pfade frei sind. Sonst
+# gilt der Vertrag aus der CLAUDE.md des Werkzeugs: /gesundheit und
+# /api/version antworten ohne Anmeldung und ohne Marke (U-02).
 for werkzeug in werkzeuge:
     conf = lies(werkzeug, "aktualisierung.conf") or ""
     url = re.search(r'PRUEF_URL="([^"]*)"', conf)
     if not url or not url.group(1):
         continue
     pfad = re.sub(r"^https?://[^/]+", "", url.group(1)) or "/"
-    code = lies(werkzeug, "server.py") or ""
-    sag(pfad in freie_pfade(code),
+    code = lies(werkzeug, "server.py")
+    frei = freie_pfade(code) if code else ("/gesundheit", "/api/version")
+    sag(pfad in frei,
         "%s: PRUEF_URL zeigt auf einen freien Pfad (%s)" % (werkzeug, pfad),
         "aktualisieren.sh ruft intern auf und hat die Marke nicht - "
         "die Pruefung wuerde immer fehlschlagen und jeden Lauf zurueckrollen")

@@ -12,3 +12,6 @@ docker-compose.yml
 .gitignore
 .stand-erfolgreich.yml
 *.tar.gz
+
+# Arbeitsablaeufe des Repositorys gehoeren nicht ins Abbild.
+.github/

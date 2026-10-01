@@ -282,14 +282,55 @@ def dienste_neu(werkzeuge):
         print(rot("    Dienste laufen noch mit den alten."))
         return False
     for w in reihe:
+        # Neu gestartet wird nur, was LAEUFT (N-94). Vorher startete dieser
+        # Schritt alles, dessen Datei er angefasst hatte - auf einem
+        # frischen Server also Traefik, bevor socket-proxy lief, mitten in
+        # "prolo einrichten" und in falscher Reihenfolge. Wer nicht laeuft,
+        # liest den neuen Wert beim naechsten Start von selbst.
+        ps = subprocess.run(["docker", "compose", "ps", "-q"],
+                            cwd=os.path.join(STACK, w),
+                            capture_output=True, text=True)
+        if ps.returncode == 0 and not ps.stdout.strip():
+            print("    %s laeuft nicht - hat den neuen Wert beim naechsten Start." % w)
+            continue
+        # Neu anlegen heisst: mit der Konfiguration von JETZT. Also dieselbe
+        # Sperre wie "prolo start" (N-85) - sonst waere das die vierte Tuer
+        # ohne sie.
+        sperre = subprocess.run(
+            ["bash", "-c", '. "$HIER/startsperre.sh" && start_pruefen "$1"', "_", w],
+            env=dict(os.environ, STACK=STACK, HIER=os.path.join(STACK, "werkzeuge")),
+            capture_output=True, text=True)
+        if sperre.returncode != 0:
+            print(rot("    %s NICHT neu gestartet:" % w))
+            for z in sperre.stderr.strip().splitlines():
+                print("      " + z)
+            return False
         print("    %s neu starten ..." % w)
         p = subprocess.run(["docker", "compose", "up", "-d"],
                            cwd=os.path.join(STACK, w),
                            capture_output=True, text=True)
         if p.returncode != 0:
-            print(rot("    FEHLGESCHLAGEN: %s" % p.stderr.strip()[:300]))
+            # Die URSACHE steht am Ende, nicht am Anfang (N-94): vorne
+            # schreibt docker seine Fortschrittsanzeige. Die ersten 300
+            # Zeichen waren "Pulling fs layer" - und die Meldung darunter
+            # abgeschnitten.
+            print(rot("    FEHLGESCHLAGEN - docker sagt:"))
+            for z in docker_ursache(p.stdout + "\n" + p.stderr):
+                print("      " + z)
             return False
     return True
+
+
+RAUSCHEN = re.compile(
+    r"Pulling|Pulled|Download|Extracting|Waiting|Verifying|Pull complete|"
+    r"Already exists|fs layer|Building|Built|Creating|Created|Starting|"
+    r"Started|Running|^\s*#\d|^\s*$")
+
+
+def docker_ursache(ausgabe, zeilen=4):
+    """Die letzten Zeilen einer docker-Ausgabe, ohne den Fortschritt."""
+    kern = [z.rstrip() for z in ausgabe.splitlines() if not RAUSCHEN.search(z)]
+    return kern[-zeilen:] or ["(keine Meldung)"]
 
 
 def gesund(werkzeuge, warten=30):

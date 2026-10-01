@@ -38,8 +38,18 @@ V="$DOCKER_ATTRAPPE/verbunden"; touch "$V"
 case "$1 $2" in
   "network inspect") grep -qx "$3" "$N" && exit 0 || exit 1 ;;
   "network create")  echo "$3" >> "$N"; echo "id-$3"; exit 0 ;;
-  "compose version") echo "Docker Compose version v2.0.0"; exit 0 ;;
+  # Die Fassung laesst sich vorgeben - ab 2.24.4 geht !reset (N-103).
+  "compose version") [ "${3:-}" = --short ] && echo "${COMPOSE_FASSUNG:-2.29.1}" \
+                       || echo "Docker Compose version v${COMPOSE_FASSUNG:-2.29.1}"; exit 0 ;;
 esac
+# F-01: "docker exec crowdsec cscli bouncers list" - hat der Bouncer
+# gerade abgefragt? Das entscheidet eine Datei.
+if [ "$1 $2 $3 $4 $5" = "exec crowdsec cscli bouncers list" ]; then
+  if [ -f "$DOCKER_ATTRAPPE/bouncer-lebt" ]; then
+    printf '[{"name":"firewall","last_pull":"%s"}]\n' "$(date -u +%Y-%m-%dT%H:%M:%S.000000000Z)"
+  else echo '[{"name":"firewall","last_pull":null}]'; fi
+  exit 0
+fi
 # docker inspect <id> --format '...Networks...'  -> die Netze des Containers
 if [ "$1" = "inspect" ]; then
   case "$*" in
@@ -47,18 +57,30 @@ if [ "$1" = "inspect" ]; then
     *) echo healthy; exit 0 ;;
   esac
 fi
+# "compose config" misst die Sperre (N-85). Es braucht keinen laufenden
+# Dienst, also geht es ans echte docker - wie in neu-pruefen.sh.
+if [ "$1" = "compose" ] && [ "$2" = "config" ]; then exec /usr/bin/docker "$@"; fi
 if [ "$1" = "compose" ]; then
   DIR="$PWD"
   for i in "$@"; do case "$VOR" in --project-directory) DIR="$i" ;; esac; VOR="$i"; done
   case " $* " in
     *" ps "*) grep -qx "$(basename "$DIR")" "$L" && echo "c-$(basename "$DIR")"; exit 0 ;;
     *" up "*)
-      W=$(basename "$DIR"); grep -qx "$W" "$L" || echo "$W" >> "$L"
+      W=$(basename "$DIR")
+      # N-90: so scheitert ein echtes "up" beim ersten Start - erst
+      # Fortschritt, ganz unten die Ursache.
+      if [ "$W" = "ohnesocket" ]; then
+        printf ' Image fremd/x:1 Pulling \n 7e8a Pulling fs layer\n 7e8a Download complete\n' >&2
+        echo "network socket declared as external, but could not be found" >&2
+        exit 1
+      fi
+      grep -qx "$W" "$L" || echo "$W" >> "$L"
       # "up -d" verbindet den Container mit allen erklaerten Netzen -
       # genau das, was echtes compose tut, wenn sich die Netze geaendert haben.
       sed -i "/^$W /d" "$V"
-      for NZ in $(grep -A50 '^networks:' "$DIR/docker-compose.yml" 2>/dev/null \
-                  | sed -n 's/^  \([A-Za-z0-9_.-]*\):$/\1/p'); do
+      for NZ in $(cat "$DIR/docker-compose.yml" "$DIR/docker-compose.override.yml" 2>/dev/null \
+                  | grep -A50 '^networks:' \
+                  | sed -n 's/^  \([A-Za-z0-9_.-]*\):$/\1/p' | sort -u); do
         echo "$W $NZ" >> "$V"
       done
       exit 0 ;;
@@ -70,15 +92,43 @@ STUB
 chmod +x "$T/bin/docker"
 export DOCKER_ATTRAPPE="$T/att"; mkdir -p "$DOCKER_ATTRAPPE"
 
+# "id -u" sagt 0: einrichten.sh verlangt root, und die Probe soll ueberall
+# gleich laufen - auf dem Server als root wie auf dem Pruefrechner ohne
+# (N-100). Alles, was dabei geschrieben wird, liegt in der Kopie.
+printf '#!/bin/bash\n[ "$1" = "-u" ] && echo 0 || exec /usr/bin/id "$@"\n' > "$T/bin/id"
+chmod +x "$T/bin/id"
+
+# systemctl: merkt sich, was eingeschaltet ist (A-01). Geschrieben wird
+# nur in die Kopie - die Einheiten landen ueber PROLO_SYSTEMD_ZIEL dort.
+cat > "$T/bin/systemctl" <<'STUB'
+#!/bin/bash
+echo "$*" >> "$DOCKER_ATTRAPPE/systemctl"
+AN="$DOCKER_ATTRAPPE/sd-an"
+case "$1" in
+  is-enabled|is-active) [ -f "$AN" ] ;;
+  enable) touch "$AN" ;;
+  *) exit 0 ;;
+esac
+STUB
+chmod +x "$T/bin/systemctl"
+
+# Der echte Verweis vorher - nachher muss er genau so aussehen (N-100).
+ECHT_VORHER=$(readlink /usr/local/bin/prolo 2>/dev/null || echo fehlt)
+
 # --- Kopie des Stacks: nur, was das Skript liest
 kopieren() {
   local Z="$1"; mkdir -p "$Z/werkzeuge"
-  cp "$HIER/einrichten.sh" "$HIER/geheimnisse.py" "$HIER/prolo" "$Z/werkzeuge/"
+  cp "${HIER_MUTIERT:-$HIER/einrichten.sh}" "$Z/werkzeuge/einrichten.sh"
+  cp "$HIER/geheimnisse.py" "$HIER/prolo" \
+     "$HIER/startsperre.sh" "$HIER/netze.sh" "$HIER/auftrag.py" "$Z/werkzeuge/"
+  cp -r "$HIER/systemd" "$Z/werkzeuge/"
   local D
   for D in "$STACK"/*/docker-compose.yml; do
     [ -e "$D" ] || continue
     local W; W=$(basename "$(dirname "$D")")
     mkdir -p "$Z/$W"; cp "$D" "$Z/$W/"
+    [ -f "$STACK/$W/docker-compose.override.yml" ] \
+      && cp "$STACK/$W/docker-compose.override.yml" "$Z/$W/"
     [ -f "$STACK/$W/geheimnisse.conf" ] && cp "$STACK/$W/geheimnisse.conf" "$Z/$W/"
     [ -f "$STACK/$W/.env.beispiel" ] && cp "$STACK/$W/.env.beispiel" "$Z/$W/"
     if [ -f "$STACK/$W/dynamic/einlass.yml.beispiel" ]; then
@@ -86,14 +136,96 @@ kopieren() {
       cp "$STACK/$W/dynamic/einlass.yml.beispiel" "$Z/$W/dynamic/"
     fi
   done
+  # Ein Fremdwerkzeug, dessen Netz und Name NUR in der override-Datei
+  # stehen - und dessen Netz Traefik (noch) nicht nennt. Genau so sieht
+  # ein Werkzeug aus, das "prolo neu" gerade angelegt hat (N-83). n8n
+  # taugt dafuer nicht: sein Netz steht zusaetzlich bei Traefik und wuerde
+  # darueber angelegt, auch wenn die override-Datei ungelesen bliebe.
+  mkdir -p "$Z/fremdprobe"
+  cat > "$Z/fremdprobe/docker-compose.yml" <<'YML'
+services:
+  fremdprobe:
+    image: fremd/probe:1.0
+YML
+  cat > "$Z/fremdprobe/docker-compose.override.yml" <<'YML'
+services:
+  fremdprobe:
+    networks:
+      - netz-fremdprobe
+    labels:
+      - "traefik.http.routers.fremdprobe.rule=Host(`fremdprobe.prolo.me`)"
+networks:
+  netz-fremdprobe:
+    external: true
+YML
+  # N-91: die sicherung.conf von Traefik und die Dateien aus dem Git, die
+  # er einhaengt. acme.json und log/ entstehen erst auf dem Server.
+  cp "$STACK/traefik/sicherung.conf" "$Z/traefik/"
+  cp "$STACK/traefik/traefik.yml" "$Z/traefik/"
+  # F-01: was crowdsec aus seinem Ordner einhaengt - aus dem Git.
+  if [ -d "$STACK/crowdsec" ]; then
+    cp -r "$STACK/crowdsec/config.yaml.local" "$STACK/crowdsec/profiles.yaml" \
+          "$STACK/crowdsec/erfassung" "$STACK/crowdsec/regeln" \
+          "$STACK/crowdsec/sicherung.conf" "$Z/crowdsec/"
+  fi
+  # N-106: die Drehregel, und ein Verweis darauf nach der alten Anleitung
+  # (ln -sf) - der muss beim Einrichten verschwinden.
+  cp "$STACK/traefik/logrotate.conf" "$Z/traefik/"
+  mkdir -p "$Z/logrotate-ziel"
+  ln -s "$Z/traefik/logrotate.conf" "$Z/logrotate-ziel/traefik-prolo"
+  # Ein Werkzeug, das eine Konfigurationsdatei einhaengt, die FEHLT - das
+  # darf nicht still als leerer Ordner entstehen.
+  mkdir -p "$Z/ohnekonf"
+  printf 'services:\n  ohnekonf:\n    image: x:1\n    volumes:\n      - ./wichtig.yml:/etc/wichtig.yml:ro\n' \
+    > "$Z/ohnekonf/docker-compose.yml"
+  # Ein Werkzeug, dessen Start an einem fehlenden Netz scheitert (N-90).
+  mkdir -p "$Z/ohnesocket"
+  printf 'services:\n  ohnesocket:\n    image: fremd/x:1\n' > "$Z/ohnesocket/docker-compose.yml"
+  # Ein Werkzeug mit einem unerklaerten offenen Port (N-85). Die Sperre
+  # aus "prolo start" muss auch beim Einrichten greifen.
+  mkdir -p "$Z/offenport"
+  cat > "$Z/offenport/docker-compose.yml" <<'YML'
+services:
+  offenport:
+    image: fremd/offen:1.0
+    ports:
+      - "8099:80"
+YML
   # Sicherungsschluessel, sonst kommt Schritt 7 nicht dran
   age-keygen 2>/dev/null > "$Z/probe.key"
   grep '^# public key:' "$Z/probe.key" | cut -d' ' -f4 > "$Z/.backup-schluessel.pub"
 }
 
 lauf() {  # lauf <wurzel> [--trocken]
-  ( cd "$1" && PATH="$T/bin:$PATH" HOME="$1" \
+  # PROLO_BIN: der Verweis aus Schritt 2 landet in der Kopie, nie in
+  # /usr/local/bin (N-100). HOME: "git config --global" ebenso.
+  # PROLO_SYSTEMD_ZIEL und PROLO_AUFTRAG_PROBE: die Einheiten und das
+  # Auftragsbuch entstehen in der Kopie, ohne root (A-01).
+  mkdir -p "$1/systemd-ziel" "$1/logrotate-ziel"
+  ( cd "$1" && PATH="$T/bin:$PATH" HOME="$1" PROLO_BIN="$1/bin-prolo" \
+      PROLO_SYSTEMD_ZIEL="$1/systemd-ziel" PROLO_AUFTRAG_PROBE=1 \
+      PROLO_LOGROTATE_ZIEL="$1/logrotate-ziel" \
+      PROLO_BOUNCER_KONF="$1/bouncer.yaml" PROLO_BOUNCER_WARTEN_S=4 \
       bash "$1/werkzeuge/einrichten.sh" ${2:-} < /dev/null 2>&1 )
+}
+
+# N-106: Wirkung, nicht Ankuendigung (N-38). Setzt DREH_GRUND.
+drehregel_heil() {
+  local W="$1" Z="$1/logrotate-ziel/prolo-traefik" R
+  DREH_GRUND=""
+  if [ ! -f "$Z" ] || [ -L "$Z" ]; then DREH_GRUND="$Z fehlt"; return 1; fi
+  if ! grep -qxF "$W/traefik/log/*.log {" "$Z" || grep -q "@STACK@" "$Z"; then
+    DREH_GRUND="die Regel nennt nicht $W/traefik/log"; return 1; fi
+  if [ "$(stat -c %a "$Z")" != 644 ]; then
+    DREH_GRUND="Rechte $(stat -c %a "$Z") - logrotate liest nur, was Gruppe und Welt nicht schreiben"; return 1; fi
+  if [ -e "$W/logrotate-ziel/traefik-prolo" ] || [ -L "$W/logrotate-ziel/traefik-prolo" ]; then
+    DREH_GRUND="der Verweis aus der alten Anleitung liegt noch da"; return 1; fi
+  if ! command -v logrotate >/dev/null 2>&1; then
+    DREH_GRUND="logrotate fehlt auf dem Pruefrechner - sudo apt install logrotate"; return 1; fi
+  R=$(logrotate -d -s "$W/logrotate-stand" "$W/logrotate-ziel" 2>&1) \
+    || { DREH_GRUND="logrotate -d: $(grep -m1 error <<<"$R")"; return 1; }
+  grep -qF "$W/traefik/log/*.log" <<<"$R" \
+    || { DREH_GRUND="logrotate -d sieht die Regel nicht"; return 1; }
 }
 
 pruefen_einmal() {
@@ -104,6 +236,41 @@ pruefen_einmal() {
   local A1 R1
   A1=$(lauf "$W"); R1=$?
   echo "$A1" > "$W/lauf1.txt"
+
+  # N-100: der Verweis aus Schritt 2 liegt in der Kopie und zeigt auf sie.
+  [ "$(readlink "$W/bin-prolo" 2>/dev/null)" = "$W/werkzeuge/prolo" ] \
+    && sag ok "der prolo-Verweis entsteht in der Kopie, nicht in /usr/local/bin (N-100)" \
+    || sag FEHLER "der prolo-Verweis entstand nicht in der Kopie" \
+           "dann biegt die Probe den echten /usr/local/bin/prolo um"
+  # A-01: das Auftragsbuch - Ordner mit den richtigen Rechten, die
+  # Einheiten mit dem echten Pfad statt des Platzhalters, eingeschaltet.
+  [ "$(stat -c %a "$W/admin/auftraege/eingang" 2>/dev/null)" = 700 ] \
+    && [ "$(stat -c %a "$W/admin/auftraege/erledigt" 2>/dev/null)" = 755 ] \
+    && sag ok "das Auftragsbuch ist angelegt: eingang 0700, erledigt 0755 (A-01)" \
+    || sag FEHLER "das Auftragsbuch fehlt oder hat die falschen Rechte" \
+           "eingang: $(stat -c %a "$W/admin/auftraege/eingang" 2>&1)"
+  grep -qxF "PathExistsGlob=$W/admin/auftraege/eingang/*.json" "$W/systemd-ziel/prolo-auftraege.path" 2>/dev/null \
+    && grep -qxF "ExecStart=/usr/bin/python3 $W/werkzeuge/auftrag.py abarbeiten" "$W/systemd-ziel/prolo-auftraege.service" 2>/dev/null \
+    && ! grep -q "@STACK@" "$W"/systemd-ziel/prolo-auftraege.* \
+    && sag ok "die systemd-Einheiten nennen den echten Stapel, keinen Platzhalter" \
+    || sag FEHLER "die systemd-Einheiten fehlen oder zeigen nicht auf diesen Stapel" \
+           "dann wacht systemd ueber einen Ordner, in den nie etwas faellt"
+  grep -qx "enable --now prolo-auftraege.path prolo-auftraege.timer" "$DOCKER_ATTRAPPE/systemctl" 2>/dev/null \
+    && sag ok "prolo-auftraege.path und .timer werden eingeschaltet" \
+    || sag FEHLER "prolo-auftraege.path/.timer werden nicht eingeschaltet" \
+           "dann liegen Auftraege der Admin-Seite fuer immer im Eingang"
+  grep -qxF "Unit=prolo-auftraege.service" "$W/systemd-ziel/prolo-auftraege.timer" 2>/dev/null \
+    && sag ok "der Zeitgeber fuer den Bestand ist installiert (A-02)" \
+    || sag FEHLER "prolo-auftraege.timer fehlt" \
+           "dann verschwindet ein angehaltenes Werkzeug von der Admin-Seite"
+
+  # N-106: die Drehregel steht da, nennt diesen Stapel, und der alte
+  # Verweis ist weg. Gemessen wird mit logrotate selbst: sein Probelauf
+  # steigt bei einer doppelten Regel mit Rueckgabe 1 aus.
+  drehregel_heil "$W" \
+    && sag ok "die Drehregel ist eingetragen, nennt diesen Stapel, ohne alten Verweis (N-106)" \
+    || sag FEHLER "die Drehregel fehlt, nennt den falschen Pfad oder steht doppelt" \
+           "$DREH_GRUND"
 
   grep -q "getan" <<<"$A1" && sag ok "erster Lauf richtet wirklich etwas ein" \
     || sag FEHLER "erster Lauf hat nichts getan" "dann prueft der zweite nichts"
@@ -177,6 +344,88 @@ pruefen_einmal() {
     && sag ok "die externen netz-* wurden angelegt" \
     || sag FEHLER "netz-wiki wurde nicht angelegt"
 
+  # N-85: ein offener Port wird auch beim Einrichten nicht losgelassen.
+  grep -qx "offenport" "$DOCKER_ATTRAPPE/laufen" \
+    && sag FEHLER "einrichten hat einen Dienst mit offenem Port gestartet" \
+           "genau das verweigert prolo start - die Sperre stand nur an einer Tuer" \
+    || sag ok "ein offener Port wird auch beim Einrichten nicht gestartet (N-85)"
+  grep -q "offenport NICHT gestartet" "$W/lauf1.txt" \
+    && grep -q "8099" "$W/lauf1.txt" \
+    && sag ok "und es wird gesagt, warum - mit dem Port" \
+    || sag FEHLER "der Grund fuer das Nicht-Starten fehlt in der Ausgabe"
+
+  # N-91: acme.json ist eine DATEI mit 0600, log/ ein Ordner - nicht das,
+  # was Docker aus einer fehlenden Quelle macht.
+  [ -f "$W/traefik/acme.json" ] && [ "$(stat -c %a "$W/traefik/acme.json")" = 600 ] \
+    && sag ok "acme.json ist eine Datei mit 0600 (N-91)" \
+    || sag FEHLER "acme.json ist keine Datei mit 0600" \
+           "dann legt Docker einen Ordner an, und Traefik holt kein Zertifikat"
+  [ -d "$W/traefik/log" ] && sag ok "log/ ist ein Ordner" || sag FEHLER "log/ fehlt"
+  grep -q "ohnekonf/wichtig.yml fehlt" "$W/lauf1.txt" \
+    && sag ok "eine fehlende Konfigurationsdatei wird gemeldet, nicht erfunden" \
+    || sag FEHLER "eine fehlende Konfigurationsdatei wird nicht gemeldet"
+  [ -e "$W/ohnekonf/wichtig.yml" ] \
+    && sag FEHLER "eine fehlende Konfigurationsdatei wurde angelegt" "leer ist sie falsch, nicht fehlend" \
+    || sag ok "und nicht angelegt"
+  # Das Ueberbleibsel eines frueheren Starts: ein leerer ORDNER acme.json.
+  rm -f "$W/traefik/acme.json"; mkdir "$W/traefik/acme.json"
+  lauf "$W" > "$W/lauf-acme.txt"
+  [ -f "$W/traefik/acme.json" ] && [ "$(stat -c %a "$W/traefik/acme.json")" = 600 ] \
+    && sag ok "ein leerer Ordner acme.json wird durch eine Datei ersetzt" \
+    || sag FEHLER "der leere Ordner acme.json bleibt stehen"
+  # Und einer mit Inhalt wird NICHT angefasst.
+  rm -f "$W/traefik/acme.json"; mkdir "$W/traefik/acme.json"; echo x > "$W/traefik/acme.json/drin"
+  lauf "$W" > "$W/lauf-acme2.txt"
+  [ -f "$W/traefik/acme.json/drin" ] \
+    && sag ok "ein Ordner mit Inhalt wird nicht angefasst" \
+    || sag FEHLER "ein Ordner mit Inhalt wurde geloescht"
+  rm -rf "$W/traefik/acme.json"; : > "$W/traefik/acme.json"; chmod 600 "$W/traefik/acme.json"
+
+  # N-90: warum etwas nicht hochkam, steht da - im Wortlaut von docker,
+  # ohne das Rauschen davor, und mit dem Weg daraus.
+  grep -q "network socket declared as external, but could not be found" "$W/lauf1.txt" \
+    && sag ok "der Grund steht im Wortlaut von docker da (N-90)" \
+    || sag FEHLER "der Grund, warum ein Dienst nicht hochkam, fehlt" \
+           "vorher: 'sudo prolo protokoll' - das zeigt bei einem nie angelegten Container nichts"
+  grep -q "fs layer" "$W/lauf1.txt" \
+    && sag FEHLER "der Fortschritt von docker steht in der Meldung" "Rauschen verdeckt die Ursache" \
+    || sag ok "und ohne den Fortschritt davor"
+  grep -q "muss socket-proxy zuerst" "$W/lauf1.txt" \
+    && sag ok "und mit dem Weg daraus" \
+    || sag FEHLER "der Weg aus einem fehlenden Netz fehlt"
+
+  # N-95: die Gruppen kommen aus den Werkzeugen - auch "admin", die in der
+  # alten, festen Liste fehlte.
+  grep -qE "^    admin +admin " "$W/lauf1.txt" \
+    && sag ok "die Gruppe der Admin-Seite wird genannt (N-95)" \
+    || sag FEHLER "die Gruppe 'admin' fehlt in der Liste" \
+           "dann legt sie niemand an, und die Admin-Seite weist mit 403 ab"
+  N_SOLL=$(grep -ho 'prolo\.gruppen=[^"]*' "$W"/*/docker-compose.yml "$W"/*/docker-compose.override.yml 2>/dev/null \
+           | sed 's/^prolo\.gruppen=//' | tr ';' '\n' | grep -c '=')
+  N_IST=$(sed -n '/Gruppen in Authentik anlegen/,/Ohne die Gruppe/p' "$W/lauf1.txt" | grep -cE '^    [a-z0-9-]+ ')
+  [ "$N_SOLL" -gt 0 ] && [ "$N_SOLL" -eq "$N_IST" ] \
+    && sag ok "alle $N_SOLL erklaerten Gruppen stehen in der Liste" \
+    || sag FEHLER "die Liste nennt $N_IST von $N_SOLL erklaerten Gruppen"
+
+  # N-83: was nur in der override-Datei steht, zaehlt genauso.
+  grep -qx "netz-fremdprobe" "$DOCKER_ATTRAPPE/netze" \
+    && sag ok "ein Netz aus der override-Datei wird angelegt (N-83)" \
+    || sag FEHLER "das Netz aus der override-Datei wurde nicht angelegt" \
+           "ein Fremdwerkzeug bekaeme auf einem frischen Server einen toten Router"
+  grep -q "^    fremdprobe.prolo.me$" "$W/lauf1.txt" \
+    && sag ok "ein Name aus der override-Datei steht in der DNS-Liste (N-83)" \
+    || sag FEHLER "der Name aus der override-Datei fehlt in der DNS-Liste" \
+           "dann fehlt beim Anbieter der A-Eintrag, und niemand weiss es"
+  # Und jeder Name aus IRGENDEINER Compose-Datei - gezaehlt mit grep, nicht
+  # mit dem Code, der geprueft wird.
+  local N_SOLL N_IST
+  N_SOLL=$(cat "$W"/*/docker-compose.yml "$W"/*/docker-compose.override.yml 2>/dev/null \
+           | grep -o 'Host(`[^`]*`)' | sort -u | wc -l)
+  N_IST=$(grep -c '^    [a-z0-9.-]*\.[a-z]*$' "$W/lauf1.txt")
+  [ "$N_SOLL" -eq "$N_IST" ] \
+    && sag ok "die DNS-Liste nennt alle $N_SOLL Namen aus den Compose-Dateien" \
+    || sag FEHLER "die DNS-Liste nennt $N_IST von $N_SOLL Namen"
+
   # Ein Trockenlauf fasst nichts an
   local V3 N3
   V3=$(find "$W" -name '.env' | sort | xargs md5sum 2>/dev/null)
@@ -184,10 +433,108 @@ pruefen_einmal() {
   N3=$(find "$W" -name '.env' | sort | xargs md5sum 2>/dev/null)
   [ "$V3" = "$N3" ] && sag ok "--trocken fasst keine Datei an" \
     || sag FEHLER "--trocken hat etwas veraendert"
+  rm -f "$W"/systemd-ziel/prolo-auftraege.*
+  lauf "$W" --trocken > /dev/null
+  ls "$W"/systemd-ziel/prolo-auftraege.* >/dev/null 2>&1 \
+    && sag FEHLER "--trocken hat eine systemd-Einheit geschrieben" \
+    || sag ok "--trocken schreibt keine systemd-Einheit"
+}
+
+# N-103: eine Compose-Fassung, die !reset nicht kennt, haelt die
+# Einrichtung an - VOR dem ersten Schritt, der etwas anfasst.
+fassung_pruefen() {   # fassung_pruefen <wurzel> <fassung> -> Ausgabe; Rueckgabe
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$1"
+  COMPOSE_FASSUNG="$2" lauf "$1"
+}
+
+# N-107: eine DATEI aus dem Git, die in VOLUMES_OHNE steht ("liegt im
+# Git") und fehlt, darf nicht als Ordner entstehen - sonst haengt Docker
+# einen leeren Ordner an die Stelle der Konfiguration (die Narbe aus N-91).
+# Setzt GIT_GRUND; Rueckgabe 0, wenn richtig behandelt.
+gitdatei_fall() {   # gitdatei_fall <wurzel>
+  local W="$1" A
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  ( cd "$W" && git init -q && git add traefik/traefik.yml \
+      && git -c user.email=probe@prolo.me -c user.name=probe commit -qm probe ) >/dev/null 2>&1
+  rm -f "$W/traefik/traefik.yml"
+  A=$(lauf "$W")
+  GIT_GRUND=""
+  if [ -d "$W/traefik/traefik.yml" ]; then
+    GIT_GRUND="an der Stelle von traefik.yml steht jetzt ein Ordner"; return 1
+  fi
+  grep -qF "git -C $W checkout -- traefik/traefik.yml" <<<"$A" \
+    || { GIT_GRUND="der Weg zurueck (git checkout) wird nicht genannt"; return 1; }
+}
+
+# F-01: der Firewall-Bouncer. Setzt BOUNCER_GRUND; Rueckgabe 0 = richtig.
+PROBE_SCHLUESSEL="probe-bouncer-$$-schluessel"
+bouncer_fall() {   # bouncer_fall <wurzel>
+  local W="$1" A A2
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  BOUNCER_GRUND=""
+  # (a) ohne Bouncer: offen, mit genau den zwei Befehlen
+  A=$(lauf "$W")
+  grep -qF "curl -s https://install.crowdsec.net | sudo sh" <<<"$A" \
+    && grep -qF "sudo apt install crowdsec-firewall-bouncer-nftables" <<<"$A" \
+    || { BOUNCER_GRUND="ohne Bouncer fehlen die zwei Befehle"; return 1; }
+  # (b) wie nach der Paketinstallation, Schluessel in crowdsec/.env
+  printf 'mode: nftables\nupdate_frequency: 10s\napi_url: http://localhost:9999/\napi_key: ${API_KEY}\ndeny_log: false\n' \
+    > "$W/bouncer.yaml"
+  printf 'CROWDSEC_BOUNCER_SCHLUESSEL=%s\nCROWDSEC_KONSOLE_SCHLUESSEL=\n' "$PROBE_SCHLUESSEL" > "$W/crowdsec/.env"
+  touch "$DOCKER_ATTRAPPE/bouncer-lebt"; : > "$DOCKER_ATTRAPPE/systemctl"
+  A=$(lauf "$W")
+  [ "$(grep -c '^api_key: ' "$W/bouncer.yaml")" = 1 ] && grep -qxF "api_key: $PROBE_SCHLUESSEL" "$W/bouncer.yaml" \
+    && grep -qxF "api_url: http://127.0.0.1:8080/" "$W/bouncer.yaml" \
+    || { BOUNCER_GRUND="Schluessel oder lokale API stehen nicht in der Bouncer-Konfiguration"; return 1; }
+  grep -qxF "mode: nftables" "$W/bouncer.yaml" && grep -qxF "deny_log: false" "$W/bouncer.yaml" \
+    || { BOUNCER_GRUND="der Rest der Konfiguration wurde angefasst"; return 1; }
+  [ "$(stat -c %a "$W/bouncer.yaml")" = 600 ] \
+    || { BOUNCER_GRUND="Rechte $(stat -c %a "$W/bouncer.yaml") - der Schluessel gehoert nur root"; return 1; }
+  grep -qx "restart crowdsec-firewall-bouncer" "$DOCKER_ATTRAPPE/systemctl" \
+    || { BOUNCER_GRUND="der Bouncer wird nicht neu gestartet"; return 1; }
+  grep -q "holt die Sperren ab" <<<"$A" \
+    || { BOUNCER_GRUND="die Abfrage des Bouncers wird nicht bestaetigt"; return 1; }
+  if grep -qF "$PROBE_SCHLUESSEL" <<<"$A"; then
+    BOUNCER_GRUND="der Schluessel steht in der Ausgabe (§22)"; return 1; fi
+  # (c) zweiter Lauf: nichts mehr zu tun
+  A2=$(lauf "$W")
+  [ "$(grep -c "restart crowdsec-firewall-bouncer" "$DOCKER_ATTRAPPE/systemctl")" = 1 ] \
+    && grep -q "nennt die lokale API und den Schluessel" <<<"$A2" \
+    || { BOUNCER_GRUND="der zweite Lauf startet den Bouncer noch einmal"; return 1; }
+  # (d) der Bouncer fragt nicht ab: das faellt auf
+  rm -f "$DOCKER_ATTRAPPE/bouncer-lebt"
+  A2=$(lauf "$W")
+  grep -q "fragt bei CrowdSec nicht ab" <<<"$A2" \
+    || { BOUNCER_GRUND="ein stiller Bouncer faellt nicht auf"; return 1; }
 }
 
 if [ "$GEGENPROBE" -eq 0 ]; then
+  bouncer_fall "$T/bouncer" \
+    && sag ok "der Firewall-Bouncer: Befehle ohne ihn, Schluessel 0600 und Neustart mit ihm, nie in der Ausgabe (F-01)" \
+    || sag FEHLER "der Firewall-Bouncer wird falsch eingerichtet (F-01)" "$BOUNCER_GRUND"
+  gitdatei_fall "$T/gitdatei" \
+    && sag ok "eine fehlende Datei aus dem Git wird gemeldet, nicht als Ordner angelegt (N-107)" \
+    || sag FEHLER "eine fehlende Datei aus dem Git wird falsch behandelt (N-107)" "$GIT_GRUND"
+  A=$(fassung_pruefen "$T/alt" 2.20.0); R=$?
+  [ "$R" -ne 0 ] && grep -q "2.24.4" <<<"$A" && grep -q "apt install docker-compose-plugin" <<<"$A" \
+    && sag ok "Compose 2.20.0 haelt die Einrichtung an, mit Grund und Befehl (N-103)" \
+    || sag FEHLER "eine zu alte Compose-Fassung faellt nicht auf" \
+           "dann startet danach kein Fremdwerkzeug mehr: !reset kennt sie nicht"
+  [ -e "$T/alt/bin-prolo" ] \
+    && sag FEHLER "bei zu alter Compose-Fassung wurde trotzdem etwas angelegt" \
+    || sag ok "... und nichts wurde angelegt"
+  A=$(fassung_pruefen "$T/grenze" 2.24.4); R=$?
+  grep -q "docker compose 2.24.4 ist da" <<<"$A" \
+    && sag ok "Compose 2.24.4 genuegt (die Grenze selbst, von Hand)" \
+    || sag FEHLER "Compose 2.24.4 wird abgelehnt" "$(grep -m1 compose <<<"$A")"
   pruefen_einmal "$T/stack"
+  [ "$(readlink /usr/local/bin/prolo 2>/dev/null || echo fehlt)" = "$ECHT_VORHER" ] \
+    && sag ok "der echte /usr/local/bin/prolo ist unberuehrt (N-100)" \
+    || sag FEHLER "der echte /usr/local/bin/prolo wurde umgebogen" \
+           "vorher: $ECHT_VORHER"
   echo
   [ "$FEHLER" -eq 0 ] && echo "Alles gruen." || echo "EINRICHTUNGSPRUEFUNG FEHLGESCHLAGEN." >&2
   exit "$FEHLER"
@@ -242,6 +589,232 @@ netzprobe "ein laufender Container wird nie nachgehaengt" \
           's|FEHLT=$(netze_fehlen "$T")|FEHLT=""|'
 netzprobe "fehlende Netze werden gar nicht erst gesucht" \
           's|^netze_fehlen() {|netze_fehlen() { return 0;|'
+
+# N-83: die override-Datei wird nicht gelesen - weder fuer Netze noch fuer
+# Namen. Der Massstab ist, was nach dem Lauf fehlt.
+# N-85: die Sperre fehlt beim Einrichten. Massstab: laeuft der Dienst mit
+# dem offenen Port nach dem Lauf?
+sperrprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/s$((++GEFUNDEN))"
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  lauf "$W" > /dev/null
+  if grep -qx "offenport" "$DOCKER_ATTRAPPE/laufen"; then
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  else
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  fi
+}
+sperrprobe "einrichten startet ohne die Sperre" \
+  '0,/if ! SPERRE=$(start_pruefen "$T" 2>\&1); then/! s|if ! SPERRE=$(start_pruefen "$T" 2>\&1); then|if false; then|'
+
+# N-90: der Grund wird wieder verschluckt.
+meldeprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/g$((++GEFUNDEN))" A
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  A=$(lauf "$W")
+  if grep -q "network socket declared as external" <<<"$A" && ! grep -q "fs layer" <<<"$A"; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+}
+meldeprobe "die Meldung von docker wird verschluckt" \
+  's|^    docker_sagt "$T" "$AUSGABE"$|    :|'
+meldeprobe "das Rauschen wird nicht herausgefiltert" \
+  "s#^RAUSCHEN=.*#RAUSCHEN='NIEMALS-SO-EINE-ZEILE'#"
+
+# N-91: acme.json wird nicht vorbereitet.
+acmeprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/a$((++GEFUNDEN))"
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  mkdir -p "$W/traefik/acme.json"      # wie nach einem frueheren Start
+  lauf "$W" > /dev/null
+  if [ -f "$W/traefik/acme.json" ] && [ "$(stat -c %a "$W/traefik/acme.json")" = 600 ]; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+}
+acmeprobe "der leere Ordner acme.json bleibt stehen (N-91)" \
+  's#^    elif \[ -d "$Z" \] \&\& \[ -z "$(ls -A "$Z")" \]; then$#    elif false; then#'
+acmeprobe "acme.json wird ohne 0600 angelegt (N-91)" \
+  's#: > "$Z" \&\& chmod 600 "$Z" \&\& f_tat "$W/$P angelegt#: > "$Z" \&\& f_tat "$W/$P angelegt#; s#rmdir "$Z" \&\& : > "$Z" \&\& chmod 600 "$Z"#rmdir "$Z" \&\& : > "$Z"#'
+
+# N-95: die Gruppen kommen nicht aus den Werkzeugen.
+gruppenprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/r$((++GEFUNDEN))" A
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  A=$(lauf "$W")
+  if grep -qE "^    admin +admin " <<<"$A"; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+}
+gruppenprobe "die Gruppen stehen nicht mehr in der Liste (N-95)" \
+  's#^if zeilen:$#if False:#'
+gruppenprobe "das Label prolo.gruppen wird nicht gelesen (N-95)" \
+  's#for m in re.finditer(r"prolo\\.gruppen=#for m in [] or re.finditer(r"NIE-prolo\\.gruppen=#'
+
+# N-100: der Verweis landet wieder in /usr/local/bin.
+binprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/p$((++GEFUNDEN))"
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  lauf "$W" > /dev/null
+  # Ohne root schlaegt das ln fehl, mit root trifft es den echten Verweis -
+  # in beiden Faellen fehlt er in der Kopie. Den echten stellt die Probe
+  # sofort wieder her, falls sie ihn umgebogen hat.
+  [ "$(readlink /usr/local/bin/prolo 2>/dev/null || echo fehlt)" = "$ECHT_VORHER" ] \
+    || { [ "$ECHT_VORHER" = fehlt ] && rm -f /usr/local/bin/prolo \
+         || ln -sf "$ECHT_VORHER" /usr/local/bin/prolo; }
+  if [ -L "$W/bin-prolo" ]; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+}
+binprobe "der Verweis geht wieder nach /usr/local/bin (N-100)" \
+  's#^ZIEL="${PROLO_BIN:-/usr/local/bin/prolo}"$#ZIEL=/usr/local/bin/prolo#'
+
+overrideprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/o$((++GEFUNDEN))" A
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  A=$(lauf "$W")
+  if grep -qx "netz-fremdprobe" "$DOCKER_ATTRAPPE/netze" \
+     && grep -q "^    fremdprobe.prolo.me$" <<<"$A"; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+}
+overrideprobe "Namen nur aus der Datei des Herstellers" \
+  '0,/"docker-compose.yml", "docker-compose.override.yml"/! s|("docker-compose.yml", "docker-compose.override.yml")|("docker-compose.yml",)|'
+overrideprobe "Netze nur aus der Datei des Herstellers" \
+  '0,/"docker-compose.yml", "docker-compose.override.yml"/ s|("docker-compose.yml", "docker-compose.override.yml")|("docker-compose.yml",)|'
+
+# A-01: das Auftragsbuch. Massstab ist, was nach dem ersten Lauf in der
+# Kopie steht - nicht, was die Ausgabe ankuendigt (N-38).
+buchprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/b$((++GEFUNDEN))"
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  lauf "$W" > /dev/null
+  if [ "$(stat -c %a "$W/admin/auftraege/eingang" 2>/dev/null)" = 700 ] \
+     && grep -qxF "PathExistsGlob=$W/admin/auftraege/eingang/*.json" "$W/systemd-ziel/prolo-auftraege.path" 2>/dev/null \
+     && grep -qx "enable --now prolo-auftraege.path prolo-auftraege.timer" "$DOCKER_ATTRAPPE/systemctl" 2>/dev/null; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+}
+buchprobe "das Auftragsbuch wird nicht angelegt (A-01)" \
+  's#elif A=$(python3 "$HIER/auftrag.py" einrichten 2>\&1); then$#elif A=$(true); then#'
+buchprobe "die Einheiten behalten den Platzhalter (A-01)" \
+  's#SOLL=$(sed "s\#@STACK@\#$STACK\#g" "$HIER/systemd/$U")#SOLL=$(cat "$HIER/systemd/$U")#'
+buchprobe "der Waechter wird nie eingeschaltet (A-01)" \
+  's#elif A=$(systemctl enable --now prolo-auftraege.path prolo-auftraege.timer 2>\&1) \\$#elif A=$(true) \\#'
+
+# N-106: die Drehregel. Massstab ist logrotate selbst (drehregel_heil).
+drehprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/d$((++GEFUNDEN))"
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  lauf "$W" > /dev/null
+  if drehregel_heil "$W"; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+}
+drehprobe "die Drehregel wird nicht geschrieben (N-106)" \
+  's#{ rm -f "$Z" \&\& printf .%s\\n. "$SOLL" > "$Z" \&\& chmod 644 "$Z"; }#{ true; }#'
+drehprobe "die Drehregel behaelt den Platzhalter (N-106)" \
+  's#SOLL=$(sed "s\#@STACK@\#$STACK\#g" "$K")#SOLL=$(cat "$K")#'
+drehprobe "der alte Verweis bleibt liegen (N-106)" \
+  's#if tun; then rm -f "$ALT" \&\& f_tat#if tun; then true \&\& f_tat#'
+drehprobe "die Regel ist fuer alle beschreibbar (N-106)" \
+  's#chmod 644 "$Z"; }#chmod 666 "$Z"; }#'
+
+# N-107: eine fehlende Datei aus dem Git wird wieder als Ordner angelegt.
+gitprobe() {
+  local NAME="$1" AUSDRUCK="$2"
+  GEFUNDEN=$((GEFUNDEN + 1))
+  # gitdatei_fall legt seine Kopie selbst an - kopieren() nimmt die Mutante.
+  sed "$AUSDRUCK" "$HIER/einrichten.sh" > "$T/einrichten-mutiert.sh"
+  if cmp -s "$HIER/einrichten.sh" "$T/einrichten-mutiert.sh"; then
+    printf '%2d. %-46s NICHT EINGEBAUT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "; return
+  fi
+  HIER_MUTIERT="$T/einrichten-mutiert.sh"
+  if gitdatei_fall "$T/g$GEFUNDEN"; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+  HIER_MUTIERT=""
+}
+gitprobe "eine Git-Datei wird wieder ein Ordner (N-107)" \
+  's#    elif \[ "$(git -C "$STACK" ls-files -- "$W/$P" 2>/dev/null)" = "$W/$P" \]; then#    elif false; then#'
+
+# F-01: der Firewall-Bouncer. Massstab ist bouncer_fall.
+bouncerprobe() {
+  local NAME="$1" AUSDRUCK="$2"
+  GEFUNDEN=$((GEFUNDEN + 1))
+  sed "$AUSDRUCK" "$HIER/einrichten.sh" > "$T/einrichten-mutiert.sh"
+  if cmp -s "$HIER/einrichten.sh" "$T/einrichten-mutiert.sh"; then
+    printf '%2d. %-46s NICHT EINGEBAUT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "; return
+  fi
+  HIER_MUTIERT="$T/einrichten-mutiert.sh"
+  if bouncer_fall "$T/b$GEFUNDEN"; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+  HIER_MUTIERT=""
+}
+bouncerprobe "der Schluessel kommt nicht an (F-01)" \
+  's#^soll = {"api_url": "http://127.0.0.1:8080/", "api_key": schluessel}$#soll = {"api_url": "http://127.0.0.1:8080/"}#'
+bouncerprobe "die Bouncer-Konfiguration ist fuer alle lesbar (F-01)" \
+  's#os.chmod(konf + ".neu", 0o600)#os.chmod(konf + ".neu", 0o644)#'
+bouncerprobe "der Bouncer wird nicht neu gestartet (F-01)" \
+  's#      if A=$(systemctl restart crowdsec-firewall-bouncer 2>\&1); then#      if A=$(true); then#'
+bouncerprobe "ohne Bouncer fehlt der Weg (F-01)" \
+  "s#^  printf '            curl -s https://install.crowdsec.net | sudo sh\\\\n'#  :#"
+bouncerprobe "ein stiller Bouncer faellt nicht auf (F-01)" \
+  's#      \[ -n "$ALTER" \] \&\& \[ "$ALTER" -lt 60 \] \&\& break#      ALTER=1; break#'
+bouncerprobe "der Schluessel steht in der Ausgabe (F-01, §22)" \
+  's#^print("GESCHRIEBEN")$#print("GESCHRIEBEN " + schluessel)#'
+bouncerprobe "jeder Lauf startet den Bouncer neu (F-01)" \
+  's#^if neu == alt:$#if False:#'
+
+# N-103: eine zu alte Compose-Fassung wird durchgelassen.
+fassungsprobe() {
+  local NAME="$1" AUSDRUCK="$2" W="$T/f$((++GEFUNDEN))" A R
+  rm -rf "$DOCKER_ATTRAPPE"; mkdir -p "$DOCKER_ATTRAPPE"
+  kopieren "$W"
+  sed -i "$AUSDRUCK" "$W/werkzeuge/einrichten.sh"
+  A=$(COMPOSE_FASSUNG=2.20.0 lauf "$W"); R=$?
+  if [ "$R" -ne 0 ] && grep -q "zu alt" <<<"$A"; then
+    printf '%2d. %-46s DURCHGERUTSCHT\n' "$GEFUNDEN" "$NAME"; DURCH="$DURCH$NAME; "
+  else
+    printf '%2d. %-46s gefunden\n' "$GEFUNDEN" "$NAME"
+  fi
+}
+fassungsprobe "eine zu alte Compose-Fassung geht durch (N-103)" \
+  's#if \[ "$(printf .%s\\n. 2.24.4 "$CV" | sort -V | head -1)" = 2.24.4 \]; then#if true; then#'
 
 echo
 if [ -n "$DURCH" ]; then

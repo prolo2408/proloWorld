@@ -57,7 +57,7 @@ assert len(AUSGENOMMEN) == 2, "die Ausnahmen duerfen nicht wachsen"
 # up -d" stand in dem Text, den das Wiki ausgibt, wenn es nicht startet.
 # Eine Anleitung liest man in Ruhe; eine Fehlermeldung liest man, wenn
 # gerade etwas kaputt ist - dort schadet ein falscher Befehl am meisten.
-ENDUNGEN = (".md", ".html", ".py", ".sh", ".mjs", ".yml", ".conf")
+ENDUNGEN = (".md", ".html", ".py", ".sh", ".mjs", ".yml", ".conf", ".beispiel")
 
 
 def pruefen(wurzel):
@@ -96,9 +96,19 @@ def melden(wurzel):
 
 # ------------------------------------------------------------ Gegenprobe
 
-DATEIEN = ["werkzeuge/prolo", "wiki/vorlagen/prolo-bedienen.html",
-           "bordbuch/CHANGELOG.md", "CLAUDE.md", NARBENBUCH,
-           "wiki/server.py"]
+# Das Bedienhandbuch ist eine Wiki-Seite ueber proloWorld. Es lag in
+# wiki/vorlagen/; seit das Wiki ein eigenes Repository hat, liegt es in
+# doku/ (U-02). Die Pruefung findet es an beiden Stellen - und die
+# Mutationen zielen nur noch auf Dateien, die in proloWorld bleiben.
+_WURZEL = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HANDBUCH = next((h for h in ("doku/prolo-bedienen.html",
+                             "wiki/vorlagen/prolo-bedienen.html")
+                 if os.path.isfile(os.path.join(_WURZEL, h))),
+                "doku/prolo-bedienen.html")
+
+DATEIEN = ["werkzeuge/prolo", HANDBUCH, "werkzeuge/ANLEITUNG.md",
+           "CLAUDE.md", NARBENBUCH, "admin/server.py",
+           "traefik/dynamic/einlass.yml.beispiel"]
 
 
 def _tausch(w, rel, alt, neu):
@@ -111,16 +121,22 @@ def _tausch(w, rel, alt, neu):
 
 MUTATIONEN = [
     ("Anleitungsseite nennt prolo compose",
-     lambda w: _tausch(w, "wiki/vorlagen/prolo-bedienen.html",
+     lambda w: _tausch(w, HANDBUCH,
                        "<code>sudo prolo start traefik</code>",
                        "<code>sudo prolo compose traefik up -d</code>")),
-    ("Geruest-Kommentar nennt prolo compose",
+    # Zielte bis N-97 auf einen Kommentar, den N-61 entfernt hat - und liess
+    # sich seitdem nicht mehr einbauen. Die Gegenprobe war damit rot, und
+    # niemand hat es gemerkt. Jetzt eine Meldung, die prolo selbst ausgibt.
+    ("prolo selbst nennt einen erfundenen Befehl",
      lambda w: _tausch(w, "werkzeuge/prolo",
-                       "  #   sudo prolo start traefik\n",
-                       "  #   sudo prolo compose traefik up -d\n")),
-    ("Changelog nennt prolo sicherung",
-     lambda w: _tausch(w, "bordbuch/CHANGELOG.md",
-                       "`sudo prolo sichern`", "`sudo prolo sicherung`")),
+                       '  melde "  sudo prolo neu <name>"',
+                       '  melde "  sudo prolo anlegen <name>"')),
+    ("Anleitung nennt prolo anlegen",
+     lambda w: _tausch(w, "werkzeuge/ANLEITUNG.md",
+                       # Nur der Anfang der Zeile: A-03 hat sie hinten
+                       # verlaengert, und die Mutation griff ins Leere (N-105).
+                       "| ein neues Werkzeug | `sudo prolo neu <name>`",
+                       "| ein neues Werkzeug | `sudo prolo anlegen <name>`")),
     ("CLAUDE.md nennt einen erfundenen Befehl",
      lambda w: _tausch(w, "CLAUDE.md", "`prolo sichern`", "`prolo backupjetzt`")),
     # Die Ausnahme fuer das Narbenbuch darf nicht auf andere Dateien
@@ -132,9 +148,15 @@ MUTATIONEN = [
     # nicht in einer Anleitung, sondern in einer FEHLERMELDUNG. Die steht im
     # Quellcode, und dorthin hat die erste Fassung nicht gesehen.
     ("eine Fehlermeldung nennt einen erfundenen Befehl",
-     lambda w: _tausch(w, "wiki/server.py",
-                       '"  3. sudo prolo start wiki\\n\\n"',
-                       '"  3. sudo prolo compose wiki up -d\\n\\n"')),
+     lambda w: _tausch(w, "admin/server.py",
+                       '"  2. sudo prolo start admin\\n\\n"',
+                       '"  2. sudo prolo compose admin up -d\\n\\n"')),
+    # N-96: eine Vorlage, die man abschreibt, nennt einen erfundenen
+    # Befehl. Vorlagen enden auf .beispiel - die las die Pruefung nicht.
+    ("eine Vorlage nennt einen erfundenen Befehl (N-96)",
+     lambda w: _tausch(w, "traefik/dynamic/einlass.yml.beispiel",
+                       "#        sudo prolo start traefik\n",
+                       "#        sudo prolo compose traefik up -d\n")),
     # Der Fall, um dessentwillen es die Pruefung gibt: jemand benennt einen
     # Befehl um oder wirft ihn weg, und die Anleitungen nennen ihn weiter.
     ("ein Befehl faellt aus dem Verteiler",

@@ -26,6 +26,38 @@ STACK = os.path.dirname(HIER)
 
 # (Name, Datei, alt, neu, in welcher Pruefzeile es auffallen MUSS)
 MUTATIONEN = [
+    ("das Wiki reicht die Marke nicht mehr durch - und faellt aus der Liste (U-02)",
+     "wiki/docker-compose.yml",
+     '      PROLO_EINLASS: "${PROLO_EINLASS:?PROLO_EINLASS fehlt in wiki/.env - sudo prolo geheimnisse --verteilen}"\n',
+     "",
+     "wiki: die Compose-Dateien reichen PROLO_EINLASS durch"),
+
+    ("die Admin-Seite nennt ihre Gruppen nicht mehr (N-95)",
+     "admin/docker-compose.yml",
+     '      - "prolo.gruppen=admin=die Stack-Uebersicht sehen; admin-betrieb=Werkzeuge '
+     'starten, anhalten, aktualisieren, Protokolle lesen"\n', "",
+     "admin: jede gepruefte Gruppe steht in prolo.gruppen"),
+
+    ("die Admin-Seite nennt ihre Betriebsgruppe nicht (N-104)",
+     "admin/docker-compose.yml",
+     "; admin-betrieb=Werkzeuge starten, anhalten, aktualisieren, Protokolle lesen", "",
+     "admin: jede gepruefte Gruppe steht in prolo.gruppen"),
+
+    ("das Wiki nennt nur eine seiner zwei Gruppen (N-95)",
+     "wiki/docker-compose.yml",
+     "prolo.gruppen=wiki-editor=Seiten anlegen und die eigenen bearbeiten; wiki-admin=das Wiki verwalten",
+     "prolo.gruppen=wiki-admin=das Wiki verwalten",
+     "wiki: jede gepruefte Gruppe steht in prolo.gruppen"),
+
+    ("sniStrict steht wieder in einer eigenen Option (N-93)",
+     "traefik/dynamic/sicherheit.yml", "    default:\n      minVersion: VersionTLS12",
+     "    streng:\n      minVersion: VersionTLS12",
+     "sniStrict steht in der TLS-Option 'default'"),
+
+    ("der Vermittler bindet wieder an IPv6 (N-92)",
+     "socket-proxy/docker-compose.yml", "      DISABLE_IPV6: 1\n", "",
+     "socket-proxy bindet nur IPv4"),
+
     ("der Vorrat faellt auf den alten Wert zurueck (N-79)",
      "traefik/dynamic/sicherheit.yml", "        burst: 700", "        burst: 150",
      "Vorrat traegt einen ganzen Seitenaufbau"),

@@ -95,7 +95,8 @@ docker_da() { docker network ls >/dev/null 2>&1; }
 # ----------------------------------------------------------------------
 # Alles, was die Dateien sagen, in einer Zeile je Fund:
 #   netz|<netz>|<werkzeug>            ein Werkzeug erklaert dieses Netz
-#   dienst|<werkzeug>|<dienst>|<netz>|<label>
+#   dienst|<werkzeug>|<dienst>|<netze>|<label>|<schutz>|<ports>|<grund>|
+#          <geteilt>|<hosts>|<router ohne Anmeldung>
 # ----------------------------------------------------------------------
 erklaert() {   # $1 = optionaler Filter auf ein Werkzeug
   local t j
@@ -133,19 +134,41 @@ for dienst, srv in sorted((d.get("services") or {}).items()):
     if isinstance(label, list):
         label = dict(z.split("=", 1) for z in label if "=" in z)
     tn = label.get("traefik.docker.network", "")
-    # Womit ist dieser Router geschuetzt? Nicht geraten, sondern aus den
-    # Labels gelesen: die Middleware-Kette steht dort. Kein authentik@file
-    # und keine Erklaerung heisst OFFEN - und das soll man sehen.
-    mw = " ".join(w for k, w in label.items()
-                  if k.startswith("traefik.http.routers.") and k.endswith(".middlewares"))
-    if "authentik@file" in mw:
-        schutz = "authentik"
-    elif label.get("prolo.anmeldung"):
+    # Womit ist dieser Dienst geschuetzt? Nicht geraten, sondern aus den
+    # Labels gelesen - und zwar JE ROUTER (N-84). Vorher reichte EIN
+    # authentik@file irgendwo, und der ganze Dienst galt als geschuetzt.
+    # Ein zweiter Router ohne Anmeldung daneben - genau der Fall, vor dem
+    # §17a warnt - fiel damit weder "prolo start" noch "prolo netze" auf.
+    # grenze-pruefen.sh hat es im Repository schon immer je Router
+    # geprueft; auf dem Server, wo "prolo neu" Werkzeuge ohne Git anlegt,
+    # lief nur diese Stelle.
+    router = sorted({k[len("traefik.http.routers."):-len(".rule")]
+                     for k in label
+                     if k.startswith("traefik.http.routers.") and k.endswith(".rule")})
+    oeffentlich = {x for x in label.get("prolo.oeffentlich", "").split(",") if x}
+    ungeschuetzt = [
+        r for r in router
+        if r not in oeffentlich
+        and "authentik@file" not in label.get("traefik.http.routers.%s.middlewares" % r, "")]
+    # traefik.enable ohne eigenen Router: Traefik legt dann selbst einen
+    # an, mit einer Vorgaberegel und OHNE Middleware. Offen ist er trotzdem.
+    if label.get("traefik.enable") == "true" and not router:
+        ungeschuetzt = ["(Vorgabe)"]
+    # Die eigene Anmeldung deckt, was ohne Authentik bleibt - nur dann.
+    # Ist alles hinter Authentik, bleibt es "authentik", auch wenn das
+    # Werkzeug zusaetzlich eine eigene Anmeldung hat (wie in admin/).
+    if ungeschuetzt and label.get("prolo.anmeldung"):
         schutz = label["prolo.anmeldung"]
-    elif label.get("prolo.oeffentlich"):
+        ungeschuetzt = []
+    elif ungeschuetzt:
+        schutz = "OFFEN"
+    elif router and oeffentlich:
         schutz = "oeffentlich"
+    elif router:
+        schutz = "authentik"
     elif tn:
         schutz = "OFFEN"
+        ungeschuetzt = ["(Vorgabe)"]
     else:
         schutz = ""
     # Veroeffentlichte Ports. Eine ports:-Zeile hebelt Firewall UND
@@ -169,9 +192,9 @@ for dienst, srv in sorted((d.get("services") or {}).items()):
     for k, v in sorted(label.items()):
         if k.startswith("traefik.http.routers.") and k.endswith(".rule"):
             hosts += re.findall(r"Host\(`([^`]+)`\)", v)
-    print("dienst|%s|%s|%s|%s|%s|%s|%s|%s|%s" % (
+    print("dienst|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s" % (
         t, dienst, ",".join(netze), tn, schutz, ",".join(ports), grund,
-        geteilt, ",".join(sorted(set(hosts)))))
+        geteilt, ",".join(sorted(set(hosts))), ",".join(ungeschuetzt)))
 ' "$t"
   done
 }
@@ -291,7 +314,7 @@ befehl_uebersicht() {
   abschnitt "Werkzeuge"
   printf '  %-13s %-15s %-24s %-11s %s\n' WERKZEUG DIENST NETZ SCHUTZ "OFFENE PORTS"
   local Z T D NN TN SCHUTZ PORTS PASST
-  while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND GETEILT HOSTS; do
+  while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND GETEILT HOSTS OFFENR; do
     [ "$Z" = dienst ] || continue
     # Dienste ohne Traefik-Bezug (Datenbank, Worker) haben hier nichts zu
     # suchen - die sollen gerade NICHT im Werkzeugnetz haengen. Offene
@@ -339,21 +362,24 @@ befehl_uebersicht() {
     fi
   done
 
-  while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND GETEILT HOSTS; do
+  while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND GETEILT HOSTS OFFENR; do
     [ "$Z" = dienst ] || continue
     if [ -n "$PORTS" ] && [ -z "$GRUND" ]; then
       HINWEISE="$HINWEISE
   $T/$D veroeffentlicht Port(s) $PORTS auf dem Host.
      Damit ist der Dienst an Traefik, an der Anmeldung und an der Firewall
-     VORBEI erreichbar (CLAUDE.md §19). Die ports:-Zeile gehoert weg, oder
-     - wenn sie sein muss - erklaert: Label prolo.ports=<grund>.
+     VORBEI erreichbar (CLAUDE.md §19). Die ports:-Zeile gehoert weg - bei
+     einem Fremdwerkzeug in der override-Datei mit 'ports: !reset []' am
+     Dienst, die Herstellerdatei bleibt unveraendert (N-103) -, oder,
+     wenn sie sein muss, erklaert: Label prolo.ports=<grund>.
 "
     fi
     [ "$SCHUTZ" = OFFEN ] && HINWEISE="$HINWEISE
-  $T/$D hat einen Router OHNE Anmeldung und ohne Erklaerung.
-     Entweder middlewares=authentik@file ergaenzen, oder - wenn das Werkzeug
-     seine eigene Anmeldung mitbringt - mit prolo.anmeldung=eigene erklaeren
-     (CLAUDE.md §17a).
+  $T/$D hat einen Router OHNE Anmeldung und ohne Erklaerung: ${OFFENR:-?}
+     Entweder middlewares=authentik@file an genau diesem Router ergaenzen,
+     oder - wenn das Werkzeug seine eigene Anmeldung mitbringt - mit
+     prolo.anmeldung=eigene erklaeren (CLAUDE.md §17a). Soll der Router
+     mit Absicht oeffentlich sein: prolo.oeffentlich=<router>.
 "
     if [ -n "$TN" ] && ! printf '%s' ",$NN," | grep -q ",$TN,"; then
       HINWEISE="$HINWEISE
@@ -422,7 +448,7 @@ $(printf '%s\n' "$DATEN" | awk -F'|' -v h="$H" \
   # verbindet beim Anlegen. Das sieht man NUR im Vergleich.
   if docker_da; then
     local ID IST
-    while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND GETEILT HOSTS; do
+    while IFS='|' read -r Z T D NN TN SCHUTZ PORTS GRUND GETEILT HOSTS OFFENR; do
       [ "$Z" = dienst ] || continue
       [ -n "$TN" ] || continue
       ID=$( (cd "$STACK/$T" && docker compose ps -q "$D" 2>/dev/null) | head -1)

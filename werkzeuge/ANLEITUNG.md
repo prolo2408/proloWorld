@@ -5,10 +5,12 @@ Diese Datei beschreibt drei Griffe. Die Regeln dahinter stehen in
 
 | ich will … | Befehl |
 |---|---|
-| ein neues Werkzeug | `sudo prolo neu <name>` |
+| ein neues Werkzeug | `sudo prolo neu <name>` — oder aus der Compose-Datei des Herstellers: in der Admin-Seite *Werkzeug anlegen*, auf dem Server `sudo prolo neu <name> --compose <datei>` |
 | sehen, wer in welchem Netz hängt | `prolo netze` |
 | ein Netz anlegen / schließen / umziehen | `sudo prolo netze anlegen\|schliessen\|umziehen …` |
-| dasselbe im Browser | `https://admin.prolo.me` |
+| dasselbe im Browser, dazu starten, anhalten, aktualisieren | `https://admin.prolo.me` |
+| ein eigenes Werkzeug in sein eigenes Repository | `werkzeuge/auslagern.sh`, dann `werkzeuge/umstellen.sh` (Abschnitt 7) |
+| sehen, wer gesperrt ist; sperren, freigeben | `sudo prolo firewall` (Abschnitt 8) |
 
 ---
 
@@ -80,17 +82,45 @@ sudo prolo neu vaultwarden \
   --grund "Handy-App und Browser-Erweiterung sprechen die API direkt"
 ```
 
+### Aus der Compose-Datei des Herstellers (`A-03`)
+
+Der kürzeste Weg: die `docker-compose.yml` aus der Doku des Herstellers
+nehmen und
+
+- in der Admin-Seite: *Werkzeuge* → *Werkzeug anlegen* → Name und Datei
+  einwerfen → *Prüfen* → Vorschlag bestätigen → *Anlegen* → *Starten*;
+  ist ein neues Netz entstanden, bei *traefik* „Konfiguration übernehmen"
+- oder auf dem Server:
+
+```bash
+sudo prolo neu uptime --compose ~/docker-compose.yml
+```
+
+Die Datei wird **unverändert** übernommen. `werkzeuge/compose_befund.py`
+liest sie mit `docker compose config` und schlägt Dienst und Port vor;
+daneben entstehen die override-Datei (eigenes Netz, Route, Zertifikat,
+Anmeldung, Grenzen, `ports: !reset []` an **jedem** Dienst mit Port), die
+`sicherung.conf` mit allen Volumes und Ordnern, die `.env` — geheime
+Variablen (`…PASS…`, `…SECRET…`, `…KEY…`, `…TOKEN…`) werden gewürfelt und
+stehen in der `geheimnisse.conf` —, und `prolo start` wird gleich geprüft.
+
+Steht in der Datei etwas, womit ein Container auf den Server greift
+(`privileged`, `network_mode: host`, `pid: host`, `cap_add`, `devices`,
+der Docker-Socket, ein Pfad vom Server), legt die Admin-Seite **nichts**
+an. Auf dem Server fragt `prolo neu` einzeln nach — die Antwort muss
+wörtlich `ja, gefaehrlich` sein.
+
 ### Danach, bei einem Fremdwerkzeug
 
-1. Die `docker-compose.yml` des Herstellers in die angelegte Datei
-   kopieren — sie enthält bis dahin nur einen Platzhalter.
-2. **Seine `ports:`-Zeile entfernen.** Erreichbar ist der Dienst über
-   `https://<name>.prolo.me`; eine `ports:`-Zeile geht an Traefik, an der
-   Anmeldung **und** an der Firewall vorbei (`§19`).
-3. Heißt der Dienst dort anders, den Namen in
+1. Die `docker-compose.yml` des Herstellers **unverändert** in die
+   angelegte Datei kopieren — sie enthält bis dahin nur einen Platzhalter.
+   Ihre `ports:`-Zeile darf stehen bleiben: die override-Datei nimmt sie
+   mit `ports: !reset []` wieder weg (`N-103`). Erreichbar ist der Dienst
+   über `https://<name>.prolo.me`.
+2. Heißt der Dienst dort anders, den Namen in
    `docker-compose.override.yml` angleichen.
-4. Die Zeile `PROLO-PLATZHALTER` löschen.
-5. `sudo prolo start <name>`
+3. Die Zeile `PROLO-PLATZHALTER` löschen.
+4. `sudo prolo start <name>`
 
 ### Ein Werkzeug wieder loswerden
 
@@ -130,7 +160,7 @@ startet nicht, wenn eines davon zutrifft:
 
 | Sperre | Weg heraus |
 |---|---|
-| ein Dienst veröffentlicht einen Port | `ports:`-Zeile entfernen — oder erklären: `prolo.ports=<grund>` |
+| ein Dienst veröffentlicht einen Port | in der override-Datei `ports: !reset []` an diesem Dienst (`N-103`), bei eigenem Code die Zeile entfernen — oder erklären: `prolo.ports=<grund>` |
 | ein Router hat keine Anmeldung | `middlewares=authentik@file` — oder erklären: `prolo.anmeldung=eigene` + `prolo.anmeldung.grund` |
 | der Platzhalter steht noch drin | Herstellerdatei einsetzen, Zeile löschen |
 
@@ -203,32 +233,65 @@ sudo prolo start traefik
 
 ## 5. Die Admin-Seite
 
-`https://admin.prolo.me` — hinter Authentik **und** hinter der Gruppe
-`admin`. Vier Ansichten: Übersicht, Werkzeuge, Netze, Einstellungen.
+`https://admin.prolo.me` — hinter Authentik **und** hinter den eigenen
+Gruppen der Seite:
+
+| Gruppe | darf |
+|---|---|
+| `admin` | sehen: Übersicht, Werkzeuge, Netze, Aufträge |
+| `admin-betrieb` | zusätzlich **bedienen** und Protokolle der Container lesen |
 
 Die Hero-Kennzahl ist **nicht** die Zahl der Container, sondern die Zahl
 der Punkte zum Klären: ein Router ohne Anmeldung, ein unerklärt offener
 Port, ein Container in einem anderen Netz als sein Label sagt, ein Dienst,
 der nicht läuft.
 
-**Sie liest nur.** Zwei Aufrufe an den Vermittler vor dem Docker-Socket
-(`/containers/json`, `/networks`) und sonst nichts — kein Zugriff auf
-`/opt/stack`, also auch nicht auf `.env`-Dateien oder Zertifikate.
+**Bedienen.** Jedes Werkzeug hat eine eigene Seite: *Starten* bzw. *Neu
+starten*, *Aktualisieren*, *Prüfen*, *Anhalten* (fragt nach), dazu, was auf
+dem Server liegt (Art, Netze, Volumes, Sicherung), das Protokoll der
+Container und die letzten Aufträge. Auf *Aufträge* gibt es *Jetzt
+sichern*, auf *Netze* *Netz anlegen*. Traefik, Authentik, den Vermittler
+und die Admin-Seite selbst kann man von dort nicht anhalten — danach gäbe
+es keine Seite mehr, von der aus man sie wieder startet.
 
-**Sie startet und hält nichts an.** Dafür müsste der Vermittler schreibende
-Aufrufe durchlassen, und damit wäre aus einer Übersichtsseite der kürzeste
-Weg zur Serverübernahme geworden. Geändert wird auf dem Server mit `prolo`.
-Soll das je hierher, dann mit einem **eigenen** Vermittler für genau diesen
-einen Aufruf — nicht, indem im gemeinsamen `POST: 1` gesetzt wird.
+**Die Seite tut das nicht selbst.** Sie hat keinen schreibenden Zugriff
+auf Docker — wer den hat, hat den ganzen Server. Jeder Knopf legt einen
+**Auftrag** ins Auftragsbuch (`admin/auftraege/eingang`), und auf dem
+Server führt `werkzeuge/auftrag.py` ihn aus, angestoßen von systemd — über
+`prolo`, mit Startsperre, Sicherung und Rückweg (`A-01`). Was dort nicht
+erlaubt ist, geht auch von der Seite aus nicht. Die Auftragsseite zeigt
+den Stand und die Ausgabe, die wächst, solange er läuft.
+
+```bash
+python3 /opt/stack/werkzeuge/auftrag.py liste      # wer wann was
+sudo systemctl status prolo-auftraege.path         # holt der Waechter ab?
+sudo python3 /opt/stack/werkzeuge/auftrag.py abarbeiten   # von Hand
+```
+
+Steht ein Auftrag länger als eine halbe Minute auf „wartet", sagt die
+Seite das — dann läuft der Wächter nicht; `sudo prolo einrichten` richtet
+ihn ein (Schritt 6c, gefahrlos zu wiederholen).
+
+**Lesen** tut sie über den Vermittler vor dem Docker-Socket: Container,
+Netze, Protokolle. Kein Zugriff auf `/opt/stack`, also auch nicht auf
+`.env`-Dateien oder Zertifikate. Angehaltene Werkzeuge kennt Docker nicht
+mehr — die Liste kommt darum zusätzlich aus dem **Bestand** der
+Werkzeugordner, den der Ausführer alle fünf Minuten neu schreibt.
 
 Einrichten:
 
 ```bash
 sudo prolo netze anlegen netz-admin
 sudo prolo geheimnisse --verteilen     # schreibt PROLO_EINLASS in admin/.env
+sudo prolo einrichten                  # Auftragsbuch und Waechter (6c)
 sudo prolo start traefik
 sudo prolo aktualisieren admin
 ```
+
+Dazu in Authentik: eine Anwendung für `admin.prolo.me` anlegen **und dem
+Outpost zuweisen**, und die Gruppen `admin` und `admin-betrieb` mit den
+Menschen darin. Ohne die Zuweisung antwortet die Anmeldung mit 403, und
+das sieht aus wie ein kaputtes Werkzeug.
 
 ### Wenn `--verteilen` nach einem frischen Aufbau fragt
 
@@ -256,11 +319,6 @@ sudo prolo geheimnisse --verteilen --frisch
 `--frisch` ist **kein** Generalschlüssel: steht der Wert schon irgendwo,
 wird er auch damit nicht angefasst.
 
-Dazu in Authentik: eine Anwendung für `admin.prolo.me` anlegen **und dem
-Outpost zuweisen**, und eine Gruppe `admin` mit den Menschen darin, die
-hineindürfen. Ohne die Zuweisung antwortet die Anmeldung mit 403, und das
-sieht aus wie ein kaputtes Werkzeug.
-
 ---
 
 ## 6. Prüfen
@@ -270,8 +328,107 @@ werkzeuge/neu-pruefen.sh          # prolo neu und prolo netze, ausgefuehrt
 python3 werkzeuge/neu-gegenprobe.py   # und ob die Pruefung Zaehne hat
 werkzeuge/netze-pruefen.sh        # steht die Netztrennung noch?
 cd admin && ./tests/alle.sh       # die Admin-Seite
+werkzeuge/auftrag-pruefen.sh      # der Ausfuehrer der Auftraege
+werkzeuge/crowdsec-pruefen.sh     # die Firewall unter echtem CrowdSec
 ```
 
 `neu-pruefen.sh` reicht `docker compose config` an das echte `docker`
 durch. Das braucht **keinen laufenden Docker-Dienst** — es ist die einzige
 Stelle, an der wirklich gemessen und nicht nachgebildet wird.
+
+---
+
+## 7. Ein eigenes Werkzeug in sein eigenes Repository umziehen
+
+`wiki`, `bordbuch` und `www` sind vorbereitet (`U-01` bis `U-03`): jedes
+bringt seine `CLAUDE.md`, seinen Arbeitsablauf zum Veröffentlichen und
+seinen Vertragstest schon mit. Umgezogen wird in drei Schritten, **in
+dieser Reihenfolge** — auf dem eigenen Rechner, nicht auf dem Server.
+
+**1. Leeres Repository anlegen.** Auf GitHub `prolo2408/<werkzeug>`,
+**ohne** README, `.gitignore` und Lizenz. Ein Ziel mit Inhalt wird nicht
+angefasst.
+
+**2. Auslagern — mit der ganzen Geschichte:**
+
+```bash
+werkzeuge/auslagern.sh bordbuch git@github.com:prolo2408/bordbuch.git
+werkzeuge/auslagern.sh bordbuch --trocken      # vorher ansehen, schiebt nichts
+```
+
+Der Code landet an der Wurzel des neuen Repositorys, jeder Commit, der das
+Werkzeug berührt hat, kommt mit. Die Dateien, die dem **Betrieb** gehören
+(`docker-compose.override.yml`, `sicherung.conf`, `aktualisierung.conf`,
+`geheimnisse.conf`, beim Wiki das Bedienhandbuch), bleiben hier. In
+proloWorld ändert sich dabei **nichts**.
+
+Dann im neuen Repository die erste Fassung veröffentlichen:
+
+```bash
+git clone git@github.com:prolo2408/bordbuch.git && cd bordbuch
+git tag v2.6.2 && git push --tags
+```
+
+Der Arbeitsablauf baut `ghcr.io/prolo2408/bordbuch:2.6.2` (Reiter
+*Actions*). Ist das Paket privat, braucht der Server einmalig
+`docker login ghcr.io -u prolo2408` mit einem Token (`read:packages`).
+
+**3. Umstellen — erst, wenn das Abbild da ist:**
+
+```bash
+werkzeuge/umstellen.sh bordbuch
+git diff --cached --stat && git commit -m "bordbuch: vom Werkzeug-Repository"
+```
+
+Es prüft **vorher**, ob sich das Abbild holen lässt, und fasst sonst
+nichts an. Danach liegen in `bordbuch/` nur noch die Betriebsdateien und
+die Herstellerdatei ohne `build:` — das Werkzeug wird behandelt wie n8n.
+Auf dem Server:
+
+```bash
+sudo prolo aktualisieren bordbuch      # holt statt zu bauen, Volumes bleiben
+```
+
+**Eine neue Fassung später:** im Werkzeug-Repository taggen, hier die
+Nummer in `<werkzeug>/docker-compose.yml` hochsetzen, `sudo prolo
+aktualisieren <werkzeug>`.
+
+Geprüft wird das alles mit `werkzeuge/auslagern-pruefen.sh` — es zieht das
+Wiki wirklich in ein (lokales) leeres Repository um, lässt dort die Tests
+des Werkzeugs allein laufen und stellt in einer Kopie alle drei um.
+
+---
+
+## 8. Die Firewall
+
+Was sie tut, was sie liest und wie man eine eigene Regel baut, steht in
+`crowdsec/LIESMICH.md`. Hier die Griffe.
+
+**Einrichten.** `crowdsec/` ist ein Werkzeug wie jedes andere:
+`sudo prolo einrichten` legt `crowdsec/.env` an, würfelt den
+Bouncer-Schlüssel (fragt, weil er `haende` ist) und startet CrowdSec.
+Schritt **9b** kümmert sich um den **Firewall-Bouncer** auf dem Server —
+das Programm, das die Sperren in nftables einträgt. Fehlt er, nennt der
+Schritt die zwei Befehle dafür; ist er da, trägt er lokale API und Schlüssel
+ein und prüft, dass der Bouncer wirklich abfragt.
+
+**Ansehen und bedienen:**
+
+```bash
+sudo prolo firewall                                   # die Lage
+sudo prolo firewall sperren 203.0.113.7 12h "raet Zugangslinks"
+sudo prolo firewall aufheben 203.0.113.7
+sudo prolo firewall erlauben 198.51.100.20 "Buero"    # nie sperren
+sudo prolo firewall nicht-mehr-erlauben 198.51.100.20
+```
+
+Gesperrt wird nur, was im Internet vorkommt: private, Docker-interne und
+Tailscale-Adressen (`100.64.0.0/10`) lehnt `prolo firewall` ab — darüber
+reden die Container mit Traefik, gesperrt wäre der Stapel selbst. Netze
+größer als `/16` ebenso. Was auf der Freigabeliste steht, lässt sich nicht
+sperren, bis es dort wieder herunter ist.
+
+**Wer draußen gesperrt ist,** bleibt ganz draußen: der Bouncer wirft die
+Pakete vor jedem Dienst weg, auch vor SSH. Die eigene Adresse gehört darum
+auf die Freigabeliste, bevor es darauf ankommt.
+

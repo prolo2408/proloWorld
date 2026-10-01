@@ -1,0 +1,38 @@
+# wiki/docker-compose.override.yml
+#
+# UNSERE ZUTAT - die des Betriebs. Die Herstellerdatei daneben gehoert zum
+# Werkzeug (prolo2408/wiki) und bleibt unveraendert.
+#
+# Was hier steht und sonst nichts:
+#   - das Netz netz-wiki (Abschottung, N-45)
+#   - die Route auf wiki.prolo.me, das Zertifikat, die Anmeldung
+#   - die Speichergrenzen nach §19
+
+services:
+  wiki:
+    # Grenzen nach CLAUDE.md §19 (B-29). Ohne sie bringt ein Speicherleck
+    # in EINEM Werkzeug den ganzen Server in den OOM-Killer.
+    mem_limit: 512m
+    pids_limit: 256
+
+    networks:
+      - netz-wiki
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=netz-wiki"
+      - "traefik.http.services.wiki.loadbalancer.server.port=8080"
+      - "traefik.http.routers.wiki.rule=Host(`wiki.prolo.me`)"
+      - "traefik.http.routers.wiki.entrypoints=websecure"
+      - "traefik.http.routers.wiki.tls.certresolver=letsencrypt"
+      # Ohne diese Zeile steht das Wiki offen im Netz.
+      - "traefik.http.routers.wiki.middlewares=authentik@file"
+      - "traefik.http.routers.wiki.service=wiki"
+
+networks:
+  # Eigenes Netz je Werkzeug (N-45): in einem gemeinsamen Netz erreicht
+  # jeder Container jeden anderen direkt, ohne Traefik und ohne Anmeldung.
+  # Angelegt und bei Traefik eingetragen mit:
+  #   sudo prolo netze anlegen netz-wiki
+  netz-wiki:
+    external: true

@@ -43,7 +43,8 @@ NETZE="${DOCKER_NETZE:?}"
 [ "${DOCKER_TOT:-0}" = 1 ] && [ "$1" != compose ] && exit 1
 case "$1" in
   compose)
-    if [ "$2" = config ]; then exec /usr/bin/docker "$@"; fi
+    # "config" auch hinter "-p <name>" (compose_befund.py, A-03).
+    case " $* " in *" config "*) exec /usr/bin/docker "$@" ;; esac
     [ "$2" = ps ] && exit 0
     exit 0 ;;
   network)
@@ -63,12 +64,18 @@ esac
 exit 1
 STUB
 chmod +x "$T/bin/docker"
+# "id -u" sagt 0: neu.sh und "prolo start" verlangen root, und die Probe
+# soll auf dem Pruefrechner ohne root genauso laufen wie auf dem Server
+# (N-100). Geschrieben wird nur im Wegwerfordner.
+printf '#!/bin/bash\n[ "$1" = "-u" ] && echo 0 || exec /usr/bin/id "$@"\n' > "$T/bin/id"
+chmod +x "$T/bin/id"
 export DOCKER_NETZE="$T/netze"
 export PATH="$T/bin:$PATH"
 
 # --- Attrappen-Stack ----------------------------------------------------
 mkdir -p "$S/werkzeuge" "$S/traefik"
-cp "$HIER/prolo" "$HIER/neu.sh" "$HIER/netze.sh" "$S/werkzeuge/"
+cp "$HIER/prolo" "$HIER/neu.sh" "$HIER/netze.sh" "$HIER/startsperre.sh" \
+   "$HIER/compose_befund.py" "$HIER/geheimnisse.py" "$S/werkzeuge/"
 
 # Einstieg fuer die Mutationsprobe (werkzeuge/neu-gegenprobe.py). Sie baut
 # ihre Fehler in die KOPIEN im Wegwerfordner ein, nie in die Dateien im
@@ -211,7 +218,9 @@ A=$("$PROLO" start fremd1 2>&1); R=$?
 pruefe "start: Platzhalter -> Rueckgabe 1" "1" "$R"
 pruefe "start: und es wird gesagt, was fehlt" "ja" "$(enthaelt "PROLO-PLATZHALTER" "$A")"
 
-# 4b. Hersteller-Datei eingesetzt, aber mit ports:
+# 4b. Hersteller-Datei UNVERAENDERT eingesetzt, mit ihrer ports:-Zeile.
+#     Die override-Datei von "prolo neu" nimmt sie weg (N-103) - gemessen
+#     am echten "docker compose config", nicht an der Datei.
 cat > "$S/fremd1/docker-compose.yml" <<'Y'
 services:
   vaultwarden:
@@ -220,9 +229,32 @@ services:
       - "8081:80"
 Y
 A=$("$PROLO" start fremd1 2>&1); R=$?
+pruefe "start: der Port des Herstellers faellt ueber die override-Datei weg (N-103)" "0" "$R"
+K=$(cd "$S/fremd1" && docker compose config --no-interpolate --format json 2>&1)
+pruefe "wirkung: in der zusammengesetzten Konfiguration ist kein Port veroeffentlicht" "keiner" \
+  "$(printf '%s' "$K" | python3 -c 'import json,sys; d=json.load(sys.stdin)["services"]["vaultwarden"]; print(d.get("ports") or "keiner")' 2>&1)"
+pruefe "wirkung: die Herstellerdatei ist unveraendert" "ja" \
+  "$(grep -q '"8081:80"' "$S/fremd1/docker-compose.yml" && echo ja || echo nein)"
+
+# 4b2. Ein ZWEITER Dienst des Herstellers mit Port: den kennt die
+#      override-Datei nicht - die Sperre haelt an und sagt, wie es geht.
+cat > "$S/fremd1/docker-compose.yml" <<'Y'
+services:
+  vaultwarden:
+    image: vaultwarden/server:1.34.1
+    ports:
+      - "8081:80"
+  datenbank:
+    image: postgres:16.10-alpine
+    ports:
+      - "5432:5432"
+Y
+A=$("$PROLO" start fremd1 2>&1); R=$?
 pruefe "start: offener Port -> Rueckgabe 1" "1" "$R"
-pruefe "start: der Port wird benannt" "ja" "$(enthaelt "8081" "$A")"
-pruefe "start: und der Weg heraus steht dabei" "ja" "$(enthaelt "ports:-Zeile" "$A")"
+pruefe "start: der Port wird benannt" "ja" "$(enthaelt "5432" "$A")"
+pruefe "start: der Weg heraus ist die override-Datei, nicht die des Herstellers (N-103)" "ja" \
+  "$([ "$(enthaelt "ports: !reset []" "$A")" = ja ] && [ "$(enthaelt "datenbank:" "$A")" = ja ] \
+     && [ "$(enthaelt "docker-compose.override.yml" "$A")" = ja ] && echo ja || echo nein)"
 
 # 4c. ohne ports: -> geht durch
 cat > "$S/fremd1/docker-compose.yml" <<'Y'
@@ -256,6 +288,44 @@ pruefe "start: beide Auswege werden genannt" "ja" \
           && [ "$(enthaelt "prolo.anmeldung=eigene" "$A")" = ja ] && echo ja || echo nein)"
 pruefe "start: stop bleibt trotzdem moeglich" "0" "$("$PROLO" stop offen1 >/dev/null 2>&1; echo $?)"
 
+# 4e. Zwei Router, einer mit Anmeldung, einer ohne (N-84). Genau das, wovor
+# §17a warnt: ein zweiter Router fuer Webhooks, der aus Versehen offen ist.
+# Vorher reichte EIN authentik@file irgendwo am Dienst, und der ganze
+# Dienst galt als geschuetzt.
+mkdir -p "$S/halb1"
+cat > "$S/halb1/docker-compose.yml" <<'Y'
+services:
+  halb1:
+    image: nginx:1.27-alpine
+    networks:
+      - netz-alt
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=netz-alt"
+      - "traefik.http.routers.halb1.rule=Host(`halb1.prolo.me`)"
+      - "traefik.http.routers.halb1.middlewares=authentik@file"
+      - "traefik.http.routers.halb1-haken.rule=Host(`halb1.prolo.me`) && PathPrefix(`/haken`)"
+      - "traefik.http.routers.halb1-haken.priority=100"
+networks:
+  netz-alt:
+    external: true
+Y
+A=$("$PROLO" start halb1 2>&1); R=$?
+pruefe "start: zweiter Router ohne Anmeldung -> Rueckgabe 1 (N-84)" "1" "$R"
+pruefe "start: der offene Router wird beim Namen genannt" "ja" \
+       "$(enthaelt "halb1-haken.middlewares=authentik@file" "$A")"
+pruefe "start: und der Ausweg fuer einen gewollt oeffentlichen" "ja" \
+       "$(enthaelt "prolo.oeffentlich=halb1-haken" "$A")"
+A=$("$NETZE" 2>&1)
+pruefe "netze: der halb offene Dienst gilt als OFFEN" "ja" \
+       "$(passt "halb1 +halb1 +netz-alt +OFFEN" "$A")"
+# Erklaert oeffentlich: dann ist es ein Entschluss und geht durch.
+sed -i 's|      - "traefik.http.routers.halb1-haken.priority=100"|&\n      - "prolo.oeffentlich=halb1-haken"|' \
+  "$S/halb1/docker-compose.yml"
+A=$("$PROLO" start halb1 2>&1); R=$?
+pruefe "start: als oeffentlich erklaert -> geht durch" "0" "$R"
+rm -rf "$S/halb1"
+
 echo
 echo "== 5. prolo netze ========================================================"
 A=$("$NETZE" 2>&1); R=$?
@@ -264,6 +334,22 @@ pruefe "netze: der ungeschuetzte Router faellt auf" "ja" "$(enthaelt "OFFEN" "$A
 pruefe "netze: und wird als Beanstandung gewertet" "2" "$R"
 pruefe "netze: Traefiks Ports gelten als erklaert" "nein" \
        "$(enthaelt "veroeffentlicht Port(s) 80" "$A")"
+
+# Ein UNerklaerter Port: die Beanstandung steht da, mit dem Weg ueber die
+# override-Datei (N-103) - und ohne dass die Shell an ihrem eigenen Text
+# scheitert. Der Hinweis stand in doppelten Anfuehrungszeichen, und
+# "!reset" wurde als Befehl ausgefuehrt; kein Test hatte bis dahin einen
+# unerklaerten Port durch "prolo netze" geschickt.
+mkdir -p "$S/portprobe"
+printf 'services:\n  portprobe:\n    image: x/p:1\n    ports: ["9099:80"]\n    networks: [netz-alt]\nnetworks:\n  netz-alt:\n    external: true\n' \
+  > "$S/portprobe/docker-compose.yml"
+A=$("$NETZE" 2>&1); R=$?
+pruefe "netze: ein unerklaerter Port wird beanstandet" "2" "$R"
+pruefe "netze: mit dem Weg ueber die override-Datei (N-103)" "ja" \
+       "$(enthaelt "ports: !reset []" "$A")"
+pruefe "netze: und ohne Fehler der Shell im eigenen Hinweis" "nein" \
+       "$(enthaelt "command not found" "$A")"
+rm -rf "$S/portprobe"
 
 pruefe "netze: anlegen ist beliebig oft moeglich" "0" \
        "$("$NETZE" anlegen netz-fremd1 >/dev/null 2>&1; echo $?)"
@@ -383,7 +469,7 @@ if command -v git >/dev/null 2>&1; then
   (cd "$S" && git init -q -b haupt && git config user.email t@t \
    && git config user.name t && git add -A && git commit -q -m stand) || true
   rm -rf "$S/fremd1"
-  A=$("$NEU" fremd1 --art fremd --abbild a:1 --netz netz-alt \
+  A=$("$NEU" fremd1 --art fremd --abbild a:1 --netz netz-alt --geteilt Probe \
         --anmeldung authentik </dev/null 2>&1); R=$?
   pruefe "im Git, nicht ausgecheckt: Rueckgabe 1" "1" "$R"
   pruefe "im Git: kein Geruest darueber" "nein" \
@@ -394,7 +480,7 @@ if command -v git >/dev/null 2>&1; then
          "$(enthaelt "git rm -r fremd1" "$A")"
   # Und die Gegenrichtung: ein Name, den das Git nicht kennt, wird normal
   # angelegt. Sonst waere aus der Bremse eine Sperre fuer alles geworden.
-  A=$("$NEU" ganzneu --art fremd --abbild a:1 --netz netz-alt \
+  A=$("$NEU" ganzneu --art fremd --abbild a:1 --netz netz-alt --geteilt Probe \
         --anmeldung authentik </dev/null 2>&1); R=$?
   pruefe "nicht im Git: wird normal angelegt" "0" "$R"
   rm -rf "$S/.git" "$S/ganzneu"
@@ -405,7 +491,7 @@ fi
 
 # Ein Abbild ohne Fassung: die Meldung muss sagen, WO der volle Name steht -
 # "n8n" ist nicht der Name des Abbilds, und das weiss man nicht von selbst.
-A=$("$NEU" ohnefassung2 --art fremd --abbild n8n --netz netz-alt \
+A=$("$NEU" ohnefassung2 --art fremd --abbild n8n --netz netz-alt --geteilt Probe \
       --anmeldung authentik </dev/null 2>&1); R=$?
 pruefe "ohne Fassung: Rueckgabe 1" "1" "$R"
 pruefe "ohne Fassung: der volle Name wird erklaert" "ja" \
@@ -443,6 +529,126 @@ rm -rf "$S/verbogen"
 A=$("$NETZE" 2>&1)
 pruefe "heil: ohne kaputte Datei kommt der Hinweis nicht" "nein" \
        "$(enthaelt "laesst sich nicht lesen" "$A")"
+
+echo
+echo "== 8. Ein fremdes Netz nur mit Grund (A-03) ============================"
+A=$("$NEU" ohnegeteilt --art fremd --abbild a:1 --netz netz-alt --anmeldung authentik </dev/null 2>&1); R=$?
+pruefe "fremdes Netz ohne --geteilt: Rueckgabe 1" "1" "$R"
+pruefe "fremdes Netz ohne --geteilt: und kein Ordner" "nein" "$([ -d "$S/ohnegeteilt" ] && echo ja || echo nein)"
+pruefe "fremdes Netz ohne --geteilt: der Schalter wird genannt" "ja" "$(enthaelt "--geteilt" "$A")"
+A=$("$NEU" mitgeteilt --art fremd --abbild a:1 --netz netz-alt --geteilt "Testbereich" \
+      --anmeldung authentik </dev/null 2>&1); R=$?
+pruefe "fremdes Netz mit --geteilt: der Grund steht im Label" "ja" \
+  "$(grep -q 'prolo.netz.geteilt=Testbereich' "$S/mitgeteilt/docker-compose.override.yml" && echo ja || echo nein)"
+rm -rf "$S/mitgeteilt"
+
+echo
+echo "== 9. prolo neu --compose (A-03) ========================================"
+cat > "$T/zwei.yml" <<'Y'
+services:
+  app:
+    image: ghcr.io/beispiel/app:2.3.1
+    env_file: .env
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD:?fehlt}
+      TZ: ${TZ:-Europe/Berlin}
+      ADMIN_MAIL: ${ADMIN_MAIL}
+    ports:
+      - "8000:8000"
+    volumes:
+      - app_daten:/data
+      - ./config:/config
+    depends_on: [db]
+  db:
+    image: postgres:16.10-alpine
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_daten:/var/lib/postgresql/data
+volumes:
+  app_daten:
+  db_daten:
+Y
+A=$("$NEU" zweiapp --compose "$T/zwei.yml" --anmeldung authentik --netz-neu \
+      --wert "ADMIN_MAIL=ich@example.org" </dev/null 2>&1); R=$?
+pruefe "compose: angelegt, Rueckgabe 0" "0" "$R"
+[ "$R" -eq 0 ] || printf '%s\n' "$A" | tail -8
+W="$S/zweiapp"
+pruefe "compose: die Herstellerdatei steht zeichengenau da" "ja" \
+  "$(cmp -s "$T/zwei.yml" "$W/docker-compose.yml" && echo ja || echo nein)"
+K=$(cd "$W" && docker compose config --no-interpolate --format json 2>&1)
+pruefe "compose: Dienst und Port aus der Datei gelesen (von Hand: app, 8000)" "8000" \
+  "$(printf '%s' "$K" | python3 -c '
+import json,sys
+l=json.load(sys.stdin)["services"]["app"]["labels"]
+l=dict(x.split("=",1) for x in l) if isinstance(l, list) else l
+print(l.get("traefik.http.services.zweiapp.loadbalancer.server.port", "-"))')"
+pruefe "compose: KEIN Dienst veroeffentlicht einen Port (auch die Datenbank nicht)" "app:- db:-" \
+  "$(printf '%s' "$K" | python3 -c 'import json,sys; s=json.load(sys.stdin)["services"]; print(" ".join("%s:%s" % (k, v.get("ports") or "-") for k,v in sorted(s.items())))')"
+pruefe "compose: app haengt im eigenen Netz UND im Projektnetz (zur Datenbank)" "default netz-zweiapp" \
+  "$(printf '%s' "$K" | python3 -c 'import json,sys; print(" ".join(sorted(json.load(sys.stdin)["services"]["app"]["networks"])))')"
+pruefe "compose: die Datenbank bleibt nur im Projektnetz" "default" \
+  "$(printf '%s' "$K" | python3 -c 'import json,sys; print(" ".join(sorted(json.load(sys.stdin)["services"]["db"].get("networks") or ["default"])))')"
+pruefe "compose: die Volumes stehen mit Laufzeitnamen in der Sicherung" \
+  'VOLUMES="zweiapp_app_daten zweiapp_db_daten"' "$(grep '^VOLUMES=' "$W/sicherung.conf")"
+pruefe "compose: der eingehaengte Ordner auch" 'ORDNER="?config"' "$(grep '^ORDNER=' "$W/sicherung.conf")"
+pruefe "compose: die Datenbank wird im Hinweis genannt" "ja" \
+  "$(grep -q "DATENBANK im Volume: db (postgres" "$W/sicherung.conf" && echo ja || echo nein)"
+pruefe "compose: .env ist da und nur fuer root lesbar" "600" "$(stat -c %a "$W/.env" 2>/dev/null)"
+pruefe "compose: das Geheimnis ist gewuerfelt (lang, nicht leer)" "ja" \
+  "$(awk -F= '$1=="DB_PASSWORD"{print length($2)}' "$W/.env" | { read -r L; [ "${L:-0}" -ge 40 ] && echo ja || echo "nein (${L:-0})"; })"
+pruefe "compose: und steht in der geheimnisse.conf - ohne Wert" "DB_PASSWORD|.env|env|haende" \
+  "$(grep -v '^#' "$W/geheimnisse.conf" | cut -d'|' -f1-4)"
+pruefe "compose: der mitgegebene Wert steht in der .env" "ADMIN_MAIL='ich@example.org'" \
+  "$(grep '^ADMIN_MAIL=' "$W/.env")"
+pruefe "compose: mit allen Werten ist die Konfiguration vollstaendig" "0" \
+  "$(cd "$W" && docker compose config -q >/dev/null 2>&1; echo $?)"
+pruefe "compose: die Startsperre ist frei" "ja" "$(enthaelt "frei: kein offener Port" "$A")"
+pruefe "compose: volumes.py findet nichts Ungesichertes" "0" \
+  "$(cp "$HIER/volumes.py" "$S/werkzeuge/" && python3 "$S/werkzeuge/volumes.py" "$S" zweiapp >/dev/null 2>&1; echo $?)"
+pruefe "compose: kein Wert der .env steht in der Ausgabe" "nein" \
+  "$(enthaelt "$(awk -F= '$1=="DB_PASSWORD"{print $2}' "$W/.env")" "$A")"
+
+# Mehrdeutig: zwei Dienste mit Port, keiner heisst wie das Werkzeug.
+printf 'services:\n  a:\n    image: x/a:1\n    expose: ["80"]\n  b:\n    image: x/b:1\n    expose: ["81"]\n' > "$T/zwei-offen.yml"
+A=$("$NEU" mehrdeutig --compose "$T/zwei-offen.yml" --anmeldung authentik --netz-neu </dev/null 2>&1); R=$?
+pruefe "compose: mehrdeutig ohne Terminal -> Rueckgabe 1, nichts angelegt" "1 nein" \
+  "$R $([ -d "$S/mehrdeutig" ] && echo ja || echo nein)"
+pruefe "compose: und die Dienste werden genannt" "ja" "$(enthaelt "a b" "$A")"
+A=$("$NEU" mehrdeutig --compose "$T/zwei-offen.yml" --dienst c --anmeldung authentik --netz-neu </dev/null 2>&1); R=$?
+pruefe "compose: ein Dienst, den es nicht gibt -> Rueckgabe 1" "1" "$R"
+A=$("$NEU" mehrdeutig --compose "$T/zwei-offen.yml" --dienst b --anmeldung authentik --netz-neu </dev/null 2>&1); R=$?
+pruefe "compose: mit --dienst b geht es, und der Port kommt aus expose" "0 81" \
+  "$R $(grep -o 'loadbalancer.server.port=[0-9]*' "$S/mehrdeutig/docker-compose.override.yml" | cut -d= -f2)"
+rm -rf "$S/mehrdeutig"
+printf 'services:\n  a:\n    image: x/a:1\n    expose: ["80", "443"]\n' > "$T/zwei-ports.yml"
+A=$("$NEU" zweiports --compose "$T/zwei-ports.yml" --anmeldung authentik --netz-neu </dev/null 2>&1); R=$?
+pruefe "compose: zwei Ports ohne --port -> Rueckgabe 1, keine stille 8080 (§11)" "1 nein" \
+  "$R $([ -d "$S/zweiports" ] && echo ja || echo nein)"
+pruefe "compose: und der Schalter wird genannt" "ja" "$(enthaelt "--port" "$A")"
+
+# Gefahren: aus der Admin-Seite nie, ohne Terminal nie.
+printf 'services:\n  boese:\n    image: x/b:1\n    privileged: true\n    volumes: ["/var/run/docker.sock:/var/run/docker.sock"]\n' > "$T/boese.yml"
+A=$(PROLO_AUFTRAG=20260930-120000-0000abcd "$NEU" boese --compose "$T/boese.yml" \
+      --anmeldung authentik --netz-neu </dev/null 2>&1); R=$?
+pruefe "compose: Gefahr aus der Admin-Seite -> Rueckgabe 1, nichts angelegt" "1 nein" \
+  "$R $([ -d "$S/boese" ] && echo ja || echo nein)"
+pruefe "compose: die Gefahren werden genannt (von Hand: privileged, Docker-Socket)" "ja ja" \
+  "$(enthaelt "privileged" "$A") $(enthaelt "Docker-Socket" "$A")"
+pruefe "compose: und der Weg auf dem Server" "ja" "$(enthaelt "sudo prolo neu boese --compose" "$A")"
+A=$("$NEU" boese --compose "$T/boese.yml" --anmeldung authentik --netz-neu </dev/null 2>&1); R=$?
+pruefe "compose: Gefahr ohne Terminal -> Rueckgabe 1, nichts angelegt" "1 nein" \
+  "$R $([ -d "$S/boese" ] && echo ja || echo nein)"
+A=$("$NEU" wertgeheim --compose "$T/zwei.yml" --anmeldung authentik --netz-neu \
+      --wert "DB_PASSWORD=abgeschrieben" </dev/null 2>&1); R=$?
+pruefe "compose: ein Geheimnis per --wert wird abgelehnt, nichts angelegt" "1 nein" \
+  "$R $([ -d "$S/wertgeheim" ] && echo ja || echo nein)"
+printf 'services:\n  x: [kaputt\n' > "$T/kaputt.yml"
+A=$("$NEU" kaputtcompose --compose "$T/kaputt.yml" --anmeldung authentik --netz-neu </dev/null 2>&1); R=$?
+pruefe "compose: eine kaputte Datei -> Rueckgabe 1 mit dem Wortlaut von docker" "1 ja" \
+  "$R $(enthaelt "did not find expected" "$A")"
 
 echo
 if [ "$FEHLER" -eq 0 ]; then echo "Alles gruen."; else echo "GEGENPROBE FEHLGESCHLAGEN." >&2; fi

@@ -93,6 +93,12 @@ probe "Pflichttext mit or-Kurzschluss (0 faellt als leer durch)" \
   'wert = "" if roh is None else roh if isinstance(roh, str) else str(roh)' \
   'wert = str(roh or "")'
 
+# N-99: die Gesundheit liegt wieder hinter der Marke - dann laeuft die
+# Gesundheitspruefung von Docker in eine 401, und der Container gilt als krank.
+probe "die Gesundheit braucht wieder die Einlassmarke (N-99)" \
+  'EINLASS_FREI = ("/gesundheit", "/api/version")' \
+  'EINLASS_FREI = ("/api/version",)'
+
 echo
 if [ "$FEHLER" -eq 0 ]; then
   echo "Alle eingebauten Fehler wurden gefunden."

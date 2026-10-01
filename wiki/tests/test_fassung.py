@@ -37,14 +37,14 @@ class DieDreiStellen(unittest.TestCase):
         self.assertRegex(server.VERSION, r"^\d+\.\d+\.\d+$")
 
     def test_das_abbild_traegt_dieselbe_nummer(self):
-        # Die Zeile lautet "    image: wiki:1.2.0" - der Kommentarblock
+        # Die Zeile lautet "    image: ghcr.io/prolo2408/wiki:1.2.0" - der Kommentarblock
         # darueber enthaelt weitere image:-Woerter, darum wird der Anfang
         # der Zeile verlangt.
         zeilen = [z.strip() for z in gelesen("docker-compose.yml").splitlines()
                   if re.match(r"^\s*image:", z)]
         self.assertEqual(len(zeilen), 1, "genau eine image:-Zeile erwartet, "
                                          "gefunden: %r" % (zeilen,))
-        self.assertEqual(zeilen[0], "image: wiki:%s" % server.VERSION)
+        self.assertEqual(zeilen[0], "image: ghcr.io/prolo2408/wiki:%s" % server.VERSION)
 
     def test_die_aenderungsliste_kennt_die_fassung(self):
         ueberschriften = re.findall(r"^## .*$", gelesen("CHANGELOG.md"),

@@ -5590,3 +5590,2133 @@ als `markup`, als `text` und als gerendertes HTML. Im ersten Versuch landete
 dort ein rohes `"` mitten in einem JSON-String — die Seite war damit
 unlesbar. Aufgefallen ist es sofort, weil die Prüfung **vor** dem Schreiben
 läuft: die Datei blieb unangetastet, statt kaputt im Arbeitsstand zu liegen.
+
+## N-82 — Ein Browser, der wegklickt, beendete die Admin-Seite
+
+Beim Durchsehen des ganzen Projekts gefunden, nicht gemeldet. In
+`admin/server.py`, `main()`:
+
+```python
+# Ohne das bricht der Dienst mit BrokenPipeError ab, sobald ein Browser
+# eine Antwort nicht zu Ende liest.
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+```
+
+Der Kommentar beschreibt das Gegenteil dessen, was die Zeile tut. Python
+**ignoriert** SIGPIPE von sich aus; ein Schreibversuch in eine geschlossene
+Leitung wird dann zu einem `BrokenPipeError` in genau dem einen Faden, der
+schreibt. Mit `SIG_DFL` dagegen beendet der Kern den **ganzen Prozess**.
+Die Zeile gehört in ein Kommandozeilenwerkzeug, dessen Ausgabe in `head`
+läuft — `werkzeuge/geheimnisse.py` hat sie dort zu Recht. In einen Dienst
+kopiert, ist sie ein Ausschalter, den jeder Browser bedienen kann.
+
+### Gemessen, nicht überlegt
+
+Echter Prozess, zehn Verbindungen, die nach der Anfrage mit RST statt mit
+einem geordneten Schließen enden (das tut ein Browser beim Wegklicken):
+
+| | vorher | nachher |
+|---|---|---|
+| Verbindungen bis zum Ende des Dienstes | **1** (Rückgabe −13 = SIGPIPE) | keine nach 30 |
+| `SigIgn` des Prozesses, Bit 13 | nicht gesetzt | gesetzt |
+
+`restart: unless-stopped` hätte den Container jedes Mal neu gestartet —
+sichtbar wäre davon nur ein kurzes „nicht erreichbar" gewesen, und in der
+Liste der Neustarts ein Zähler, der langsam wächst. Genau der Zähler, an
+dem `prolo aktualisieren` eine Fassung für kaputt hält (siehe `N-89`).
+
+### Behoben
+
+Die Zeile ist weg, und in `_lauf` wird `BrokenPipeError` /
+`ConnectionResetError` still verworfen: wer schon weg ist, bekommt keine
+Fehlerseite hinterhergeschickt — das wäre der zweite Schreibversuch in
+dieselbe geschlossene Leitung, und genau der hat das Signal ausgelöst.
+
+### Die Probe hat meine erste Prüflinie durchfallen lassen
+
+Die erste Fassung des Tests holte eine Schriftdatei und prüfte, ob der
+Dienst danach noch lebt. Die Mutation „SIGPIPE wieder auf Voreinstellung"
+blieb damit **grün**, aus zwei Gründen:
+
+- `gegenprobe.sh` kopiert nur `server.py` und `tests/` — ohne `schriften/`
+  antwortete die Kopie mit einer kleinen 404, nicht mit der Datei.
+- Mein neuer `except`-Zweig verhindert den zweiten Schreibversuch. Die
+  Mutation baute also nur die **halbe** Ursache wieder ein.
+
+Jetzt sind es zwei Prüflinien: eine misst die Ursache direkt (`SigIgn` in
+`/proc/<pid>/status`), eine die Wirkung am echten Prozess. Und zwei
+Mutationen: eine setzt nur das Signal zurück, eine stellt den alten Stand
+im Ganzen her (Signal **und** Fehlerseite nach dem Schreibfehler).
+
+| | |
+|---|---|
+| `admin/tests/alle.sh` | grün, 2 neue Prüflinien |
+| `admin/tests/gegenprobe.sh` | **16 von 16** gefunden (vorher 14 von 14) |
+
+Fassung 0.1.0 → **0.1.1** an allen drei Stellen.
+
+## N-83 — `prolo einrichten` sah von einem Fremdwerkzeug nur die Hälfte
+
+Beim Durchsehen gefunden. `N-70` hat die Regel aufgeschrieben — **jeder**
+Prüfer, der nur `docker-compose.yml` liest, sieht bei einem Fremdwerkzeug
+die Hälfte — und `prolo status`, `prolo dns` und die Grenzprüfung
+nachgezogen. `werkzeuge/einrichten.sh` las an zwei Stellen weiter nur die
+Datei des Herstellers:
+
+| Schritt | was er liest | was dabei verloren ging |
+|---|---|---|
+| 5. Netze | externe Netze je Werkzeug | jedes Netz, das nur in der override-Datei steht |
+| 9. Dienste starten | fehlende Netze je laufendem Werkzeug (`netze_fehlen`) | dasselbe, beim Nachhängen |
+| 10. Was nur du tun kannst | die DNS-Namen | `n8n.prolo.me` |
+
+Gemessen am Repository: Schritt 10 nannte **6** Namen, die Compose-Dateien
+enthalten **7** — `n8n.prolo.me` fehlte. Wer einen neuen Server nach
+dieser Liste beim DNS-Anbieter einträgt, vergisst genau diesen A-Eintrag,
+und `n8n.prolo.me` bekommt nie ein Zertifikat (`N-69`).
+
+Beim Netz ist n8n zufällig gedeckt: `netz-n8n` steht zusätzlich in der
+Compose-Datei von Traefik und wird darüber angelegt. Ein Werkzeug, das
+`prolo neu` gerade angelegt hat und dessen Netz Traefik noch nicht nennt,
+wäre es nicht.
+
+### Behoben
+
+Beide Stellen lesen jetzt beide Dateien; bei den Netzen gewinnt die
+override-Datei je Schlüssel, wie bei `docker compose` selbst. Die
+Nachbildung mit regulären Ausdrücken bleibt — `docker compose config`
+setzt eine `.env` voraus, und die gibt es beim Einrichten gerade noch
+nicht.
+
+### Probe
+
+`einrichten-pruefen.sh` legt in seiner Kopie ein Fremdwerkzeug
+`fremdprobe` an, dessen Netz und Name **nur** in der override-Datei stehen
+und dessen Netz Traefik nicht nennt. Die Kopie nimmt jetzt auch die
+override-Dateien mit (vorher nicht — auch die Probe sah nur die Hälfte),
+und die Docker-Attrappe verbindet bei `up` die Netze aus beiden Dateien.
+
+| | |
+|---|---|
+| `werkzeuge/einrichten-pruefen.sh` | **15 ok** (vorher 12) — *berichtigt in `N-85`: hier stand zuerst „18 (vorher 15)", nachgezählt an beiden Commits* |
+| `… --gegenprobe` | **6 von 6** gefunden (vorher 4 von 4) |
+
+Die neue Zählprüfung zählt die Namen mit `grep` über alle Compose-Dateien,
+nicht mit dem Code, der geprüft wird: 8 in der Kopie (7 im Repository und
+`fremdprobe.prolo.me`), 8 in der Liste.
+
+## N-84 — Ein `authentik@file` irgendwo schützte den ganzen Dienst
+
+Beim Durchsehen gefunden. Drei Stellen beantworten die Frage „ist dieser
+Dienst geschützt?", und nur eine davon richtig:
+
+| Stelle | läuft wo | wie sie urteilte |
+|---|---|---|
+| `werkzeuge/grenze-pruefen.sh` | im Repository | **je Router** — richtig |
+| `werkzeuge/netze.sh` (`prolo start`, `prolo netze`) | auf dem Server | je Dienst: ein `authentik@file` in **irgendeiner** Middleware-Kette genügte |
+| `admin/server.py` | auf dem Server | ebenso |
+
+Damit fiel genau der Fall durch, vor dem `§17a` warnt: ein Werkzeug mit
+geschütztem Hauptrouter und einem **zweiten** Router für Webhooks, der aus
+Versehen ohne Anmeldung bleibt. `grenze-pruefen.sh` hätte ihn gefunden —
+aber nur für Werkzeuge im Repository. Ein Werkzeug, das `prolo neu` auf dem
+Server anlegt, sieht diese Prüfung nie; dort lief nur die Stelle, die sich
+mit einem Treffer zufriedengab.
+
+Gemessen mit einem Dienst `halb1`: Router `halb1` mit `authentik@file`,
+Router `halb1-haken` (Priorität 100, `PathPrefix(/haken)`) ohne.
+
+| | vorher | nachher |
+|---|---|---|
+| `prolo start halb1` | startet | **NICHT gestartet**, nennt `halb1-haken` |
+| `prolo netze`, Spalte SCHUTZ | `authentik` | `OFFEN` |
+| Admin-Seite | „Authentik" | „OFFEN – ohne Anmeldung · halb1-haken" |
+
+### Behoben
+
+Alle drei urteilen jetzt nach derselben Regel: jeder Router hat
+`authentik@file`, oder steht in `prolo.oeffentlich=<router,…>`, oder der
+Dienst erklärt `prolo.anmeldung=eigene`. `traefik.enable=true` **ohne**
+eigenen Router gilt als offen — Traefik legt dann selbst einen an, mit
+Vorgaberegel und ohne Middleware.
+
+`netze.sh --dienste` gibt ein elftes Feld aus: die Router ohne Anmeldung.
+`prolo start` nennt den Router beim Namen, statt `routers.<werkzeug>`
+vorzuschlagen — bei zwei Routern ist der offene oft gerade **nicht** der,
+der wie das Werkzeug heißt. Dazu kommt der dritte Ausweg in der Meldung,
+`prolo.oeffentlich=<router>`, den `grenze-pruefen.sh` schon kannte.
+
+Eine sichtbare Folge: **www** steht jetzt als „öffentlich" da statt als
+„Authentik". Das ist die ehrlichere Angabe — die Startseite und die
+Zugangslinks sind mit Absicht offen, nur `/verwaltung` liegt hinter der
+Anmeldung.
+
+### Probe
+
+| | |
+|---|---|
+| `werkzeuge/neu-pruefen.sh` | **106 ok** (5 neue Prüflinien, Abschnitt 4e) |
+| `werkzeuge/neu-gegenprobe.py` | **24 von 24** (3 neue Mutationen) |
+| `admin/tests/alle.sh` | 41 Tests grün (3 neue) |
+| `admin/tests/gegenprobe.sh` | **18 von 18** (2 neue) |
+| `netze-pruefen.sh` / `prolo-pruefen.sh` / `grenze-pruefen.sh` | 42 / 101 / 66 ok |
+
+Zwei alte Erwartungswerte im Admin-Test waren zu schwach und sind
+angepasst — beide von Hand: `schutz_lesen` für einen Dienst **ohne** Router,
+aber mit `prolo.oeffentlich=www`, ergab „öffentlich"; mit Router `www`
+ergibt es das jetzt immer noch, ohne ist es „OFFEN (Vorgabe)". Und der
+offene Router steht jetzt im zweiten Feld, statt einer leeren Zeichenkette.
+
+Admin 0.1.1 → **0.1.2**.
+
+## N-85 — Die Startsperre stand nur an einer von drei Türen
+
+Beim Durchsehen gefunden. `prolo start` lässt nichts los, das einen
+unerklärten Port veröffentlicht oder einen Router ohne Anmeldung hat
+(`N-61`, `N-59`). Dienste werden aber auf **drei** Wegen gestartet:
+
+| Weg | Sperre vorher |
+|---|---|
+| `prolo start` | ja |
+| `prolo aktualisieren` (`aktualisieren.sh`, `docker compose up -d`) | **nein** |
+| `prolo einrichten` (`einrichten.sh`, Schritt 9, Start und Neuverbinden) | **nein** |
+
+Der gefährlichste der drei ist der zweite, weil er sich sicher anfühlt: er
+sichert vorher und rollt bei Fehlschlag zurück. Der Fall aus der Praxis ist
+eine neue Fassung eines Fremdwerkzeugs — man ersetzt die Datei des
+Herstellers (§16), und der Hersteller hat seine `ports:`-Zeile wieder
+drin. `prolo aktualisieren` holte, startete, fand den Dienst gesund und
+meldete „FERTIG" — mit dem Dienst am offenen Netz, an Traefik und an der
+Anmeldung vorbei.
+
+Gemessen mit `aktualisieren-pruefen.sh`, Herstellerdatei mit
+`ports: - "5678:5678"`:
+
+| | vorher | nachher |
+|---|---|---|
+| Rückgabe | 0, „FERTIG" | **1**, „NICHT gestartet: probe/probe veröffentlicht Port(s) 5678" |
+| `docker compose pull` | ja | **nein** |
+| `docker compose up -d` | ja | **nein** |
+| Zurückrollen | — | nein, es ist nichts passiert |
+
+### Behoben
+
+Die Sperre steht jetzt in `werkzeuge/startsperre.sh` und wird von allen
+drei Wegen gelesen. `aktualisieren.sh` fragt sie **vor** dem Holen: was
+gesperrt ist, wird gar nicht erst angefasst, und die laufenden Container
+bleiben, wie sie waren. `einrichten.sh` fragt sie vor dem ersten Start und
+vor dem Neuverbinden — Neuverbinden heißt neu anlegen, mit der
+Konfiguration von jetzt.
+
+### Probe
+
+Die Attrappen in `aktualisieren-pruefen.sh` und `einrichten-pruefen.sh`
+reichen `compose config` jetzt an das echte `docker` durch (wie
+`neu-pruefen.sh` seit `N-61`) — vorher gaben sie dafür eine feste Zeile
+zurück, und die Sperre hätte dort nie etwas zu sehen bekommen.
+`aktualisieren-pruefen.sh` schreibt jeden Docker-Aufruf mit, damit sich
+prüfen lässt, was **nicht** passiert ist.
+
+| | |
+|---|---|
+| `werkzeuge/aktualisieren-pruefen.sh` | **79 ok** (5 neue) |
+| `… --gegenprobe` (neu) | **2 von 2**: Sperre fehlt; Sperre erst nach dem Holen |
+| `werkzeuge/einrichten-pruefen.sh` | **17 ok** (2 neue) |
+| `… --gegenprobe` | **7 von 7** (1 neue) |
+| `neu-gegenprobe.py` / `prolo-gegenprobe.py` | 24 von 24 / 23 von 23 — die drei Mutationen zur Sperre zeigen jetzt auf `startsperre.sh` |
+
+Die zweite Mutation in `aktualisieren-pruefen.sh --gegenprobe` ist mir
+zuerst falsch geraten: sie setzte einen zusätzlichen Aufruf **hinter** das
+Holen und ließ den echten davor stehen. Sie blieb grün — zu Recht, denn
+sie hatte nichts kaputt gemacht. Jetzt schaltet sie den echten Aufruf aus
+und setzt ihn hinter das Holen; die Prüflinie „und nicht einmal geholt"
+findet sie.
+
+### Berichtigung zu `N-83`
+
+Dort stand „`einrichten-pruefen.sh` 18 ok (vorher 15)". Nachgezählt an den
+beiden Commits: **12 vor, 15 nach** `N-83`. Die drei neuen Prüflinien
+stimmen, die Summen nicht — ich hatte die Ausgabe abgeschnitten gelesen
+und dazugezählt, statt zu zählen. Die Zahl im Eintrag ist korrigiert; die
+im Commit von `N-83` bleibt falsch, und darum steht es hier.
+
+## N-86 — Der zweite Lauf eines Tages ersetzte den ersten, auch wenn er scheiterte
+
+Beim Durchsehen gefunden. `backup.sh` legt „genau einen Stand pro Tag" ab
+(`B-08`), und `age` schrieb dafür direkt auf `<datum>.tar.gz.age` — egal, wie
+der Lauf ausgegangen war. Weil `prolo aktualisieren` **vor jedem Lauf**
+sichert, gibt es an einem Arbeitstag leicht drei, vier Läufe. Scheitert
+einer davon — Authentiks Datenbank startet gerade neu, ein Volume fehlt —,
+ersetzt sein halbes Archiv das vollständige vom Morgen.
+
+Und das halbe Archiv sah heil aus. `pg_dump | gzip > datenbank.sql.gz`:
+scheitert `pg_dump`, schreibt `gzip` trotzdem eine gültige, leere
+`.gz`-Datei. Bei SQLite wurde eine gescheiterte Kopie schon immer
+weggeräumt („keine halbe Datei liegen lassen"), bei PostgreSQL nicht.
+
+Gemessen am alten Stand, nur die Pfade umgebogen, zwei Läufe am selben Tag:
+
+| | alter Stand |
+|---|---|
+| Lauf 1 | Rückgabe 0, Archiv `41b52456…` |
+| Lauf 2, `pg_dump` scheitert | Rückgabe 1, Archiv **`cafdc267…`** — ersetzt |
+| `datenbank.sql.gz` im Archiv des Tages | 20 Bytes, entpackt **0 Bytes** |
+
+Die Datenbanksicherung vom Morgen war weg, und an ihrer Stelle lag eine
+Datei, die genauso heißt. `§15` sagt es für Migrationen ausdrücklich: eine
+bestehende Kopie wird nicht überschrieben, sonst ersetzt ein zweiter,
+ebenfalls gescheiterter Lauf den einzigen brauchbaren Stand. Für die
+Sicherung selbst galt es nicht.
+
+### Behoben
+
+`age` schreibt jetzt in eine Zwischendatei, und erst **nach** dem Lauf
+wird entschieden, wohin sie kommt:
+
+| Lauf | wohin |
+|---|---|
+| ohne Fehler | ersetzt `<datum>.tar.gz.age` — ein Stand pro Tag, wie bisher |
+| mit Fehlern, der Tag hat schon einen Stand | daneben: `<datum>-unvollstaendig-<zeit>.tar.gz.age` |
+| mit Fehlern, der Tag hat noch keinen | wird `<datum>.tar.gz.age` — besser als nichts, und der Erfolgsvermerk bleibt aus |
+
+`<datum>-unvollstaendig-…` sortiert **vor** `<datum>.tar.gz.age` (`-` vor
+`.`), also nimmt `prolo wiederherstellen` ohne `--stand` weiter den
+vollständigen. Eine gescheiterte PostgreSQL-Sicherung wird weggeräumt wie
+eine gescheiterte SQLite-Kopie.
+
+Damit sich das prüfen lässt, nimmt `backup.sh` seine drei Orte aus
+`PROLO_STACK`, `PROLO_SICHERUNGEN` und `PROLO_BESITZER`; auf dem Server
+gelten die Vorgaben `/opt/stack`, `/opt/backups`, `prolo`.
+
+### Probe
+
+`werkzeuge/sicherung-lauf-pruefen.sh` ist neu: es gab bisher **keine**
+Probe, die `backup.sh` selbst laufen lässt — `sicherung-pruefen.sh` prüft
+`volumes.py`, also nur, ob alles in einer `sicherung.conf` steht. Die neue
+Probe arbeitet mit einer Docker-Attrappe und dem echten `age` und
+entschlüsselt die Archive, um hineinzusehen.
+
+| | |
+|---|---|
+| `werkzeuge/sicherung-lauf-pruefen.sh` | **18 ok** |
+| `… --gegenprobe` | **4 von 4**: halber Lauf überschreibt; leere Dump-Datei bleibt; halbes Archiv sortiert dahinter; guter Lauf ersetzt nicht |
+
+Die Probe prüft die **Wirkung**: die Prüfsumme des Morgen-Archivs vor und
+nach dem halben Lauf, und den entschlüsselten Inhalt der Datenbankdatei —
+nicht die Meldung „UNVOLLSTAENDIG", die nur zusätzlich gesucht wird
+(`N-38`). Die Mutationsprobe verweigert eine Mutation, die sich nicht
+einbauen lässt, statt sie als „gefunden" zu zählen.
+
+## N-87 — Die Sicherung wusste, was ein Werkzeug speichert, aber nicht, was es ist
+
+Beim Durchsehen gefunden. `backup.sh` sichert je Werkzeug genau das, was
+seine `sicherung.conf` nennt: Volumes, Datenbanken, `.env`, einzelne
+Ordner. Die **Compose-Dateien** und die `conf`-Dateien selbst nicht — die
+lagen im Git (`socket-proxy/sicherung.conf`: „die Datei docker-compose.yml
+liegt im Git").
+
+Das stimmt nur für Werkzeuge, die im Git **stehen**. `prolo neu` legt
+Werkzeuge auf dem Server an (`N-61`), und dort entsteht ein Ordner ohne
+Git (`N-68`). Nach einem Serververlust wären seine Daten in der Sicherung
+— und niemand wüsste mehr, zu welchem Abbild, welchem Netz, welcher
+Route sie gehören. `prolo wiederherstellen` meldete für so ein Werkzeug
+`OHNE-CONF` und spielte gar nichts ein: ohne `sicherung.conf` auf dem
+Server weiß es nicht einmal, was im Archiv zu wem gehört.
+
+Mit einer Oberfläche, in die man eine Compose-Datei hineinwirft, wird
+das der Normalfall, nicht die Ausnahme.
+
+### Behoben
+
+**Sichern:** je Werkzeug zusätzlich `werkzeug.tar.gz` — der Ordner, ohne
+die `ORDNER`, die ohnehin einzeln gesichert werden, und ohne Ordner aus
+`VOLUMES_OHNE` (Traefiks Zugriffsprotokolle können groß werden und
+gehören nicht in eine Konfiguration). Dateien aus `VOLUMES_OHNE` bleiben
+drin: „braucht keine Datensicherung" heißt nicht „gehört nicht zur
+Konfiguration". `VOLUMES_OHNE` wurde vorher zwischen zwei Werkzeugen nicht
+zurückgesetzt; das ist mit behoben, weil es jetzt gelesen wird.
+
+**Einspielen:** fehlt ein Werkzeugordner auf dem Server und liegt er in
+der Sicherung, liest `wiederherstellen.sh` die `sicherung.conf` aus dem
+Archiv, sagt bei `--probe`, dass der Ordner angelegt würde — und legt ihn
+erst beim echten Lauf an. Ein **vorhandener** Ordner wird nie
+überschrieben (`§15`): dort liegt, was nach der Sicherung geändert wurde,
+und für die Konfiguration ist das Git der bessere Rückweg.
+
+Ältere Sicherungen ohne `werkzeug.tar.gz` bleiben einspielbar — das Stück
+darf fehlen.
+
+### Probe
+
+| | |
+|---|---|
+| `werkzeuge/sicherung-lauf-pruefen.sh` | **24 ok** (6 neue) |
+| `… --gegenprobe` | **7 von 7** (3 neue) |
+| `werkzeuge/wiederherstellen-pruefen.sh` | **38 ok** (7 neue, Abschnitt 8c) |
+| `werkzeuge/wiederherstellen-gegenprobe.py` | **16 von 16** (4 neue) |
+
+Der Rundlauf in 8c: ein Archiv mit einem Werkzeug `neuling`, das es im
+Wegwerfstack nicht gibt, und einem `werkzeug.tar.gz` für `probe`, dessen
+Compose-Datei ein anderes Abbild nennt. Nach dem Einspielen muss
+`neuling` mit Compose-Datei **und** Daten dastehen und `probe` seine
+eigene Compose-Datei behalten haben.
+
+## N-88 — „Kein Neustart nötig" kam mit echtem Docker nie
+
+Beim Nachmessen zu `N-89` gefunden — mit einem echten Docker-Dienst, den
+es in dieser Arbeitsumgebung bisher nicht gab und der sich jetzt starten
+ließ.
+
+`aktualisieren.sh` wollte einen Neustart sparen, wenn sich die Abbilder
+nicht geändert haben und alle Container laufen. Die Entscheidung stand in
+`alle_laufen()`:
+
+```bash
+veraltet=$(docker compose ps 2>/dev/null | grep -ci "created\|exited" || true)
+[ "$veraltet" -gt 0 ] && return 1
+```
+
+`docker compose ps` druckt eine Tabelle, und ihre Kopfzeile lautet
+`NAME IMAGE COMMAND SERVICE CREATED STATUS PORTS`. Das Wort **CREATED**
+steht in jeder Ausgabe. Mit echtem Docker lief der Zweig „Kein Neustart
+nötig" darum **nie** — jeder Lauf meldete „Container werden neu
+gestartet ...", auch wenn nichts neu gestartet wurde. Die Attrappe in
+`aktualisieren-pruefen.sh` druckte für `compose ps` nur `c1`, ohne
+Kopfzeile — sie hat den Fehler nicht nur nicht gefunden, sie hat ihn
+verdeckt, und zwei Prüflinien waren grün, weil sie einen Zweig prüften,
+den es in Wirklichkeit nicht gibt.
+
+Schaden hat das keinen angerichtet, und genau darum ist es lehrreich:
+`docker compose up -d` ist von sich aus sparsam. Compose legt nur neu an,
+was sich geändert hat — Abbild **oder** Konfiguration — und lässt alles
+andere laufen. Die eigene Vorhersage war nicht nur tot, sie war auch
+schlechter als das, was sie ersetzen wollte: sie kannte nur Abbilder,
+keine Konfiguration. Hätte sie funktioniert, wäre eine geänderte
+Umgebungsvariable bei gleichem Abbild nie angekommen.
+
+### Behoben
+
+`docker compose up -d` läuft immer. Ob etwas neu angelegt wurde, sagen
+die Container-Kennungen vorher und nachher (`docker compose ps -a -q`) —
+gemessen, nicht vorhergesagt. Die Meldung heißt jetzt „Nichts neu
+angelegt — Abbilder und Konfiguration sind unverändert" statt „Kein
+Neustart nötig", weil das die Aussage ist, die gemessen wurde.
+
+### Gemessen mit echtem Docker
+
+| | Ausgabe | Container |
+|---|---|---|
+| nichts geändert | „Nichts neu angelegt", „FERTIG. probe ist aktuell und läuft." | läuft weiter |
+| nur `environment:` geändert | „FERTIG. probe läuft." | neu angelegt, `EINSTELLUNG=neu` im Container |
+
+### Probe
+
+Die Attrappe druckt für `compose ps` jetzt eine Tabelle **mit** Kopfzeile,
+wie das echte, und wechselt die Container-Kennung nur, wenn `up`
+wirklich neu anlegt.
+
+| | |
+|---|---|
+| `werkzeuge/aktualisieren-pruefen.sh` | **82 ok** (4 neue; eine alte Prüflinie auf die gemessene Aussage umgestellt) |
+| `… --gegenprobe` | **4 von 4** (2 neue: Vorhersage statt Messung; `up -d` entfällt bei gleichen Abbildern) |
+
+## N-89 — Wer einmal neu gestartet ist, ließ jede Aktualisierung scheitern
+
+Beim Durchsehen gefunden, mit echtem Docker bestätigt. `aktualisieren.sh`
+erkennt einen Dauerabsturz an `RestartCount > 2`. Docker zählt diesen Wert
+aber über die **ganze Lebenszeit** eines Containers — gemessen: ein
+Container, der dreimal abstürzt und dann läuft, zeigt nach 1, 3, 6, 12, 20
+und 35 Sekunden unverändert `3`, und so bleibt es, bis er neu angelegt
+wird.
+
+Ein einziger Datenbankausfall in der Nacht, bei dem ein Werkzeug dreimal
+neu startet, bis Authentik wieder da ist — und von da an scheitert jeder
+`prolo aktualisieren`-Lauf für dieses Werkzeug:
+
+```
+[3/4] Container werden neu gestartet ...
+  FEHLER: probe-probe-1 startet staendig neu (3 Neustarts).
+!!! FEHLGESCHLAGEN - probe wird zurueckgerollt.
+```
+
+Mit echtem Docker so gemessen, bei einem Container, der seit Minuten
+gesund lief und an dem sich nichts geändert hatte. Liegt ein Rückweg vor,
+wird er auch gegangen: die `docker-compose.yml` wird auf den letzten
+erfolgreichen Stand zurückgesetzt — bei einem Werkzeug, das gar kein
+Problem hat. `N-82` hätte genau diesen Zähler bei der Admin-Seite mit
+jedem weggeklickten Browser hochgetrieben.
+
+### Behoben
+
+Vor `docker compose up -d` merkt sich der Lauf die Neustarts jedes
+Containers, und in der Prüfung zählt nur, was **seitdem** dazukommt. Ein
+Container, den `up -d` neu anlegt, hat eine neue Kennung und zählt von 0.
+
+### Gemessen mit echtem Docker
+
+| | vorher | nachher |
+|---|---|---|
+| früher 3× neu gestartet, jetzt gesund, nichts geändert | FEHLER, Rückgabe 1, Zurückrollen | „FERTIG. probe ist aktuell und läuft.", Rückgabe 0 |
+| echter Dauerabsturz (`exit 1`) | FEHLER | FEHLER, „5 Neustarts seit Beginn dieses Laufs", Zurückrollen |
+
+### Probe
+
+Die Attrappe hatte einen **festen** Zählerstand 7 für „Dauerneustart" —
+das ist in Wirklichkeit ein Container, der irgendwann einmal neu gestartet
+ist, also genau der Fall, der kein Fehler sein darf. Jetzt wächst der
+Zähler bei jeder Abfrage, und der feste Wert heißt `frueher`.
+
+| | |
+|---|---|
+| `werkzeuge/aktualisieren-pruefen.sh` | **85 ok** (3 neue) |
+| `… --gegenprobe` | **5 von 5** (1 neue: Zählung über die Lebenszeit) |
+
+## N-90 — „kam nicht hoch: sudo prolo protokoll …" — und das Protokoll war leer
+
+Gefunden beim ersten echten Lauf von `prolo einrichten` auf einem frischen
+Stapel mit echtem Docker (in dieser Arbeitsumgebung ließ sich zum ersten
+Mal ein Docker-Dienst starten). Schritt 9 meldete:
+
+```
+FEHLER  socket-proxy kam nicht hoch:  sudo prolo protokoll socket-proxy
+FEHLER  traefik kam nicht hoch:  sudo prolo protokoll traefik
+FEHLER  authentik kam nicht hoch:  sudo prolo protokoll authentik
+FEHLER  admin kam nicht hoch:  sudo prolo protokoll admin
+FEHLER  n8n kam nicht hoch:  sudo prolo protokoll n8n
+FEHLER  wiki kam nicht hoch:  sudo prolo protokoll wiki
+```
+
+Sechs Fehler, sechs Verweise auf `prolo protokoll` — und das zeigt bei
+einem Container, der nie angelegt wurde, **nichts**. Die Ursache hatte
+das Skript in der Hand: `docker compose up -d >/dev/null 2>&1`. Wörtlich
+`N-64` und `N-81`, in der dritten Datei.
+
+Was docker tatsächlich gesagt hätte (nachgeholt, von Hand):
+
+| Werkzeug | Ursache |
+|---|---|
+| socket-proxy | das Abbild ließ sich nicht laden (hier: Netzsperre der Arbeitsumgebung) |
+| traefik, admin | `network socket declared as external, but could not be found` — Folge von socket-proxy |
+| authentik | `required variable PG_PASS is missing a value` — Schritt 7 hat ihn offen gelassen |
+| n8n | `required variable N8N_ENCRYPTION_KEY is missing a value` — ebenso |
+| wiki | der Bau scheiterte an `apt-get` (hier: Netzsperre der Arbeitsumgebung) |
+
+Jede dieser Zeilen führt direkt zur Abhilfe. Keine davon stand da.
+
+### Behoben
+
+Die Ausgabe von `docker compose up -d` wird aufgehoben. Scheitert es,
+stehen die letzten Zeilen **ohne** den Fortschritt davor da (beim ersten
+Start schreibt docker seitenweise „Pulling fs layer" — die Ursache steht
+darunter). Für die beiden häufigen Ursachen beim Einrichten kommt der Weg
+daraus dazu, und nur dann, wenn die Meldung ihn hergibt:
+
+```
+FEHLER  authentik kam nicht hoch:
+        docker sagt:
+          error while interpolating services.postgresql.environment.POSTGRES_PASSWORD:
+          required variable PG_PASS is missing a value: database password required
+        Ein Wert fehlt in authentik/.env - Schritt 7 hat ihn offen gelassen.
+        Bei einem frischen Aufbau (noch keine Daten) fuellt ihn:
+          sudo prolo geheimnisse --verteilen --frisch
+        Beliebig oft aufrufbar - vorhandene Werte bleiben stehen.
+```
+
+Das ist die echte Ausgabe aus dem zweiten Lauf auf dem Wegwerf-Server.
+
+### Probe
+
+| | |
+|---|---|
+| `werkzeuge/einrichten-pruefen.sh` | **20 ok** (3 neue) |
+| `… --gegenprobe` | **9 von 9** (2 neue: Meldung verschluckt; Rauschen nicht gefiltert) |
+
+Die zweite Mutation ist mir zuerst falsch geraten: sie nahm `tail -4` weg
+und ließ den Filter stehen — sie blieb grün, zu Recht. Der Filter steht
+jetzt in einer eigenen Variable, die Mutation leert sie.
+
+## N-91 — Auf jedem neuen Server war `acme.json` ein Ordner
+
+Beim ersten echten Lauf auf einem frischen Stapel gefunden. Traefik hängt
+`./acme.json` ein. Auf einem frischen Klon gibt es die Datei nicht — sie
+steht mit Absicht nicht im Git (`§21`) —, und Docker legt für eine
+fehlende Quelle eines Bind-Mounts einen **Ordner** an. Traefik dazu, im
+Wortlaut:
+
+```
+ERR The ACME resolve is skipped from the resolvers list
+    error="unable to get ACME account: permissions 755 for
+    /letsencrypt/acme.json are too open, please use 600"
+```
+
+Kein Let's Encrypt, auf keinem Namen. Jede Seite zeigt „nicht sicher",
+und das Notzertifikat heißt `TRAEFIK DEFAULT CERT`. Das ist die Narbe aus
+`N-05` — dort waren es die Rechte an einer vorhandenen Datei, hier ist es
+die Datei selbst. Die Anleitung im Kommentar der Compose-Datei nennt
+`chown` und `chmod` für `acme.json`, aber nirgends, dass sie erst
+**angelegt** werden muss, und `prolo einrichten` tat es nicht. Genau die
+Sorte Handgriff, die `N-54` aus den Anleitungen ins Skript holen wollte.
+
+### Behoben
+
+`prolo einrichten` hat einen Schritt **6b**: alles, was ein Werkzeug aus
+seinem Ordner einhängt, muss vor dem ersten Start da sein. Was es wo
+braucht, sagt das Werkzeug selbst, in der `sicherung.conf`, die es ohnehin
+hat:
+
+| steht in | wird angelegt als |
+|---|---|
+| `DATEIEN` | leere Datei, `0600` |
+| `ORDNER`, `VOLUMES_OHNE` | leerer Ordner |
+| nirgends | **nichts** — gemeldet mit `git checkout` bzw. dem Hinweis auf die `sicherung.conf`; eine leere Konfigurationsdatei wäre falsch, nicht fehlend |
+
+Ein **leerer** Ordner, wo eine Datei hingehört, ist das Überbleibsel eines
+früheren Starts und wird ersetzt. Ein Ordner **mit Inhalt** wird nicht
+angefasst, sondern gemeldet.
+
+### Gemessen auf dem Wegwerf-Server
+
+```
+6b. Was eingehaengt wird, muss vor dem ersten Start da sein
+  getan   authentik/certs/ angelegt
+  getan   authentik/custom-templates/ angelegt
+  getan   authentik/data/ angelegt
+  getan   traefik/acme.json war ein leerer Ordner (Ueberbleibsel eines Starts) - jetzt eine Datei, 0600
+  ok      traefik/dynamic
+  ok      traefik/log/
+  ok      traefik/traefik.yml
+```
+
+Danach Traefik neu angelegt: **0** Zeilen „too open" im Protokoll (vorher 1).
+Beim zweiten Lauf nur noch `ok`.
+
+Beim ersten Lauf auf dem Server kam dazu ein `BrokenPipeError` aus meinem
+eigenen Python-Stück: seine Ausgabe läuft in `grep -q`, und das schließt
+nach dem ersten Treffer. Dort ist `SIGPIPE` auf Voreinstellung richtig —
+genau der Fall, für den die Zeile gedacht ist, die in `N-82` aus dem
+Dienst weg musste.
+
+### Probe
+
+| | |
+|---|---|
+| `werkzeuge/einrichten-pruefen.sh` | **26 ok** (6 neue) |
+| `… --gegenprobe` | **11 von 11** (2 neue: leerer Ordner bleibt; Datei ohne `0600`) |
+
+## N-92 — Ohne IPv6 im Kern gab es keinen einzigen Router
+
+Beim ersten echten Lauf gefunden. `socket-proxy` startete in Schleife neu:
+
+```
+[ALERT] Starting frontend dockerfrontend: cannot create listening socket [:::2375]
+```
+
+Das Abbild bindet von sich aus an `[::]`. Diese Arbeitsumgebung hat gar
+kein IPv6 im Kern (`/proc/sys/net/ipv6` fehlt) — auf gewöhnlichen Servern
+ist das anders, aber gehärtete Server schalten es oft mit
+`ipv6.disable=1` ab, und genau dort passiert dasselbe. Ohne den
+Vermittler findet Traefik **keinen** Router; der ganze Stack ist dann
+unerreichbar, und `prolo status` zeigt „socket-proxy 0/1".
+
+Der Stack benutzt IPv6 nirgends: `prolo einrichten` verlangt ausdrücklich
+keinen AAAA-Eintrag, und `socket` ist ein internes IPv4-Netz. Das Abbild
+kennt dafür `DISABLE_IPV6`.
+
+| | vorher | nachher |
+|---|---|---|
+| `socket-proxy` auf einem Kern ohne IPv6 | Neustart in Schleife (6 Neustarts nach Sekunden) | läuft, 0 Neustarts |
+
+### Probe
+
+| | |
+|---|---|
+| `werkzeuge/grenze-pruefen.sh` | 1 neue Prüflinie, grün |
+| `werkzeuge/grenze-gegenprobe.py` | **13 von 13** (1 neue; muss genau an dieser Zeile rot werden) |
+
+## N-93 — `sniStrict` stand in einer Option, die für fremde Namen nie gilt
+
+Beim ersten echten Lauf gefunden. `traefik/dynamic/sicherheit.yml`
+verspricht:
+
+> sniStrict: eine Anfrage ohne passenden Servernamen bekommt KEIN
+> Standardzertifikat mehr. Zusammen mit B-27 ist damit der Weg zu einer
+> Täuschungsseite auf einem fremden Hostnamen zu.
+
+Gemessen mit Traefik 3.6.13 und einem Testzertifikat für `prolo.me`:
+
+| Anfrage | vorher | nachher |
+|---|---|---|
+| `prolo.me` | 200 | 200 |
+| fremder Name `fremd.example` | **Handshake mit dem Notzertifikat, 404** | Handshake verweigert |
+| ganz ohne Namen | **Handshake mit dem Notzertifikat, 404** | Handshake verweigert |
+| TLS 1.1 auf `prolo.me` | — | verweigert |
+
+Die Einstellung stand in einer Option namens `streng`, und der Eingang
+verwies darauf. Für einen **unbekannten** Namen gibt es aber keinen
+Router — also auch keine Option vom Router oder vom Eingang. Traefik
+nimmt dann die Option `default`, und in der stand nichts. `sniStrict`
+galt damit nur für Namen, die ohnehin einen Router haben: genau dort, wo
+es nichts zu verhindern gibt.
+
+Viel Schaden war nicht drin — hinter dem Notzertifikat kam eine 404 —,
+aber eine Sicherheitseigenschaft, die in der Datei behauptet wird und
+nicht gilt, ist schlimmer als eine, die fehlt: man verlässt sich darauf.
+Und das Notzertifikat trägt den Namen `TRAEFIK DEFAULT CERT` — für jeden,
+der nach Traefik-Servern sucht, ein Schild an der Tür.
+
+### Behoben
+
+Die Option heißt `default`. Sie gilt damit für jeden Router, der keine
+andere nennt, **und** für jeden Namen ohne Router; am Eingang steht keine
+Option mehr (`tls: {}`).
+
+### Probe
+
+| | |
+|---|---|
+| `werkzeuge/grenze-pruefen.sh` | 2 neue Prüflinien, grün |
+| `werkzeuge/grenze-gegenprobe.py` | **14 von 14** (1 neue, muss genau an dieser Zeile rot werden) |
+| echter Traefik, vorher/nachher | siehe Tabelle |
+
+## N-94 — `prolo geheimnisse` startete, was nie lief, und an der Sperre vorbei
+
+Beim ersten echten Lauf von `prolo einrichten` gefunden. Schritt 7
+verteilt die Geheimnisse und startete danach die betroffenen Dienste
+„neu":
+
+```
+PROLO_EINLASS
+  neu gewuerfelt: admin/.env
+  ...
+  traefik neu starten ...
+  FEHLGESCHLAGEN: Image traefik:v3.6.13 Pulling
+   7e8a8ec6ab16 Pulling fs layer 0B
+   8213dc07c4f6 Pulling fs layer 0B
+   ...
+```
+
+Drei Fehler in einer Meldung:
+
+1. **Es startete, was nie lief.** `dienste_neu()` rief `docker compose up
+   -d` für jedes Werkzeug, dessen Datei es angefasst hatte. Auf einem
+   frischen Server heißt das: Traefik wird mitten in Schritt 7 zum ersten
+   Mal gestartet — vor socket-proxy, dessen Netz er braucht, und zwei
+   Schritte vor dem Schritt, der die Reihenfolge kennt.
+2. **Die Ursache war abgeschnitten.** Gezeigt wurden die ersten 300
+   Zeichen von stderr — dort schreibt docker seinen Fortschritt. Was
+   wirklich schiefging, stand darunter und fehlte.
+3. **Die vierte Tür ohne Sperre.** `up -d` legt neu an, mit der
+   Konfiguration von jetzt. `N-85` hat die Startsperre an drei Türen
+   gestellt; diese war die vierte.
+
+### Behoben
+
+Neu gestartet wird nur, was läuft; was nicht läuft, liest den neuen Wert
+beim nächsten Start von selbst, und das steht so da. Vor dem Neustart
+steht dieselbe Sperre wie bei `prolo start`. Scheitert er, stehen die
+letzten Zeilen von docker ohne Fortschritt da.
+
+### Probe
+
+Die Probe baut einen Mini-Stapel mit drei Werkzeugen — `halt` (läuft
+nicht), `laeuft`, `offenport` (läuft, mit unerklärtem Port) — und eine
+Docker-Attrappe, die jeden Aufruf mitschreibt und `compose config` an das
+echte docker durchreicht.
+
+Beim Schreiben ist mir die Reihenfolge fast durchgerutscht: die Schleife
+geht alphabetisch und bricht nach einer Sperre ab. Hieß das nicht
+laufende Werkzeug `steht`, kam es **nach** `offenport` und wurde nie
+erreicht — seine Prüflinie wäre grün gewesen, aus Mangel an
+Gelegenheit. Es heißt darum `halt`, und die Prüflinie verlangt
+zusätzlich, dass „halt laeuft nicht" in der Ausgabe steht.
+
+| | |
+|---|---|
+| `werkzeuge/geheimnisse-pruefen.sh` | **161 ok** (5 neue) — *berichtigt in `N-95`: zuerst stand hier 160/4* |
+| `… --gegenprobe` | **48 von 48** (3 neue) |
+
+Der Vorlauf der Mutationsprobe war zuerst rot: ihre Kopie des Stapels
+kannte `startsperre.sh` und `netze.sh` nicht. Genau dafür gibt es den
+Vorlauf — ohne ihn wäre jede Mutation „gefunden" gewesen.
+
+## N-95 — Die Gruppe, ohne die die Admin-Seite 403 sagt, stand nirgends
+
+Beim ersten echten Lauf gefunden. `prolo einrichten` endet mit einer
+Liste der Gruppen, die man in Authentik anlegen soll:
+
+```
+  Gruppen in Authentik anlegen und sich selbst zuweisen:
+    wiki-editor, wiki-admin   Wiki: schreiben bzw. verwalten
+    stack-admin               Verwaltung auf prolo.me
+```
+
+Die Liste stand **fest im Skript** — genau die Sorte zweite Liste, die
+veraltet, und `§16` sagt: im zentralen Skript steht kein Werkzeugname.
+Veraltet war sie: die Admin-Seite (seit `N-63`) verlangt die Gruppe
+`admin`, das Bordbuch `bordbuch-admin` für die Gesamtsicherung. Beide
+fehlten. Wer nach dieser Liste einrichtet, bekommt auf `admin.prolo.me`
+eine 403 und weiß nicht, dass die Liste unvollständig war.
+
+### Behoben
+
+Jedes Werkzeug nennt seine Gruppen selbst, als Label an seinem Dienst:
+
+```yaml
+- "prolo.gruppen=wiki-editor=Seiten anlegen und die eigenen bearbeiten; wiki-admin=das Wiki verwalten"
+```
+
+`prolo einrichten` liest sie aus beiden Compose-Dateien (`N-83`) und
+listet sie mit dem Werkzeug dazu. Auf dem Wegwerf-Server:
+
+```
+  Gruppen in Authentik anlegen und sich selbst zuweisen:
+    admin            admin        die Stack-Uebersicht sehen
+    bordbuch-admin   bordbuch     alle Fahrtenbuecher sichern und zurueckspielen
+    stack-admin      www          Seiten und Zugangslinks auf prolo.me verwalten
+    wiki-admin       wiki         das Wiki verwalten
+    wiki-editor      wiki         Seiten anlegen und die eigenen bearbeiten
+```
+
+Damit das Label nicht selbst die nächste veraltete Liste wird, prüft
+`grenze-pruefen.sh` je Werkzeug: jede Gruppe, die der Code **wirklich**
+prüft (Vorgabe im Code, überschrieben von der Compose-Datei), steht im
+Label. Nach der Aufteilung in eigene Repositorys gehört das Label in die
+Compose-Datei, die das Werkzeug mitbringt — das Werkzeug sagt, was es
+braucht.
+
+### Probe
+
+| | |
+|---|---|
+| `werkzeuge/grenze-pruefen.sh` | **73 ok** (4 neue, je Werkzeug eine) |
+| `werkzeuge/grenze-gegenprobe.py` | **16 von 16** (2 neue: Admin nennt seine Gruppe nicht; Wiki nennt nur eine von zwei) |
+| `werkzeuge/einrichten-pruefen.sh` | **28 ok** (2 neue: `admin` steht da; alle 5 erklärten Gruppen stehen da) |
+| `… --gegenprobe` | **13 von 13** (2 neue) |
+
+### Berichtigung zu `N-94`
+
+Dort stand „`geheimnisse-pruefen.sh` 160 ok (4 neue)". Gezählt: **161,
+5 neue** — die fünfte ist die Prüflinie zur abgeschnittenen Ursache, die
+ich nachträglich dazugeschrieben und in der Summe vergessen hatte.
+
+## N-96 — Die Vorlage nannte einen Befehl, den es nie gab
+
+Beim Durchsehen gefunden. `traefik/dynamic/einlass.yml.beispiel` —
+die Datei, die man abschreibt, um die Vertrauensgrenze (`N-44`)
+einzurichten — sagte unter „ANLEGEN":
+
+```
+#   4. Erst Traefik, dann die Werkzeuge:
+#        sudo prolo compose traefik  up -d
+#        sudo prolo compose wiki     up -d
+#        sudo prolo compose bordbuch up -d
+```
+
+`prolo compose` gibt es nicht; `N-51` und `N-56` haben genau diesen
+erfundenen Befehl schon zweimal aus Anleitungen und Fehlermeldungen
+geholt. Die Prüfung aus `N-51` las alle Dateien auf `.md .html .py .sh
+.mjs .yml .conf` — eine **Vorlage** endet auf `.beispiel`, und die sah
+sie nie. Gemessen: mit `.beispiel` in der Liste meldet sie sofort
+`traefik/dynamic/einlass.yml.beispiel nennt "prolo compose"`.
+
+Und die Vorlage beschrieb vier Handgriffe — würfeln, kopieren, in jede
+`.env` eintragen, in der richtigen Reihenfolge neu starten —, die seit
+`N-50` ein einziger Befehl erledigt, idempotent. `§7` (`N-67`): die
+Meldung nennt den Befehl, nicht die Aufgabe.
+
+### Behoben
+
+- Die Befehlsprüfung liest auch `.beispiel`-Dateien.
+- Die Vorlage nennt `sudo prolo geheimnisse --verteilen` (anlegen) und
+  `--neu` (wechseln), mit dem Hinweis, dass er beliebig oft aufrufbar ist;
+  der Weg von Hand steht darunter, mit echten Befehlen (`prolo start`).
+
+### Probe
+
+| | |
+|---|---|
+| `prolo-befehle-pruefen.py .` | ok, 42 bekannte Befehle (vorher mit `.beispiel`: 1 FEHLER) |
+| `… --gegenprobe` | neue Mutation „eine Vorlage nennt einen erfundenen Befehl" **gefunden** |
+
+Beim Lauf der Gegenprobe fiel auf, dass eine **andere**, ältere Mutation
+sich seit `N-61` nicht mehr einbauen lässt — sie zielt auf einen
+Kommentar, den es seitdem nicht mehr gibt. Die Gegenprobe war damit seit
+Wochen rot, ohne dass es jemand gemerkt hat. Das ist ein eigener Befund:
+`N-97`.
+
+## N-97 — Eine Gegenprobe war seit `N-61` rot, und niemand hat es gemerkt
+
+Beim Arbeiten an `N-96` gefunden. `prolo-befehle-pruefen.py --gegenprobe`
+meldete:
+
+```
+2. Geruest-Kommentar nennt prolo compose  NICHT EINGEBAUT
+   (Textstelle fehlt in werkzeuge/prolo: '  #   sudo prolo start traefik\n')
+1 von 7 Mutationen blieben unentdeckt
+```
+
+Die Mutation zielte auf einen Kommentar in `werkzeuge/prolo`, den `N-61`
+entfernt hat (`git log -S` nennt den Commit `ad790cc`). Seitdem ließ sie
+sich nicht mehr einbauen, und die Gegenprobe war rot. Gemerkt hat es
+niemand, denn sie läuft nur, wenn jemand sie von Hand aufruft — und
+`prolo-pruefen.sh` ruft nur die Prüfung, nicht ihre Gegenprobe.
+
+Das ist die Lehre aus `§13a` eine Ebene höher: eine Gegenprobe beweist,
+dass eine Prüfung Zähne hat — aber nur, wenn sie läuft. Es gab
+**34** Prüfungen und Gegenproben in diesem Stapel und **keinen** Lauf,
+der alle ausführt.
+
+### Behoben
+
+- **`werkzeuge/alle-pruefen.sh`**: jede `*/tests/alle.sh`, jede
+  `werkzeuge/*-pruefen.sh`, jede Gegenprobe — gefunden am Dateisystem,
+  nicht an einer Liste (`§16`); eine neue Prüfung braucht dort keine
+  Zeile. Eine Tabelle mit Dauer und Ergebnis, bei Rot die ersten
+  Fehlzeilen, und ein Rückgabewert, der nur bei **allem** grün 0 ist.
+  `--schnell` lässt die Gegenproben weg (Minuten statt einer
+  Viertelstunde).
+- **`.github/workflows/pruefen.yml`**: derselbe Lauf bei jedem Push und
+  jedem Pull Request.
+- Die veraltete Mutation zielt jetzt auf eine Meldung, die `prolo` selbst
+  ausgibt (`sudo prolo neu <name>` → `sudo prolo anlegen <name>`).
+
+### Ausgeführt
+
+Der erste Sammellauf, **vor** der Reparatur:
+
+```
+Gegenproben (haben die Pruefungen Zaehne? §13a)
+  ...
+  werkzeuge/prolo-befehle-pruefen.py --gegenprobe      ROT       0s  (Rueckgabe 1)
+        2. Geruest-Kommentar nennt prolo compose      NICHT EINGEBAUT (...)
+  ...
+1 rot: werkzeuge/prolo-befehle-pruefen.py --gegenprobe
+```
+
+33 von 34 grün, und der eine rote genau der seit `N-61`. Danach
+`prolo-befehle-pruefen.py --gegenprobe`: **8 von 8** gefunden.
+
+## N-98 — `CLAUDE.md` verwies auf einen Abschnitt, den es nie gab
+
+Beim Zusammenstellen der Regeln für die ausgelagerten Werkzeuge gefunden.
+`§15` sagt: „Vor Migrationen, die Daten verändern, gilt der Dreischritt
+aus **§19a**". Einen §19a gibt es nicht — der Dreischritt steht in `§24a`.
+
+`regeln-pruefen.sh` prüft seit `N-39`, dass jeder zitierte Abschnitt
+existiert: 148 Verweise der Form „CLAUDE.md §…" aus allen anderen
+Dateien. Die Regeldatei selbst schloss er aus (`p == regeln`) — und ihre
+eigenen 21 Verweise wurden nie geprüft. Gemessen: genau einer davon zeigt
+ins Leere.
+
+### Behoben
+
+`§15` verweist auf `§24a`, und die Prüfung liest auch die Verweise in der
+Regeldatei selbst.
+
+### Probe
+
+| | |
+|---|---|
+| `werkzeuge/regeln-pruefen.sh` | grün, „jeder der 32 zitierten Abschnitte gibt es wirklich" |
+| Mutation (Kopie nach der Korrektur, `§24a` → `§19a`) | **rot**: „jeder der 33 zitierten Abschnitte" — FEHLER |
+
+---
+
+# Umbau: proloWorld wird die Betriebsplattform
+
+**Auftrag (29.09.2026):** „Die Projekte www, Bordbuch und wiki will ich
+separat halten. Also eigene Repos … Mein Wunsch ist, dass proloWorld nur
+das Administrieren von Tools ganz einfach macht … Nur auch so Tools wie
+das Bordbuch sollen als extern gesehen werden."
+
+Die Schritte dieses Umbaus sind keine Befunde, sondern Entscheidungen.
+Sie bekommen darum eine eigene Nummernfolge: `U-01` aufwärts.
+
+## U-01 — Eigene Werkzeuge bekommen eine Herstellerdatei wie n8n
+
+**Entscheidung.** Ein eigenes Werkzeug wird im Betrieb genauso behandelt
+wie ein fremdes (`§16`, `N-61`): seine `docker-compose.yml` ist die
+**Herstellerdatei** — sie gehört zum Werkzeug und liegt später in dessen
+eigenem Repository —, und alles, was vom Betrieb kommt, steht daneben in
+der `docker-compose.override.yml`.
+
+| Herstellerdatei (Werkzeug) | override (Betrieb) |
+|---|---|
+| Abbild, `build: .`, `container_name` | Netz `netz-<werkzeug>` |
+| Rechte: `cap_drop`, `no-new-privileges`, `read_only`, `tmpfs` | Traefik: Route, Zertifikat, Anmeldung |
+| Umgebung, `PROLO_EINLASS` mit `:?` | `mem_limit`, `pids_limit` |
+| Volumes, Label `prolo.gruppen` | |
+
+Eine Abweichung, und sie ist Absicht: bei **www** stehen die beiden Router
+in der Herstellerdatei. Welche Pfade öffentlich sind, ist dort die
+Sicherheitsgrenze des Werkzeugs (`N-74`), und `www/tests/test_freigabe.py`
+hält Code und Regel zusammen — das geht nur im selben Repository.
+
+Dazu zwei Festlegungen, die den Umzug später zu einer Zeile machen:
+
+- Das Abbild heißt schon jetzt so, wie es veröffentlicht wird:
+  `ghcr.io/prolo2408/<werkzeug>:<fassung>`. Solange `build: .` dasteht,
+  wird es wie bisher auf dem Server gebaut und nur so benannt.
+- Der Projektname steht fest (`name: <werkzeug>`). Nach ihm heißen die
+  Volumes (`bordbuch_bordbuch_daten` …); ohne ihn hinge er am Ordnernamen,
+  und ein Klon unter anderem Namen fände seine Daten nicht.
+
+### Ausgeführt
+
+Die zusammengesetzte Konfiguration (`docker compose config`) alt gegen
+neu, je Werkzeug, normalisiert:
+
+| | Abbild | sonst |
+|---|---|---|
+| wiki | `wiki:1.4.1` → `ghcr.io/prolo2408/wiki:1.4.1` | nur der Hinweistext bei fehlendem `PROLO_EINLASS` (nennt jetzt `prolo geheimnisse --verteilen`, `N-96`) |
+| bordbuch | `bordbuch:2.6.1` → `ghcr.io/prolo2408/bordbuch:2.6.1` | ebenso |
+| www | `www:1.1.1` → `ghcr.io/prolo2408/www:1.1.1` | ebenso |
+
+Volume-Namen, Netze, Labels, Grenzen: unverändert. Auf dem Server
+bedeutet das beim nächsten `prolo aktualisieren`: einmal neu bauen unter
+neuem Namen, Container neu anlegen, **dieselben** Volumes.
+
+`werkzeuge/alle-pruefen.sh --schnell`: **alles grün** (4 Werkzeug-Suiten,
+15 Prüfungen des Stapels). `wiki/tests/test_fassung.py` erwartet den
+neuen Abbildnamen. Die Gegenproben der drei Werkzeuge: bordbuch vollständig,
+www 17 von 17, admin 18 von 18.
+
+## N-99 — Das Bordbuch hatte als einziges Werkzeug keine `/gesundheit`
+
+Beim Schreiben des Vertragstests für die ausgelagerten Werkzeuge
+gefunden (`U-03`). Der Vertrag sagt: `/gesundheit` antwortet `ok`,
+`/api/version` gibt die Fassung, beide ohne Anmeldung und ohne
+Einlassmarke. Wiki, www und admin halten das ein. Das Bordbuch hatte nur
+`/api/version` frei; die Gesundheitsprüfung im Dockerfile und `PRUEF_URL`
+liefen darüber.
+
+Das funktionierte — aber es war die eine Ausnahme, die man sich merken
+muss. Wer ein Werkzeug über `/gesundheit` anspricht (eine Überwachung,
+die künftige Admin-Seite), bekam beim Bordbuch eine 401.
+
+### Behoben
+
+`EINLASS_FREI = ("/gesundheit", "/api/version")`, `/gesundheit` antwortet
+`ok` als Text wie überall; Dockerfile und `PRUEF_URL` prüfen darüber.
+Fassung **2.6.1 → 2.6.2** an allen drei Stellen.
+
+### Probe
+
+| | |
+|---|---|
+| `bordbuch/tests/alle.sh` | **138** Python-Tests grün (2 neue), Node grün |
+| `bordbuch/tests/gegenprobe.sh` | alle gefunden, 1 neue Mutation (Gesundheit wieder hinter der Marke) |
+| Abbild 2.6.2 mit echtem Docker, nur `PROLO_EINLASS` gesetzt | `healthy` |
+
+## U-02 — Die Prüfungen von proloWorld hängen nicht mehr an den Werkzeugquellen
+
+Nach dem Umzug liegt in `wiki/`, `bordbuch/` und `www/` nur noch, was dem
+Betrieb gehört. Drei Prüfungen hätten das nicht überstanden — und zwei
+davon **still**, genau die Falle aus `N-70`:
+
+| Prüfung | hing an | nach dem Umzug |
+|---|---|---|
+| `grenze-pruefen.sh` | `server.py` mit `PROLO_EINLASS` | drei Werkzeuge fallen aus der Liste, **grün** |
+| `schriften-pruefen.sh` | mindestens zwei `*/schriften/` | rot („weniger als zwei") |
+| `prolo-befehle-pruefen.py` | Mutationen in `wiki/server.py`, `bordbuch/CHANGELOG.md` | Gegenprobe rot („nicht einbaubar") |
+
+### Was daraus wurde
+
+- **`grenze-pruefen.sh`** erkennt ein eigenes Werkzeug an etwas, das nicht
+  von der Prüfung selbst abhängt: `server.py` hier **oder** ein Abbild aus
+  `ghcr.io/prolo2408/`. Wer `PROLO_EINLASS` aus einer Compose-Datei nimmt,
+  wird rot, statt aus der Liste zu fallen — die erste Fassung dieser
+  Änderung hätte genau das nicht getan (69 statt 73 Prüflinien, beim
+  Nachzählen bemerkt). Was nur am Code prüfbar ist (Grenze in
+  `do_GET`/`do_POST`, Wurzel nicht frei, Gruppen im Label), wird geprüft,
+  wo der Code hier liegt — und für die ausgelagerten im Werkzeug selbst
+  (`U-03`).
+- **`schriften-pruefen.sh`** vergleicht, wenn es etwas zu vergleichen gibt;
+  bei einem Werkzeug prüft es nur, dass jede Regel ihre Datei hat.
+- **`prolo-befehle-pruefen.py`** findet das Bedienhandbuch in
+  `wiki/vorlagen/` oder `doku/`, und seine Mutationen zielen nur noch auf
+  Dateien, die in proloWorld bleiben (`admin/server.py`,
+  `werkzeuge/ANLEITUNG.md`).
+
+### Ausgeführt
+
+Heute: `grenze-pruefen.sh` **73 ok**, Gegenprobe **17 von 17** (neu: das
+Wiki reicht die Marke nicht mehr durch); `prolo-befehle-pruefen.py
+--gegenprobe` **8 von 8**; `schriften-pruefen.sh` grün.
+
+Und der Zustand **nach** dem Umzug, simuliert in einer Kopie, in der von
+den drei Werkzeugen nur die Betriebsdateien liegen: `grenze-pruefen.sh`
+grün mit 61 ok und denselben **4** Werkzeugen (admin, bordbuch, wiki,
+www); weggefallen sind genau die 12 Code-Prüfungen, die in den
+Werkzeug-Repos weiterlaufen. `schriften`, `dockerfile`, `regeln`,
+`sicherung`, `netze`, `geheimnisse` und die Befehlsprüfung: grün.
+
+### Ein eigener Fehler dabei
+
+Der Befehl, der die Simulation baute, hat `prolo-bedienen.html` aus dem
+**echten** Arbeitsstand in die Kopie *verschoben* — `mv … || cp …`, und
+das `mv` gelang. Bemerkt in `git status` (` D wiki/vorlagen/…`), die Datei
+aus der Kopie zurückgeholt, nicht per `git checkout` (`N-34`): 0
+Unterschiede zum Git-Stand. Die Regel dazu steht in `TEIL 0` schon — eine
+Probe darf nichts im Arbeitsstand bewegen —, und ich habe sie mit einem
+Rückfallpfad unterlaufen, der nur im Fehlerfall kopiert.
+
+## U-03 — Was jedes Werkzeug-Repository mitbringt
+
+Damit in `prolo2408/wiki`, `…/bordbuch` und `…/www` ein Claude (oder ein
+Mensch) vom ersten Tag an so arbeiten kann wie hier, liegt in jedem der
+drei Ordner schon jetzt, was dort gebraucht wird. `git subtree split`
+nimmt es mit (`U-04`), und `.github/` landet dabei an der Wurzel — wo
+GitHub es liest. Solange die Ordner hier liegen, tut `.github/` darin
+nichts.
+
+| Datei | Inhalt |
+|---|---|
+| `CLAUDE.md` | die Regeln: **der Vertrag mit dem Betrieb** zuerst, dann Arbeitsweise, Oberfläche (§1–§10), Robustheit (§11–§15), Anmeldung, Datentrennung, Benennung, Schützenswertes, Protokolle, Fassung und Migration. Die Abschnittsnummern sind dieselben wie hier — im Code stehen hunderte Verweise wie „§17", und sie sollen stimmen. Neue Befunde bekommen eine eigene Folge (`WK-`, `BB-`, `WW-`). |
+| `README.md` | was es ist, wie man testet, lokal startet (ausprobiert: alle drei antworten mit 200) und veröffentlicht |
+| `BEFUNDE.md` | leer, mit dem Verweis auf die Narben hier |
+| `.github/workflows/abbild.yml` | bei jedem Push: Tests, Gegenprobe, Fassung an drei Stellen, Dockerfile, **Abbild bauen und gesund starten**. Bei einem Tag `v<fassung>`: Tag gegen Code und Herstellerdatei prüfen, eine schon vorhandene Fassung **verweigern** (`§16`), bauen, nach `ghcr.io` schieben, Veröffentlichung mit der Herstellerdatei (ohne `build:`) anhängen |
+| `tests/test_vertrag.py` | die 12 Code-Prüfungen, die in proloWorld wegfallen (`U-02`): Grenze in `do_GET` und `do_POST`, freie Pfade genau `/gesundheit` und `/api/version`, `:?` an der Marke, jede geprüfte Gruppe im Label, Abbild und Changelog tragen die Fassung aus dem Code, und die Herstellerdatei enthält nichts, was dem Betrieb gehört (Netz, Speichergrenzen, Ports) |
+| `tests/gegenprobe_vertrag.py` | die Zähne dazu, aufgerufen aus `tests/alle.sh` |
+
+### Ausgeführt
+
+| | wiki | bordbuch | www |
+|---|---|---|---|
+| `tests/alle.sh` | grün (156 Python-Tests) | grün (138) | grün (52) |
+| `gegenprobe_vertrag.py` | **7 von 7** | **7 von 7** | **7 von 7** |
+| Abbild bauen, nur mit `PROLO_EINLASS` starten | `healthy` | `healthy` | `healthy` |
+| `actionlint` (mit shellcheck) auf `abbild.yml` | sauber | sauber | sauber |
+| Fassung an drei Stellen, Auszug der Versionshinweise | 1.4.1 | 2.6.2 | 1.1.1 |
+
+Der Vertragstest hat sofort etwas gefunden: das Bordbuch hatte keine
+`/gesundheit` — das ist `N-99`, eigens behoben.
+
+`werkzeuge/alle-pruefen.sh --schnell`: alles grün.
+
+Die Regeldateien sind aus der `CLAUDE.md` des Stapels erzeugt (Abschnitte
+wörtlich übernommen, Pfade, die im Werkzeug-Repo nicht mehr stimmen,
+umgebogen). Ab dem Umzug leben sie eigenständig weiter.
+
+## N-100 — Die Einrichtungsprobe bog den echten `prolo` um — und lief ohne root gar nicht
+
+Zwei Seiten derselben Sache, beide durch die neue Prüfung auf GitHub
+(`.github/workflows/pruefen.yml`) ans Licht gekommen.
+
+**Ohne root:** Der erste Lauf auf GitHub war rot — `einrichten-pruefen.sh`
+und `neu-pruefen.sh`. `einrichten.sh` und `neu.sh` fragen als Erstes
+`id -u` und hören ohne root sofort auf. Hier lief jede Probe bisher als
+root, also fiel es nie auf. Ein Prüfer, der nur als root grün wird, prüft
+auf dem Rechner des nächsten Menschen nichts.
+
+**Mit root — schlimmer:** Schritt 2 von `prolo einrichten` legt
+`/usr/local/bin/prolo` an. Die Probe lief in einem Wegwerfordner, aber
+dieser Pfad war fest — also bog jeder Lauf **den echten Verweis** auf den
+Wegwerfordner um, und nach dem Aufräumen zeigte er ins Leere. Gemessen:
+nach einem Probelauf als root war `prolo` auf dem Prüfrechner weg
+(`readlink` zeigte auf ein gelöschtes `/tmp/…`). Auf einem Server, auf dem
+jemand die Probe laufen lässt, wäre es genauso.
+
+### Behoben
+
+- `einrichten.sh`: `ZIEL="${PROLO_BIN:-/usr/local/bin/prolo}"` — setzbar
+  nur, damit die Probe ihren Verweis in die Kopie legt.
+- `einrichten-pruefen.sh` und `neu-pruefen.sh`: ein `id` im eigenen
+  `PATH`, das auf `-u` mit `0` antwortet. Geschrieben wird ohnehin nur im
+  Wegwerfordner.
+- `einrichten-pruefen.sh` prüft die Wirkung, nicht die Absicht: der
+  Verweis liegt **in der Kopie** und zeigt auf sie, und der echte
+  `/usr/local/bin/prolo` ist nach dem Lauf **derselbe** wie vorher.
+- Mutation 12: `ZIEL` wieder fest auf `/usr/local/bin/prolo`. Als root
+  stellt die Probe den echten Verweis danach sofort wieder her.
+
+### Ausgeführt
+
+| | als root | ohne root (`pruefer`) |
+|---|---|---|
+| `einrichten-pruefen.sh` | grün, 30 ok | grün, 30 ok |
+| `einrichten-pruefen.sh --gegenprobe` | — | **14 von 14** gefunden |
+| `neu-pruefen.sh` | grün | grün, 106 ok |
+| `/usr/local/bin/prolo` danach | unverändert (`/opt/stack/werkzeuge/prolo`) | unverändert |
+
+`werkzeuge/alle-pruefen.sh` als `pruefer`: alle Werkzeugtests und alle
+Prüfungen des Stapels grün (der Lauf wurde in den Gegenproben durch einen
+Neustart des Prüfrechners abgebrochen, nicht durch einen Fehler).
+
+## U-04 — Auslagern und Umstellen als Befehl, nicht als Anleitung
+
+Der Umzug eines Werkzeugs in sein eigenes Repository hat zwei Hälften,
+und jede hat eine Stelle, an der man sich still etwas kaputt macht:
+
+- **Auslagern** ohne Geschichte (Dateien kopieren, neu anfangen) verliert
+  jede Narbe: `git blame` auf eine seltsame Zeile führt dann auf „erster
+  Commit" statt auf `N-41`. Und wer die Betriebsdateien mitnimmt, hat
+  zwei Stellen für Netz und Anmeldung, die auseinanderlaufen.
+- **Umstellen**, bevor das Abbild veröffentlicht ist, hinterlässt ein
+  Werkzeug, das sich weder bauen (Code weg) noch holen (Abbild fehlt)
+  lässt — gemerkt beim nächsten `prolo aktualisieren`, also nachts.
+
+Darum zwei Skripte statt einer Befehlsliste (`N-54`):
+
+| | tut | hält an, wenn |
+|---|---|---|
+| `werkzeuge/auslagern.sh <w> <ziel>` | `git subtree split` (ganze Geschichte), ein Commit entfernt die Betriebsdateien, `push` nach `main`. In proloWorld ändert sich nichts. `--trocken` zeigt die Wurzel und schiebt nichts. | das Ziel nicht leer ist, im Ordner nicht Eingechecktes liegt, eine der Dateien aus `U-03` fehlt, ein Zweig eines früheren Versuchs liegt |
+| `werkzeuge/umstellen.sh <w>` | Code, Tests, Schriften weg (`git rm`), `build:` aus der Herstellerdatei, `TYP="image"`, eine `LIESMICH.md`, beim Wiki das Bedienhandbuch nach `doku/` samt Verweis in `CLAUDE.md`. Vorgemerkt, **nicht** eingecheckt. | sich das Abbild nicht holen lässt (`docker manifest inspect`) — dann mit dem Befehl, der es veröffentlicht, und bei „denied" mit dem `docker login` dazu |
+
+Die Anleitung dazu: `werkzeuge/ANLEITUNG.md`, Abschnitt 7.
+
+### Der Prüfstand, und was er zuerst gefunden hat
+
+`werkzeuge/auslagern-pruefen.sh` zieht das Wiki **wirklich** in ein
+leeres (lokales) Repository um und stellt danach in einer Kopie von
+proloWorld alle drei Werkzeuge um. Zwei seiner eigenen Prüflinien waren
+zuerst falsch:
+
+- „ein alter Commit ist wiederzufinden" war rot, **obwohl** der Commit da
+  war: `git log | grep -q` unter `pipefail` — `grep` hört beim ersten
+  Treffer auf, `git log` bekommt SIGPIPE, die Leitung ist „gescheitert".
+  Jetzt wird in eine Variable gelesen. Die Betriebsskripte habe ich auf
+  dieselbe Falle durchgesehen: überall schreibt dort ein einzelnes
+  `printf`, `awk` oder Python, das seine Ausgabe in einem Stück abgibt —
+  kein Fall mit mehreren Schreibvorgängen vor einem `grep -q`.
+- „nicht Eingechecktes hält an" war grün aus dem **falschen** Grund: das
+  Ziel-Repository gab es im Test gar nicht, also hielt schon `git
+  ls-remote` an. Die Mutationsprobe hat es gefunden (die Sperre
+  abgeschaltet — und die Prüfung blieb grün). Jetzt mit einem echten
+  leeren Ziel, und geprüft wird die Wirkung: das Ziel bleibt leer.
+
+Auf GitHub klont die Prüfung seitdem mit ganzer Geschichte
+(`fetch-depth: 0`) — flach geklont gäbe es nichts mitzunehmen.
+
+### Ausgeführt
+
+`werkzeuge/auslagern-pruefen.sh --gegenprobe` (237 s):
+
+| | |
+|---|---|
+| Auslagern des Wikis | Code an der Wurzel, `CLAUDE.md` und `abbild.yml` dabei, alle 5 Betriebsdateien fehlen dort, 72 Commits am Wiki hier → 79 dort, der älteste (`B-22`) ist dabei, **`tests/alle.sh` läuft im neuen Repository allein grün** |
+| Verweigerungen | Ziel mit Inhalt, nicht Eingechecktes (Ziel bleibt leer), Abbild nicht zu holen (nichts vorgemerkt, Meldung nennt `git tag v…`) |
+| Umstellen aller drei | `wiki/` enthält danach genau 8 Betriebsdateien, kein `build:`, `TYP="image"`, Handbuch in `doku/`, `CLAUDE.md` zeigt dorthin, Volumes heißen wie vorher (`bordbuch_bordbuch_belege`, `bordbuch_bordbuch_daten`) |
+| Stapel nach dem Umzug | `grenze`, `schriften`, `regeln`, `sicherung`, `netze`, `geheimnisse`, `einrichten`, `dockerfile`, `prolo-befehle` grün; `grenze-pruefen` sieht weiter alle vier eigenen Werkzeuge |
+| gesamt | **41 ok**, 0 Fehler |
+| Mutationsprobe | **6 von 6** gefunden (Betriebsdateien gehen mit, Ziel mit Inhalt wird beschrieben, nicht Eingechecktes hält nicht an, `build:` bleibt, `TYP` bleibt `build`, Abbild wird nicht geprüft) |
+
+`actionlint` auf `pruefen.yml`: sauber.
+
+## A-01 — Das Auftragsbuch: die Admin-Seite darf handeln, ohne an den Socket zu kommen
+
+Der Wunsch: Werkzeuge im Browser starten, anhalten, aktualisieren,
+anlegen. Der kürzeste Weg dahin — dem Container der Admin-Seite
+schreibenden Zugriff auf den Docker-Socket geben, direkt oder über
+`POST: 1` im Vermittler — ist auch der kürzeste Weg zur Übernahme des
+ganzen Servers: wer den Socket schreibend hat, startet einen Container mit
+`/` eingehängt und ist root. Und eine Webseite ist genau die Stelle, an
+der man am ehesten hereinkommt. Portainer, Dockge und Komodo gehen diesen
+Weg; für einen Stapel, dessen Regeln an `prolo` hängen (Sperre, Sicherung,
+Rückweg), wäre es außerdem ein zweiter Weg an allen Regeln vorbei.
+
+**Darum spricht die Seite nicht mit Docker, sie legt Aufträge ab:**
+
+```
+admin/auftraege/eingang/<kennung>.json    schreibt die Seite (nur sie: 0700, uid 10004)
+admin/auftraege/erledigt/<kennung>.json   Lage und Ergebnis        (root, 0755 - die Seite liest)
+admin/auftraege/erledigt/<kennung>.log    die Ausgabe von prolo
+admin/auftraege/erledigt/protokoll.jsonl  wer wann was
+```
+
+`werkzeuge/auftrag.py` läuft auf dem Server als root, angestoßen von
+systemd (`werkzeuge/systemd/prolo-auftraege.path`, nur `*.json` löst aus),
+und führt **nur** aus, was in `ARTEN` steht — über `prolo`, also mit allem,
+was `prolo` ohnehin prüft:
+
+| Art | wird zu | Zeitgrenze |
+|---|---|---|
+| `start`, `neustart`, `stop`, `pruefen` | `prolo <art> <werkzeug>` | 10 min |
+| `aktualisieren` | `prolo aktualisieren <werkzeug>` (sichert vorher, rollt zurück) | 60 min |
+| `sichern` | `prolo sichern` | 60 min |
+| `netz_anlegen` | `prolo netze anlegen <netz>` | 5 min |
+
+Was im Eingang liegt, ist fremde Eingabe (§11), geschrieben von einem
+Container, der übernommen sein könnte:
+
+- nur Dateinamen nach `JJJJMMTT-HHMMSS-<8 hex>.json`; kein Symlink
+  (`O_NOFOLLOW`), nur eine gewöhnliche Datei, höchstens 256 KiB
+- nur bekannte Arten und Felder, jedes gegen sein Muster; der Werkzeugname
+  muss ein Ordner mit `docker-compose.yml` sein
+- `traefik`, `authentik`, `socket-proxy`, `admin` lassen sich von der
+  Seite aus nicht **anhalten** — danach gäbe es keine Seite mehr, von der
+  aus man sie wieder startet. Neu starten geht.
+- keine Shell, eine feste Umgebung (nichts vom Aufrufer), eigene
+  Prozessgruppe: nach der Zeitgrenze wird die ganze Gruppe beendet, nicht
+  nur `prolo`
+- Ausgabe höchstens 1 MiB, der Rest wird gelesen und verworfen
+- was sich nicht verarbeiten lässt, wandert nach `verworfen/` und ins
+  Protokoll — liegen bleiben darf nichts, sonst stieße systemd den Dienst
+  in einer Schleife an; ein Name, der zweimal auftaucht, beendet den Lauf
+  statt ihn kreisen zu lassen
+- eine Sperre (`flock`): zwei Läufe gleichzeitig gibt es nicht; was bei
+  einem Absturz „läuft" blieb, heißt beim nächsten Lauf „abgebrochen"
+
+`prolo einrichten` legt die Ordner mit den richtigen Besitzern an und
+schaltet den Wächter ein (Schritt 6c) — beides erst nach Nachsehen, beim
+zweiten Lauf passiert nichts. Ohne systemd sagt es, wie man von Hand
+abarbeitet.
+
+Die Seite selbst kommt in `A-02`; hier steht nur, was sie benutzen wird.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `werkzeuge/auftrag-pruefen.sh` | **49 ok**: Normalfall (genau `start wiki`, Lage, Ausgabe, Protokoll, 0644), Fehlschlag mit Rückgabe, 13 Ablehnungen (unbekannte Art, `../traefik`, `./wiki`, nicht vorhanden, Großbuchstaben, `stop traefik`, `stop admin`, Feld zu viel, Liste statt Text, Feld fehlt, `netz;reboot`, Zeilenumbruch in `wer`) — **keine** davon erreicht `prolo`; 6 verworfene Dateien (Symlink, 300 KB, fremder Name, kein JSON, kein Objekt, Ordner), das Ziel des Symlinks unberührt; doppelte Kennung; halbe Datei frisch/alt; Zeitgrenze samt Kind; 1-MiB-Grenze; „abgebrochen"; Sperre; `ADMIN_UID` = Nutzer in `admin/Dockerfile` |
+| `--gegenprobe` | **12 von 12** (Symlink gefolgt, Zugang anhaltbar, jeder Name, fremde Felder, nur `prolo` beendet, Ausgabe unbegrenzt, „läuft" bleibt, Verworfenes bleibt, keine Größengrenze, Umgebung durchgereicht, keine Sperre, Kennung überschrieben) |
+| `werkzeuge/einrichten-pruefen.sh` | **34 ok** (vorher 30): Ordner 0700/0755, Einheiten mit echtem Pfad statt `@STACK@`, Wächter eingeschaltet, zweiter Lauf tut nichts, `--trocken` schreibt keine Einheit |
+| `einrichten-pruefen.sh --gegenprobe` (als Nicht-root) | **17 von 17** — davon 3 neu: Auftragsbuch nicht angelegt, Einheiten mit Platzhalter, Wächter nie eingeschaltet |
+| `auslagern-pruefen.sh` | grün, 41 ok — nachdem er den **ganzen** Ordner `werkzeuge/` in seinen Klon kopiert: vorher nur die obersten Dateien, und `systemd/` fehlte dort |
+| `alle-pruefen.sh` als Nicht-root | alle Werkzeugtests, alle Stapelprüfungen und alle Gegenproben grün bis auf `auslagern-pruefen.sh` (eben dieser Fehler, im alten Stand der Kopie) |
+
+Zwei Fallen im eigenen Prüfstand, beide beim ersten Lauf aufgefallen: der
+Zähler für die Kennungen lief in `$(...)` — jede Kennung war dieselbe, und
+fast alles wurde als Doppel verworfen; und ein beendetes Kind ohne Eltern
+bleibt in diesem Container als Zombie stehen, `kill -0` hielt es für
+lebendig. Gemessen wird jetzt über eine Zählerdatei und über den
+Prozesszustand.
+
+## N-101 — Ein Ordner mit Unterpfad ließ jede Sicherung scheitern
+
+Gefunden beim ersten **echten** Lauf der neuen Admin-Seite (`A-02`) auf
+dem Prüfserver: `prolo aktualisieren admin` brach ab, bevor es etwas
+anfasste —
+
+```
+tar (child): /opt/backups/2026-09-30/admin/auftraege/erledigt.tar.gz: Cannot open: No such file or directory
+ABBRUCH: die Sicherung endete mit einem Fehler.
+```
+
+`admin/sicherung.conf` nennt `ORDNER="auftraege/erledigt"` — den ersten
+Ordner mit Unterpfad im Stapel. `backup.sh` legte das Archiv unter
+`<ziel>/admin/auftraege/erledigt.tar.gz` an, ohne den Ordner `auftraege/`
+davor. Die Sperre hat richtig gegriffen (ohne Sicherung kein Update);
+falsch war die Sicherung.
+
+Und daneben, derselbe Fehler still: eine **Datei** mit Unterpfad in
+`DATEIEN` wurde flach kopiert (`cp … "$ZIEL/$TOOL/"`) — `konf/app.yml`
+lag als `app.yml` im Archiv, die Wiederherstellung suchte sie unter
+`konf/app.yml` und meldete „FEHLT". Beim Zurückspielen fehlte außerdem der
+Ordner davor, wenn es ihn auf dem Server (noch) nicht gab.
+
+`werkzeuge/volumes.py` schreibt Bind-Mounts mit ihrem **relativen Pfad**
+vor — Unterpfade sind also genau das, was die Regeln verlangen.
+
+### Behoben
+
+- `backup.sh`: `mkdir -p` vor dem Archiv eines Ordners und vor der Kopie
+  einer Datei; Dateien mit ihrem Pfad.
+- `werkzeuge/wiederherstellen.sh`: `mkdir -p` für die Sicherheitskopie
+  (Ordner und Dateien) und für das Ziel einer Datei.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `sicherung-lauf-pruefen.sh` | 28 ok (vorher 24): `buch/erledigt` als eigenes Stück mit Inhalt, `konf/tief.conf` mit Pfad, der Werkzeugordner nimmt beides nicht doppelt mit |
+| `--gegenprobe` | **9 von 9** (2 neu: kein Ordner im Archiv, Datei flach) |
+| `wiederherstellen-pruefen.sh` | 41 ok (vorher 38): Ordner mit Unterpfad zurück, Datei mit Unterpfad zurück **auch ohne den Ordner davor**, der zerstörte Unterordner liegt in der Sicherheitskopie |
+| `wiederherstellen-gegenprobe.py` | **18 von 18** (2 neu) |
+
+## A-02 — Die Admin-Seite bedient: Werkzeuge, Aufträge, Protokolle
+
+Die Seite (Fassung **0.2.0**) war eine lesende Übersicht. Jetzt ist sie
+die Verwaltung des Stapels — ohne je schreibend an Docker zu kommen: jeder
+Knopf legt einen Auftrag ins Auftragsbuch (`A-01`).
+
+| Ansicht | neu |
+|---|---|
+| Übersicht | Kachel „Letzte Aufträge"; Werkzeuge und Netze als Verweise |
+| Werkzeuge | **ein Werkzeug je Zeile**, auch angehaltene (aus dem Bestand), mit Zustand, Namen, Schutz |
+| Werkzeug (`/werkzeug/<name>`) | Bedienen (Starten bzw. Neu starten als einziger Primärknopf, Aktualisieren, Prüfen, Anhalten mit Rückfrage — beim Zugang gesperrt, mit dem Befehl für den Server), was auf dem Server liegt (Art, Netze, Volumes, Sicherung, die Ursache, wenn `docker compose config` scheitert), Dienste, **Protokoll** der Container, letzte Aufträge |
+| Netze | Formular „Netz anlegen" |
+| Aufträge | Liste, „Jetzt sichern"; je Auftrag Stand, Zeiten, Grund, Ausgabe, die **mitwächst**, solange er läuft |
+
+**Rechte:** `admin` sieht, `admin-betrieb` bedient und liest Protokolle.
+Beide stehen im Label `prolo.gruppen` (`N-95`).
+
+**Der Bestand.** Ein angehaltenes Werkzeug hat keinen Container, und die
+Seite sah bisher nur Container: nach „Anhalten" wäre es samt dem Knopf,
+der es wieder startet, aus der Liste verschwunden. Der Ausführer schreibt
+darum `erledigt/bestand.json` — Ordner, Art, Abbilder, Namen, Netze,
+Volumes aus der **zusammengesetzten** Konfiguration (§16), **ohne**
+Umgebung und Werte —, nach jedem Auftrag und über
+`prolo-auftraege.timer` alle fünf Minuten.
+
+**Doppelt gibt es nicht** (§10): liegt derselbe Auftrag schon offen da
+(Doppelklick, zweiter Reiter), führt die Seite zu ihm, statt einen zweiten
+abzulegen; der Knopf sperrt sich beim Absenden.
+
+**Gleichlauf.** Die Seite prüft einen Auftrag vorher, damit die Meldung
+sofort kommt; entschieden wird im Ausführer. `werkzeuge/auftrag-gleichlauf.py`
+(aus `auftrag-pruefen.sh`) hält Arten, Felder, Kern-Dienste und Muster
+beider Seiten gleich.
+
+### Was nur der Browser und der echte Lauf gefunden haben
+
+Alle Unittests waren grün — und doch:
+
+1. **Die Themenwahl ging nicht mehr.** Das neue Skript sperrt Knöpfe beim
+   Absenden; ein gesperrter Knopf fällt aus dem Formular, und System/Hell/
+   Dunkel steht im Wert des gedrückten Knopfs. Jetzt wird erst **nach**
+   dem Absenden gesperrt.
+2. **Eine Auftragsseite blieb für immer auf „wartet".** Der Auftrag lief
+   auf dem Prüfserver durch (`ok`), aber `default-src 'none'` verbot dem
+   Browser das Nachladen. `connect-src 'self'` ergänzt — mit Test und
+   Mutation.
+3. Kurze Namen („n8n") als Verweis waren 24 px breit — `min-width:44px`.
+4. Bei 360 px fiel „fehlgeschlagen" aus der Auftragsliste — Auftrag und
+   Ziel in einer Spalte, „Wer" am Handy weg, Datum und Uhrzeit
+   untereinander.
+5. Ein angehaltenes Werkzeug stand mit „kein Router" da — geraten und
+   beim Wiki falsch. Jetzt: „erst nach dem Start lesbar".
+6. Zeiten standen in UTC (der Container kennt keine Zeitzonen) — der
+   Browser setzt sie in die Ortszeit des Betrachters.
+7. `N-101`: die Sicherung scheiterte am Unterpfad `auftraege/erledigt` —
+   eigener Schritt.
+
+Und ein Fund, der älter ist als dieser Umbau: am Handy steht Schrift unter
+12 px (Tabellenköpfe, Marker) — `N-102`.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `admin/tests` | **76** Tests grün (vorher 41) |
+| `admin/tests/gegenprobe.sh` | **29 von 29** (11 neu: Sehen ist nicht Bedienen, fremde Seite, Zugang anhaltbar, Doppelklick, fremde Felder im Auftrag, Protokoll und Ausgabe ungefiltert, Rahmenköpfe im Protokoll, Kennung als Pfad, Protokolle für Nur-Seher, kein Nachladen) |
+| `werkzeuge/auftrag-pruefen.sh` | **57 ok** (vorher 49): Bestand mit Art, Namen, Netz, Abbild von Hand; kein Wert aus der Umgebung darin; Ursache im Wortlaut von docker; nicht bei jedem Lauf, aber nach jedem Auftrag neu; ein Verweis als Werkzeugordner wird abgelehnt; Gleichlauf mit der Seite |
+| `auftrag-pruefen.sh --gegenprobe` | **17 von 17** (5 neu) |
+| `werkzeuge/einrichten-pruefen.sh` | 35 ok: Zeitgeber installiert und eingeschaltet; `--gegenprobe` als Nicht-root **17 von 17** |
+| Stapelprüfungen | `grenze` 73, `netze` 42, `sicherung` 14, `geheimnisse` 161, `regeln`, `dockerfile`, `prolo-befehle`: grün; `volumes.py`: `auftraege/erledigt` gesichert, `auftraege/eingang` erklärt |
+| Browser (Kratzblock), 14 Ansichten × 360/768/1920 × dunkel/hell = 84 Messungen | kein seitliches Scrollen, nichts ragt aus einer Karte, **kein Kontrast unter 4,5:1** (oklch umgerechnet), Klickflächen ≥ 44 × 44; der Prüfer findet **5 von 5** eingebauten Mängeln; Anhalten fragt, „Abbrechen" legt nichts ab; alle Bedienelemente per Tab erreichbar, alle mit Fokusrahmen; 0 JavaScript-Fehler |
+| echter Lauf auf dem Prüfserver | `prolo aktualisieren admin` baut 0.2.0, Einhängepunkte `eingang` rw / `erledigt` ro; im Browser: **Neu starten** www → Auftrag → `auftrag.py` → `prolo neustart www` → Container neu gestartet, Seite springt von „wartet" auf „erledigt"; **Anhalten** → Container weg, www steht als „angehalten" in der Liste; **Starten** von dort → läuft wieder; Protokoll von wiki: 200 echte Zeilen über den Vermittler; admin anhalten: gesperrt; `auftrag.py liste` nennt alle vier mit `arthur` |
+
+## N-102 — Am Handy stand auf der Admin-Seite Schrift unter 12 px
+
+§3: „Handy: nichts unter 12 px." Die Admin-Seite hatte seit 0.1 am Handy
+dieselben Größen wie am Schreibtisch: Tabellenköpfe 10 px, Marker,
+Beschriftungen (`dt`) und Unterzeilen der Kennzahlen 11 px. Aufgefallen
+bei der Browserabnahme von `A-02` — der Prüfer misst seitdem die
+Schriftgröße jedes Textknotens bei 360 px, und seine eigene Gegenprobe
+(eine eingebaute 10-px-Zeile) findet er.
+
+Behoben in einer Regel im Handy-Abschnitt; am Schreibtisch bleibt es bei
+10–11 px für Labels (§3). Admin **0.2.1**.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| Browser, 14 Ansichten × 3 Breiten × 2 Themen | vorher **296** Stellen unter 12 px, nachher **0** Mängel jeder Art; Prüfer-Gegenprobe 5 von 5 |
+| `admin/tests/alle.sh` | grün, Fassung 0.2.1 an drei Stellen |
+
+Nicht gemessen: Wiki, Bordbuch und www. Sie ziehen in eigene
+Repositorys (`U-04`); dort gehört dieselbe Messung als erster Befund hin.
+
+## N-103 — Die override-Datei kann `ports:` doch wegnehmen
+
+CLAUDE.md §19 sagte: bei einem Fremdwerkzeug bringt der Hersteller die
+`ports:`-Zeile mit, „und die override-Datei kann sie nicht wieder
+wegnehmen — Compose hängt Listen aneinander". Daraus folgte die Anweisung
+an drei Stellen (`prolo neu`, die Sperre, die Anleitung): **die
+Herstellerdatei ändern** — gegen die eigene Regel, sie unverändert zu
+übernehmen. Bei n8n steht die Abweichung bis heute im Kopf der Datei.
+
+Gemessen, nicht angenommen: seit Compose 2.24.4 gibt es `!reset`.
+
+```yaml
+# docker-compose.override.yml
+services:
+  app:
+    ports: !reset []
+```
+
+`docker compose config` (hier 5.1.1) zeigt danach **keinen** Port mehr,
+die Herstellerdatei mit `"5678:5678"` bleibt Zeichen für Zeichen, wie sie
+war. Ältere Fassungen lehnen eine Datei mit `!reset` ab — laut, nicht
+still: dann startet von den Fremdwerkzeugen keines.
+
+### Geändert
+
+- `prolo neu` schreibt `ports: !reset []` an den Dienst in der
+  override-Datei; Platzhalter, `LIESMICH.md` und „Noch zu tun" sagen
+  „unverändert einsetzen", nicht mehr „Zeile entfernen".
+- Die Startsperre nennt als Abhilfe bei einem Werkzeug mit override-Datei
+  genau den Schnipsel für **diesen** Dienst; ohne override-Datei (eigener
+  Code) weiter die Zeile. `prolo netze` ebenso.
+- `prolo einrichten`, Schritt 1: Compose ab 2.24.4, sonst Abbruch mit dem
+  Befehl — **bevor** etwas angelegt wird.
+- n8n: `ports: !reset []` in der override-Datei; der Kopf der
+  Herstellerdatei sagt, dass sie bei der nächsten Fassung 1:1 die des
+  Herstellers sein darf.
+- CLAUDE.md §19 und `werkzeuge/ANLEITUNG.md`.
+
+**Und ein Fehler in dieser Änderung selbst, gefunden von der
+Mutationsprobe:** der neue Hinweis in `prolo netze` stand mit
+`"ports: !reset []"` in einem Text, der selbst in doppelten
+Anführungszeichen steht — das innere Anführungszeichen beendete ihn, und
+Bash führte `!reset` als Befehl aus (`!reset: command not found`, der
+Hinweis kam verstümmelt an). Kein Test hatte bis dahin einen
+**unerklärten** Port durch `prolo netze` geschickt; aufgefallen ist es,
+weil eine alte Mutation („erklärte Ports zählen als Beanstandung")
+plötzlich entwischte — ihre Prüflinie suchte genau den Text, den die
+Shell zerbrach. Jetzt: einfache Anführungszeichen, eine eigene
+Prüflinie, eine eigene Mutation.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `neu-pruefen.sh` | 109 ok: Herstellerdatei **mit** `"8081:80"` → `prolo start` läuft durch, im echten `docker compose config` ist kein Port, die Datei ist unverändert; ein **zweiter** Dienst mit `5432` → angehalten, die Abhilfe nennt `ports: !reset []`, den Dienst `datenbank:` und die override-Datei |
+| `neu-pruefen.sh` (Nachtrag) | 112 ok: `prolo netze` mit einem **unerklärten** Port beanstandet ihn, nennt `ports: !reset []` — und die Shell scheitert nicht an ihrem eigenen Text |
+| `neu-gegenprobe.py` | **27 von 27** (3 neu: `!reset` fehlt, Abhilfe nennt wieder die Herstellerdatei, Anführungszeichen im Hinweis) |
+| `einrichten-pruefen.sh` | 38 ok: Compose 2.20.0 hält an, mit `2.24.4` und dem Befehl, und nichts wird angelegt; 2.24.4 genügt (die Grenze selbst) |
+| `einrichten-pruefen.sh --gegenprobe` (Nicht-root) | **18 von 18** (1 neu: die Schranke lässt 2.20.0 durch) |
+| n8n, echtes `docker compose config` | `ports`: keine; Netz `netz-n8n` |
+| `grenze` 73, `netze` 42, `sicherung` 14, `aktualisieren` 85, `prolo` 101 ok, `regeln`, `prolo-befehle` | grün |
+
+## A-03 — Eine Compose-Datei einwerfen, und das Werkzeug wird gehostet
+
+Der Wunsch in einem Satz: *„eine grafische Oberfläche, wo ich ein docker
+compose reinwerfe, und es wird passend gehostet — Netze und alles will ich
+trotzdem selbst anpassen können."*
+
+### Der Weg
+
+1. **Einwerfen** (Admin: *Werkzeuge* → *Werkzeug anlegen*): Name und die
+   `docker-compose.yml` aus der Doku des Herstellers.
+2. **Prüfen** — ein Auftrag ohne Nebenwirkung. `werkzeuge/compose_befund.py`
+   liest die Datei mit `docker compose config` (nicht mit einem eigenen
+   YAML-Leser) und sagt: Dienste, Abbilder, Ports, Volumes, Bind-Mounts,
+   `env_file`, Variablen `${…}` mit Vorgabe — und **Gefahren**:
+   `privileged`, `network_mode: host`/`container:`, `pid`/`ipc`/`uts`/
+   `userns_mode`/`cgroup: host`, `cap_add`, `devices`, abgeschaltete
+   Schutzprofile, der Docker-Socket, jeder Pfad vom Server, der ganze
+   Werkzeugordner, `build:`, `latest`, fremde Volumes. Er schlägt vor, zu
+   welchem Dienst Traefik führt (Datenbanken und ähnliche Hilfsdienste
+   zählen nicht) und auf welchem Port — **nur** wenn das eindeutig ist.
+3. **Bestätigen**: Dienst, Port, Netz (eigenes — Vorgabe — oder ein
+   vorhandenes, dann mit Grund), Anmeldung (**ohne Vorgabe**, §17a), Werte
+   für die nicht geheimen Variablen (mit der Vorgabe des Herstellers
+   vorbelegt). Angelegt wird **genau die Datei, die geprüft wurde** — sie
+   liegt beim Prüfauftrag, das Formular kann sie nicht austauschen.
+4. **Anlegen** über `prolo neu <name> --compose <datei>`:
+   - die Herstellerdatei **zeichengenau**;
+   - die override-Datei: eigenes Netz **plus** das Projektnetz (sonst
+     erreicht die App ihre Datenbank nicht mehr), Route, Zertifikat,
+     Anmeldung, Grenzen, und `ports: !reset []` an **jedem** Dienst mit
+     Port (`N-103`) — eine Datenbank auf 5432 für die ganze Welt ist der
+     häufigste Fund in fremden Compose-Dateien;
+   - `sicherung.conf` mit **allen** Volumes (Laufzeitnamen) und Ordnern,
+     ein Hinweis bei einer Datenbank im Volume;
+   - `.env` (0600): geheime Variablen **gewürfelt** — ein Passwort aus der
+     Beispieldatei ist eines, das im Internet steht —, in der
+     `geheimnisse.conf` vermerkt und sofort im verschlüsselten Merkzettel;
+     die übrigen aus dem Formular;
+   - gleich danach die Startsperre, gemessen an der zusammengesetzten
+     Konfiguration.
+5. **Starten**, und bei neuem Netz Traefik „Konfiguration übernehmen" —
+   ein neuer Knopf für laufende Werkzeuge (`prolo start`), denn „Neu
+   starten" nimmt kein neues Netz mit (`N-58`).
+
+**Gefahren:** aus der Admin-Seite wird so etwas **nie** angelegt — sie
+ist die Stelle, an der man am ehesten hereinkommt, und das wäre der Weg zu
+root. Auf dem Server fragt `prolo neu` einzeln nach; die Antwort muss
+wörtlich `ja, gefaehrlich` sein, ohne Terminal wird nichts angelegt.
+Geheime Variablen kommen nie über einen Auftrag: Seite und Ausführer
+lehnen Werte für `…PASS/SECRET/KEY/TOKEN/SALT/CREDENTIAL…` ab.
+
+### Nebenbei gefunden und behoben
+
+- `prolo neu` fiel bei fehlendem Port **still auf 8080** zurück: die
+  Rückfrage scheitert ohne Terminal in einer Subshell, und danach griff
+  die alte Vorgabe (§11). Jetzt: Port aus dem gewählten Dienst, sonst
+  Abbruch mit `--port`.
+- Ein vorhandenes Netz ließ sich mit `--netz` **ohne Grund** teilen — der
+  Grund wurde nur in der Rückfrage verlangt. Jetzt `--geteilt <grund>`,
+  Pflicht (`N-62`).
+- Die override-Datei nahm dem Dienst das Projektnetz: wer nur ein Netz
+  nennt, nimmt alle anderen. Bei einer Herstellerdatei mit Datenbank war
+  die dann weg.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `neu-pruefen.sh` | **145 ok** (vorher 112): zwei Dienste mit Ports, `env_file`, Variablen → Herstellerdatei zeichengenau, **kein** Port veröffentlicht, App in `default` und `netz-zweiapp`, Datenbank nur in `default`, Volumes mit Laufzeitnamen, Ordner, Datenbank-Hinweis, `.env` 0600, Geheimnis gewürfelt (≥ 40 Zeichen) und **nicht** in der Ausgabe, Wert aus `--wert`, Konfiguration vollständig, Startsperre frei, `volumes.py` ohne Lücke; mehrdeutig → nichts; zwei Ports → keine stille 8080; Gefahr aus der Seite / ohne Terminal → nichts; Geheimnis per `--wert` → nichts; kaputte Datei → Wortlaut von docker; fremdes Netz ohne Grund → nichts |
+| `neu-gegenprobe.py` | **37 von 37** (10 neu). Eine davon war zuerst falsch gebaut: sie setzte 8080 in der Meldungszeile, der Abbruch danach blieb stehen — sie prüfte nichts und „entwischte". Jetzt trifft sie die Zeile, die abbricht. |
+| `auftrag-pruefen.sh` | **77 ok**: Prüfauftrag ruft `prolo` nicht, Befund von Hand, Datei zeichengenau daneben, Gefahren im Befund; `neu` bekommt Datei, Dienst, Port, Netz, Wert — die Datei war während des Aufrufs da und ist danach weg; 10 Ablehnungen (Name vorhanden, keine Anmeldung, eigene ohne Grund, fremdes Netz ohne Grund, Port 70000, Dienst mit Leerzeichen, leere Datei, Geheimnis als Wert, Hochkomma, Werte als Text) erreichen `prolo` nicht |
+| `auftrag-pruefen.sh --gegenprobe` | **22 von 22** (5 neu) |
+| `admin/tests` | **105** Tests; `gegenprobe.sh` **35 von 35** (6 neu: Gefahr anlegbar, Datei aus dem Formular, Seher werfen ein, eigene ohne Grund, Gefahr ungefiltert, Anmeldung mit Vorgabe) |
+| Browser, 18 Ansichten × 3 Breiten × 2 Themen | **0 Mängel** in 108 Messungen, nachdem die Gefahrenliste bei 360 px nicht mehr auf 515 px schob; der Prüfer misst bei einem Feld im Label das Label. Auf dem Bild — nicht in einer Messung — standen die Formularfelder mit halben Bildschirmen Luft untereinander (`flex: 1 1 220px` in einer Spalte ist eine Höhe); behoben |
+| **echter Lauf auf dem Prüfserver** | im Browser `traefik/whoami:v1.10.3` mit `"8081:80"` eingeworfen → Vorschlag `whoami`/`80` → angelegt (Herstellerdatei mit `8081:80` unverändert, override mit `!reset`, Startsperre frei) → gestartet → bei Traefik „Konfiguration übernehmen" (hängt danach in `netz-whoami`) → `https://whoami.prolo.me` über Traefik: **200**, Antwort von `whoami`; `127.0.0.1:8081`: **keine Antwort** |
+| Stapelprüfungen | `grenze` 73, `netze` 42, `sicherung` 14, `prolo` 101, `einrichten` 38, `geheimnisse` 161, `dockerfile`, `regeln`, `prolo-befehle` (42 Befehle): grün |
+
+---
+
+## N-104 — Die Betriebsgruppe der Admin-Seite stand außerhalb jeder Prüfung
+
+**Gefunden:** die Prüfung auf GitHub war seit `A-02` rot (Läufe 7, 8, 9),
+und das fiel erst beim Nachsehen auf. Rot war nicht der Prüfer, sondern
+seine Gegenprobe: `grenze-gegenprobe.py` suchte die Zeile
+`prolo.gruppen=admin=die Stack-Uebersicht sehen` — seit `A-02` steht dort
+`…; admin-betrieb=Werkzeuge starten, …`. Das Muster griff null Mal, die
+Probe brach ab.
+
+Lokal war das vor jedem Push sichtbar gewesen. In `A-02` und `A-03` liefen
+die Prüfer einzeln, `alle-pruefen.sh` nicht — und damit keine der
+Gegenproben, die nicht zu genau dem geänderten Teil gehörten.
+
+**Dahinter lag eine echte Lücke.** Die neue Mutation „`admin-betrieb` fehlt
+im Label" blieb **unentdeckt**: der Prüfer las nur Variablen, deren Name
+auf `_GRUPPE` **endet**, und `ADMIN_GRUPPE_BETRIEB` endet nicht so. Er sah
+von der Admin-Seite nur `admin`. Fehlt `admin-betrieb` in `prolo.gruppen`,
+nennt `prolo einrichten` die Gruppe nicht, niemand legt sie an, und jeder
+Knopf der Admin-Seite antwortet mit 403 — ohne dass eine Prüfung rot wird.
+
+### Behoben
+
+- `grenze-pruefen.sh` liest jede Variable mit `GRUPPE` im Namen, gleich an
+  welcher Stelle; ein `…PRAEFIX` ist ein Filter und zählt nicht. Die Zeile
+  nennt jetzt `admin, admin-betrieb`.
+- `grenze-gegenprobe.py`: die alte Mutation auf die heutige Zeile, dazu
+  eine neue, die nur `admin-betrieb` wegnimmt.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| Gegenprobe **vor** der Korrektur | 17 gefunden, **1 entwischt**: „die Admin-Seite nennt ihre Betriebsgruppe nicht" |
+| `grenze-pruefen.sh` nach der Korrektur | **73 ok**, die Gruppenzeile nennt `admin, admin-betrieb` |
+| Gegenprobe nach der Korrektur | **18 von 18** |
+| `alle-pruefen.sh`, ganz | alle Prüfungen und Gegenproben grün bis auf **eine**: `prolo-befehle-pruefen.py --gegenprobe` — dieselbe Ursache an anderer Stelle, eigener Befund `N-105` |
+
+**Regel dazu, keine neue:** TEIL 0 sagt „Prüfschritte werden ausgeführt".
+Gemeint sind alle, die eine Änderung treffen **kann** — und eine Änderung an
+einer Compose-Datei trifft jede Gegenprobe, die diese Datei mutiert.
+Vor dem Push läuft `alle-pruefen.sh`, nicht eine Auswahl.
+
+---
+
+## N-105 — Die Befehlsprobe fand ihre Textstelle nicht mehr
+
+**Gefunden:** beim vollen Lauf von `alle-pruefen.sh` für `N-104`.
+`prolo-befehle-pruefen.py --gegenprobe` meldete 1 von 8 Mutationen „nicht
+eingebaut": sie suchte die ganze Tabellenzeile
+``| ein neues Werkzeug | `sudo prolo neu <name>` |`` in
+`werkzeuge/ANLEITUNG.md`. `A-03` hat die Zeile hinten um den Weg über die
+Compose-Datei verlängert — die Zeile gibt es noch, die Zeichenfolge mit dem
+schließenden Strich nicht.
+
+Dieselbe Ursache wie `N-104`: in `A-03` lief `alle-pruefen.sh` nicht
+ganz, also auch diese Gegenprobe nicht.
+
+### Behoben
+
+Die Mutation greift nur noch den Anfang der Zeile, bis zum Befehl. Das ist
+der Teil, um den es ihr geht; was dahinter steht, darf sich ändern.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `prolo-befehle-pruefen.py --gegenprobe` vorher | 7 von 8, Nr. 3 „NICHT EINGEBAUT" |
+| nachher | **8 von 8** |
+| `prolo-befehle-pruefen.py` | grün |
+
+---
+
+## N-106 — Die Drehregel für das Zugriffsprotokoll stand nur im Kommentar
+
+**Gefunden:** beim Vorbereiten der Firewall, die genau dieses Protokoll
+lesen soll. Seit `B-26` schreibt Traefik jede Anfrage als JSON-Zeile nach
+`traefik/log/zugriff.log`, und `traefik/logrotate.conf` liegt im Git. In
+`/etc/logrotate.d` kam sie nur, wenn jemand die Zeile aus ihrem Kopf
+abtippte:
+
+    sudo ln -sf /opt/stack/traefik/logrotate.conf /etc/logrotate.d/traefik-prolo
+
+`prolo einrichten` tat es nicht, keine Anleitung nannte es. Auf einem
+frischen Server wuchs das Zugriffsprotokoll damit ohne Grenze — genau das,
+wovor die Datei warnt („sonst läuft der Datenträger voll"). TEIL III sagt
+seit `N-54`: was man auf einem neuen Server tut, tut `prolo einrichten`.
+
+**Und wer es abgetippt hatte, bekäme mit der Korrektur ein neues Problem.**
+Gemessen mit logrotate 3.21: steht dieselbe Datei in zwei Regeln, steigt
+logrotate mit `duplicate log entry` und **Rückgabe 1** aus — jeden Tag,
+die Einheit steht auf „failed".
+
+### Behoben
+
+- `prolo einrichten`, neuer Schritt **6d. Protokolle drehen**: jede
+  `<werkzeug>/logrotate.conf` wird zu `/etc/logrotate.d/prolo-<werkzeug>`,
+  0644 (logrotate liest keine Regel, die Gruppe oder Welt schreiben dürfen),
+  mit dem echten Stapelpfad statt `@STACK@`. Kein Werkzeugname im Skript.
+  Sieht erst nach: steht die Regel schon so da, passiert nichts.
+- Ein Verweis in `/etc/logrotate.d`, der auf eine dieser Dateien zeigt (die
+  alte Anleitung), wird entfernt — sonst der doppelte Eintrag.
+- Schlägt das Schreiben fehl, steht die Antwort des Systems in der Meldung,
+  kein geratener Rat (§7, `N-64`).
+- `traefik/logrotate.conf`: `@STACK@` statt `/opt/stack`, Kopf und
+  Kommentar in der Compose-Datei nennen `prolo einrichten` statt `ln -sf`.
+- `.github/workflows/pruefen.yml` installiert `logrotate`: die Probe misst
+  mit logrotate selbst, und ein fehlendes Werkzeug ist dort ein Fehler, kein
+  Überspringen.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `einrichten-pruefen.sh` als root und als Nutzer `pruefer` | je **39 ok** (vorher 38). Die neue Zeile misst die Wirkung: Regel da, keine Verknüpfung, 0644, nennt den Stapel der Kopie, der alte Verweis ist weg, **`logrotate -d` gibt 0 zurück und sieht die Regel** |
+| `einrichten-pruefen.sh --gegenprobe` als `pruefer` | **22 von 22** (4 neu: nicht geschrieben, Platzhalter bleibt, alter Verweis bleibt, 0666) |
+| Mutationen | jede greift genau eine Zeile, vorher einzeln nachgezählt |
+| echter Lauf auf dem Prüfserver | alten Verweis wie nach der Anleitung angelegt → `prolo einrichten`: „entfernt", „geschrieben"; `logrotate -f` Rückgabe 0; `zugriff.log` → `zugriff.log.1` (14 Zeilen), neue Datei 0640; die nächste Anfrage steht in der **neuen** Datei — Traefik hat nach `USR1` neu geöffnet |
+
+---
+
+## N-107 — `prolo einrichten` legte an der Stelle einer fehlenden Konfigurationsdatei einen Ordner an
+
+**Gefunden:** beim Lesen von Schritt 6b, während `crowdsec/` vier weitere
+Dateien aus dem Git unter `VOLUMES_OHNE` bekommen sollte. Schritt 6b geht
+jeden Bind-Mount aus dem Werkzeugordner durch. Steht der Pfad in `ORDNER`
+**oder** `VOLUMES_OHNE` und fehlt, legt er einen Ordner an — auch dann,
+wenn der Eintrag eine **Datei** aus dem Git ist („`traefik.yml|liegt im
+Git`"). Das ist genau die Narbe aus `N-91`, diesmal vom eigenen Skript:
+Docker hängt den leeren Ordner an die Stelle der Konfiguration, Traefik
+startet nicht.
+
+Gemessen, bevor etwas geändert wurde: eine Kopie mit eigenem Git,
+`traefik/traefik.yml` eingecheckt und gelöscht → nach `prolo einrichten`
+ist `traefik/traefik.yml` ein **Ordner**.
+
+### Behoben
+
+Vor dem Anlegen fragt Schritt 6b das Git: ist der Pfad dort eine **Datei**
+(`git ls-files` nennt genau ihn), wird nichts angelegt, sondern gemeldet —
+mit dem Befehl, der sie zurückholt (`git -C <stapel> checkout -- <pfad>`).
+Ordner (`log`, `dynamic`) bleiben, wie sie waren: fehlen sie, werden sie
+angelegt.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| neue Probe **vor** der Korrektur | FEHLER: „an der Stelle von traefik.yml steht jetzt ein Ordner" |
+| `einrichten-pruefen.sh` nach der Korrektur, root und `pruefer` | je **40 ok** (vorher 39) |
+| `--gegenprobe` als `pruefer` | **23 von 23** (1 neu: die Git-Abfrage abgeschaltet) |
+
+---
+
+## F-01 — Der Stapel hatte keine Firewall
+
+**Gefunden:** Wunsch des Betreibers — „eine Firewall, die loggen kann und
+besondere Regeln bauen kann, am besten mit etwas, das schon existiert, und
+einer grafischen Oberfläche". Vorhanden war: die Ratenbremse am Eingang
+(`N-46`, sie bremst Tempo, nicht Angriffe), die Zugangsbremse von `www`
+(zehn Fehlversuche je Stunde, nur bei sich) und das Zugriffsprotokoll von
+Traefik (`B-26`), das niemand las. Wer scannt, rät oder SSH-Passwörter
+durchprobiert, durfte das beliebig lange.
+
+### Die Entscheidung
+
+**CrowdSec**, als Werkzeug `crowdsec/` im Stapel, dazu der
+**Firewall-Bouncer** auf dem Server (nftables). Verworfen:
+
+| | warum nicht |
+|---|---|
+| fail2ban | keine Oberfläche, Regeln als Regex je Protokoll, keine gemeinsamen Blocklisten |
+| OPNsense/pfSense | brauchen eigene Hardware oder eine VM vor dem Server — beim gemieteten Server keine Option |
+| BunkerWeb, SafeLine | ersetzen Traefik als Eingang; der ganze Zugang (`N-44`, `N-46`, `sniStrict`) müsste neu gebaut werden |
+| nur die Firewall des Anbieters | sperrt Ports, erkennt keine Angriffe; sie gehört **zusätzlich** davor (nur 22, 80, 443) |
+
+CrowdSec erkennt an **Regeln** — aus dem Hub gepflegt (SSH, CVEs, Scanner)
+und **eigene** als Datei in `crowdsec/regeln/` —, protokolliert jede
+Meldung und bekommt eine Blockliste der Gemeinschaft. Oberflächen: die
+Admin-Seite (`F-02`) und freiwillig die CrowdSec-Konsole.
+
+### Was entstand
+
+- `crowdsec/`: Compose mit den Grenzen aus §19, lokale API **nur auf
+  127.0.0.1** (`prolo.ports` erklärt), Erfassung von `traefik/log/` und
+  `/var/log` des Servers (je als **Ordner**, weil logrotate die Dateien
+  ersetzt, `N-106`), `profiles.yaml` (eigene Regeln 24 h, sonst 4 h und
+  jedes Wiederkommen 4 h mehr), zwei eigene Regeln:
+  `prolo/zugangslink-raten` (dasselbe Maß wie `www`, aber für alle Dienste
+  und SSH) und `prolo/falle` (ein Aufruf von `/wp-login.php`, `/.env`,
+  `/.git/` … genügt — auf diesem Server gibt es das nie).
+- `prolo firewall` (`werkzeuge/firewall.py`): Lage, `sperren`, `aufheben`,
+  `erlauben`, `nicht-mehr-erlauben`. Gesperrt wird nur, was im Internet
+  vorkommt (`is_global`): privat, Docker-intern, Tailscale `100.64.0.0/10`
+  wird abgelehnt — sonst sperrte der Stapel sich selbst. Netze höchstens
+  `/16`. Was auf der Freigabeliste steht, lässt sich nicht sperren.
+- `prolo einrichten`, Schritt **9b**: der Bouncer. Installiert wird er nicht
+  vom Skript (ein Paket samt fremder Paketquelle ist eine Entscheidung am
+  Server, wie bei `age`); fehlt er, stehen die zwei Befehle da. Ist er da,
+  werden lokale API und Schlüssel eingetragen (0600, der Wert nie in der
+  Ausgabe, §22), der Bouncer neu gestartet — und geprüft, dass er bei
+  CrowdSec **wirklich abfragt** (Wirkung, nicht Ankündigung, `N-38`).
+
+### Gemessen statt angenommen
+
+- Das Startskript des Abbilds kopiert beim ersten Start nach
+  `/etc/crowdsec` und bricht an einem schreibgeschützt eingehängten Ordner
+  ab (`rsync` Rückgabe 23). Darum liegt die Erfassung unter
+  `/prolo/erfassung`, und `config.yaml.local` zeigt dorthin.
+- `auth.log` (`syslog:adm`, 0640) ist ohne jede Fähigkeit lesbar, weil root
+  im Abbild in `adm` steht; eine fremde 0600-Datei ist es nicht — die
+  Rechte greifen. `group_add: ["4"]` steht trotzdem ausdrücklich da.
+- `register_bouncer` im Abbild legt den Bouncer nur an, wenn es ihn nicht
+  gibt — ein neuer Schlüssel in `.env` käme nie an. Darum ist er `haende`,
+  und die Erklärung nennt den Weg.
+- Beim Freigeben hebt CrowdSec 1.7.4 eine bestehende Sperre **selbst** auf,
+  gemessen beim Bouncer. Ein eigenes Löschen in `erlauben` war wirkungslos
+  — gefunden, weil seine Mutation entwischte — und ist weg. Die Probe hält
+  fest, dass es so bleibt.
+- Die erste Fassung der Probe fragte `--json` erst, als beide Quellen schon
+  Zeilen hatten — die Liste der Quellen ist aber gerade für die **ohne**
+  Zeilen da. Auch das fand eine entwischte Mutation.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `werkzeuge/crowdsec-pruefen.sh` | **33 ok** gegen echtes CrowdSec 1.7.4 aus der Compose-Datei (eigener Projektname und eigene Volumes): Kette Traefik → Datei → Erfassung, Grenzen, API nur 127.0.0.1; 10 unbekannte Links → 24 h, 9 → nichts (der Eimer fasst 9), `/wp-login.php` → 24 h, 20 normale Aufrufe → nichts, private Adresse → nichts, 6 SSH-Fehlversuche → 4 h, nach einer früheren Sperre → 8 h, Freigabe → Überlauf ohne Sperre, Bouncer mit Schlüssel genau die vier Sperren, ohne → 403; `prolo firewall`: 2 h mit Grund und Name, private/Tailscale/keine Adresse/`/8` abgelehnt, `/24` sperren und aufheben, Freigeben beim Bouncer wirksam, 13 d = 312 h, > 1 Jahr und ohne Grund abgelehnt, `--json` vollständig, beide Quellen auch mit 0 Zeilen |
+| `crowdsec-pruefen.sh --gegenprobe` | **18 von 18** — nach zwei Runden: in der ersten entwischten zwei (siehe oben, beide behoben), in der zweiten fand die neue Zeile die Mutation „--json vergisst eine Quelle", aber die Gegenprobe suchte den Wortlaut der alten; Suchmuster korrigiert und die Mutation einzeln nachgeprüft (Rückgabe 1, richtige Zeile) |
+| `einrichten-pruefen.sh` | **41 ok**; `--gegenprobe` als `pruefer` **30 von 30** (7 neu: Schlüssel fehlt, 0644, kein Neustart, kein Weg ohne Bouncer, stiller Bouncer, Schlüssel in der Ausgabe, Neustart bei jedem Lauf) |
+| Stapelprüfungen | `grenze` 73, `netze` 43, `sicherung` 14, `prolo` 101, `geheimnisse` 173, `zugriff`, `dockerfile`, `regeln`, `prolo-befehle` (43 Befehle): grün; `wiki/tests/alle.sh` grün, Bedienseite im Browser: 0 JS-Fehler |
+
+### Was hier nicht zu messen war
+
+- **Der Bouncer selbst** (nftables): seine Releases sind in dieser Umgebung
+  nicht erreichbar. Gemessen ist, dass er mit seinem Schlüssel genau die
+  richtigen Sperren bekommt. Dass er sie in nftables einträgt, zeigt auf
+  dem Server `sudo prolo firewall` (Bouncer „holt ab") und
+  `sudo nft list ruleset | grep crowdsec`.
+- **Der Hub** (`hub-data.crowdsec.net`) ist hier gesperrt. Die Probe startet
+  CrowdSec darum mit dem, was das Abbild mitbringt, und zwei
+  Stellvertretern für `crowdsecurity/non-syslog` und
+  `crowdsecurity/traefik-logs`, die dieselben Felder setzen, auf die die
+  eigenen Regeln schauen. Auf dem Server holt CrowdSec die echten beim
+  Start.
+
+---
+
+## F-02 — Die Firewall auf der Admin-Seite
+
+**Gefunden:** mit `F-01` gab es eine Firewall, aber sehen und bedienen
+ließ sie sich nur per SSH. Gewünscht war eine Oberfläche, „damit ich alles
+sehen kann".
+
+### Was entstand
+
+Admin **0.4.0**, eine Seite `/firewall` (Navigation; am Handy über die
+Kachel „Firewall" der Übersicht):
+
+- Kennzahlen: gesperrte Adressen (dazu die Größe der
+  Gemeinschafts-Blockliste), Meldungen in sieben Tagen, ob der Bouncer
+  abholt, Freigaben.
+- **Zu klären**, je Ursache ein Satz mit dem Weg daraus: CrowdSec läuft
+  nicht, kein Bouncer, Bouncer still, eine Quelle ohne Zeilen, die Lage
+  älter als 15 Minuten, Meldungen von `prolo firewall`.
+- Aktive Sperren mit Herkunft (erkannt / von Hand), Grund, Land,
+  Restdauer — und „Aufheben" mit Rückfrage. Meldungen mit Folge (Sperre,
+  keine, beobachtet). Freigabeliste mit „Entfernen". Die eigenen Regeln aus
+  `crowdsec/regeln/`. Was gelesen wird.
+- Sperren (Adresse, Dauer, Grund), Freigeben, „Meine Adresse freigeben".
+- Die **eigene Adresse** (letzter Eintrag in `X-Forwarded-For`, §11) lässt
+  sich nicht sperren, auch nicht als Teil eines Netzes — die Seite sagt,
+  wie man es auf dem Server täte.
+
+Wie bei allem seit `A-01` spricht die Seite **nicht** mit CrowdSec: jeder
+Knopf legt einen Auftrag ab (`firewall_sperren`, `_aufheben`, `_erlauben`,
+`_nicht_erlauben`, `_lesen`), `werkzeuge/auftrag.py` führt ihn über
+`prolo firewall` aus — mit dem Namen des Auslösers als
+`PROLO_FIREWALL_WER`, der an der Sperre steht — und schreibt die Lage alle
+fünf Minuten und nach jedem Auftrag nach `auftraege/erledigt/firewall.json`.
+
+### Was nur das Bild zeigte — zweimal
+
+Die Messung meldete 0 Mängel, das Bildschirmfoto bei 360 px nicht:
+
+1. „Au…" statt „Aufheben": der Knopf stand halb verdeckt im Scrollkasten
+   der Tabelle. Überlauf **im** Scrollkasten zählt der Prüfer mit Absicht
+   nicht (eine Tabelle darf scrollen) — ein halb verdeckter **Knopf** ist
+   aber ein Mangel. Der Prüfer lernte es („verdeckt im Scrollkasten"),
+   fand es danach auf genau dieser Seite und sonst nirgends.
+2. Die Behebung (Umbruch an beliebiger Stelle) ließ die Knöpfe senkrecht in
+   Buchstaben zerfallen: „A u f h e b e n". Auch das lernte der Prüfer
+   („Wort im Knopf zerbrochen", mehr Zeilen als Wörter) — und fand es
+   zusätzlich bei 1920 px in „Entfernen". Richtig ist: Umbruch nur in der
+   Textzelle, die Knopfzelle bricht nie, und ein kürzerer Tabellenkopf
+   (Köpfe brechen nie).
+
+Beide neuen Prüfungen haben ihren eingebauten Mangel in der Gegenprobe des
+Prüfers: 7 von 7.
+
+### Eine Lücke im eigenen neuen Test
+
+„Die Lage bleibt nach einem Auftrag alt" entwischte der Gegenprobe des
+Ausführers: die Lage wurde schon **vor** dem Auftrag geschrieben (die Datei
+fehlte), und die Attrappe lieferte danach dasselbe. Jetzt ändert die
+Attrappe ihre Antwort nach einer Tat an der Firewall — wie das echte
+CrowdSec —, und die Mutation fällt auf.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `admin/tests` | **127** Tests (vorher 105): Form der Aufträge, eigene Adresse (einzeln und im Netz), letzter statt erster `X-Forwarded-For`-Eintrag, kaputte und fehlende Lage, `</script>` in einem Regelnamen maskiert, 12.345 statt 12345, jede Warnung einzeln, leere Zustände, ein Primärknopf |
+| `admin/tests/gegenprobe.sh` | **48 von 48** (13 neu) |
+| `auftrag-pruefen.sh` | **100 ok** (vorher 77); `--gegenprobe` **30 von 30** (8 neu) |
+| Gleichlauf Seite/Ausführer | gleich |
+| Browser, 19 Ansichten × 3 Breiten × 2 Themen | **0 Mängel** in 114 Messungen, Prüfer-Gegenprobe 7 von 7, Tastatur vollständig, 0 JS-Fehler; die Bilder bei 360 und 1920 px angesehen |
+| **echter Lauf auf dem Prüfserver** | CrowdSec über `prolo start crowdsec` (Startsperre frei: Port nur 127.0.0.1, erklärt), Admin 0.4.0 über `prolo start admin`. Im Browser: Sperren 93.184.216.50 / 24 h → Auftrag → `auftrag.py` → `prolo firewall` → in CrowdSec „von Hand (arthur): E2E vom Pruefserver", 23 h 59 min, danach auf der Seite; eigene Adresse als Teil von 93.184.216.0/24 → abgelehnt, **0** neue Aufträge; „Meine Adresse freigeben" → Freigabeliste `93.184.216.99`; Aufheben mit Rückfrage → in CrowdSec keine Sperre mehr; 0 JS-Fehler. Die Seite zeigte dabei die echte Lage: kein Bouncer („noch nie abgefragt"), keine `auth.log` in dieser Sandbox, 4 gelesene Traefik-Zeilen — und eine Anfrage auf `/wp-login.php` von einer Docker-internen Adresse blieb richtig ungesperrt |
+
+---
+
+## N-108 — Sicherung und Wiederherstellung liefen mit `alpine:latest`
+
+**Gefunden:** als offener Punkt beim Audit notiert, beim Anlegen von
+`crowdsec/` wieder darauf gestoßen (dessen Volumes laufen durch denselben
+Weg). `backup.sh`, `prolo` (zweimal) und `wiederherstellen.sh` (dreimal)
+starten für `tar` in einem Volume ein Hilfsabbild — geschrieben als
+`alpine`, also `alpine:latest`. §19: „Feste Fassungsnummer beim Abbild,
+niemals latest." Ausgerechnet auf dem Weg, der im Ernstfall zählt, hing das
+Ergebnis davon ab, was Docker Hub an diesem Tag unter `latest` liefert.
+
+Die Nachbildungen in `prolo-pruefen.sh` und `wiederherstellen-pruefen.sh`
+erkannten das Abbild wörtlich an `alpine)` — sie hätten jede Fassung und
+auch keine durchgelassen.
+
+### Behoben
+
+- `HILFSABBILD="alpine:3.22.6"` in allen drei Skripten, alle sechs Aufrufe
+  nehmen `"$HILFSABBILD"`.
+- Neuer Prüfer `werkzeuge/abbilder-pruefen.sh`: jedes `docker run` dort
+  (auch über Fortsetzungszeilen) nimmt `"$HILFSABBILD"`, und die Angabe
+  steht überall gleich und mit Ziffern da.
+- Die Nachbildungen erkennen nur noch `alpine:<Ziffern>` — ein Rückfall auf
+  das nackte `alpine` fällt dort zusätzlich auf.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `abbilder-pruefen.sh` **vor** der Korrektur | 6 Aufrufe ohne `$HILFSABBILD`, keine Angabe — Rückgabe 1 |
+| nachher | **2 ok**, Rückgabe 0; `--gegenprobe` **4 von 4** (nacktes `alpine`, andere Fassung, `latest`, Aufruf über zwei Zeilen) |
+| berührte Prüfungen | `prolo` 101, `wiederherstellen` 41, `sicherung-lauf` 28, `sicherung` 14 ok; Gegenproben `prolo` **23 von 23**, `wiederherstellen` **18 von 18** — mit den angepassten Nachbildungen |
+| echte Sicherung auf dem Prüfserver | `alpine:latest` vorher gelöscht → `prolo sichern` → alle Werkzeuge gesichert, auch `crowdsec`; einziger Fehler `pg_dump` für das dort nicht laufende Authentik; danach liegen nur `alpine:3.22`/`3.22.6` da, **kein** `latest` wurde geholt |
+
+---
+
+## N-109 — Die Bedienseite beschrieb noch das gemeinsame Netz `proxy`
+
+**Gefunden:** beim Einfügen der Zeile für `crowdsec` in die Tabelle „Was
+mitläuft" der Bedienseite. Dort stand zu Traefik: „Legt auch das Netz
+`proxy` an, in dem alle hängen." Das gemeinsame Netz gibt es seit `N-45`
+nicht mehr — und genau seine Abschaffung ist der Punkt: in einem gemeinsamen
+Netz erreicht jeder Container jeden anderen, ohne Traefik und ohne
+Anmeldung. Wer die Seite las, lernte das Gegenteil der Regel.
+
+### Behoben
+
+Die Zeile sagt jetzt, was gilt: Traefik hängt als einziger in allen
+Werkzeugnetzen (`netz-<werkzeug>`), die Werkzeuge erreichen einander nicht.
+Geändert in allen drei Fassungen der Seite — HTML, Quelltext und Suchtext
+in den Kopfdaten —, `<` dort weiter als `<`.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| Suche nach „Netz proxy" in der Seite | vorher 3 Stellen, nachher **0** |
+| Diff | genau 3 Zeilen |
+| `wiki/tests/alle.sh` | grün |
+| im Browser geladen | 0 JS-Fehler; Kopfdaten lesbar, kein `</` im Skriptblock |
+
+---
+
+## N-110 — Der Ausführer setzte `HOME=/root` — auf GitHub fand docker kein compose mehr
+
+**Gefunden:** beim Nachsehen, ob die Prüfung auf GitHub nach `N-104`/`N-105`
+wieder grün ist. Sie war es nicht: seit `A-03` scheiterte in
+`auftrag-pruefen.sh` jeder Fall mit `compose_pruefen` — lokal nie.
+
+Der Ausführer startet seine Kinder mit fester Umgebung (A-01), darin
+`HOME=/root`. Auf dem Server läuft er als root, dort stimmt das. Die Prüfung
+auf GitHub läuft als Nutzer `runner`: `docker` kann
+`/root/.docker/config.json` nicht lesen, lädt darum seine Erweiterungen
+nicht und meldet `unknown command: docker compose`. Nachgestellt mit dem
+Nutzer `pruefer` — derselbe Fehler, Wort für Wort.
+
+Lokal lief der Volllauf als root. Für root ist das eigene Zuhause `/root`,
+fest vorgegeben oder nicht — der Fehler war so nicht zu sehen.
+
+### Behoben
+
+- `HOME` ist das Zuhause des Nutzers, unter dem der Ausführer läuft
+  (`pwd.getpwuid(os.getuid())`) — auf dem Server weiterhin `/root`.
+- Mutation „HOME fest auf /root": ohne root wird sie gefunden; als root ist
+  sie nicht unterscheidbar, und die Gegenprobe sagt das ausdrücklich
+  („ALS ROOT NICHT PRÜFBAR"), statt sie als gefunden zu zählen.
+- CLAUDE.md TEIL 0: vor dem Push `alle-pruefen.sh` ganz **und nicht als
+  root**. Der Sandbox-Nutzer `pruefer` bekam dafür Docker-Zugang wie
+  `runner` auf GitHub.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `auftrag-pruefen.sh` als `pruefer` **vorher** | rot: `compose_pruefen` → `fehler`, Befund leer — wie auf GitHub |
+| nachher als `pruefer` / als root | **101** / **100 ok** (eine Prüfzeile läuft nur ohne root) |
+| `--gegenprobe` als `pruefer` | **31 von 31** (1 neu: „HOME fest auf /root") |
+
+---
+
+## N-111 — Die Prüfung auf GitHub lief in die Zeitgrenze
+
+**Gefunden:** beim Nachsehen, ob die Prüfung nach `N-110` grün ist. Sie war
+es nicht — und rot auch nicht: **abgebrochen**. Jede Zeile bis dahin war
+grün, dann kam nach 45 Minuten die Zeitgrenze des Workflows, mitten in den
+Gegenproben. Drei standen noch aus (`einrichten`, `geheimnisse`,
+`sicherung-lauf`), sie liefen gar nicht.
+
+Gewachsen war der Lauf mit `F-01` und `F-02`: allein die Gegenproben von
+`auftrag-pruefen.sh` (**740 s**) und `crowdsec-pruefen.sh` (**587 s**)
+sind zusammen über 22 Minuten. Am Stück dauert alles auf GitHub rund
+**51 Minuten**.
+
+Ein abgebrochener Lauf ist schlimmer als ein roter: er sieht nach „dauert
+halt" aus, und was nicht lief, meldet niemand. Die Grenze einfach
+hochzusetzen hätte das nur verschoben — beim nächsten Werkzeug wäre sie
+wieder erreicht.
+
+### Behoben
+
+- `alle-pruefen.sh --teil <nummer>/<anzahl>`: nur jede n-te Prüfung der
+  **ganzen** Liste, reihum. Die Teile werden aus derselben Liste geschnitten
+  wie der ganze Lauf — was es gibt, landet in genau einem Teil. Ein
+  unmöglicher Teil (`5/4`) wird abgewiesen, statt still null Prüfungen grün
+  zu melden. Dazu `--liste` (nur die Namen) und am Ende die Zahl der
+  gelaufenen Prüfungen.
+- Der Workflow läuft in **vier Teilen nebeneinander**, jeder auf einer
+  eigenen Maschine. Geschnitten wird aus `strategy.job-index` und
+  `job-total`, nicht aus festen Zahlen: wer einen Teil dazunimmt, ändert nur
+  die Liste unter `matrix`. Ein Sammeljob `alles` ist nur grün, wenn jeder
+  Teil grün ist — mit `if: always()`, sonst stünde er bei einem roten Teil
+  als „übersprungen" da.
+- `werkzeuge/aufteilung-pruefen.sh` hält fest: `--liste` nennt jede Prüfung
+  samt Gegenprobe und führt nichts aus (Attrappen für `bash` und `python3`
+  schreiben mit), 1 bis 7 Teile ergeben je genau die ganze Liste, unmögliche
+  Teile werden abgewiesen, der Workflow schneidet aus `job-index/job-total`
+  und der Sammeljob prüft das Ergebnis.
+
+Lokal bleibt es bei der Regel aus TEIL 0: vor dem Push läuft
+`alle-pruefen.sh` **ganz**. Die Teile sind für GitHub.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `alle-pruefen.sh --liste` | **40** Prüfungen — von Hand gezählt: 4 `tests/alle.sh` + 19 Prüfer + 1 Befehlsprobe + 6 Gegenproben (`.py`) + 1 + 9 mit `--gegenprobe` |
+| `aufteilung-pruefen.sh` | **4 ok**; `--gegenprobe` **8 von 8** |
+| Teile aus den GitHub-Zeiten geschätzt | vier Teile: rund **17 / 13 / 14 / 6** Minuten statt 51 am Stück |
+| `alle-pruefen.sh` ganz, als `pruefer` | **40 von 40 grün**, Rückgabe 0, 4.096 s — der erste Versuch brach ab, weil die Sandbox mitten im Lauf neu startete und Docker verlor; nicht gewertet |
+
+---
+
+## N-112 — `'\-'` in der Admin-Seite: eine Warnung, die nur ohne Zwischenspeicher kam
+
+**Gefunden:** mit `N-111`. Kaum lief die Prüfung auf GitHub in Teilen, war
+Teil 3 rot: in `auftrag-pruefen.sh --gegenprobe` meldete der Abgleich
+zwischen Admin-Seite und Ausführer nicht „gleich“, sondern
+
+```
+admin/server.py:1497: SyntaxWarning: invalid escape sequence '\-'
+gleich
+```
+
+Das Namensmuster auf der Seite „Werkzeug anlegen“ (`A-03`) stand als
+`'[a-z0-9\-]'` in einem gewöhnlichen Python-Text. `\-` ist dort keine
+gültige Escape-Folge. Python behält den Rückstrich zwar (das HTML stimmte),
+meldet es aber ab 3.12 als `SyntaxWarning`. Eine künftige Fassung macht einen
+Fehler daraus, und der Admin-Container könnte dann gar nicht mehr starten.
+Bis dahin stand die Warnung bei **jedem Start** im Protokoll des Containers
+(gemessen: zwei Starts, zwei Warnungen).
+
+Dass es so lange niemand sah, hatte zwei Gründe, und beide waren Zufall:
+
+- **Lokal läuft Python 3.11.** Dort ist es eine `DeprecationWarning`, und
+  die wird ohne Schalter nicht gezeigt.
+- **Die Warnung kommt nur beim Übersetzen.** Liegt ein `__pycache__` da,
+  kommt keine. Am Stück liefen auf GitHub die Admin-Tests zuerst und legten
+  ihn an, der Abgleich kam später und blieb stumm. Nach der Aufteilung lief
+  der Abgleich in einem Teil ohne die Admin-Tests.
+
+Die Prüfung war also richtig und die Aufteilung auch. Die Aufteilung hat
+eine Abhängigkeit von der Reihenfolge sichtbar gemacht, die vorher einen
+echten Fehler verdeckte.
+
+### Behoben
+
+- `admin/server.py`: `'\\-'` statt `'\-'`. Das ausgelieferte HTML ist Byte
+  für Byte dasselbe (1.705 Byte, `cmp` gleich). Admin **0.4.1** an allen
+  drei Stellen.
+- `werkzeuge/python-pruefen.sh`: übersetzt **jeden** Python-Code frisch, mit
+  jeder Warnung als Fehler, ohne etwas zu schreiben: alle `*.py`-Dateien
+  und jeden Python-Heredoc in Skripten und Workflows (`<<'PY'`, `<<"PY"`,
+  eingerückt). Das fängt es mit **jeder** Fassung, auch mit 3.11, und
+  unabhängig davon, was vorher lief.
+- Beim Bau dieses Prüfers fiel er erst über seinen eigenen Kopfkommentar,
+  der ein Heredoc-Beispiel nennt (die Falle aus `N-36`). Eine
+  Kommentarzeile beginnt jetzt keinen Heredoc.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| Nachgestellt wie auf GitHub: frischer Klon, Python 3.13, kein `__pycache__`, als `pruefer` | **vorher** 100 ok, 1 FEHLER, und in der Zeile „ist:“ steht die `SyntaxWarning`. **Nachher** 101 ok, 0 FEHLER |
+| Abbild `prolo-admin`, `import server` | 0.4.0: **1** Warnung, 0.4.1: **0** |
+| `python-pruefen.sh` | **50** Python-Dateien (= `git ls-files '*.py'`) und **41** Heredocs, von Hand: 39 aus dem ersten Suchlauf, dazu `backup.sh:144` (die Form `<<"PY"`, die dieser Suchlauf übersah) und der neue Prüfer selbst |
+| `--gegenprobe` | **5 von 5**, davor ein Leerlauf auf der unveränderten Kopie. Dass dieser Leerlauf eine untaugliche Kopie abweist, wurde selbst mit einer Mutation belegt |
+
+---
+
+## N-113 — Ein roter Lauf auf GitHub nannte die Prüfung, nicht die Ursache
+
+**Gefunden:** bei `N-112`. Auf GitHub stand nur
+
+```
+werkzeuge/auftrag-pruefen.sh                         ROT      33s  (Rueckgabe 1)
+      FEHLER Arten, Kern, Namens- und Kennungsmuster gleich in Seite und Ausfuehrer
+```
+
+Die Zeile darunter („ist: …SyntaxWarning…“) hätte die ganze Diagnose
+gewesen. `alle-pruefen.sh` zeigte aber nur die Fundzeilen selbst. Den
+Rest verwies es auf eine Protokolldatei, die es auf GitHub nicht mehr gibt,
+sobald die Maschine weg ist. Die Ursache musste deshalb hier nachgebaut
+werden: frischer Klon, Python 3.13, kein Zwischenspeicher. Bei einem
+Absturz ohne Fundzeile (ein Traceback) stand gar nichts da.
+
+### Behoben
+
+- Zu jeder Fundzeile kommen die zwei Zeilen danach (`erwartet:` / `ist:`),
+  höchstens 15 Zeilen. Ohne Fundzeile kommt das Ende der Ausgabe.
+- `aufteilung-pruefen.sh` prüft das in einem Wegwerfstapel mit einer
+  Prüfung, die „ist:“ sagt, und einer, die abstürzt. Die Protokolle des
+  roten Probelaufs landen in seinem eigenen Wegwerfordner, nicht in `/tmp`.
+- Seine Gegenprobe hat jetzt wie `python-pruefen.sh` einen Leerlauf auf der
+  unveränderten Kopie.
+
+### Ausgeführt
+
+| | |
+|---|---|
+| `aufteilung-pruefen.sh` | **5 ok**; `--liste` nennt **42** (40 + `python-pruefen.sh` samt Gegenprobe) |
+| `--gegenprobe` | **10 von 10** (2 neu). Der Leerlauf weist eine untaugliche Kopie ab (belegt, Rückgabe 1) |
+| Reste in `/tmp` | vor und nach Prüfung und Gegenprobe je **17** Verzeichnisse |

@@ -1,0 +1,17 @@
+# werkzeuge/systemd/prolo-auftraege.timer  (A-02)
+#
+# Alle fuenf Minuten einmal prolo-auftraege.service, auch ohne Auftrag:
+# dann schreibt der Ausfuehrer den Bestand der Werkzeugordner neu
+# (erledigt/bestand.json). Ein Werkzeug, das jemand auf der Kommandozeile
+# anlegt oder entfernt, steht so spaetestens nach fuenf Minuten richtig auf
+# der Admin-Seite. Installiert von "sudo prolo einrichten".
+[Unit]
+Description=Prolo: Bestand der Werkzeuge fuer die Admin-Seite auffrischen
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+Unit=prolo-auftraege.service
+
+[Install]
+WantedBy=timers.target

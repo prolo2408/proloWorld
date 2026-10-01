@@ -38,6 +38,14 @@ services:
       TASKS: 0
       SWARM: 0
       INFO: 0
+      # Nur IPv4 (N-92). Das Abbild bindet sonst an [::]:2375 - und auf
+      # einem Kern ohne IPv6 (gehaertete Server mit ipv6.disable=1) startet
+      # es dann nie: "cannot create listening socket [:::2375]", Neustart
+      # in Schleife. Ohne diesen Vermittler findet Traefik keinen einzigen
+      # Router, und der ganze Stack ist unerreichbar. Gemessen genau so.
+      # Der Stack benutzt IPv6 nirgends (kein AAAA-Eintrag, siehe "prolo
+      # einrichten", Schritt 10) - "socket" ist ein internes IPv4-Netz.
+      DISABLE_IPV6: 1
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:

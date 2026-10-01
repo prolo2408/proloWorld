@@ -59,6 +59,11 @@ set -euo pipefail
 HIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STACK="$(dirname "$HIER")"
 SICHERUNG="$STACK/backup.sh"
+# Dieselbe Sperre wie "prolo start" (N-85). Ohne sie ging eine
+# Herstellerdatei, die ihre ports:-Zeile zurueckbringt, mit einem
+# Aktualisierungslauf ungehindert ins offene Netz.
+# shellcheck source=werkzeuge/startsperre.sh
+. "$HIER/startsperre.sh"
 
 TROCKEN=0
 OHNE_SICHERUNG=0
@@ -103,22 +108,11 @@ abbild_kennungen() {
   done
 }
 
-alle_laufen() {
-  # Laufen alle Dienste dieses Tools, und zwar mit dem AKTUELLEN Abbild?
-  # Nur dann darf ein Neustart entfallen.
-  local ids id
-  ids=$(docker compose ps -q 2>/dev/null) || return 1
-  [ -z "$ids" ] && return 1
-  for id in $ids; do
-    [ "$(docker inspect "$id" --format '{{.State.Running}}' 2>/dev/null)" = "true" ] || return 1
-  done
-  # Haengt ein Container noch an einem alten Abbild, meldet compose das.
-  if docker compose ps --format '{{.Service}}' 2>/dev/null | grep -q .; then
-    local veraltet
-    veraltet=$(docker compose ps 2>/dev/null | grep -ci "created\|exited" || true)
-    [ "$veraltet" -gt 0 ] && return 1
-  fi
-  return 0
+container_kennungen() {
+  # Alle Container dieses Werkzeugs, auch angehaltene, sortiert. Ein
+  # Container, den "up -d" NEU anlegt, bekommt eine neue Kennung - daran
+  # und nur daran sieht man, ob sich etwas geaendert hat (N-88).
+  docker compose ps -a -q 2>/dev/null | sort
 }
 
 # ----------------------------------------------------------------------
@@ -184,6 +178,17 @@ ein_tool() {
 
   cd "$ORDNER"
 
+  # --- Sperre, BEVOR etwas geholt oder gestartet wird (N-85) ------------
+  # Ein offener Port oder ein Router ohne Anmeldung wird gar nicht erst
+  # losgelassen. Kein Zurueckrollen: es ist nichts passiert, und die
+  # laufenden Container bleiben, wie sie waren.
+  if [ "$TROCKEN" -eq 0 ] && ! start_pruefen "$TOOL"; then
+    melde ""
+    melde "ABBRUCH: $TOOL wurde NICHT aktualisiert - Grund steht oben."
+    melde "         Was laeuft, laeuft weiter wie vorher."
+    return 1
+  fi
+
   # --- Neue Fassung holen und vergleichen ------------------------------
   # Erst nachsehen, OB es etwas Neues gibt. Vorher wurde jedes Tool bei
   # jedem Lauf neu gestartet, auch wenn sich nichts geaendert hatte - das
@@ -202,20 +207,40 @@ ein_tool() {
   fi
   NACHHER=$(abbild_kennungen)
 
-  local NEUSTART=1
-  if [ "$TROCKEN" -eq 0 ] && [ "$VORHER" = "$NACHHER" ] && alle_laufen; then
-    NEUSTART=0
-    melde "      Keine neue Fassung - die Abbilder sind unveraendert und alle"
-    melde "      Container laufen bereits damit."
-  elif [ "$TROCKEN" -eq 0 ] && [ "$VORHER" != "$NACHHER" ]; then
+  if [ "$TROCKEN" -eq 0 ] && [ "$VORHER" != "$NACHHER" ]; then
     melde "      Neue Abbilder vorhanden."
   fi
 
-  if [ "$NEUSTART" -eq 1 ]; then
-    melde "[3/4] Container werden neu gestartet ..."
-    tun docker compose up -d
-  else
-    melde "[3/4] Kein Neustart noetig."
+  # "docker compose up -d" laeuft IMMER (N-88). Es ist von sich aus
+  # sparsam: Compose legt nur neu an, was sich geaendert hat - Abbild ODER
+  # Konfiguration -, und laesst alles andere laufen. Eine eigene
+  # Entscheidung davor ist ueberfluessig und war falsch: sie las die
+  # Tabelle von "docker compose ps" nach "created", und das steht in
+  # JEDER Kopfzeile (Spalte CREATED). Mit echtem Docker kam darum nie
+  # "kein Neustart noetig" heraus - der Zweig war tot, und die Attrappe
+  # im Pruefskript, die keine Kopfzeile druckte, hat es verdeckt.
+  #
+  # Ob etwas neu angelegt wurde, sagen die Container-Kennungen vorher und
+  # nachher - gemessen, nicht vorhergesagt.
+  local IDS_VORHER IDS_NACHHER NEU_ANGELEGT=1
+  IDS_VORHER=$(container_kennungen)
+  # Die Neustarts JEDES Containers vor dem Lauf (N-89). Docker zaehlt sie
+  # ueber die ganze Lebenszeit eines Containers; wer vor drei Wochen bei
+  # einem Datenbankausfall dreimal neu gestartet ist, traegt die 3 fuer
+  # immer. Gezaehlt wird darum nur, was WAEHREND dieses Laufs dazukommt.
+  NEUSTARTS_VORHER=""
+  local id
+  for id in $IDS_VORHER; do
+    NEUSTARTS_VORHER="$NEUSTARTS_VORHER$id $(docker inspect "$id" --format '{{.RestartCount}}' 2>/dev/null || echo 0)
+"
+  done
+  melde "[3/4] docker compose up -d ..."
+  tun docker compose up -d
+  IDS_NACHHER=$(container_kennungen)
+  if [ "$TROCKEN" -eq 0 ] && [ -n "$IDS_VORHER" ] && [ "$IDS_VORHER" = "$IDS_NACHHER" ]; then
+    NEU_ANGELEGT=0
+    melde "      Nichts neu angelegt - Abbilder und Konfiguration sind"
+    melde "      unveraendert, die Container laufen weiter wie vorher."
   fi
 
   # Geprueft wird IMMER - auch wenn nichts neu gestartet wurde.
@@ -234,7 +259,7 @@ ein_tool() {
 
   if pruefen "$TOOL" "$PRUEF_WARTEN" "$PRUEF_URL" "$HAUPT"; then
     melde ""
-    if [ "$NEUSTART" -eq 0 ]; then
+    if [ "$NEU_ANGELEGT" -eq 0 ]; then
       melde "FERTIG. $TOOL ist aktuell und laeuft."
     else
       melde "FERTIG. $TOOL laeuft."
@@ -268,19 +293,24 @@ pruefen() {
 
   ENDE=$(( $(date +%s) + GRENZE ))
   while :; do
-    local alles_gut=1 id zustand gesund neustarts name
+    local alles_gut=1 id zustand gesund neustarts name basis
     for id in $IDS; do
       name=$(docker inspect "$id" --format '{{.Name}}' | sed 's|^/||')
       zustand=$(docker inspect "$id" --format '{{.State.Status}}')
       gesund=$(docker inspect "$id" \
                --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}ohne{{end}}')
       neustarts=$(docker inspect "$id" --format '{{.RestartCount}}')
+      # Nur was seit dem Start dieses Laufs dazukam (N-89). Ein Container,
+      # den "up -d" neu angelegt hat, hat eine neue Kennung, steht nicht
+      # in der Liste und zaehlt von 0.
+      basis=$(printf '%s' "${NEUSTARTS_VORHER:-}" | awk -v i="$id" '$1==i{print $2; exit}')
+      neustarts=$(( neustarts - ${basis:-0} ))
 
       if [ "$zustand" != "running" ]; then alles_gut=0; fi
       if [ "$gesund" = "unhealthy" ]; then alles_gut=0; fi
       if [ "$gesund" = "starting" ]; then alles_gut=0; fi
       if [ "$neustarts" -gt 2 ]; then
-        melde "  FEHLER: $name startet staendig neu ($neustarts Neustarts)."
+        melde "  FEHLER: $name startet staendig neu ($neustarts Neustarts seit Beginn dieses Laufs)."
         return 1
       fi
     done

@@ -426,7 +426,7 @@ ADD_INDEXES = [
 SCHEMA_VERSION = "6"
 # Fassungsnummer der Anwendung, getrennt vom Datenstand oben. Wird von
 # --version und /api/version gelesen.
-VERSION = "2.6.1"
+VERSION = "2.6.2"
 
 # --------------------------------------------------- Die Vertrauensgrenze
 #
@@ -442,11 +442,12 @@ VERSION = "2.6.1"
 EINLASS_KOPF = "X-Prolo-Einlass"
 EINLASS = os.environ.get("PROLO_EINLASS", "")
 EINLASS_B = EINLASS.encode("utf-8")
-# Frei bleibt nur die Fassungsabfrage: die Gesundheitspruefung von Docker
-# laeuft im Container gegen 127.0.0.1, und aktualisieren.sh fragt sie ueber
-# das interne Netz ab - beides am Zugang vorbei, beides ohne
-# Schuetzenswertes (§19).
-EINLASS_FREI = ("/api/version",)
+# Frei bleiben die Gesundheit und die Fassung - genau die zwei Pfade, die
+# jedes Werkzeug des Stapels frei hat (N-99, Vertrag in CLAUDE.md). Die
+# Gesundheitspruefung von Docker laeuft im Container gegen 127.0.0.1, und
+# aktualisieren.sh fragt ueber das interne Netz ab - beides am Zugang
+# vorbei, beides ohne Schuetzenswertes (§19).
+EINLASS_FREI = ("/gesundheit", "/api/version")
 
 SESSION_FIELDS = ["tx", "start", "finish", "sec", "kwh", "cost", "net", "vat", "station", "city", "zip",
                   "street", "rate", "partner", "entity", "invoice_no", "invoice_date", "invoice_gross",
@@ -1408,6 +1409,16 @@ class App(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         if not self.einlass_pruefen(path):
+            return
+        if path == "/gesundheit":
+            # Wie in wiki, www und admin: "ok" als Text, sonst nichts (N-99).
+            body = b"ok"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
             return
         if path == "/api/version":
             return self.send_json({"version": VERSION, "schema": SCHEMA_VERSION})

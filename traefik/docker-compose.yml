@@ -51,10 +51,9 @@ services:
       #   sudo chown root:root acme.json && sudo chmod 600 acme.json
       #   sudo chown -R root:root log
       - ./acme.json:/letsencrypt/acme.json
-      # Zugriffsprotokolle (B-26). Ordner vorher anlegen:
-      #   sudo mkdir -p /opt/stack/traefik/log
-      # Dazu gehoert eine logrotate-Regel - sonst laeuft der Datentraeger
-      # voll. Siehe CLAUDE.md §22.
+      # Zugriffsprotokolle (B-26). Den Ordner legt "prolo einrichten" an
+      # (N-91), und ebenso die Drehregel aus logrotate.conf (N-106) -
+      # sonst laeuft der Datentraeger voll. Siehe CLAUDE.md §22.
       - ./log:/var/log/traefik
     # Traefik ist der EINZIGE Dienst, der in allen Werkzeugnetzen haengt
     # (N-45). Genau das ist der Punkt: die Werkzeuge erreichen einander
