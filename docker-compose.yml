@@ -1,0 +1,273 @@
+# ProloWelt - der Unterbau
+#
+# Ein Compose-Projekt mit allem, was die Plattform selbst braucht:
+#
+#   socket-proxy   reicht Traefik den Docker-Socket NUR LESEND weiter
+#   traefik        der Eingang: 80/443, Zertifikate, Ratenbremse
+#   authentik-*    die Anmeldung fuer alle Tools (Datenbank, Server, Worker)
+#   admin          die Verwaltungsseite admin.<domain>
+#
+# Nicht von Hand starten - "prolo" setzt die Werte aus /etc/prolo ein und
+# haengt die Netze der Tools dazu (/var/lib/prolo/unterbau-netze.yml):
+#
+#   sudo prolo einrichten      alles anlegen und starten
+#   sudo prolo compose ps      jeder docker-compose-Befehl, mit den Werten
+#
+# Die Tools selbst stehen NICHT hier, sondern je in /opt/tools/<name>/.
+
+name: prolo
+
+x-protokoll: &protokoll
+  # Docker dreht die Protokolle selbst - keine logrotate-Regel noetig.
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  socket-proxy:
+    <<: *protokoll
+    # Docker Hub statt ghcr.io: dasselbe Abbild, eine Quelle weniger.
+    image: tecnativa/docker-socket-proxy:0.3.0
+    restart: unless-stopped
+    environment:
+      # Was Traefik braucht, um seine Router zu finden - und sonst nichts.
+      CONTAINERS: 1
+      NETWORKS: 1
+      EVENTS: 1
+      # POST: 0 ist der Riegel: ohne schreibende Aufrufe startet niemand
+      # ueber diesen Weg einen Container.
+      POST: 0
+      EXEC: 0
+      BUILD: 0
+      IMAGES: 0
+      VOLUMES: 0
+      INFO: 0
+      # Ohne das startet der Vermittler auf Kernen ohne IPv6 nie.
+      DISABLE_IPV6: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      socket: {}
+    mem_limit: 64m
+    pids_limit: 64
+    security_opt: [ "no-new-privileges:true" ]
+    cap_drop: [ ALL ]
+
+  traefik:
+    <<: *protokoll
+    # Auf die Nebenfassung festgelegt: Fehlerbehebungen kommen mit dem
+    # naechtlichen "prolo update" von selbst, ein Sprung auf v3.7 nur ueber Git.
+    image: traefik:v3.6
+    restart: unless-stopped
+    depends_on: [ socket-proxy ]
+    # Die statische Konfiguration steht hier und nicht in einer traefik.yml,
+    # weil sie Domain und E-Mail aus /etc/prolo braucht.
+    command:
+      - --global.checknewversion=false
+      - --global.sendanonymoususage=false
+      - --log.level=INFO
+      - --api.dashboard=false
+      - --ping=true
+      - --providers.docker.endpoint=tcp://socket-proxy:2375
+      - --providers.docker.exposedbydefault=false
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      # Gilt fuer JEDEN Router: erst bremsen, dann die vom Aufrufer
+      # mitgeschickten Identitaets-Kopfzeilen loeschen, dann Sicherheitskopf.
+      - --entrypoints.websecure.http.middlewares=ratenbremse@file,gleichzeitig@file,vertrauensgrenze@file,sicherheitskopf@file
+      - --entrypoints.websecure.http.tls=true
+      # Jeder Router bekommt sein Zertifikat von Let's Encrypt, ohne dass
+      # ein Tool das eigens sagen muss.
+      - --entrypoints.websecure.http.tls.certresolver=letsencrypt
+      - --certificatesresolvers.letsencrypt.acme.email=${PROLO_EMAIL:?}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - --accesslog=true
+      - --accesslog.format=json
+      # Kopfzeilen weglassen (Cookies, Anmelde-Token) - ausser dem Browser.
+      - --accesslog.fields.headers.defaultmode=drop
+      - --accesslog.fields.headers.names.User-Agent=keep
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Ein ORDNER, keine Datei: Traefik legt acme.json selbst an, mit den
+      # richtigen Rechten. Eine fehlende Datei als Bind-Mount wuerde Docker
+      # als Ordner anlegen - und Let's Encrypt waere still abgeschaltet.
+      - ${PROLO_VAR:?}/traefik/acme:/letsencrypt
+      - ${PROLO_VAR:?}/traefik/dynamic:/etc/traefik/dynamic:ro
+    networks:
+      socket: {}
+      auth: {}
+      admin: {}
+    healthcheck:
+      test: [ "CMD", "traefik", "healthcheck", "--ping" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: 256m
+    pids_limit: 256
+    security_opt: [ "no-new-privileges:true" ]
+    cap_drop: [ ALL ]
+    cap_add: [ NET_BIND_SERVICE ]
+
+  authentik-db:
+    <<: *protokoll
+    # Auf die Hauptfassung festgelegt: 16.x -> 16.y ist gefahrlos, ein
+    # Sprung auf 17 braucht eine Umstellung der Daten und kommt nur ueber Git.
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: authentik
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: ${PG_PASS:?}
+    volumes:
+      - authentik-db:/var/lib/postgresql/data
+    networks:
+      authentik: {}
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -d authentik -U authentik" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 512m
+    pids_limit: 256
+    security_opt: [ "no-new-privileges:true" ]
+    cap_drop: [ ALL ]
+    # Das Startskript von postgres wechselt den Nutzer und legt seinen
+    # Datenordner an - dafuer und fuer nichts sonst.
+    cap_add: [ CHOWN, SETUID, SETGID, FOWNER, DAC_OVERRIDE ]
+
+  authentik-server:
+    <<: *protokoll
+    image: authentik/server:2026.8
+    restart: unless-stopped
+    command: server
+    environment: &authentik-env
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?}
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS:?}
+      # Nur beim allerersten Start gelesen: legt den Nutzer akadmin an.
+      AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD:?}
+      AUTHENTIK_BOOTSTRAP_EMAIL: ${PROLO_EMAIL:?}
+      # Nur IPv4. Authentik lauscht sonst auf [::] - und auf einem Kern
+      # ohne IPv6 (ipv6.disable=1) startet er dann nie: "Address family not
+      # supported by protocol", Neustart in Schleife. Gemessen.
+      AUTHENTIK_LISTEN__HTTP: "0.0.0.0:9000"
+      AUTHENTIK_LISTEN__HTTPS: "0.0.0.0:9443"
+      AUTHENTIK_LISTEN__METRICS: "0.0.0.0:9300"
+      AUTHENTIK_DISABLE_UPDATE_CHECK: "true"
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+      # Fuer den Blueprint in authentik/blueprints/.
+      PROLO_DOMAIN: ${PROLO_DOMAIN:?}
+    volumes:
+      - authentik-data:/data
+      - ./authentik/blueprints:/blueprints/prolo:ro
+    depends_on:
+      authentik-db:
+        condition: service_healthy
+    networks:
+      authentik: {}
+      auth: {}
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=prolo-auth
+      - traefik.http.services.prolo-auth.loadbalancer.server.port=9000
+      # Die Anmeldeseite selbst. Sie kann nicht hinter sich selbst haengen.
+      - traefik.http.routers.prolo-auth.rule=Host(`auth.${PROLO_DOMAIN:?}`)
+      - traefik.http.routers.prolo-auth.entrypoints=websecure
+      - traefik.http.routers.prolo-auth.service=prolo-auth
+      # Der Rueckweg nach der Anmeldung, auf jedem Namen DIESER Domain -
+      # und nur dort, nicht auf jedem beliebigen Namen.
+      - "traefik.http.routers.prolo-outpost.rule=HostRegexp(`^([a-z0-9-]+\\.)?${PROLO_DOMAIN_RE:?}$$`) && PathPrefix(`/outpost.goauthentik.io/`)"
+      - traefik.http.routers.prolo-outpost.entrypoints=websecure
+      - traefik.http.routers.prolo-outpost.priority=1000
+      - traefik.http.routers.prolo-outpost.service=prolo-auth
+    mem_limit: 1g
+    pids_limit: 512
+    security_opt: [ "no-new-privileges:true" ]
+    cap_drop: [ ALL ]
+
+  authentik-worker:
+    <<: *protokoll
+    image: authentik/server:2026.8
+    restart: unless-stopped
+    command: worker
+    environment: *authentik-env
+    volumes:
+      - authentik-data:/data
+      - ./authentik/blueprints:/blueprints/prolo:ro
+    depends_on:
+      authentik-db:
+        condition: service_healthy
+    networks:
+      authentik: {}
+    mem_limit: 1g
+    pids_limit: 512
+    security_opt: [ "no-new-privileges:true" ]
+    cap_drop: [ ALL ]
+
+  admin:
+    <<: *protokoll
+    build:
+      context: .
+      dockerfile: admin/Dockerfile
+    image: prolo-admin:${PROLO_VERSION:?}
+    restart: unless-stopped
+    environment:
+      ADMIN_GRUPPE: ${ADMIN_GRUPPE:-authentik Admins}
+      PROLO_VERSION: ${PROLO_VERSION:?}
+      PROLO_DOMAIN: ${PROLO_DOMAIN:?}
+    volumes:
+      - admin-daten:/daten
+      # Das Auftragsbuch: hier legt die Seite Auftraege ab, dort liest sie
+      # Stand und Ergebnis. Auf Docker selbst hat sie KEINEN Zugriff - die
+      # Auftraege fuehrt der Agent auf dem Server aus (prolo agent).
+      - ${PROLO_VAR:?}/agent/ein:/agent/ein
+      - ${PROLO_VAR:?}/agent/aus:/agent/aus:ro
+    networks:
+      admin: {}
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=prolo-admin
+      - traefik.http.services.prolo-admin.loadbalancer.server.port=8080
+      - traefik.http.routers.prolo-admin.rule=Host(`admin.${PROLO_DOMAIN:?}`)
+      - traefik.http.routers.prolo-admin.entrypoints=websecure
+      - traefik.http.routers.prolo-admin.middlewares=authentik@file
+    read_only: true
+    tmpfs: [ "/tmp:size=8m" ]
+    mem_limit: 128m
+    pids_limit: 64
+    security_opt: [ "no-new-privileges:true" ]
+    cap_drop: [ ALL ]
+
+volumes:
+  authentik-db: {}
+  authentik-data: {}
+  admin-daten: {}
+
+networks:
+  # Nur Traefik und der Vermittler, ohne Weg nach draussen.
+  socket:
+    name: prolo-socket
+    internal: true
+  # Traefik <-> Authentik (Anmeldeseite und Forward-Auth).
+  auth:
+    name: prolo-auth
+  # Authentik unter sich: Datenbank, Server, Worker.
+  authentik:
+    name: prolo-authentik
+  # Traefik <-> Admin-Seite. Ohne Weg nach draussen: die Seite braucht keinen.
+  admin:
+    name: prolo-admin
+    internal: true

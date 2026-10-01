@@ -1,8 +1,0 @@
-# Anmeldeversuche am Server selbst (sshd). /var/log des Servers ist als
-# /var/log/host eingehaengt, nur lesend. Gibt es auth.log nicht - Debian
-# ohne rsyslog schreibt nur ins Journal -, meldet CrowdSec das beim Start
-# und laeuft weiter; "prolo einrichten" nennt den Weg (apt install rsyslog).
-filenames:
-  - /var/log/host/auth.log
-labels:
-  type: syslog

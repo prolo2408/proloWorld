@@ -1,0 +1,46 @@
+# ProloWelt - Anmeldung fuer alle Tools
+#
+# Authentik liest diese Datei beim Start und haelt danach Wort fuer Wort
+# daran fest. Sie legt EINEN Proxy-Provider im Domain-Modus an: er schuetzt
+# jede Subdomain von PROLO_DOMAIN mit einer gemeinsamen Anmeldung. Ein neues
+# Tool braucht darum in Authentik nichts Eigenes - prolo haengt nur
+# "authentik@file" an seinen Router.
+#
+# Wer darf hinein? Jeder Nutzer, den es in Authentik gibt. Neue Nutzer legt
+# man in Authentik an (auth.<domain> -> Verzeichnis -> Benutzer).
+version: 1
+metadata:
+  name: ProloWelt - Anmeldung fuer alle Tools
+  labels:
+    blueprints.goauthentik.io/description: Forward-Auth fuer alle Subdomains der ProloWelt
+entries:
+  - model: authentik_providers_proxy.proxyprovider
+    id: prolo-provider
+    identifiers:
+      name: ProloWelt
+    attrs:
+      mode: forward_domain
+      external_host: !Format ["https://auth.%s", !Env PROLO_DOMAIN]
+      cookie_domain: !Env PROLO_DOMAIN
+      authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+      access_token_validity: hours=24
+
+  - model: authentik_core.application
+    id: prolo-app
+    identifiers:
+      slug: prolowelt
+    attrs:
+      name: ProloWelt
+      provider: !KeyOf prolo-provider
+      meta_launch_url: !Format ["https://admin.%s", !Env PROLO_DOMAIN]
+
+  # Der eingebaute Outpost beantwortet die Forward-Auth-Anfragen von Traefik.
+  - model: authentik_outposts.outpost
+    identifiers:
+      managed: goauthentik.io/outposts/embedded
+    attrs:
+      providers:
+        - !KeyOf prolo-provider
+      config:
+        authentik_host: !Format ["https://auth.%s/", !Env PROLO_DOMAIN]

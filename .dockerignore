@@ -1,0 +1,6 @@
+# Baukontext der Admin-Seite ist das ganze Repository - hinein muss nur das.
+*
+!kern/__init__.py
+!kern/auftrag.py
+!admin/server.py
+!admin/schriften/*.woff2

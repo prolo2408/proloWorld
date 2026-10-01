@@ -1,6 +1,6 @@
-# Jede Pruefung und jede Gegenprobe, bei jedem Push und jedem Pull Request
-# (N-97). Eine Pruefung, die nur laeuft, wenn jemand daran denkt, prueft
-# nichts: eine Gegenprobe war seit N-61 rot, und niemand hat es gemerkt.
+# Bei jedem Push und jedem Pull Request: erst die schnellen Pruefungen als
+# gewoehnlicher Nutzer (so, wie es auch lokal laufen soll), dann der echte
+# Durchlauf mit Docker, Traefik und Authentik.
 name: Pruefen
 
 on:
@@ -10,55 +10,26 @@ on:
 permissions:
   contents: read
 
-# Am Stueck lief das in die Zeitgrenze von 45 Minuten und wurde
-# abgebrochen - mit lauter gruenen Zeilen davor (N-111). Darum laufen die
-# Pruefungen in Teilen nebeneinander, jeder Teil auf einer eigenen Maschine.
-# Geschnitten wird aus job-index/job-total, nicht aus festen Zahlen: wer
-# einen Teil dazunimmt oder wegnimmt, aendert nur die Liste unter matrix.
-# werkzeuge/aufteilung-pruefen.sh haelt fest, dass nichts dazwischenfaellt.
 jobs:
-  teil:
-    name: teil ${{ matrix.teil }}
+  pruefen:
+    name: Tests und Gegenprobe
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        teil: [1, 2, 3, 4]
+    timeout-minutes: 15
     steps:
-      # Die ganze Geschichte, nicht nur der letzte Commit: auslagern-pruefen.sh
-      # zieht ein Werkzeug MIT seiner Geschichte in ein eigenes Repository um
-      # und prueft, dass sie mitkommt (U-04). Flach geklont gaebe es nichts
-      # mitzunehmen.
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      # age fuer Sicherung und Merkzettel; docker und compose bringt der
-      # Runner mit ("compose config" braucht keinen laufenden Dienst).
-      - name: age
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq age logrotate
-      - name: Pruefungen und Gegenproben, Teil ${{ matrix.teil }}
-        run: ./werkzeuge/alle-pruefen.sh --teil "$(( ${{ strategy.job-index }} + 1 ))/${{ strategy.job-total }}"
+      - name: Werkzeuge
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck age
+      - name: tests/alle.sh
+        run: tests/alle.sh
 
-  # Ein Haken fuer alles: gruen nur, wenn jeder Teil gruen ist. Laeuft auch
-  # dann, wenn ein Teil rot ist - ohne "always()" waere er dann nur
-  # "uebersprungen", und das sieht nicht nach rot aus.
-  alles:
-    needs: teil
-    if: always()
+  durchlauf:
+    name: Durchlauf mit Docker
+    needs: pruefen
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 40
     steps:
-      - name: Alle Teile gruen?
-        run: |
-          if [ "${{ needs.teil.result }}" != success ]; then
-            echo "Nicht alle Teile gruen (${{ needs.teil.result }}) - welche Pruefung rot ist, steht in der Tabelle am Ende des roten Teils."
-            exit 1
-          fi
-          echo "Alle Teile gruen."
+      - uses: actions/checkout@v4
+      - name: Werkzeuge
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq age
+      - name: tests/durchlauf.py
+        run: sudo python3 tests/durchlauf.py
