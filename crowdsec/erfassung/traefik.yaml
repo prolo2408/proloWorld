@@ -1,8 +1,0 @@
-# Das Zugriffsprotokoll von Traefik (B-26): eine JSON-Zeile je Anfrage,
-# Kopfzeilen bis auf User-Agent verworfen (§22). Eingehaengt wird der
-# ORDNER, nicht die Datei - logrotate ersetzt die Datei jede Nacht (N-106),
-# eine einzeln eingehaengte Datei bliebe beim alten Stand stehen.
-filenames:
-  - /var/log/traefik/zugriff.log
-labels:
-  type: traefik

@@ -1,7 +1,0 @@
-# Wird von CrowdSec ueber seine config.yaml gelegt.
-crowdsec_service:
-  # Unsere Erfassung liegt im Git (erfassung/) und ist nur lesend
-  # eingehaengt - ausserhalb von /etc/crowdsec, weil das Startskript des
-  # Abbilds beim ersten Start dorthin kopiert und an einem schreibgeschuetzten
-  # Ordner abbricht (gemessen, rsync Rueckgabe 23).
-  acquisition_dir: /prolo/erfassung
