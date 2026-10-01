@@ -1,63 +1,14 @@
-# Pflichtliste, CLAUDE.md §21
-**/.env
-**/.env.*
-# Die Beispieldatei soll ausdruecklich im Repository stehen - ohne diese
-# Ausnahme wuerde sie von **/.env.* mitgefangen.
-!**/.env.beispiel
-**/acme.json
-**/*.key
-**/*.pem
-**/*.db
-**/*.db-wal
-**/*.db-shm
-**/*.db-journal
-**/*.sqlite
-**/*.sql
-**/*.dump
-**/receipts/
-**/belege/
-**/daten/
-**/seiten/
-**/backups/
-authentik/data/
-authentik/certs/
-
-# Aus dem laufenden Betrieb
-**/__pycache__/
-**/.sicherung-*/
-**/.letzte-fassung
-# Rueckweg des Aktualisierungsskripts: der docker-compose.yml-Stand des
-# letzten erfolgreichen Laufs. Gehoert auf den Server, nicht ins Git.
-**/.stand-erfolgreich.yml
-# Archiv entfernter Tools (prolo entfernen). Enthaelt vollstaendige
-# Tool-Ordner samt Volume-Inhalten - also Produktivdaten und moeglicherweise
-# .env-Dateien. Gehoert auf den Server und in die Sicherung, nie ins Git.
-.archiv/
-**/.vorschau/
+# Im Repository liegt nur der Unterbau selbst. Einstellungen, Geheimnisse,
+# Zertifikate, Tools und Sicherungen liegen mit Absicht AUSSERHALB:
+# /etc/prolo, /var/lib/prolo, /opt/tools, /opt/backup (CLAUDE.md, Teil III).
+# Diese Liste ist das Netz darunter, falls doch etwas hier landet.
+__pycache__/
+*.pyc
+.env
+.env.*
+*.key
+*.pem
+*.age
 *.tar.gz
-*.tar.gz.age
-# Kopien, die eine Migration vor dem Umbau anlegt (CLAUDE.md §24a)
-**/*.vor-stand-*
-
-# Das Auftragsbuch der Admin-Seite (A-01): Auftraege, ihre Ausgabe und wer
-# was wann tat. Betriebsdaten wie die Protokolle unten.
-admin/auftraege/
-
-# Traefik-Zugriffsprotokolle - Zugriffsdaten, gehoeren nicht ins Git (B-26)
-traefik/log/*.log
-traefik/log/*.log.*
-
-# Die Marke der Vertrauensgrenze (N-44). Ein Geheimnis wie eine .env: sie
-# gehoert auf den Server und in den Passwortmanager, nicht ins Git. Die
-# Beispieldatei daneben steht ausdruecklich drin.
-traefik/dynamic/einlass.yml
-
-# Merkzettel aus "prolo geheimnisse". Verschluesselt - aber eine Datei,
-# die JEDES Geheimnis des Stacks an einer Stelle versammelt, gehoert
-# trotzdem nie ins Git. Sie wandert in den Passwortmanager und wird dann
-# geloescht.
-merkzettel/
-*.txt.age
-# Wann ein Geheimnis zuletzt gewechselt wurde. Nur Namen und Daten, keine
-# Werte - aber Serverzustand, kein Quellcode.
-.geheimnis-stand
+*.db
+*.sqlite
