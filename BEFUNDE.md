@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-131**.
+Neue Befunde bekommen die nächste freie Nummer: **N-132**.
 
 ---
 
@@ -198,3 +198,30 @@ nicht auf. **Jetzt:** erst holen und bauen, dann den Port bestimmen.
 Nachgestellt mit `traefik/whoami:v1.10` (nicht vorhanden, kein Port in der
 Datei): vorher rc=1 mit genau dieser Meldung, danach Port 80 und die Seite
 antwortet. Der Durchlauf prüft es jetzt bei jedem Push.
+
+---
+
+## N-131 — Nach dem Anlegen ließ sich an einem Tool nichts mehr ändern
+
+Gewünscht beim ersten echten Tool: Vaultwarden brauchte nachträglich ein
+`ADMIN_TOKEN` und `SIGNUPS_ALLOWED=false`. Die Admin-Seite konnte nur Port
+und Anmeldung ändern; Compose-Datei und `.env` nur von Hand auf dem Server,
+ohne Sicherung, ohne Prüfung auf Gefahren und ohne Weg zurück.
+**Jetzt:** *Bearbeiten* auf der Seite eines Tools und `prolo tool edit`:
+
+- erst **prüfen** (in einer Probe neben `app/`, Pfade gelten trotzdem relativ
+  zu `app/`): versteht Compose die Datei, gibt es den Dienst mit der
+  Oberfläche noch, keine Gefahr von der Seite. Eine kaputte oder gefährliche
+  Datei wird abgewiesen, **bevor** die Sicherung das Tool anhält – gemessen
+  2 s statt Sicherung plus Absage;
+- dann sichern, dann ändern; kommt das Tool nicht hoch, gilt wieder der
+  Stand davor – Datei, `.env`, `prolo.conf`, Override und Container;
+- die Seite bekommt die Datei und die **Namen** der Variablen, nie ihre
+  Werte; Variablen werden gesetzt oder ersetzt, `$` bleibt in einfachen
+  Anführungszeichen wörtlich (Hash von `vaultwarden hash`);
+- die Datei eines Git-Tools gehört dem Repository – die Seite bietet sie
+  nicht an, `prolo tool edit --compose` lehnt ab (sonst scheiterte das
+  nächste `git pull`).
+
+Beim Messen im Browser fiel der erste Titel des Auftrags auf („Compose-Datei
+und Variablen ändern“ bricht am Handy in Silben) – jetzt „Bearbeiten“.

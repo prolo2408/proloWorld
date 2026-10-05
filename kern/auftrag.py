@@ -43,6 +43,7 @@ ARTEN = {
     "tool_update": (("name",), (), "Aktualisieren", 60),
     "tool_logs": (("name",), (), "Protokoll", 5),
     "tool_set": (("name",), ("port", "anmeldung"), "Einstellungen ändern", 15),
+    "tool_edit": (("name",), ("compose", "env"), "Bearbeiten", 120),
     "tool_rm": (("name",), (), "Entfernen", 60),
     "tool_restore": (("name", "stand"), (), "Aus Sicherung zurückholen", 120),
 }
@@ -114,6 +115,17 @@ def pruefen(daten):
         raise Ungueltig("Stand: so heißt keine Sicherung.")
     if art == "tool_set" and not (f.get("port") or f.get("anmeldung")):
         raise Ungueltig("Nichts zu ändern.")
+    if len((f.get("compose") or "").encode("utf-8")) > MAX_COMPOSE:
+        raise Ungueltig("Die Compose-Datei ist größer als %d KiB." % (MAX_COMPOSE // 1024))
+    if len((f.get("env") or "").encode("utf-8")) > MAX_ENV:
+        raise Ungueltig("Zu viele Variablen.")
+    env_zeilen(f.get("env"))
+    if art == "tool_edit":
+        if not f["compose"].strip():
+            f["compose"] = ""
+        if not (f["compose"] or f["env"]):
+            raise Ungueltig("Nichts zu ändern: die Compose-Datei ist wie vorher, und keine "
+                            "Variable ist gesetzt.")
 
     if art == "tool_add":
         q = f["quelle"]
@@ -126,13 +138,8 @@ def pruefen(daten):
         elif q == "compose":
             if not f["compose"].strip():
                 raise Ungueltig("Die Compose-Datei ist leer.")
-            if len(f["compose"].encode("utf-8")) > MAX_COMPOSE:
-                raise Ungueltig("Die Compose-Datei ist größer als %d KiB." % (MAX_COMPOSE // 1024))
         else:
             raise Ungueltig("Quelle: abbild, compose oder git.")
-        if len((f.get("env") or "").encode("utf-8")) > MAX_ENV:
-            raise Ungueltig("Zu viele Variablen.")
-        env_zeilen(f.get("env"))
     return art, f
 
 
@@ -167,6 +174,13 @@ def argumente(art, f, datei=None):
             a += ["--port", f["port"]]
         if f.get("anmeldung"):
             a += ["--anmeldung", f["anmeldung"]]
+        return a
+    if art == "tool_edit":
+        a = ["tool", "edit", n, "--ja", "--von-web"]
+        if datei and datei.get("compose"):
+            a += ["--compose", datei["compose"]]
+        if datei and datei.get("env"):
+            a += ["--env-datei", datei["env"]]
         return a
     if art == "tool_rm":
         return ["tool", "rm", n, "--ja"]

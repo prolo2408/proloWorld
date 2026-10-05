@@ -159,6 +159,16 @@ def auftrag_lesen(kennung):
     return lage, ausgabe
 
 
+def tool_holen(name, s=None):
+    """Ein Tool aus dem Stand des Servers - oder 404."""
+    if s is None:
+        s, _ = status_lesen()
+    t = next((x for x in (s or {}).get("tools") or [] if x.get("name") == name), None)
+    if t is None or not auftrag.NAME.fullmatch(name):
+        raise Antwort(404, "Ein Tool '%s' kennt der Server nicht. Alle Tools: /tools" % name[:40])
+    return t
+
+
 def auftrag_ablegen(art, felder, wer):
     daten = {"art": art, "felder": {k: v for k, v in felder.items() if v}, "wer": wer,
              "zeit": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")}
@@ -729,6 +739,7 @@ def ansicht_tool(t, s, liste):
         auftrag_knopf("tool_update", "Aktualisieren", {"name": n},
                       frage="%s erst sichern, dann die neuesten Abbilder holen und neu starten?" % n),
         auftrag_knopf("tool_logs", "Protokoll anzeigen", {"name": n}),
+        '<a class="knopf-rahmen" href="/tool/%s/bearbeiten">Bearbeiten</a>' % e(n),
     ]
     dienste = "".join(
         '<tr><td class="mono">%s</td><td class="knapp">%s</td><td class="lang mono">%s</td>'
@@ -797,6 +808,45 @@ def ansicht_tool(t, s, liste):
                                                         'Tool ist angehalten.</p>',
         "letzte": ('<div class="tabelle"><table><tbody>%s</tbody></table></div>' % letzte)
         if letzte else '<p class="leer">Noch keine.</p>'}
+
+
+def ansicht_bearbeiten(t, fehler="", werte=None):
+    w = werte or {}
+    n = t["name"]
+    if t.get("compose") is not None:
+        compose = """<div class="feld"><label for="compose">Compose-Datei</label>
+    <textarea id="compose" name="compose" class="gross" spellcheck="false">%s</textarea>
+    <div class="erkl">Wie beim Anlegen: offene Ports nimmt prolo weg, Gefahren (privileged,
+      Docker-Socket, Pfade des Servers ...) nimmt die Seite nicht an.</div></div>""" % e(
+            w["compose"] if "compose" in w else t["compose"])
+    elif t.get("quelle") == "git":
+        compose = ('<p class="erkl">Die Compose-Datei kommt aus dem Repository <span class="mono">'
+                   '%s</span> - dort ändern, dann hier &bdquo;Aktualisieren&ldquo;.</p>'
+                   % e(t.get("herkunft")))
+    else:
+        compose = ('<p class="erkl">Die Compose-Datei ist zu groß für die Seite - auf dem '
+                   'Server ändern:  <span class="mono">sudo prolo tool edit %s --compose '
+                   '&lt;datei&gt;</span></p>' % e(n))
+    namen = t.get("variablen") or []
+    return """%(fehler)s<div class="karte"><h2>Compose-Datei und Variablen</h2>
+<div class="ktx">Vorher wird %(n)s gesichert. Startet es danach nicht, gilt wieder der Stand
+  davor.</div>
+<form class="formular" method="post" action="/tool/%(n)s/bearbeiten"
+  data-frage="%(n)s jetzt sichern, ändern und neu starten? Es ist dafür kurz nicht erreichbar.">
+  %(compose)s
+  <div class="feld"><label for="env">Variablen setzen (freiwillig)</label>
+    <textarea id="env" name="env" spellcheck="false" placeholder="NAME=wert">%(env)s</textarea>
+    <div class="erkl">Je Zeile NAME=wert - setzt einen Wert oder ersetzt ihn. Steht ein $ im
+      Wert (etwa ein Hash), in einfache Anführungszeichen: NAME='wert'. Neue Variablen der
+      Datei ohne Wert füllt prolo wie beim Anlegen.</div>
+    <div class="erkl">In app/.env stehen: <span class="mono">%(namen)s</span> - die Werte
+      bleiben auf dem Server.</div></div>
+  <div class="aktionen"><button class="knopf" type="submit">Speichern und neu starten</button>
+    <a class="knopf-rahmen" href="/tool/%(n)s">Abbrechen</a></div>
+</form></div>""" % {
+        "fehler": ('<div class="banner"><b>%s</b></div>' % e(fehler)) if fehler else "",
+        "n": e(n), "compose": compose, "env": e(w.get("env")),
+        "namen": e(", ".join(namen) or "noch keine")}
 
 
 def ansicht_neu(fehler="", werte=None):
@@ -1102,13 +1152,14 @@ class Handler(BaseHTTPRequestHandler):
         if pfad == "/tools/neu":
             return zeigen("Tool installieren", "Abbild, Compose-Datei oder Git", ansicht_neu(),
                           "/tools")
+        if pfad.startswith("/tool/") and pfad.endswith("/bearbeiten"):
+            t = tool_holen(pfad[len("/tool/"):-len("/bearbeiten")])
+            return zeigen("%s bearbeiten" % t["name"], "Compose-Datei und Variablen",
+                          ansicht_bearbeiten(t), "/tools")
         if pfad.startswith("/tool/"):
             name = pfad[len("/tool/"):]
             s, alter = status_lesen()
-            t = next((x for x in (s or {}).get("tools") or [] if x.get("name") == name), None)
-            if t is None or not auftrag.NAME.fullmatch(name):
-                raise Antwort(404, "Ein Tool '%s' kennt der Server nicht. Alle Tools: /tools"
-                              % name[:40])
+            t = tool_holen(name, s)
             return zeigen(name, "Stand vom Server: %s" % vor(alter),
                           agent_banner(s, alter) + ansicht_tool(t, s, auftraege(20, name)), "/tools")
         if pfad == "/sicherungen":
@@ -1159,6 +1210,23 @@ class Handler(BaseHTTPRequestHandler):
             erlaubt = set(sum((auftrag.ARTEN.get(art, ((), (), "", 0))[:2]), ()))
             kennung = auftrag_ablegen(art, {k: v for k, v in f.items() if k in erlaubt},
                                       nutzer["nutzer_id"])
+            return self.weiter("/auftrag/%s" % kennung)
+        if pfad.startswith("/tool/") and pfad.endswith("/bearbeiten"):
+            t = tool_holen(pfad[len("/tool/"):-len("/bearbeiten")])
+            f = self.formular(MAX_FORMULAR)
+            # Browser schicken CRLF; unveraendert heisst: die Datei nicht anfassen.
+            compose = f.get("compose", "").replace("\r\n", "\n")
+            if t.get("compose") is None or compose == t["compose"]:
+                compose = ""
+            try:
+                kennung = auftrag_ablegen("tool_edit", {"name": t["name"], "compose": compose,
+                                                        "env": f.get("env", "")},
+                                          nutzer["nutzer_id"])
+            except Antwort as a:
+                if a.kode != 400:
+                    raise
+                return self.html(seite("%s bearbeiten" % t["name"], "Compose-Datei und Variablen",
+                                       ansicht_bearbeiten(t, a.text, f), "/tools", nutzer), 400)
             return self.weiter("/auftrag/%s" % kennung)
         if pfad == "/tools/neu":
             f = self.formular(MAX_FORMULAR)

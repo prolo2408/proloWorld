@@ -24,6 +24,7 @@ Seltener:
   prolo backup pruefen [<stand>]  eine Sicherung vollstaendig lesen
   prolo backup schluessel         den Schluessel fuer den Passwortmanager zeigen
   prolo tool set <name> --port <p> | --anmeldung authentik|keine
+  prolo tool edit <name> --compose <datei> | --env NAME=wert
   prolo compose <args>            docker compose fuer den Unterbau
   prolo tool compose <name> <args>
 
@@ -68,7 +69,7 @@ def parser():
                    help="den jetzigen Stand vorher NICHT sichern")
 
     s = sub.add_parser("tool", aliases=["tools"], help="Tools verwalten")
-    ts = s.add_subparsers(dest="was", metavar="list|add|rm|start|stop|restart|update|logs|set|compose")
+    ts = s.add_subparsers(dest="was", metavar="list|add|rm|start|stop|restart|update|logs|set|edit|compose")
     ts.add_parser("list", aliases=["liste", "ls"])
     a = ts.add_parser("add", aliases=["neu", "install"], help="ein Tool installieren")
     a.add_argument("name")
@@ -104,6 +105,16 @@ def parser():
     st.add_argument("--anmeldung", choices=("authentik", "keine"))
     st.add_argument("--dienst")
     st.add_argument("--host")
+    ed = ts.add_parser("edit", aliases=["bearbeiten"],
+                       help="Compose-Datei ersetzen und/oder Variablen setzen (vorher gesichert)")
+    ed.add_argument("name")
+    ed.add_argument("--compose", help="die neue Compose-Datei")
+    ed.add_argument("--env", action="append", default=[], metavar="NAME=wert",
+                    help="setzt oder ersetzt eine Variable in app/.env")
+    ed.add_argument("--env-datei", help=argparse.SUPPRESS)
+    ed.add_argument("--ja", action="store_true", help="nicht nachfragen")
+    ed.add_argument("--von-web", action="store_true", help=argparse.SUPPRESS)
+    ed.add_argument("--ohne-sicherung", action="store_true")
     c = ts.add_parser("compose", help="docker compose für ein Tool")
     c.add_argument("name")
     c.add_argument("args", nargs=argparse.REMAINDER)
@@ -184,6 +195,9 @@ def ausfuehren(a):
             return tools.protokoll(a.name, a.zeilen, a.folgen)
         elif w in ("set", "aendern"):
             tools.aendern(a.name, a.port, a.anmeldung, a.dienst, a.host)
+        elif w in ("edit", "bearbeiten"):
+            tools.bearbeiten(a.name, compose=a.compose, env=env_werte(a.env, a.env_datei),
+                             ja=a.ja, von_web=a.von_web, sichern=not a.ohne_sicherung)
         elif w == "compose":
             orte.root_noetig("tool compose")
             tools.conf(a.name)

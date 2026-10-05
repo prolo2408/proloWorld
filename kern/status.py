@@ -32,6 +32,14 @@ def _alter_h(iso):
     return (datetime.datetime.now(t.tzinfo) - t).total_seconds() / 3600
 
 
+def _oder_none(f, *args):
+    """Ein kaputtes Tool soll nicht den ganzen Stand verderben."""
+    try:
+        return f(*args)
+    except (OSError, Abbruch):
+        return None
+
+
 def sammeln():
     hinweise = []
 
@@ -85,7 +93,11 @@ def sammeln():
             "dienste": [{"dienst": x["dienst"], "zustand": docker.zustand([x]),
                          "status": x["status"], "abbild": x["abbild"]} for x in cs],
             "volumes": sorted(m["name"] for m in ms if m["art"] == "volume"),
-            "nicht_gesichert": aussen})
+            "nicht_gesichert": aussen,
+            # Zum Bearbeiten auf der Admin-Seite: die Datei und die NAMEN der
+            # Variablen - ihre Werte (Passwoerter) verlassen den Server nicht.
+            "compose": _oder_none(tools.compose_text, n, c),
+            "variablen": _oder_none(tools.variablen_namen, n) or []})
         if z in ("krank", "teilweise"):
             hinweis("warn", "Tool %s ist %s." % (n, z), "sudo prolo tool logs %s" % n)
         for p in aussen:

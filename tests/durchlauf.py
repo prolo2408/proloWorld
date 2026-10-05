@@ -273,6 +273,36 @@ def ablauf():
     with open(ENV["PROLO_TOOLS"] + "/drei/prolo.conf") as f:
         stimmt("Port aus einem Abbild, das erst geholt wird", "PORT=80\n" in f.read())
 
+    schritt("Bearbeiten (N-131)")
+    datei = ENV["PROLO_TOOLS"] + "/drei/app/docker-compose.yml"
+
+    def jetzt():
+        with open(datei) as f:
+            return f.read(), sh("docker", "inspect", "drei-web-1", "--format",
+                                "{{.Config.Image}} {{json .Config.Env}}").stdout
+
+    neu = DREI + "    environment:\n      GRUSS: ${GRUSS}\n"
+    with open(TMP + "/drei-neu.yml", "w") as f:
+        f.write(neu)
+    # Ein Hash wie der von Vaultwarden: die $ muessen bleiben, was sie sind.
+    prolo("tool", "edit", "drei", "--compose", TMP + "/drei-neu.yml", "--env",
+          "GRUSS='$argon2id$x'")
+    text, im = jetzt()
+    stimmt("neue Datei und Variable wirken im Container", text == neu and
+           '"GRUSS=$argon2id$x"' in im, im)
+    with open(TMP + "/drei-boese.yml", "w") as f:
+        f.write(neu + "    privileged: true\n")
+    r = prolo("tool", "edit", "drei", "--compose", TMP + "/drei-boese.yml", "--ja", "--von-web",
+              "--ohne-sicherung", pruefen=False)
+    stimmt("Gefahr beim Bearbeiten von der Seite abgelehnt, alles wie vorher",
+           r.returncode != 0 and "privileged" in r.stdout and jetzt() == (text, im))
+    with open(TMP + "/drei-kaputt.yml", "w") as f:
+        f.write(neu.replace("traefik/whoami:v1.10", "prolotest/gibtsnicht:1"))
+    r = prolo("tool", "edit", "drei", "--compose", TMP + "/drei-kaputt.yml", "--env", "GRUSS=weg",
+              "--ohne-sicherung", pruefen=False)
+    stimmt("kommt es nicht hoch, gilt der Stand davor: Datei, Variable, Container",
+           r.returncode != 0 and jetzt() == (text, im), r.stdout[-500:])
+
     schritt("Stand")
     s = json.loads(prolo("status", "--json").stdout)
     stimmt("Unterbau gesund", all(u["zustand"] in ("gesund", "laeuft") for u in s["unterbau"]),
