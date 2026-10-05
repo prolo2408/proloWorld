@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-129**.
+Neue Befunde bekommen die nächste freie Nummer: **N-130**.
 
 ---
 
@@ -171,3 +171,16 @@ und oft sudo. DNS stand erst nach der Installation, obwohl Traefik die
 Zertifikate beim ersten Start holt. Für ein privates Repository stand nur
 „Deploy Key“ da, nicht wie. **Jetzt:** sieben Schritte in `README.md`, in
 der Reihenfolge, in der sie funktionieren, mit einer Tabelle „Wenn es hakt“.
+
+---
+
+## N-129 — Wie man ein Tool anlegt, stand nur als drei Befehlszeilen da
+
+Beim ersten echten Tool (Vaultwarden) war offen, wie die Compose-Datei
+aussehen soll, welche Anmeldung richtig ist und was danach zu tun bleibt.
+**Jetzt:** in `README.md` der Weg über die Admin-Seite mit Bildern, Regeln
+für eine Compose-Datei, ein Text, mit dem man sich eine schreiben lässt, und
+`beispiele/vaultwarden.yml` – echt installiert: Seite 200, App-Schnittstelle
+meldet `https://vault.<domain>`, kein offener Port, Registrierung nach
+`SIGNUPS_ALLOWED=false` + `prolo tool start` abgewiesen, Volume in der
+Sicherung gelesen.

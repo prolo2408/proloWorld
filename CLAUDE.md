@@ -28,7 +28,7 @@ hier; sie liegen auf dem Server unter `/opt/tools/<name>/`.
 # TEIL 0 – WIE HIER GEARBEITET WIRD
 
 - **Ein Befund, ein Arbeitsschritt, ein Commit.** Die Commit-Nachricht
-  beginnt mit der Nummer (`N-129: …`). Neue Befunde bekommen die nächste
+  beginnt mit der Nummer (`N-130: …`). Neue Befunde bekommen die nächste
   freie Nummer in `BEFUNDE.md`.
 - **Nichts still nebenbei ändern.** Was beim Arbeiten auffällt, wird ein
   neuer Befund mit eigenem Schritt.

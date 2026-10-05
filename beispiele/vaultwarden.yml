@@ -1,0 +1,25 @@
+# Vaultwarden - ein Passwort-Server fuer die Bitwarden-Apps
+#
+#   sudo prolo tool add vault --compose /opt/prolo/beispiele/vaultwarden.yml --anmeldung keine
+#
+# --anmeldung keine ist hier richtig und noetig: die Bitwarden-App und die
+# Browser-Erweiterung sprechen direkt mit dem Server und koennen nicht
+# durch die Authentik-Anmeldung. Vaultwarden hat seine eigene - mit
+# Master-Passwort und Zwei-Faktor.
+#
+# Die Adresse (VAULT_URL) traegt prolo selbst ein: https://vault.<domain>.
+
+services:
+  vaultwarden:
+    image: vaultwarden/server:1.37.3
+    environment:
+      DOMAIN: ${VAULT_URL}
+      # Nach dem Anlegen des eigenen Kontos ausschalten - sonst kann sich
+      # jeder im Internet ein Konto anlegen (siehe README, "Vaultwarden").
+      SIGNUPS_ALLOWED: ${SIGNUPS_ALLOWED:-true}
+      SHOW_PASSWORD_HINT: "false"
+    volumes:
+      - daten:/data
+
+volumes:
+  daten: {}
