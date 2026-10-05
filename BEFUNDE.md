@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-128**.
+Neue Befunde bekommen die nächste freie Nummer: **N-129**.
 
 ---
 
@@ -161,3 +161,13 @@ die Pfade der Hilfsdateien des Agenten.
 `py_compile` legt `__pycache__` an; als normaler Nutzer: „Permission denied“,
 als root unbemerkt Müll im Arbeitsstand. **Jetzt:** Syntaxprüfung mit `ast`.
 Gefunden, weil `alle.sh` nicht als root lief.
+
+---
+
+## N-128 — Die Installation ließ sich auf einem frischen Server nicht abarbeiten
+
+Der erste Befehl war `sudo git clone` – auf einem frischen Debian fehlen git
+und oft sudo. DNS stand erst nach der Installation, obwohl Traefik die
+Zertifikate beim ersten Start holt. Für ein privates Repository stand nur
+„Deploy Key“ da, nicht wie. **Jetzt:** sieben Schritte in `README.md`, in
+der Reihenfolge, in der sie funktionieren, mit einer Tabelle „Wenn es hakt“.
