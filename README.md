@@ -19,37 +19,138 @@ Netz hinter der Anmeldung und kommt automatisch in die Sicherung.
 
 ---
 
-## Installieren
+## Installieren – Schritt für Schritt
 
-Auf einem frischen Debian- oder Ubuntu-Server:
+Du brauchst: einen frischen Server mit **Debian 12** oder **Ubuntu 22.04/24.04**
+(mindestens 2 GB RAM, besser 4 GB; 20 GB Platte), SSH-Zugang als `root` oder mit `sudo`,
+und eine eigene Domain. Im Folgenden steht `prolo.me` für deine Domain –
+überall durch deine ersetzen.
+
+### 1. DNS zuerst
+
+Beim Anbieter deiner Domain zwei **A-Records** auf die IP des Servers:
+
+| Name | Typ | Wert |
+|---|---|---|
+| `*.prolo.me` | A | IP des Servers |
+| `prolo.me` | A | IP des Servers |
+
+**Keinen AAAA-Record** (IPv6) und **keine DynDNS-Bindung** für diese Namen.
+Prüfen, bevor es weitergeht – beide Zeilen müssen die Server-IP zeigen:
+
+```bash
+getent hosts auth.prolo.me admin.prolo.me
+```
+
+Warum zuerst: Traefik holt die Zertifikate bei Let's Encrypt gleich beim
+ersten Start. Zeigt der Name dann noch nicht auf den Server, gibt es keins,
+und der Browser meldet „nicht sicher“.
+
+### 2. Anmelden und das Nötigste installieren
+
+```bash
+ssh root@<ip-des-servers>
+apt update && apt install -y git sudo
+```
+
+(Bist du nicht `root`, sondern ein Nutzer mit `sudo`: jedem Befehl unten
+`sudo` voranstellen – so, wie es dort steht.)
+
+### 3. ProloWelt holen
 
 ```bash
 sudo git clone https://github.com/prolo2408/proloWorld /opt/prolo
+```
+
+Fragt git nach Benutzername und Passwort, ist das Repository privat. Dann
+einmalig einen **Deploy Key** einrichten – damit kann der Server lesen, aber
+nichts verändern, und das nächtliche `prolo update` funktioniert:
+
+```bash
+sudo mkdir -p -m 700 /root/.ssh
+sudo ssh-keygen -t ed25519 -N "" -f /root/.ssh/prolo_deploy
+sudo cat /root/.ssh/prolo_deploy.pub
+```
+
+Die ausgegebene Zeile bei GitHub eintragen: Repository → *Settings* →
+*Deploy keys* → *Add deploy key* (Haken bei „write access“ **nicht** setzen).
+Dann:
+
+```bash
+printf 'Host github.com\n  IdentityFile /root/.ssh/prolo_deploy\n' | sudo tee -a /root/.ssh/config
+sudo git clone git@github.com:prolo2408/proloWorld.git /opt/prolo
+```
+
+### 4. Installieren
+
+```bash
 sudo /opt/prolo/install.sh --domain prolo.me --email du@prolo.me
 ```
 
-Ist das Repository privat, braucht der Server Lesezugriff darauf (ein
-*Deploy Key* bei GitHub) – sonst kann `prolo update` später nichts holen.
+Das dauert beim ersten Mal **5–10 Minuten** (Docker und die Abbilder werden
+geholt). Was passiert:
 
-`install.sh` installiert, was fehlt (Docker, git, age), schaltet die
-nächtlichen Sicherheitsaktualisierungen des Systems und die Firewall ein
-(nur SSH, 80, 443) und richtet danach alles Weitere ein. Es lässt sich
-gefahrlos wiederholen – vorhandene Einstellungen, Geheimnisse und Schlüssel
-bleiben stehen.
+- installiert Docker, git, age und python3, falls sie fehlen
+- schaltet die nächtlichen Sicherheitsupdates des Systems ein
+- schaltet die Firewall ein: von außen nur SSH, 80 und 443
+  (`--ohne-firewall` lässt das aus, z. B. wenn dein Anbieter schon eine hat)
+- legt Einstellungen und Geheimnisse in `/etc/prolo` an, startet Traefik,
+  Authentik und die Admin-Seite und richtet die nächtliche Sicherung ein
 
-Danach, einmalig:
+Am Ende steht **„Fertig“** mit den Adressen und dem **ersten Passwort**
+für Authentik. Das Passwort wird nur dieses eine Mal angezeigt – gleich
+notieren. (Später steht es in `/etc/prolo/geheim.env`.)
 
-1. **DNS:** beim Anbieter einen Eintrag `*.prolo.me` (A-Record, Wildcard) auf
-   die IP des Servers. Dann ist jedes neue Tool sofort erreichbar.
-2. **Anmelden:** `https://auth.prolo.me`, Nutzer `akadmin`, das Passwort steht
-   am Ende der Ausgabe von `install.sh`. Gleich in Authentik ändern und
-   Zwei-Faktor einschalten (Einstellungen → MFA) – dieses Konto ist der
-   Schlüssel zu allem.
-3. **Sicherungsschlüssel:** `sudo prolo backup schluessel` zeigt ihn. In den
-   Passwortmanager kopieren. Ohne ihn lässt sich keine Sicherung auf einem
-   neuen Server öffnen.
+Geht unterwegs etwas schief, steht der Grund mit dem nächsten Schritt da.
+Danach einfach noch einmal aufrufen – das Skript ist gefahrlos zu
+wiederholen und macht nur, was noch fehlt.
 
-Die Verwaltung liegt dann unter `https://admin.prolo.me`.
+### 5. Erste Anmeldung
+
+1. `https://auth.prolo.me` öffnen, Nutzer **`akadmin`**, das Passwort aus
+   Schritt 4.
+2. Oben rechts auf den Nutzer → *Einstellungen*: **Passwort ändern** und
+   unter *MFA-Geräte* **Zwei-Faktor einrichten** (z. B. mit einer
+   Authenticator-App). Dieses Konto ist der Schlüssel zu allem.
+3. `https://admin.prolo.me` öffnen – das ist die Verwaltung.
+
+### 6. Den Sicherungsschlüssel aufheben
+
+```bash
+sudo prolo backup schluessel
+```
+
+Den ganzen Text (alle Zeilen) in den **Passwortmanager** kopieren. Ohne ihn
+lässt sich eine Sicherung auf einem neuen Server nicht öffnen.
+
+### 7. Nachsehen, ob alles stimmt
+
+```bash
+sudo prolo status
+```
+
+Alle Dienste sollten „gesund“ oder „läuft“ sein. Unter „Was zu tun ist“
+steht anfangs „noch keine vollständige Sicherung“ – die erste entsteht heute
+Nacht um 03:30, oder sofort mit `sudo prolo backup`.
+
+### Das erste Tool
+
+```bash
+sudo prolo tool add uptime --image louislam/uptime-kuma:1
+```
+
+Danach unter `https://uptime.prolo.me` – hinter derselben Anmeldung. Oder
+auf der Admin-Seite unter *Tools → Tool installieren*.
+
+### Wenn es hakt
+
+| Was du siehst | Was zu tun ist |
+|---|---|
+| Browser: „nicht sicher“ / Zertifikatsfehler | DNS prüfen (Schritt 1). Stimmt er jetzt: `sudo prolo compose restart traefik` – Traefik holt die Zertifikate neu |
+| `install.sh` bricht bei Docker ab | `sudo /opt/prolo/install.sh …` noch einmal – meist war das Netz kurz weg |
+| „Der Unterbau kam nicht vollständig hoch“ | `sudo prolo compose logs --tail 50 authentik-server` zeigt den Grund; danach `sudo prolo einrichten` |
+| Admin-Seite: „Dafür braucht es die Gruppe …“ | du bist mit einem anderen Nutzer als `akadmin` angemeldet – in Authentik der Gruppe `authentik Admins` zuweisen |
+| ausgesperrt aus SSH | über die Konsole deines Anbieters anmelden, `ufw allow <dein-ssh-port>/tcp` |
 
 ---
 
@@ -80,48 +181,167 @@ ruft im Hintergrund dieselben Befehle auf.
 
 ## Tools installieren
 
-Drei Quellen:
+Ein Tool installierst du auf der Admin-Seite oder mit einem Befehl – beides
+macht dasselbe. Danach ist es unter `https://<name>.prolo.me` erreichbar,
+hängt in seinem eigenen Netz, steht hinter der Anmeldung und kommt in die
+nächtliche Sicherung.
+
+Es gibt drei Wege, je nachdem, was der Hersteller anbietet:
+
+| Der Hersteller bietet … | dann | Beispiel |
+|---|---|---|
+| nur ein Docker-Abbild | **Ein Abbild** | `louislam/uptime-kuma:1` |
+| eine `docker-compose.yml` (meist bei Tools mit Datenbank) | **Compose-Datei** | Vaultwarden, Nextcloud, Paperless |
+| ein Git-Repository mit `docker-compose.yml` (auch dein eigener Code) | **Git-Repository** | `https://github.com/name/repo.git` |
+
+### Auf der Admin-Seite
+
+**1.** *Tools* → **Tool installieren** (oben rechts).
+
+![Die Liste der Tools, noch leer](docs/bilder/01-tools-leer.png)
+
+**2.** Einen **Namen** wählen – er wird zur Adresse (`uptime` →
+`uptime.prolo.me`). Dann die **Quelle**: bei einem einzelnen Abbild nur
+dessen Namen eintragen. Port und Speicherorte liest prolo selbst aus dem
+Abbild.
+
+![Ein Tool aus einem Abbild installieren](docs/bilder/02-abbild.png)
+
+**3.** **Installieren** drücken. Du siehst live, was auf dem Server passiert.
+Steht oben „erledigt“, führt **Zum Tool** auf seine Seite. Geht etwas
+schief, steht der Grund in der Ausgabe – und es bleibt nichts Halbes übrig.
+
+![Der Auftrag läuft und ist erledigt](docs/bilder/03-auftrag.png)
+
+**4.** Auf der Seite des Tools: Adresse, Zustand, Starten/Anhalten,
+Aktualisieren, Protokoll, Zurückholen aus einer Sicherung, Entfernen.
+
+![Die Seite eines Tools](docs/bilder/06-tool-seite.png)
+
+### Auf der Kommandozeile
 
 ```bash
-# Ein einzelnes Abbild - Port und Volumes liest prolo aus dem Abbild
 sudo prolo tool add uptime --image louislam/uptime-kuma:1
-
-# Die Compose-Datei eines Herstellers - sie bleibt unverändert
-sudo prolo tool add n8n --compose ./docker-compose.yml --anmeldung keine
-
-# Ein Repository mit docker-compose.yml (auch eigener Code)
-sudo prolo tool add wiki --git https://github.com/prolo2408/wiki.git
+sudo prolo tool add vault  --compose ./docker-compose.yml --anmeldung keine
+sudo prolo tool add wiki   --git https://github.com/name/wiki.git
 ```
 
-Das Tool ist danach unter `https://<name>.prolo.me` erreichbar. prolo
-sorgt dabei für:
+### Beispiel: Vaultwarden (Bitwarden)
 
-- **ein eigenes Netz** (`tool-<name>`), in dem nur noch Traefik hängt – Tools
-  erreichen einander nicht direkt, nur über die Anmeldung,
-- **keine offenen Ports** – was der Hersteller veröffentlicht, nimmt prolo
-  weg; erreichbar ist das Tool nur über seine Adresse,
-- **die Anmeldung davor** (Authentik). Mit `--anmeldung keine` ist das Tool
-  öffentlich – nur für Tools mit eigener Anmeldung oder öffentliche Seiten,
-- **gewürfelte Geheimnisse**: Variablen wie `DB_PASSWORD`, die die Datei
-  verlangt, trägt prolo in die `.env` des Tools ein. Was es nicht kennt,
-  fragt es ab (`--env NAME=wert`),
-- **benannte Volumes** für alles, was das Abbild ablegt – damit die
-  Sicherung es findet.
+Vaultwarden ist ein Passwort-Server für die offiziellen **Bitwarden-Apps**
+und die **Browser-Erweiterung**. Die Datei dafür liegt schon im Repository:
 
-Compose-Dateien mit Gefahren (`privileged`, Docker-Socket, Pfade vom Server,
-`network_mode: host`, zusätzliche Linux-Fähigkeiten …) legt die Admin-Seite
-nicht an. Auf der Kommandozeile fragt prolo nach.
+```bash
+sudo prolo tool add vault --compose /opt/prolo/beispiele/vaultwarden.yml --anmeldung keine
+```
 
-Ein Tool liegt so auf dem Server:
+Auf der Admin-Seite geht es genauso: Name `vault`, Quelle **Compose-Datei**,
+den Inhalt von [`beispiele/vaultwarden.yml`](beispiele/vaultwarden.yml)
+hineinkopieren, Anmeldung **Ohne**.
+
+![Vaultwarden als Compose-Datei installieren](docs/bilder/04-compose.png)
+
+**Warum „ohne Anmeldung“?** Die Bitwarden-App spricht direkt mit dem Server
+und kann nicht durch die Anmeldeseite von Authentik. Vaultwarden hat seine
+eigene Anmeldung (Master-Passwort und Zwei-Faktor) – die schützt den Tresor.
+
+Danach, **in dieser Reihenfolge**:
+
+1. `https://vault.prolo.me` öffnen → *Konto erstellen* → dein Konto mit einem
+   starken Master-Passwort. In den Kontoeinstellungen **Zwei-Faktor**
+   einschalten.
+2. **Die Registrierung schließen** – sonst kann sich jeder im Internet ein
+   Konto anlegen:
+   ```bash
+   echo "SIGNUPS_ALLOWED=false" | sudo tee -a /opt/tools/vault/app/.env
+   sudo prolo tool start vault
+   ```
+   (`tool start` legt den Container mit der neuen Einstellung neu an; die
+   Daten bleiben.)
+3. In der Bitwarden-App bzw. Erweiterung beim Anmelden **„Selbst gehostet“**
+   wählen und als Server-URL `https://vault.prolo.me` eintragen.
+
+Der Tresor liegt im Volume `vault_daten` und ist ab heute Nacht in der
+Sicherung.
+
+### Wie eine Compose-Datei für ProloWelt aussieht
+
+Meist nimmst du die Datei des Herstellers einfach so, wie sie ist – prolo
+nimmt offene Ports weg, hängt das Tool ins richtige Netz und vor die
+Anmeldung. Schreibst du selbst eine (oder passt eine an), gilt:
+
+```yaml
+services:
+  app:                                  # der Dienst mit der Oberfläche
+    image: hersteller/tool:1.2.3        # feste Fassung, nicht "latest"
+    environment:
+      ADRESSE: ${TOOL_URL}              # endet auf URL  -> https://<name>.prolo.me
+      DB_PASSWORD: ${DB_PASSWORD}       # PASS/SECRET/KEY/TOKEN -> prolo würfelt es
+      TZ: ${TZ}                         # TZ -> Europe/Berlin
+    volumes:
+      - daten:/data                     # benannte Volumes - die sichert prolo
+    depends_on: [db]
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD} # dieselbe Variable -> derselbe Wert
+    volumes:
+      - db:/var/lib/postgresql/data
+
+volumes:
+  daten: {}
+  db: {}
+```
+
+- **Keine `ports:` nötig** – stehen welche drin, nimmt prolo sie weg.
+  Welchen Port die Oberfläche hat, liest prolo aus `expose:`, `ports:` oder
+  dem Abbild; ist es nicht eindeutig, gibst du ihn an (Feld *Port* bzw.
+  `--port`).
+- **Daten in benannte Volumes** (`daten:/data`) oder in einen Ordner neben
+  der Datei (`./daten:/data`). Pfade vom Server (`/srv/…`, `/home/…`) werden
+  **nicht** gesichert, und die Admin-Seite lehnt sie ab.
+- **Variablen** `${NAME}`: was prolo kennt, füllt es selbst – Namen mit
+  `PASS`, `SECRET`, `KEY`, `TOKEN` bekommen einen Zufallswert, Namen auf
+  `URL` die Adresse des Tools, Namen auf `HOST`/`DOMAIN` den Hostnamen, `TZ`
+  die Zeitzone. Was es nicht kennt, fragt es ab: Feld *Variablen* bzw.
+  `--env NAME=wert`. Mit Vorgabe (`${NAME:-wert}`) wird nichts gefragt.
+- **Nicht erlaubt** auf der Admin-Seite: `privileged`, `network_mode`,
+  `cap_add`, `devices`, der Docker-Socket. Braucht ein Tool das wirklich,
+  geht es nur auf der Kommandozeile – und prolo fragt nach.
+- **Anmeldung:** Authentik davor ist die Vorgabe. „Ohne“ nur, wenn das Tool
+  eine eigene Anmeldung hat, die Apps oder Webhooks brauchen (Vaultwarden,
+  n8n, Nextcloud mit App) – oder wenn es eine öffentliche Seite ist.
+
+### Eine Compose-Datei erstellen lassen
+
+Für ein Tool ohne fertige Datei kannst du dir eine von einer KI schreiben
+lassen. Diesen Text kopieren und `<TOOL>` ersetzen:
+
+```text
+Schreib mir eine docker-compose.yml für <TOOL>, die ich auf meinem Server
+mit "prolo tool add" installiere. Regeln:
+- keine ports:-Zeilen, kein network_mode, kein privileged, keine cap_add,
+  kein Docker-Socket, keine Pfade vom Server (nur benannte Volumes)
+- feste Abbild-Fassung (die aktuelle stabile, nicht "latest")
+- die Adresse des Tools als Variable, deren Name auf _URL endet
+  (z. B. ${APP_URL}); Passwörter als Variablen mit PASSWORD/SECRET/KEY im
+  Namen, ohne Wert
+- ein Dienst mit der Weboberfläche; Datenbank o. ä. als eigene Dienste
+- sag mir, auf welchem Port die Oberfläche im Container lauscht, und ob das
+  Tool eine eigene Anmeldung hat, die Apps oder Webhooks direkt brauchen
+  (dann installiere ich es mit "--anmeldung keine")
+```
+
+### Was prolo dabei anlegt
 
 ```
-/opt/tools/uptime/
-├── app/                   das Tool selbst: Compose-Datei (bzw. git clone) und .env
+/opt/tools/vault/
+├── app/                   die Compose-Datei (unverändert) und ihre .env
 ├── prolo.conf             was prolo über das Tool weiß (Quelle, Port, Anmeldung)
 └── prolo.override.yml     was prolo dazutut (Netz, Router, keine Ports)
 ```
 
-Von Hand mit docker compose: `sudo prolo tool compose uptime ps`.
+Von Hand mit docker compose: `sudo prolo tool compose vault ps`.
 
 ---
 
