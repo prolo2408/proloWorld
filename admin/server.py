@@ -403,6 +403,7 @@ td.z, th.z{text-align:right}
 td.z{font-family:'JetBrains Mono',monospace}
 td.lang{overflow-wrap:anywhere}
 td.knapp{white-space:nowrap;width:1%}
+.nur-schmal{display:none}
 
 .marker{display:inline-block;padding:2px 7px;border-radius:5px;font-size:11px;font-weight:600;
   white-space:nowrap}
@@ -504,6 +505,7 @@ pre.ausgabe{font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.
   /* --accent-ink statt --accent: 12 px brauchen 4.5:1 (§8). */
   .tabbar a[aria-current=page]{color:var(--accent-ink);border-top-color:var(--accent)}
   .nur-breit{display:none}
+  .nur-schmal{display:block}
 }
 @media (max-width:480px){ .kpi4,.kpi3{grid-template-columns:minmax(0,1fr)} }
 """
@@ -974,19 +976,22 @@ def ansicht_sicherungen(s, alter):
 def auftrag_zeile(a):
     f = a.get("felder") or {}
     ziel = f.get("name") or f.get("stand") or ""
-    return ('<tr><td class="mono knapp">%s</td><td class="lang"><a class="zeile" href="/auftrag/%s">'
-            '%s%s</a></td><td class="knapp">%s</td></tr>'
-            % (zeit(a.get("eingang") or a.get("beginn")), e(a.get("kennung")),
-               e(a.get("titel") or a.get("art") or "?"), (" &middot; " + e(ziel)) if ziel else "",
-               marker(AUFTRAG, a.get("status"))))
+    wann = zeit(a.get("eingang") or a.get("beginn"))
+    # Am Handy steht die Zeit unter dem Titel: als eigene Spalte liess sie ihm
+    # so wenig Platz, dass Woerter in Silben zerbrachen (N-133).
+    return ('<tr><td class="mono knapp nur-breit">%s</td><td class="lang"><a class="zeile" '
+            'href="/auftrag/%s">%s%s</a><div class="mono erkl nur-schmal">%s</div></td>'
+            '<td class="knapp">%s</td></tr>'
+            % (wann, e(a.get("kennung")), e(a.get("titel") or a.get("art") or "?"),
+               (" &middot; " + e(ziel)) if ziel else "", wann, marker(AUFTRAG, a.get("status"))))
 
 
 def ansicht_auftraege(liste):
     if not liste:
         return '<div class="karte"><h2>Aufträge</h2><p class="leer">Noch keine.</p></div>'
     return ('<div class="karte"><h2>Aufträge</h2><div class="ktx">Ausgeführt vom Agenten auf dem '
-            'Server, einer nach dem anderen</div><div class="tabelle"><table><thead><tr><th>Wann'
-            '</th><th>Was</th><th>Stand</th></tr></thead><tbody>%s</tbody></table></div></div>'
+            'Server, einer nach dem anderen</div><div class="tabelle"><table><thead><tr><th class="nur-breit">'
+            'Wann</th><th>Was</th><th>Stand</th></tr></thead><tbody>%s</tbody></table></div></div>'
             % "".join(auftrag_zeile(a) for a in liste))
 
 

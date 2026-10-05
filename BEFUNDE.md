@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-133**.
+Neue Befunde bekommen die nächste freie Nummer: **N-134**.
 
 ---
 
@@ -239,3 +239,16 @@ allen Nutzern gewesen. **Jetzt:** er weigert sich bei Containern **oder**
 Volumes eines seiner Projekte. Probe: ein Volume mit dem Etikett
 `prolo` → rc=2, „nichts angefasst“, Volume noch da; auf einer sauberen
 Maschine meldet die Prüfung nichts.
+
+---
+
+## N-133 — Am Handy zerbrachen die Titel der Aufträge in Silben
+
+„Tool installier-en“, „Compo-se-Datei“: in den Listen der Aufträge nahmen
+Zeit und Zustand als starre Spalten so viel Breite, dass für den Titel bei
+360 px kaum etwas blieb – und `overflow-wrap:anywhere` brach dann mitten im
+Wort. Die Messung auf Klickflächen und Kontrast sah das nicht; gefunden beim
+Ansehen der Bilder (N-131). **Jetzt:** am Handy steht die Zeit klein unter
+dem Titel statt in einer eigenen Spalte. Gemessen mit einer neuen Probe, die
+je Wort zählt, ob es über zwei Zeilen läuft (5 Seiten, 3 Breiten, 339
+Wörter): vorher 34 gebrochen, jetzt 0.
