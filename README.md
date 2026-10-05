@@ -19,37 +19,138 @@ Netz hinter der Anmeldung und kommt automatisch in die Sicherung.
 
 ---
 
-## Installieren
+## Installieren – Schritt für Schritt
 
-Auf einem frischen Debian- oder Ubuntu-Server:
+Du brauchst: einen frischen Server mit **Debian 12** oder **Ubuntu 22.04/24.04**
+(mindestens 2 GB RAM, besser 4 GB; 20 GB Platte), SSH-Zugang als `root` oder mit `sudo`,
+und eine eigene Domain. Im Folgenden steht `prolo.me` für deine Domain –
+überall durch deine ersetzen.
+
+### 1. DNS zuerst
+
+Beim Anbieter deiner Domain zwei **A-Records** auf die IP des Servers:
+
+| Name | Typ | Wert |
+|---|---|---|
+| `*.prolo.me` | A | IP des Servers |
+| `prolo.me` | A | IP des Servers |
+
+**Keinen AAAA-Record** (IPv6) und **keine DynDNS-Bindung** für diese Namen.
+Prüfen, bevor es weitergeht – beide Zeilen müssen die Server-IP zeigen:
+
+```bash
+getent hosts auth.prolo.me admin.prolo.me
+```
+
+Warum zuerst: Traefik holt die Zertifikate bei Let's Encrypt gleich beim
+ersten Start. Zeigt der Name dann noch nicht auf den Server, gibt es keins,
+und der Browser meldet „nicht sicher“.
+
+### 2. Anmelden und das Nötigste installieren
+
+```bash
+ssh root@<ip-des-servers>
+apt update && apt install -y git sudo
+```
+
+(Bist du nicht `root`, sondern ein Nutzer mit `sudo`: jedem Befehl unten
+`sudo` voranstellen – so, wie es dort steht.)
+
+### 3. ProloWelt holen
 
 ```bash
 sudo git clone https://github.com/prolo2408/proloWorld /opt/prolo
+```
+
+Fragt git nach Benutzername und Passwort, ist das Repository privat. Dann
+einmalig einen **Deploy Key** einrichten – damit kann der Server lesen, aber
+nichts verändern, und das nächtliche `prolo update` funktioniert:
+
+```bash
+sudo mkdir -p -m 700 /root/.ssh
+sudo ssh-keygen -t ed25519 -N "" -f /root/.ssh/prolo_deploy
+sudo cat /root/.ssh/prolo_deploy.pub
+```
+
+Die ausgegebene Zeile bei GitHub eintragen: Repository → *Settings* →
+*Deploy keys* → *Add deploy key* (Haken bei „write access“ **nicht** setzen).
+Dann:
+
+```bash
+printf 'Host github.com\n  IdentityFile /root/.ssh/prolo_deploy\n' | sudo tee -a /root/.ssh/config
+sudo git clone git@github.com:prolo2408/proloWorld.git /opt/prolo
+```
+
+### 4. Installieren
+
+```bash
 sudo /opt/prolo/install.sh --domain prolo.me --email du@prolo.me
 ```
 
-Ist das Repository privat, braucht der Server Lesezugriff darauf (ein
-*Deploy Key* bei GitHub) – sonst kann `prolo update` später nichts holen.
+Das dauert beim ersten Mal **5–10 Minuten** (Docker und die Abbilder werden
+geholt). Was passiert:
 
-`install.sh` installiert, was fehlt (Docker, git, age), schaltet die
-nächtlichen Sicherheitsaktualisierungen des Systems und die Firewall ein
-(nur SSH, 80, 443) und richtet danach alles Weitere ein. Es lässt sich
-gefahrlos wiederholen – vorhandene Einstellungen, Geheimnisse und Schlüssel
-bleiben stehen.
+- installiert Docker, git, age und python3, falls sie fehlen
+- schaltet die nächtlichen Sicherheitsupdates des Systems ein
+- schaltet die Firewall ein: von außen nur SSH, 80 und 443
+  (`--ohne-firewall` lässt das aus, z. B. wenn dein Anbieter schon eine hat)
+- legt Einstellungen und Geheimnisse in `/etc/prolo` an, startet Traefik,
+  Authentik und die Admin-Seite und richtet die nächtliche Sicherung ein
 
-Danach, einmalig:
+Am Ende steht **„Fertig“** mit den Adressen und dem **ersten Passwort**
+für Authentik. Das Passwort wird nur dieses eine Mal angezeigt – gleich
+notieren. (Später steht es in `/etc/prolo/geheim.env`.)
 
-1. **DNS:** beim Anbieter einen Eintrag `*.prolo.me` (A-Record, Wildcard) auf
-   die IP des Servers. Dann ist jedes neue Tool sofort erreichbar.
-2. **Anmelden:** `https://auth.prolo.me`, Nutzer `akadmin`, das Passwort steht
-   am Ende der Ausgabe von `install.sh`. Gleich in Authentik ändern und
-   Zwei-Faktor einschalten (Einstellungen → MFA) – dieses Konto ist der
-   Schlüssel zu allem.
-3. **Sicherungsschlüssel:** `sudo prolo backup schluessel` zeigt ihn. In den
-   Passwortmanager kopieren. Ohne ihn lässt sich keine Sicherung auf einem
-   neuen Server öffnen.
+Geht unterwegs etwas schief, steht der Grund mit dem nächsten Schritt da.
+Danach einfach noch einmal aufrufen – das Skript ist gefahrlos zu
+wiederholen und macht nur, was noch fehlt.
 
-Die Verwaltung liegt dann unter `https://admin.prolo.me`.
+### 5. Erste Anmeldung
+
+1. `https://auth.prolo.me` öffnen, Nutzer **`akadmin`**, das Passwort aus
+   Schritt 4.
+2. Oben rechts auf den Nutzer → *Einstellungen*: **Passwort ändern** und
+   unter *MFA-Geräte* **Zwei-Faktor einrichten** (z. B. mit einer
+   Authenticator-App). Dieses Konto ist der Schlüssel zu allem.
+3. `https://admin.prolo.me` öffnen – das ist die Verwaltung.
+
+### 6. Den Sicherungsschlüssel aufheben
+
+```bash
+sudo prolo backup schluessel
+```
+
+Den ganzen Text (alle Zeilen) in den **Passwortmanager** kopieren. Ohne ihn
+lässt sich eine Sicherung auf einem neuen Server nicht öffnen.
+
+### 7. Nachsehen, ob alles stimmt
+
+```bash
+sudo prolo status
+```
+
+Alle Dienste sollten „gesund“ oder „läuft“ sein. Unter „Was zu tun ist“
+steht anfangs „noch keine vollständige Sicherung“ – die erste entsteht heute
+Nacht um 03:30, oder sofort mit `sudo prolo backup`.
+
+### Das erste Tool
+
+```bash
+sudo prolo tool add uptime --image louislam/uptime-kuma:1
+```
+
+Danach unter `https://uptime.prolo.me` – hinter derselben Anmeldung. Oder
+auf der Admin-Seite unter *Tools → Tool installieren*.
+
+### Wenn es hakt
+
+| Was du siehst | Was zu tun ist |
+|---|---|
+| Browser: „nicht sicher“ / Zertifikatsfehler | DNS prüfen (Schritt 1). Stimmt er jetzt: `sudo prolo compose restart traefik` – Traefik holt die Zertifikate neu |
+| `install.sh` bricht bei Docker ab | `sudo /opt/prolo/install.sh …` noch einmal – meist war das Netz kurz weg |
+| „Der Unterbau kam nicht vollständig hoch“ | `sudo prolo compose logs --tail 50 authentik-server` zeigt den Grund; danach `sudo prolo einrichten` |
+| Admin-Seite: „Dafür braucht es die Gruppe …“ | du bist mit einem anderen Nutzer als `akadmin` angemeldet – in Authentik der Gruppe `authentik Admins` zuweisen |
+| ausgesperrt aus SSH | über die Konsole deines Anbieters anmelden, `ufw allow <dein-ssh-port>/tcp` |
 
 ---
 
