@@ -7,8 +7,9 @@ Braucht root und Docker, dauert einige Minuten. Laeuft in eigenen Ordnern
 
     sudo python3 tests/durchlauf.py
 
-Weigert sich, wenn auf dieser Maschine schon ein Unterbau laeuft - er wuerde
-dessen Container uebernehmen.
+Weigert sich, wenn es auf dieser Maschine schon Container oder Volumes seiner
+Projekte gibt - auch von einem angehaltenen Unterbau: er wuerde sie
+uebernehmen und beim Aufraeumen loeschen (N-132).
 """
 import http.client
 import json
@@ -322,13 +323,28 @@ def aufraeumen():
     shutil.rmtree(TMP, ignore_errors=True)
 
 
+def vorhanden():
+    """Was der Durchlauf beim Aufraeumen loeschen wuerde und schon da ist."""
+    da = []
+    for p in PROJEKTE:
+        f = "label=com.docker.compose.project=%s" % p
+        if sh("docker", "ps", "-aq", "--filter", f).stdout.strip():
+            da.append("Container von '%s'" % p)
+        if sh("docker", "volume", "ls", "-q", "--filter", f).stdout.strip():
+            da.append("Volumes von '%s'" % p)
+    return da
+
+
 def main():
     if os.geteuid() != 0:
         print("Braucht root:  sudo python3 tests/durchlauf.py")
         return 2
-    if sh("docker", "ps", "-aq", "--filter", "label=com.docker.compose.project=prolo").stdout.strip():
-        print("Auf dieser Maschine laeuft schon ein Unterbau (Projekt 'prolo') - der Durchlauf "
-              "wuerde ihn uebernehmen. Abgebrochen, nichts angefasst.")
+    da = vorhanden()
+    if da:
+        print("Auf dieser Maschine gibt es schon %s - der Durchlauf wuerde sie uebernehmen und "
+              "beim Aufraeumen loeschen. Abgebrochen, nichts angefasst.\n"
+              "Den Durchlauf auf einem Rechner ohne ProloWelt laufen lassen (oder in CI)."
+              % ", ".join(da))
         return 2
     t0 = time.time()
     try:

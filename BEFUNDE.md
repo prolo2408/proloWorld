@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-132**.
+Neue Befunde bekommen die nächste freie Nummer: **N-133**.
 
 ---
 
@@ -225,3 +225,17 @@ ohne Sicherung, ohne Prüfung auf Gefahren und ohne Weg zurück.
 
 Beim Messen im Browser fiel der erste Titel des Auftrags auf („Compose-Datei
 und Variablen ändern“ bricht am Handy in Silben) – jetzt „Bearbeiten“.
+
+---
+
+## N-132 — Der Durchlauf löschte die Volumes eines angehaltenen Unterbaus
+
+`tests/durchlauf.py` weigerte sich nur, wenn Container des Projekts `prolo`
+da waren. Bei einem **angehaltenen** Unterbau (Container weg, Volumes da)
+lief er los: Authentik fand eine Datenbank mit fremdem Passwort und kam nicht
+hoch (gemessen: abgebrochen nach 46 s) – und das Aufräumen (`down -v`)
+löschte danach die Volumes. Auf einem Server wäre das die Anmeldung samt
+allen Nutzern gewesen. **Jetzt:** er weigert sich bei Containern **oder**
+Volumes eines seiner Projekte. Probe: ein Volume mit dem Etikett
+`prolo` → rc=2, „nichts angefasst“, Volume noch da; auf einer sauberen
+Maschine meldet die Prüfung nichts.
