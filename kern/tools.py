@@ -525,9 +525,8 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
                                   "wirklich will, tut es auf dem Server:  sudo prolo tool add ...")
                 if not ja and not frage("Trotzdem anlegen?"):
                     raise Abbruch("Nichts angelegt.")
-            dienst, port = dienst_waehlen(cfg, name, dienst, port)
-            orte.ok("Oberfläche: Dienst %s, Port %s" % (dienst, port))
-
+            # Erst holen und bauen, dann den Port bestimmen: steht er nicht in der
+            # Datei, sagt ihn das Abbild - und das muss dafür schon da sein (N-130).
             befehl = ["docker", "compose", "-p", name, "--project-directory", app, "-f", basis]
             rc = 0
             if not abbild:          # ein einzelnes Abbild ist oben schon geholt
@@ -541,6 +540,8 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
             if any((d or {}).get("build") for d in (cfg.get("services") or {}).values()):
                 print("  Baue ...", flush=True)
                 docker.lauf(befehl + ["build"], cwd=app, zeit_s=3600)
+            dienst, port = dienst_waehlen(cfg, name, dienst, port)
+            orte.ok("Oberfläche: Dienst %s, Port %s" % (dienst, port))
 
             c = {"QUELLE": "image" if abbild else "compose" if compose else "git",
                  "ABBILD": abbild or "", "GIT": git or "", "DIENST": dienst, "PORT": port,

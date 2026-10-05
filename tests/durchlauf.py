@@ -30,7 +30,7 @@ TMP = tempfile.mkdtemp(prefix="prolo-durchlauf-")
 ENV = dict(os.environ, PROLO_ETC=TMP + "/etc", PROLO_VAR=TMP + "/var", PROLO_TOOLS=TMP + "/tools",
            PROLO_BACKUP=TMP + "/backup", PROLO_OHNE_SYSTEMD="1", NO_COLOR="1",
            PYTHONDONTWRITEBYTECODE="1")
-PROJEKTE = ("prolo", "notizen", "zwei", "boese")
+PROJEKTE = ("prolo", "notizen", "zwei", "boese", "drei")
 ERGEBNIS = []
 
 TESTBILD = """FROM python:3.13-slim
@@ -54,6 +54,11 @@ ZWEI = """services:
       - dbdaten:/var/lib/postgresql/data
 volumes:
   dbdaten:
+"""
+# Kein Port in der Datei - den sagt erst das Abbild, und das ist noch nicht da.
+DREI = """services:
+  web:
+    image: traefik/whoami:v1.10
 """
 BOESE = """services:
   app:
@@ -260,22 +265,30 @@ def ablauf():
         agent.terminate()
         agent.wait(30)
 
+    schritt("Port aus dem Abbild (N-130)")
+    sh("docker", "image", "rm", "traefik/whoami:v1.10", pruefen=False)
+    with open(TMP + "/drei.yml", "w") as f:
+        f.write(DREI)
+    prolo("tool", "add", "drei", "--compose", TMP + "/drei.yml")
+    with open(ENV["PROLO_TOOLS"] + "/drei/prolo.conf") as f:
+        stimmt("Port aus einem Abbild, das erst geholt wird", "PORT=80\n" in f.read())
+
     schritt("Stand")
     s = json.loads(prolo("status", "--json").stdout)
     stimmt("Unterbau gesund", all(u["zustand"] in ("gesund", "laeuft") for u in s["unterbau"]),
            str(s["unterbau"]))
     stimmt("Tools gesund", sorted((t["name"], t["zustand"]) for t in s["tools"]) ==
-           [("notizen", "gesund"), ("zwei", "gesund")], str([(t["name"], t["zustand"]) for t in s["tools"]]))
+           [("drei", "laeuft"), ("notizen", "gesund"), ("zwei", "gesund")], str([(t["name"], t["zustand"]) for t in s["tools"]]))
 
 
 def aufraeumen():
     schritt("Aufraeumen")
     for p in PROJEKTE:
         sh("docker", "compose", "-p", p, "down", "-v", "--remove-orphans", pruefen=False)
-    for n in ("tool-notizen", "tool-zwei", "tool-boese", "prolo-socket", "prolo-auth",
+    for n in ("tool-notizen", "tool-zwei", "tool-boese", "tool-drei", "prolo-socket", "prolo-auth",
               "prolo-authentik", "prolo-admin"):
         sh("docker", "network", "rm", n, pruefen=False)
-    sh("docker", "image", "rm", "prolotest/web:1", pruefen=False)
+    sh("docker", "image", "rm", "prolotest/web:1", "traefik/whoami:v1.10", pruefen=False)
     shutil.rmtree(TMP, ignore_errors=True)
 
 

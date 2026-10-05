@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-130**.
+Neue Befunde bekommen die nächste freie Nummer: **N-131**.
 
 ---
 
@@ -184,3 +184,17 @@ für eine Compose-Datei, ein Text, mit dem man sich eine schreiben lässt, und
 meldet `https://vault.<domain>`, kein offener Port, Registrierung nach
 `SIGNUPS_ALLOWED=false` + `prolo tool start` abgewiesen, Volume in der
 Sicherung gelesen.
+
+---
+
+## N-130 — Ohne Port in der Datei scheiterte jede Compose-Datei auf einem frischen Server
+
+Beim ersten Tool auf dem neuen Server (Vaultwarden aus
+`beispiele/vaultwarden.yml`): „Auf welchem Port antwortet vaultwarden? Die
+Datei sagt es nicht.“ Steht kein Port in der Datei, liest prolo ihn aus dem
+Abbild (`EXPOSE`) – aber `tool add` fragte das Abbild, **bevor** es die
+Abbilder holte. Auf dem Testrechner lag das Abbild schon, darum fiel es dort
+nicht auf. **Jetzt:** erst holen und bauen, dann den Port bestimmen.
+Nachgestellt mit `traefik/whoami:v1.10` (nicht vorhanden, kein Port in der
+Datei): vorher rc=1 mit genau dieser Meldung, danach Port 80 und die Seite
+antwortet. Der Durchlauf prüft es jetzt bei jedem Push.
