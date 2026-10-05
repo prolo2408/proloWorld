@@ -7,8 +7,9 @@ Braucht root und Docker, dauert einige Minuten. Laeuft in eigenen Ordnern
 
     sudo python3 tests/durchlauf.py
 
-Weigert sich, wenn auf dieser Maschine schon ein Unterbau laeuft - er wuerde
-dessen Container uebernehmen.
+Weigert sich, wenn es auf dieser Maschine schon Container oder Volumes seiner
+Projekte gibt - auch von einem angehaltenen Unterbau: er wuerde sie
+uebernehmen und beim Aufraeumen loeschen (N-132).
 """
 import http.client
 import json
@@ -30,7 +31,7 @@ TMP = tempfile.mkdtemp(prefix="prolo-durchlauf-")
 ENV = dict(os.environ, PROLO_ETC=TMP + "/etc", PROLO_VAR=TMP + "/var", PROLO_TOOLS=TMP + "/tools",
            PROLO_BACKUP=TMP + "/backup", PROLO_OHNE_SYSTEMD="1", NO_COLOR="1",
            PYTHONDONTWRITEBYTECODE="1")
-PROJEKTE = ("prolo", "notizen", "zwei", "boese")
+PROJEKTE = ("prolo", "notizen", "zwei", "boese", "drei")
 ERGEBNIS = []
 
 TESTBILD = """FROM python:3.13-slim
@@ -54,6 +55,11 @@ ZWEI = """services:
       - dbdaten:/var/lib/postgresql/data
 volumes:
   dbdaten:
+"""
+# Kein Port in der Datei - den sagt erst das Abbild, und das ist noch nicht da.
+DREI = """services:
+  web:
+    image: traefik/whoami:v1.10
 """
 BOESE = """services:
   app:
@@ -260,32 +266,85 @@ def ablauf():
         agent.terminate()
         agent.wait(30)
 
+    schritt("Port aus dem Abbild (N-130)")
+    sh("docker", "image", "rm", "traefik/whoami:v1.10", pruefen=False)
+    with open(TMP + "/drei.yml", "w") as f:
+        f.write(DREI)
+    prolo("tool", "add", "drei", "--compose", TMP + "/drei.yml")
+    with open(ENV["PROLO_TOOLS"] + "/drei/prolo.conf") as f:
+        stimmt("Port aus einem Abbild, das erst geholt wird", "PORT=80\n" in f.read())
+
+    schritt("Bearbeiten (N-131)")
+    datei = ENV["PROLO_TOOLS"] + "/drei/app/docker-compose.yml"
+
+    def jetzt():
+        with open(datei) as f:
+            return f.read(), sh("docker", "inspect", "drei-web-1", "--format",
+                                "{{.Config.Image}} {{json .Config.Env}}").stdout
+
+    neu = DREI + "    environment:\n      GRUSS: ${GRUSS}\n"
+    with open(TMP + "/drei-neu.yml", "w") as f:
+        f.write(neu)
+    # Ein Hash wie der von Vaultwarden: die $ muessen bleiben, was sie sind.
+    prolo("tool", "edit", "drei", "--compose", TMP + "/drei-neu.yml", "--env",
+          "GRUSS='$argon2id$x'")
+    text, im = jetzt()
+    stimmt("neue Datei und Variable wirken im Container", text == neu and
+           '"GRUSS=$argon2id$x"' in im, im)
+    with open(TMP + "/drei-boese.yml", "w") as f:
+        f.write(neu + "    privileged: true\n")
+    r = prolo("tool", "edit", "drei", "--compose", TMP + "/drei-boese.yml", "--ja", "--von-web",
+              "--ohne-sicherung", pruefen=False)
+    stimmt("Gefahr beim Bearbeiten von der Seite abgelehnt, alles wie vorher",
+           r.returncode != 0 and "privileged" in r.stdout and jetzt() == (text, im))
+    with open(TMP + "/drei-kaputt.yml", "w") as f:
+        f.write(neu.replace("traefik/whoami:v1.10", "prolotest/gibtsnicht:1"))
+    r = prolo("tool", "edit", "drei", "--compose", TMP + "/drei-kaputt.yml", "--env", "GRUSS=weg",
+              "--ohne-sicherung", pruefen=False)
+    stimmt("kommt es nicht hoch, gilt der Stand davor: Datei, Variable, Container",
+           r.returncode != 0 and jetzt() == (text, im), r.stdout[-500:])
+
     schritt("Stand")
     s = json.loads(prolo("status", "--json").stdout)
     stimmt("Unterbau gesund", all(u["zustand"] in ("gesund", "laeuft") for u in s["unterbau"]),
            str(s["unterbau"]))
     stimmt("Tools gesund", sorted((t["name"], t["zustand"]) for t in s["tools"]) ==
-           [("notizen", "gesund"), ("zwei", "gesund")], str([(t["name"], t["zustand"]) for t in s["tools"]]))
+           [("drei", "laeuft"), ("notizen", "gesund"), ("zwei", "gesund")], str([(t["name"], t["zustand"]) for t in s["tools"]]))
 
 
 def aufraeumen():
     schritt("Aufraeumen")
     for p in PROJEKTE:
         sh("docker", "compose", "-p", p, "down", "-v", "--remove-orphans", pruefen=False)
-    for n in ("tool-notizen", "tool-zwei", "tool-boese", "prolo-socket", "prolo-auth",
+    for n in ("tool-notizen", "tool-zwei", "tool-boese", "tool-drei", "prolo-socket", "prolo-auth",
               "prolo-authentik", "prolo-admin"):
         sh("docker", "network", "rm", n, pruefen=False)
-    sh("docker", "image", "rm", "prolotest/web:1", pruefen=False)
+    sh("docker", "image", "rm", "prolotest/web:1", "traefik/whoami:v1.10", pruefen=False)
     shutil.rmtree(TMP, ignore_errors=True)
+
+
+def vorhanden():
+    """Was der Durchlauf beim Aufraeumen loeschen wuerde und schon da ist."""
+    da = []
+    for p in PROJEKTE:
+        f = "label=com.docker.compose.project=%s" % p
+        if sh("docker", "ps", "-aq", "--filter", f).stdout.strip():
+            da.append("Container von '%s'" % p)
+        if sh("docker", "volume", "ls", "-q", "--filter", f).stdout.strip():
+            da.append("Volumes von '%s'" % p)
+    return da
 
 
 def main():
     if os.geteuid() != 0:
         print("Braucht root:  sudo python3 tests/durchlauf.py")
         return 2
-    if sh("docker", "ps", "-aq", "--filter", "label=com.docker.compose.project=prolo").stdout.strip():
-        print("Auf dieser Maschine laeuft schon ein Unterbau (Projekt 'prolo') - der Durchlauf "
-              "wuerde ihn uebernehmen. Abgebrochen, nichts angefasst.")
+    da = vorhanden()
+    if da:
+        print("Auf dieser Maschine gibt es schon %s - der Durchlauf wuerde sie uebernehmen und "
+              "beim Aufraeumen loeschen. Abgebrochen, nichts angefasst.\n"
+              "Den Durchlauf auf einem Rechner ohne ProloWelt laufen lassen (oder in CI)."
+              % ", ".join(da))
         return 2
     t0 = time.time()
     try:

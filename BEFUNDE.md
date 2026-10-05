@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-130**.
+Neue Befunde bekommen die nächste freie Nummer: **N-134**.
 
 ---
 
@@ -184,3 +184,71 @@ für eine Compose-Datei, ein Text, mit dem man sich eine schreiben lässt, und
 meldet `https://vault.<domain>`, kein offener Port, Registrierung nach
 `SIGNUPS_ALLOWED=false` + `prolo tool start` abgewiesen, Volume in der
 Sicherung gelesen.
+
+---
+
+## N-130 — Ohne Port in der Datei scheiterte jede Compose-Datei auf einem frischen Server
+
+Beim ersten Tool auf dem neuen Server (Vaultwarden aus
+`beispiele/vaultwarden.yml`): „Auf welchem Port antwortet vaultwarden? Die
+Datei sagt es nicht.“ Steht kein Port in der Datei, liest prolo ihn aus dem
+Abbild (`EXPOSE`) – aber `tool add` fragte das Abbild, **bevor** es die
+Abbilder holte. Auf dem Testrechner lag das Abbild schon, darum fiel es dort
+nicht auf. **Jetzt:** erst holen und bauen, dann den Port bestimmen.
+Nachgestellt mit `traefik/whoami:v1.10` (nicht vorhanden, kein Port in der
+Datei): vorher rc=1 mit genau dieser Meldung, danach Port 80 und die Seite
+antwortet. Der Durchlauf prüft es jetzt bei jedem Push.
+
+---
+
+## N-131 — Nach dem Anlegen ließ sich an einem Tool nichts mehr ändern
+
+Gewünscht beim ersten echten Tool: Vaultwarden brauchte nachträglich ein
+`ADMIN_TOKEN` und `SIGNUPS_ALLOWED=false`. Die Admin-Seite konnte nur Port
+und Anmeldung ändern; Compose-Datei und `.env` nur von Hand auf dem Server,
+ohne Sicherung, ohne Prüfung auf Gefahren und ohne Weg zurück.
+**Jetzt:** *Bearbeiten* auf der Seite eines Tools und `prolo tool edit`:
+
+- erst **prüfen** (in einer Probe neben `app/`, Pfade gelten trotzdem relativ
+  zu `app/`): versteht Compose die Datei, gibt es den Dienst mit der
+  Oberfläche noch, keine Gefahr von der Seite. Eine kaputte oder gefährliche
+  Datei wird abgewiesen, **bevor** die Sicherung das Tool anhält – gemessen
+  2 s statt Sicherung plus Absage;
+- dann sichern, dann ändern; kommt das Tool nicht hoch, gilt wieder der
+  Stand davor – Datei, `.env`, `prolo.conf`, Override und Container;
+- die Seite bekommt die Datei und die **Namen** der Variablen, nie ihre
+  Werte; Variablen werden gesetzt oder ersetzt, `$` bleibt in einfachen
+  Anführungszeichen wörtlich (Hash von `vaultwarden hash`);
+- die Datei eines Git-Tools gehört dem Repository – die Seite bietet sie
+  nicht an, `prolo tool edit --compose` lehnt ab (sonst scheiterte das
+  nächste `git pull`).
+
+Beim Messen im Browser fiel der erste Titel des Auftrags auf („Compose-Datei
+und Variablen ändern“ bricht am Handy in Silben) – jetzt „Bearbeiten“.
+
+---
+
+## N-132 — Der Durchlauf löschte die Volumes eines angehaltenen Unterbaus
+
+`tests/durchlauf.py` weigerte sich nur, wenn Container des Projekts `prolo`
+da waren. Bei einem **angehaltenen** Unterbau (Container weg, Volumes da)
+lief er los: Authentik fand eine Datenbank mit fremdem Passwort und kam nicht
+hoch (gemessen: abgebrochen nach 46 s) – und das Aufräumen (`down -v`)
+löschte danach die Volumes. Auf einem Server wäre das die Anmeldung samt
+allen Nutzern gewesen. **Jetzt:** er weigert sich bei Containern **oder**
+Volumes eines seiner Projekte. Probe: ein Volume mit dem Etikett
+`prolo` → rc=2, „nichts angefasst“, Volume noch da; auf einer sauberen
+Maschine meldet die Prüfung nichts.
+
+---
+
+## N-133 — Am Handy zerbrachen die Titel der Aufträge in Silben
+
+„Tool installier-en“, „Compo-se-Datei“: in den Listen der Aufträge nahmen
+Zeit und Zustand als starre Spalten so viel Breite, dass für den Titel bei
+360 px kaum etwas blieb – und `overflow-wrap:anywhere` brach dann mitten im
+Wort. Die Messung auf Klickflächen und Kontrast sah das nicht; gefunden beim
+Ansehen der Bilder (N-131). **Jetzt:** am Handy steht die Zeit klein unter
+dem Titel statt in einer eigenen Spalte. Gemessen mit einer neuen Probe, die
+je Wort zählt, ob es über zwei Zeilen läuft (5 Seiten, 3 Breiten, 339
+Wörter): vorher 34 gebrochen, jetzt 0.

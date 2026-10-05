@@ -168,6 +168,8 @@ ruft im Hintergrund dieselben Befehle auf.
 | `sudo prolo tool update <name>` | sichern, neue Abbilder holen, neu starten |
 | `sudo prolo tool logs <name> [-f]` | Protokoll |
 | `sudo prolo tool set <name> --anmeldung keine` | Port, Anmeldung oder Adresse ändern |
+| `sudo prolo tool edit <name> --compose <datei>` | Compose-Datei ersetzen – vorher wird gesichert |
+| `sudo prolo tool edit <name> --env NAME=wert` | eine Variable in `app/.env` setzen oder ersetzen |
 | `sudo prolo tool rm <name>` | entfernen – vorher wird gesichert |
 | `sudo prolo backup` | jetzt sichern |
 | `sudo prolo backup list` | vorhandene Sicherungen |
@@ -214,7 +216,8 @@ schief, steht der Grund in der Ausgabe – und es bleibt nichts Halbes übrig.
 ![Der Auftrag läuft und ist erledigt](docs/bilder/03-auftrag.png)
 
 **4.** Auf der Seite des Tools: Adresse, Zustand, Starten/Anhalten,
-Aktualisieren, Protokoll, Zurückholen aus einer Sicherung, Entfernen.
+Aktualisieren, Protokoll, **Bearbeiten**, Zurückholen aus einer Sicherung,
+Entfernen.
 
 ![Die Seite eines Tools](docs/bilder/06-tool-seite.png)
 
@@ -251,18 +254,62 @@ Danach, **in dieser Reihenfolge**:
    starken Master-Passwort. In den Kontoeinstellungen **Zwei-Faktor**
    einschalten.
 2. **Die Registrierung schließen** – sonst kann sich jeder im Internet ein
-   Konto anlegen:
+   Konto anlegen: auf der Seite des Tools **Bearbeiten**, bei *Variablen
+   setzen* `SIGNUPS_ALLOWED=false` eintragen, **Speichern und neu starten**.
+   Oder auf dem Server:
    ```bash
-   echo "SIGNUPS_ALLOWED=false" | sudo tee -a /opt/tools/vault/app/.env
-   sudo prolo tool start vault
+   sudo prolo tool edit vault --env SIGNUPS_ALLOWED=false
    ```
-   (`tool start` legt den Container mit der neuen Einstellung neu an; die
-   Daten bleiben.)
 3. In der Bitwarden-App bzw. Erweiterung beim Anmelden **„Selbst gehostet“**
    wählen und als Server-URL `https://vault.prolo.me` eintragen.
 
 Der Tresor liegt im Volume `vault_daten` und ist ab heute Nacht in der
 Sicherung.
+
+**Die Admin-Oberfläche von Vaultwarden** (`/admin`, freiwillig) braucht ein
+`ADMIN_TOKEN`. Am sichersten als Hash eines Passworts, das du dir ausdenkst:
+
+1. Auf dem Server den Hash erzeugen (fragt zweimal nach dem Passwort):
+   ```bash
+   sudo prolo tool compose vault exec vaultwarden /vaultwarden hash
+   ```
+   Heraus kommt eine Zeile `ADMIN_TOKEN='$argon2id$…'`.
+2. Auf der Seite des Tools **Bearbeiten**: in der Compose-Datei unter
+   `environment:` die Zeile `ADMIN_TOKEN: ${ADMIN_TOKEN}` ergänzen, und bei
+   *Variablen setzen* die Zeile aus Schritt 1 einfügen – genau so, mit den
+   einfachen Anführungszeichen (sonst liest Docker die `$` als Variablen).
+   **Speichern und neu starten.**
+3. `https://vault.prolo.me/admin` öffnen und mit dem **Passwort** anmelden,
+   nicht mit dem Hash. Das Passwort gehört in den Passwortmanager – nicht in
+   einen Chat.
+
+### Nachträglich ändern: Compose-Datei und Variablen
+
+Auf der Seite des Tools führt **Bearbeiten** zu seiner Compose-Datei und den
+Namen seiner Variablen. Die Werte (Passwörter) zeigt die Seite nicht – sie
+bleiben auf dem Server; setzen oder ersetzen kannst du sie trotzdem.
+
+![Compose-Datei und Variablen bearbeiten](docs/bilder/07-bearbeiten.png)
+
+Beim Speichern passiert, in dieser Reihenfolge:
+
+1. Das Tool wird **gesichert** (dafür kurz angehalten).
+2. Die neue Datei wird **geprüft** wie beim Anlegen: Gefahren lehnt die Seite
+   ab, neue Variablen ohne Wert füllt prolo wie beim Anlegen, und der Dienst
+   mit der Oberfläche muss noch da sein.
+3. Neue Abbilder werden geholt, das Tool startet mit der neuen Datei.
+4. **Kommt es nicht hoch, gilt wieder der Stand davor** – Datei, Variablen
+   und Container. Der Grund steht in der Ausgabe des Auftrags.
+
+Bei einem Tool aus einem **Git-Repository** gehört die Datei dem Repository:
+dort ändern, dann **Aktualisieren**. Variablen gehen trotzdem.
+
+Auf dem Server dasselbe:
+
+```bash
+sudo prolo tool edit vault --compose ./neu.yml           # Datei ersetzen
+sudo prolo tool edit vault --env SIGNUPS_ALLOWED=false   # Variable setzen
+```
 
 ### Wie eine Compose-Datei für ProloWelt aussieht
 

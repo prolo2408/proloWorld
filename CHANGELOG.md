@@ -1,3 +1,12 @@
+# 2.1.0
+
+- **Bearbeiten** auf der Seite eines Tools (und `prolo tool edit`): die
+  Compose-Datei ändern und Variablen setzen. Vorher wird gesichert, geprüft
+  wie beim Anlegen; kommt das Tool danach nicht hoch, gilt wieder der Stand
+  davor (N-131).
+- Eine Compose-Datei ohne Port wird auch auf einem frischen Server
+  angenommen – prolo holt das Abbild, bevor es nach dem Port fragt (N-130).
+
 # 2.0.0
 
 ProloWelt ist nur noch der Unterbau (U-05). Neu aufsetzen statt

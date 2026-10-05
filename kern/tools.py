@@ -25,7 +25,8 @@ import sys
 import time
 
 from . import docker, orte
-from .auftrag import ANMELDUNG, DIENST, PORT, Ungueltig, env_zeilen, name_pruefen
+from .auftrag import (ANMELDUNG, DIENST, MAX_COMPOSE, PORT, Ungueltig, env_zeilen,
+                      name_pruefen)
 from .orte import Abbruch
 
 VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)((?::?[-?+])([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)")
@@ -145,10 +146,12 @@ def env_fuellen(app, host, gegeben):
     return erzeugt
 
 
-def config(app, dateien, name):
+def config(app, dateien, name, env_datei=None):
     """docker compose config fuer app/ - fehlt eine env_file, die die Datei
     erwartet, wird sie leer angelegt (Hersteller legen sie fast immer bei)."""
     befehl = ["docker", "compose", "-p", name, "--project-directory", app]
+    if env_datei:
+        befehl += ["--env-file", env_datei]
     for d in dateien:
         befehl += ["-f", d]
     for _ in range(10):
@@ -525,9 +528,8 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
                                   "wirklich will, tut es auf dem Server:  sudo prolo tool add ...")
                 if not ja and not frage("Trotzdem anlegen?"):
                     raise Abbruch("Nichts angelegt.")
-            dienst, port = dienst_waehlen(cfg, name, dienst, port)
-            orte.ok("Oberfläche: Dienst %s, Port %s" % (dienst, port))
-
+            # Erst holen und bauen, dann den Port bestimmen: steht er nicht in der
+            # Datei, sagt ihn das Abbild - und das muss dafür schon da sein (N-130).
             befehl = ["docker", "compose", "-p", name, "--project-directory", app, "-f", basis]
             rc = 0
             if not abbild:          # ein einzelnes Abbild ist oben schon geholt
@@ -541,6 +543,8 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
             if any((d or {}).get("build") for d in (cfg.get("services") or {}).values()):
                 print("  Baue ...", flush=True)
                 docker.lauf(befehl + ["build"], cwd=app, zeit_s=3600)
+            dienst, port = dienst_waehlen(cfg, name, dienst, port)
+            orte.ok("Oberfläche: Dienst %s, Port %s" % (dienst, port))
 
             c = {"QUELLE": "image" if abbild else "compose" if compose else "git",
                  "ABBILD": abbild or "", "GIT": git or "", "DIENST": dienst, "PORT": port,
@@ -608,6 +612,183 @@ def aendern(name, port=None, anmeldung=None, dienst=None, host=None):
         conf_schreiben(name, c)
         docker.tool(name, "up", "-d", "--remove-orphans")
     orte.ok("%s: Port %s, Anmeldung %s, %s" % (name, c["PORT"], c["ANMELDUNG"], url(c)))
+
+
+def env_setzen(text, werte):
+    """NAME=wert in einer .env setzen: eine vorhandene Zeile wird ersetzt, eine
+    neue angehaengt. Alles andere - Kommentare, andere Werte - bleibt."""
+    rest = dict(werte)
+    zeilen = []
+    for zeile in text.splitlines():
+        k, gleich, _ = zeile.partition("=")
+        k = k.strip()
+        if gleich and not k.startswith("#") and k in werte:
+            if k in rest:
+                zeilen.append("%s=%s" % (k, rest.pop(k)))
+            continue            # derselbe Name ein zweites Mal: weg
+        zeilen.append(zeile)
+    zeilen += ["%s=%s" % (k, v) for k, v in rest.items()]
+    return "".join(z + "\n" for z in zeilen)
+
+
+def compose_text(name, c):
+    """Die Compose-Datei eines Tools zum Bearbeiten - None, wenn sie aus Git
+    kommt (dort aendern) oder zu gross ist."""
+    if c.get("QUELLE") == "git":
+        return None
+    basis = docker.basis_in(os.path.join(docker.tool_ordner(name), "app"))
+    if basis is None:
+        return None
+    with open(basis, encoding="utf-8", errors="replace") as f:
+        text = f.read(MAX_COMPOSE + 1)
+    if len(text.encode("utf-8")) > MAX_COMPOSE:
+        return None
+    return text[len(KOPF):] if text.startswith(KOPF) else text
+
+
+def variablen_namen(name):
+    """Welche Variablen in app/.env stehen - nur die Namen, nie die Werte."""
+    return sorted(orte.env_lesen(os.path.join(docker.tool_ordner(name), "app", ".env")))
+
+
+def bearbeiten(name, compose=None, env=None, ja=False, von_web=False, sichern=True):
+    """Die Compose-Datei ersetzen und/oder Variablen in app/.env setzen.
+
+    Erst geprueft wie beim Anlegen (Gefahren, Dienst, fehlende Werte), dann
+    gesichert, dann geaendert. Scheitert etwas - auch erst beim Starten -,
+    gilt wieder der Stand davor: Dateien zurueck, Container wie vorher."""
+    from . import sicherung
+    orte.root_noetig("tool edit")
+    c = conf(name)
+    env = env or {}
+    text = None
+    if compose:
+        if c.get("QUELLE") == "git":
+            raise Abbruch("Die Compose-Datei von %s kommt aus %s - dort ändern, dann:  "
+                          "sudo prolo tool update %s" % (name, c.get("GIT"), name))
+        try:
+            with open(compose, encoding="utf-8") as f:
+                text = f.read()
+        except (OSError, UnicodeDecodeError) as e:
+            raise Abbruch("%s ist nicht lesbar: %s" % (compose, e))
+        if not text.strip():
+            raise Abbruch("Die neue Compose-Datei ist leer.")
+        if text.startswith(KOPF):
+            text = text[len(KOPF):]
+    if text is None and not env:
+        raise Abbruch("Nichts zu ändern:  --compose <datei>  und/oder  --env NAME=wert")
+    ordner = docker.tool_ordner(name)
+    app = os.path.join(ordner, "app")
+    basis = docker.basis_in(app)
+    if basis is None:
+        raise Abbruch("In %s liegt keine Compose-Datei." % app)
+    env_pfad = os.path.join(app, ".env")
+    # Erst pruefen, dann sichern: eine kaputte oder gefaehrliche Datei soll das
+    # Tool nicht erst fuer eine Sicherung anhalten. Die Probe liegt neben app/,
+    # Pfade in ihr gelten trotzdem relativ zu app/.
+    orte.abschnitt("%s: die Änderung prüfen" % name)
+    probe = os.path.join(ordner, ".probe-compose.yml")
+    probe_env = os.path.join(ordner, ".probe.env")
+    with open(basis, encoding="utf-8") as f:
+        text_alt = f.read()
+    try:
+        with open(env_pfad, encoding="utf-8") as f:
+            env_alt = f.read()
+    except FileNotFoundError:
+        env_alt = ""
+    try:
+        orte.datei_schreiben(probe, text_alt if text is None else text, 0o600)
+        orte.datei_schreiben(probe_env, env_setzen(env_alt, env), 0o600)
+        try:
+            cfg = config(app, [probe], name, probe_env)
+        except Abbruch as a:
+            raise Abbruch(str(a).replace(probe, "die neue Datei"))
+    finally:
+        for p in (probe, probe_env):
+            if os.path.exists(p):
+                os.remove(p)
+    if c["DIENST"] not in (cfg.get("services") or {}):
+        raise Abbruch("Den Dienst %s mit der Oberfläche gibt es in der neuen Datei nicht - "
+                      "nichts geändert. Seinen Namen in der Datei lassen, wie er ist."
+                      % c["DIENST"])
+    gef, hin, _ = gefahren(cfg, app)
+    for h in hin:
+        orte.warnung(h)
+    if gef:
+        for g in gef:
+            orte.fehler(g)
+        if von_web:
+            raise Abbruch("Mit diesen Gefahren ändert die Admin-Seite nichts. Wer das "
+                          "wirklich will, tut es auf dem Server:  sudo prolo tool edit ...")
+        if not ja and not frage("Trotzdem ändern?"):
+            raise Abbruch("Nichts geändert.")
+    orte.ok("die neue Datei ist in Ordnung")
+    if sichern:
+        sicherung.sichern(nur=[name], grund="vor dem Bearbeiten von %s" % name)
+    with orte.sperre("tool edit " + name):
+        orte.abschnitt("%s bearbeiten" % name)
+        vorher = {}
+        for pfad in (basis, env_pfad, os.path.join(ordner, "prolo.conf"),
+                     os.path.join(ordner, "prolo.override.yml")):
+            try:
+                with open(pfad, encoding="utf-8") as f:
+                    vorher[pfad] = (f.read(), os.stat(pfad).st_mode & 0o777)
+            except FileNotFoundError:
+                vorher[pfad] = None
+        gestartet = False
+        try:
+            if text is not None:
+                orte.datei_schreiben(basis, text, 0o644)
+                orte.getan("Compose-Datei ersetzt")
+            if env:
+                alt = vorher[env_pfad]
+                orte.datei_schreiben(env_pfad, env_setzen(alt[0] if alt else "", env), 0o600)
+                orte.getan("in app/.env gesetzt: %s" % ", ".join(sorted(env)))
+            erzeugt = env_fuellen(app, c["HOST"], {})
+            if erzeugt:
+                orte.getan("in app/.env eingetragen: %s" % ", ".join(erzeugt))
+            # Mit den gefuellten Werten noch einmal: was jetzt neu gefaehrlich
+            # ist, hat niemand bestaetigt.
+            cfg = config(app, [basis], name)
+            neu = set(gefahren(cfg, app)[0]) - set(gef)
+            if neu:
+                raise Abbruch("Mit den eingesetzten Werten neu gefährlich: %s" % "; ".join(sorted(neu)))
+            if text is not None and c.get("QUELLE") == "image":
+                # Wer die Datei eines Abbilds bearbeitet, hat danach eine eigene.
+                c.update(QUELLE="compose", ABBILD="")
+            override_neu(name, c)           # prueft auch: gibt es den Dienst noch?
+            conf_schreiben(name, c)
+            print("  Hole die Abbilder ...", flush=True)
+            rc, aus = docker.tool(name, "pull", "--ignore-buildable", zeit_s=1800, pruefen=False)
+            if rc != 0:
+                orte.warnung("nicht alle Abbilder ließen sich holen:\n"
+                             + docker.kern_der_meldung(aus, 3))
+            if any((d or {}).get("build") for d in (cfg.get("services") or {}).values()):
+                docker.tool(name, "build", zeit_s=3600)
+            print("  Starte ...", flush=True)
+            gestartet = True
+            docker.tool(name, "up", "-d", "--remove-orphans", zeit_s=1800)
+            z = warten(name)
+            if z in ("aus", "teilweise", "krank"):
+                raise Abbruch("%s ist mit der Änderung %s:\n%s" % (name, z, docker.kern_der_meldung(
+                    docker.tool(name, "logs", "--tail", "30", "--no-color", pruefen=False)[1], 12)))
+        except BaseException:
+            for pfad, alt in vorher.items():
+                if alt is None:
+                    if os.path.exists(pfad):
+                        os.remove(pfad)
+                else:
+                    orte.datei_schreiben(pfad, alt[0], alt[1])
+            if gestartet:
+                rc, aus = docker.tool(name, "up", "-d", "--remove-orphans", zeit_s=1800,
+                                      pruefen=False)
+                if rc != 0:
+                    orte.fehler("Auch der Stand davor startet nicht:\n%s\n  Zurück auf die "
+                                "Sicherung:  sudo prolo restore --tool %s"
+                                % (docker.kern_der_meldung(aus), name))
+            orte.warnung("Nichts geändert - %s hat wieder den Stand davor." % name)
+            raise
+    orte.ok("%s ist geändert und %s: %s" % (name, z, url(c)))
 
 
 def starten(name):

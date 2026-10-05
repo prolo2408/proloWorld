@@ -95,6 +95,20 @@ class AuftragTest(unittest.TestCase):
                          ["restore", "2026-10-01_033000", "--tool", "x", "--ja"])
         self.nein("tool_restore", name="x", stand="latest")
 
+    def test_tool_edit(self):
+        _, f = self.ok("tool_edit", name="x", compose="services:\n  a:\n    image: b:1\n")
+        self.assertEqual(auftrag.argumente("tool_edit", f, {"compose": "/tmp/c.yml"}),
+                         ["tool", "edit", "x", "--ja", "--von-web", "--compose", "/tmp/c.yml"])
+        _, f = self.ok("tool_edit", name="x", env="ADMIN_TOKEN='$argon2id$v=19$x'")
+        self.assertEqual(auftrag.argumente("tool_edit", f, {"env": "/tmp/v.env"}),
+                         ["tool", "edit", "x", "--ja", "--von-web", "--env-datei", "/tmp/v.env"])
+        self.nein("tool_edit", name="x")
+        self.nein("tool_edit", name="x", compose=" \n ")      # leer ist nichts zu aendern
+        self.nein("tool_edit", name="x", compose="x" * (256 * 1024 + 1))
+        self.nein("tool_edit", name="x", env="kein gleich")
+        self.nein("tool_edit", name="x", env="A=1\n" * 3000)
+        self.nein("tool_edit", name="x", env="A=1", port="80")   # nur Datei und Variablen
+
 
 class EinstellungenTest(unittest.TestCase):
     def setUp(self):
@@ -268,6 +282,43 @@ class OverrideTest(unittest.TestCase):
         self.assertIn("    labels: !override", t)
         self.assertNotIn("routers.alt", t)
         self.assertIn('"com.x": "1"', t)
+
+    def test_env_setzen(self):
+        alt = "# Kopf\nA=1\nB=2\n# B=kommentar\nB=doppelt\n"
+        self.assertEqual(tools.env_setzen(alt, {"B": "neu", "C": "'$x$y'"}),
+                         "# Kopf\nA=1\nB=neu\n# B=kommentar\nC='$x$y'\n")
+        self.assertEqual(tools.env_setzen("", {"A": "1"}), "A=1\n")
+
+    def test_bearbeiten_einer_git_datei(self):
+        ordner = os.path.join(orte.TOOLS, "ausgit")
+        os.makedirs(os.path.join(ordner, "app"), exist_ok=True)
+        with open(os.path.join(ordner, "prolo.conf"), "w") as f:
+            f.write("QUELLE=git\nGIT=https://example.org/a/b.git\nDIENST=a\nPORT=80\n"
+                    "HOST=ausgit.prolo.test\nANMELDUNG=authentik\n")
+        with open(os.path.join(ordner, "app", "docker-compose.yml"), "w") as f:
+            f.write("services: {}\n")
+        c = tools.conf("ausgit")
+        # Die Datei gehoert dem Repository: weder zeigen noch ersetzen.
+        self.assertIsNone(tools.compose_text("ausgit", c))
+        alt_root = orte.root_noetig
+        orte.root_noetig = lambda *_: None
+        try:
+            with self.assertRaises(Abbruch) as a:
+                tools.bearbeiten("ausgit", compose="/gibt/es/nicht.yml")
+        finally:
+            orte.root_noetig = alt_root
+        self.assertIn("example.org/a/b.git", str(a.exception))
+
+    def test_compose_text_und_variablen(self):
+        ordner = os.path.join(orte.TOOLS, "ausbild")
+        os.makedirs(os.path.join(ordner, "app"), exist_ok=True)
+        with open(os.path.join(ordner, "app", "docker-compose.yml"), "w") as f:
+            f.write(tools.KOPF + "services:\n  a: {image: b:1}\n")
+        with open(os.path.join(ordner, "app", ".env"), "w") as f:
+            f.write("GEHEIM_PASS=sehr-geheim\nTZ=Europe/Berlin\n")
+        self.assertEqual(tools.compose_text("ausbild", {"QUELLE": "image"}),
+                         "services:\n  a: {image: b:1}\n")
+        self.assertEqual(tools.variablen_namen("ausbild"), ["GEHEIM_PASS", "TZ"])
 
     def test_abbild_compose(self):
         tools.abbild_info = lambda abbild: ({"3001"}, {"/app/data"})

@@ -179,6 +179,53 @@ class AdminTest(unittest.TestCase):
         self.assertIn('value="nginx:1"', text)                 # Eingabe geht nicht verloren
         self.assertEqual(self.eingang(), [])
 
+    def test_bearbeiten(self):
+        datei = "services:\n  web:\n    image: nginx:1 # <b>\n"
+        t = {"name": "web", "zustand": "gesund", "url": "https://web.prolo.test",
+             "host": "web.prolo.test", "anmeldung": "keine", "quelle": "compose",
+             "herkunft": "Compose-Datei", "compose": datei, "variablen": ["DB_PASS", "TZ"]}
+        g = dict(t, name="ausgit", quelle="git", herkunft="https://example.org/a.git",
+                 compose=None)
+        self.status(tools=[t, g])
+        st, _, text = self.frage("/tool/web/bearbeiten", ADMIN)
+        self.assertEqual(st, 200)
+        self.assertIn("image: nginx:1 # &lt;b&gt;", text)           # vorbelegt, maskiert
+        self.assertIn("DB_PASS, TZ", text)
+        self.assertEqual(self.frage("/tool/gibtsnicht/bearbeiten", ADMIN)[0], 404)
+        # Unveraendert (der Browser schickt CRLF) und keine Variable: nichts abzulegen,
+        # und die Eingaben bleiben stehen.
+        st, _, text = self.frage("/tool/web/bearbeiten", GLEICH,
+                                 {"compose": datei.replace("\n", "\r\n"), "env": ""})
+        self.assertEqual(st, 400)
+        self.assertIn("Nichts zu ändern", text)
+        self.assertEqual(self.eingang(), [])
+        # Nur Variablen: die Datei bleibt unangetastet.
+        st, ziel, _ = self.frage("/tool/web/bearbeiten", GLEICH,
+                                 {"compose": datei.replace("\n", "\r\n"), "env": "A='$x'"})
+        self.assertEqual(st, 303)
+        [d] = self.eingang()
+        with open(os.path.join(EIN, d)) as f:
+            a = json.load(f)
+        self.assertEqual((a["art"], a["felder"]), ("tool_edit", {"name": "web", "env": "A='$x'"}))
+        os.remove(os.path.join(EIN, d))
+        # Geaendert: die Datei geht mit, mit LF.
+        st, _, _ = self.frage("/tool/web/bearbeiten", GLEICH,
+                              {"compose": "services:\r\n  web:\r\n    image: nginx:2\r\n"})
+        self.assertEqual(st, 303)
+        [d] = self.eingang()
+        with open(os.path.join(EIN, d)) as f:
+            self.assertEqual(json.load(f)["felder"]["compose"],
+                             "services:\n  web:\n    image: nginx:2\n")
+        os.remove(os.path.join(EIN, d))
+        # Aus Git: kein Feld fuer die Datei, und was trotzdem kommt, zaehlt nicht.
+        st, _, text = self.frage("/tool/ausgit/bearbeiten", ADMIN)
+        self.assertNotIn('id="compose"', text)
+        self.assertIn("example.org/a.git", text)
+        st, _, _ = self.frage("/tool/ausgit/bearbeiten", GLEICH,
+                              {"compose": "services: {}\n", "env": ""})
+        self.assertEqual(st, 400)
+        self.assertEqual(self.eingang(), [])
+
     def test_darstellung_wird_gespeichert(self):
         st, ziel, _ = self.frage("/einstellungen/thema", GLEICH, {"thema": "hell"})
         self.assertEqual(st, 303)
