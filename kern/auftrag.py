@@ -26,6 +26,12 @@ PORT = re.compile(r"[1-9][0-9]{0,4}")
 DIENST = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 VARIABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
 STAND = re.compile(r"\d{4}-\d{2}-\d{2}_\d{6}")
+# Git-Zugang (N-134): Anbieter ist ein Hostname, Benutzer und Token ohne
+# Zeichen, die im Protokoll von git (Zeilen mit =) Aerger machen.
+HOST = re.compile(r"(?=.{4,200}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
+BENUTZER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
+TOKEN = re.compile(r"[A-Za-z0-9_.~+/=-]{8,500}")
+ZUGANG_WARNEN_TAGE = 14     # so lange vor dem Ablauf warnen Stand und Seite
 ANMELDUNG = ("authentik", "keine")
 MAX_COMPOSE = 256 * 1024
 MAX_ENV = 8 * 1024
@@ -46,7 +52,12 @@ ARTEN = {
     "tool_edit": (("name",), ("compose", "env"), "Bearbeiten", 120),
     "tool_rm": (("name",), (), "Entfernen", 60),
     "tool_restore": (("name", "stand"), (), "Aus Sicherung zurückholen", 120),
+    "zugang_setzen": (("host", "benutzer", "token"), (), "Git-Zugang speichern", 5),
+    "zugang_rm": (("host",), (), "Git-Zugang entfernen", 5),
+    "zugang_test": (("git",), (), "Git-Zugang testen", 5),
 }
+# Felder, deren Wert nie in die Lage eines Auftrags (also auf die Seite) kommt.
+GEHEIM = ("compose", "env", "token")
 
 
 class Ungueltig(Exception):
@@ -111,6 +122,15 @@ def pruefen(daten):
         raise Ungueltig("Dienst: so heißt kein Dienst in einer Compose-Datei.")
     if f.get("anmeldung") and f["anmeldung"] not in ANMELDUNG:
         raise Ungueltig("Anmeldung: authentik oder keine.")
+    if "host" in f and not HOST.fullmatch(f["host"]):
+        raise Ungueltig("Anbieter: ein Hostname wie github.com - ohne https:// und ohne Pfad.")
+    if "benutzer" in f and not BENUTZER.fullmatch(f["benutzer"]):
+        raise Ungueltig("Benutzer: dein Name beim Anbieter, z. B. prolo2408.")
+    if "token" in f and not TOKEN.fullmatch(f["token"]):
+        raise Ungueltig("Token: so sieht kein Token aus (Buchstaben, Ziffern, _ - . ohne "
+                        "Leerzeichen). Neu kopieren und einfügen.")
+    if art == "zugang_test" and not GIT_URL.fullmatch(f["git"]):
+        raise Ungueltig("Repository: eine https://-Adresse, z. B. https://github.com/name/repo.")
     if art == "tool_restore" and not STAND.fullmatch(f["stand"]):
         raise Ungueltig("Stand: so heißt keine Sicherung.")
     if art == "tool_set" and not (f.get("port") or f.get("anmeldung")):
@@ -151,6 +171,13 @@ def argumente(art, f, datei=None):
         return ["backup"]
     if art == "update":
         return ["update"]
+    if art == "zugang_setzen":     # der Token nur als Datei, nie als Argument
+        return ["git-zugang", "setzen", f["host"], "--benutzer", f["benutzer"],
+                "--token-datei", datei["token"]]
+    if art == "zugang_rm":
+        return ["git-zugang", "entfernen", f["host"]]
+    if art == "zugang_test":
+        return ["git-zugang", "testen", f["git"]]
     n = f["name"]
     if art == "tool_add":
         a = ["tool", "add", n, "--ja", "--von-web"]

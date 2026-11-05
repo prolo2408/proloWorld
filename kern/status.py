@@ -8,7 +8,7 @@ import json
 import os
 import shutil
 
-from . import docker, orte, sicherung, tools, unterbau
+from . import docker, orte, sicherung, tools, unterbau, zugang
 from .orte import Abbruch
 
 DIENSTE = ("traefik", "authentik-server", "authentik-worker", "authentik-db", "admin",
@@ -147,6 +147,16 @@ def sammeln():
     if s["git"].get("geaendert"):
         hinweis("warn", "Im Unterbau wurde von Hand geändert (%s) - prolo update hält dann an."
                 % ", ".join(s["git"]["geaendert"][:3]), "git -C %s diff" % orte.REPO)
+
+    # --- Git-Zugaenge (N-134): Anbieter, Benutzer, Ablauf - nie der Token
+    try:
+        s["git_zugaenge"] = zugang.uebersicht()
+    except (OSError, Abbruch) as a:
+        s["git_zugaenge"] = []
+        hinweis("fehler", "Die Git-Zugänge sind nicht lesbar: %s" % a,
+                "sudo prolo git-zugang setzen <anbieter> --benutzer <name>")
+    for stufe, text, tat in zugang.hinweise(s["git_zugaenge"]):
+        hinweis(stufe, text, tat)
 
     # --- Platz
     s["platz"] = {}

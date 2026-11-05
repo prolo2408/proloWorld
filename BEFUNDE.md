@@ -252,3 +252,50 @@ Ansehen der Bilder (N-131). **Jetzt:** am Handy steht die Zeit klein unter
 dem Titel statt in einer eigenen Spalte. Gemessen mit einer neuen Probe, die
 je Wort zählt, ob es über zwei Zeilen läuft (5 Seiten, 3 Breiten, 339
 Wörter): vorher 34 gebrochen, jetzt 0.
+
+---
+
+## N-134 — Private Git-Repositories ließen sich nicht installieren
+
+`git clone` lief mit `GIT_TERMINAL_PROMPT=0` und ohne Zugangsdaten. Ein
+privates Repository scheiterte darum mit „could not read Username …
+terminal prompts disabled“ – eine Meldung, die nicht sagt, was zu tun ist.
+Ein Tool, dessen Repository *nachträglich* privat wurde, ließ sich ab da
+nicht mehr aktualisieren (gefunden am Spiel `golf`). Der Ausweg von Hand
+(Token in die URL) hätte den Token ins Protokoll des Auftrags und nach
+`prolo.conf` geschrieben.
+
+**Jetzt:** Git-Zugänge, einer je Anbieter, in `/etc/prolo/git-zugang.json`
+(root, 0600, in der Sicherung). Einpflegen auf der Admin-Seite unter
+Einstellungen oder mit `prolo git-zugang setzen`; Klonen und Aktualisieren
+holen ihn über einen eigenen Helfer.
+
+- **Kein `credential.helper store`:** der löscht bei einer Absage (401) den
+  Eintrag – ein abgelaufener Token wäre still verschwunden. Probe mit echtem
+  git: `git credential reject` nach `fill` – der Zugang bleibt (Test).
+- Der Token geht als Datei an prolo (`--token-datei`, im Auftragsordner
+  0600, danach gelöscht), nie als Argument; die Lage des Auftrags und
+  `status.json` tragen ihn nicht. Geprüft im Test über Lage, Protokoll und
+  Übersicht; die Seite gibt ihn auch nach einem Fehler im Formular nicht
+  zurück.
+- Vor dem Speichern fragt prolo GitHub (`/rate_limit`): 401 heißt
+  abgelehnt, **nichts gespeichert** (der alte Zugang bleibt); die
+  Kopfzeile `github-authentication-token-expiration` liefert das
+  Ablaufdatum. 14 Tage vorher ein Hinweis unter „Was zu tun ist“, danach ein
+  Fehler – mit dem Befehl, der es behebt.
+- Scheitert `git clone` oder `git pull`, sagt die Meldung jetzt, woran:
+  privat ohne Zugang, Token abgelehnt, oder das Repository ist beim Token
+  nicht ausgewählt.
+- *Zugang testen* liest die Zweige eines Repositorys, so wie Installieren
+  und Aktualisieren holen, und frischt dabei das Ablaufdatum auf.
+
+Gemessen: Einheitstests 51 → 65, Gegenprobe 31 → 39 eingebaute Fehler,
+alle gefunden. Im Browser (Einstellungen, 360/768/1920, hell/dunkel): kein
+seitliches Scrollen, alle Klickflächen ≥ 44 px, am Handy nichts unter 12 px.
+Die erste Fassung der Liste war eine Tabelle – bei 360 px lagen Ablauf und
+*Entfernen* außerhalb der Karte (die Messung auf seitliches Scrollen der
+Seite sah das nicht; eine neue Messung auf Scrollen **in** Elementen fand es:
+2 von 6 Ansichten). Jetzt eine Liste, die umbricht: 0 von 6.
+
+Nicht gelaufen: `tests/durchlauf.py` (hier kein Docker-Dienst) – der
+Durchlauf installiert ohnehin kein Git-Tool; er läuft beim Push in der CI.

@@ -229,6 +229,31 @@ sudo prolo tool add vault  --compose ./docker-compose.yml --anmeldung keine
 sudo prolo tool add wiki   --git https://github.com/name/wiki.git
 ```
 
+### Private Git-Repositories
+
+Ist das Repository privat, braucht prolo einen Zugang – **einen je Anbieter**
+(etwa github.com), für alle Tools von dort. Auf der Admin-Seite unter
+**Einstellungen → Git-Zugänge**: Anbieter, Benutzer, Token, *Zugang speichern*.
+Auf der Kommandozeile fragt prolo verdeckt nach dem Token:
+
+```bash
+sudo prolo git-zugang setzen github.com --benutzer prolo2408
+sudo prolo git-zugang testen https://github.com/prolo2408/galaxy-golf
+sudo prolo git-zugang                  # Liste: Anbieter, Benutzer, Ablauf
+sudo prolo git-zugang entfernen github.com
+```
+
+Der Token auf GitHub: *Settings → Developer settings → Fine-grained tokens*,
+bei „Repository access“ nur die Repositories, die prolo holen soll, als Recht
+nur **Contents: Read-only**. prolo prüft ihn vor dem Speichern und liest das
+Ablaufdatum; 14 Tage vorher steht es unter „Was zu tun ist“. Ein neuer Token
+für denselben Anbieter ersetzt den alten – ein neues privates Repository
+wählst du einfach beim Token auf GitHub mit aus.
+
+Der Token liegt in `/etc/prolo/git-zugang.json` (nur root) und kommt mit
+`/etc/prolo` in die Sicherung. git bekommt ihn über einen Helfer von prolo –
+er steht nie in einer URL, einem Befehl, einem Protokoll oder auf der Seite.
+
 ### Beispiel: Vaultwarden (Bitwarden)
 
 Vaultwarden ist ein Passwort-Server für die offiziellen **Bitwarden-Apps**
@@ -475,6 +500,7 @@ es zu überschreiben.
 | `/etc/prolo/prolo.conf` | Domain, E-Mail, Schalter |
 | `/etc/prolo/geheim.env` | Geheimnisse des Unterbaus (gewürfelt, nur root) |
 | `/etc/prolo/backup.key` | der geheime Sicherungsschlüssel – Kopie in den Passwortmanager |
+| `/etc/prolo/git-zugang.json` | Git-Zugänge für private Repositories (nur root) |
 | `/var/lib/prolo` | Zertifikate, Auftragsbuch der Admin-Seite, Stand |
 | `/opt/tools/<name>` | je Tool ein Ordner |
 | `/opt/backup` | die Sicherungen |

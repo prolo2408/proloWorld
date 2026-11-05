@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 
-from . import docker, orte
+from . import docker, orte, zugang
 from .auftrag import (ANMELDUNG, DIENST, MAX_COMPOSE, PORT, Ungueltig, env_zeilen,
                       name_pruefen)
 from .orte import Abbruch
@@ -441,6 +441,22 @@ def override_neu(name, c, ordner=None):
 
 
 # ----------------------------------------------------------- Befehle
+def _hat_zugang(url):
+    try:
+        return zugang.host_von(url) in zugang.lesen()
+    except (OSError, Abbruch):
+        return False
+
+
+def klonen(url, ziel):
+    """git clone mit dem Git-Zugang (N-134); scheitert es, sagt die Meldung,
+    was zu tun ist - privat ohne Zugang, Token abgelaufen, nicht freigegeben."""
+    rc, aus = docker.lauf(["git", "clone", "--quiet", "--", url, ziel], zeit_s=600,
+                          env=zugang.git_env(), pruefen=False)
+    if rc != 0:
+        raise Abbruch(zugang.fehler_text(url, zugang.host_von(url), aus, _hat_zugang(url)))
+
+
 def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
             anmeldung="authentik", host=None, env=None, ja=False, von_web=False):
     orte.root_noetig("tool add")
@@ -506,8 +522,7 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
             else:
                 print("  Klone %s ..." % git, flush=True)
                 os.rmdir(app)
-                docker.lauf(["git", "clone", "--quiet", "--", git, app], zeit_s=600,
-                            env=dict(os.environ, GIT_TERMINAL_PROMPT="0"))
+                klonen(git, app)
             orte.ok("Quelle liegt in %s/app" % ziel)
 
             erzeugt = env_fuellen(app, host, env or {})
@@ -833,9 +848,12 @@ def aktualisieren(name, sichern=True):
         orte.abschnitt("%s aktualisieren" % name)
         app = os.path.join(docker.tool_ordner(name), "app")
         if c.get("QUELLE") == "git":
-            _, aus = docker.lauf(["git", "-C", app, "-c", "safe.directory=" + app, "pull",
-                                  "--ff-only"], zeit_s=600,
-                                 env=dict(os.environ, GIT_TERMINAL_PROMPT="0"))
+            rc, aus = docker.lauf(["git", "-C", app, "-c", "safe.directory=" + app, "pull",
+                                   "--ff-only"], zeit_s=600, env=zugang.git_env(), pruefen=False)
+            if rc != 0:
+                url = c.get("GIT", "")
+                raise Abbruch(zugang.fehler_text(url, zugang.host_von(url), aus,
+                                                 _hat_zugang(url)))
             orte.ok("git: %s" % (aus.strip().splitlines() or ["?"])[-1])
         override_neu(name, c)
         rc, aus = docker.tool(name, "pull", "--ignore-buildable", zeit_s=1800, pruefen=False)

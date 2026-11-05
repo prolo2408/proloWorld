@@ -1,3 +1,11 @@
+# 2.2.0
+
+- **Private Git-Repositories:** Git-Zugänge, einer je Anbieter, unter
+  Einstellungen → Git-Zugänge oder mit `prolo git-zugang`. prolo prüft den
+  Token, liest das Ablaufdatum und warnt 14 Tage vorher; *Zugang testen*
+  zeigt, ob ein Repository lesbar ist. Scheitert ein Klonen oder Update,
+  sagt die Meldung, was fehlt (N-134).
+
 # 2.1.0
 
 - **Bearbeiten** auf der Seite eines Tools (und `prolo tool edit`): die

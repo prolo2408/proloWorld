@@ -84,7 +84,7 @@ def ausfuehren(kennung, daten):
         lage_schreiben(lage)
         return
     lage["titel"] = auftrag.ARTEN[art][2]
-    lage["felder"] = {k: v for k, v in f.items() if k not in ("compose", "env") and v}
+    lage["felder"] = {k: v for k, v in f.items() if k not in auftrag.GEHEIM and v}
     lage_schreiben(lage)
     tmp = os.path.join(orte.AGENT, "tmp-" + kennung)
     os.makedirs(tmp, mode=0o700, exist_ok=True)
@@ -96,6 +96,9 @@ def ausfuehren(kennung, daten):
         if f.get("env"):
             datei["env"] = os.path.join(tmp, "variablen.env")
             orte.datei_schreiben(datei["env"], f["env"], 0o600)
+        if f.get("token"):
+            datei["token"] = os.path.join(tmp, "token")
+            orte.datei_schreiben(datei["token"], f["token"], 0o600)
         argv = auftrag.argumente(art, f, datei)
         log = os.path.join(orte.AUSGANG, kennung + ".log")
         with open(os.open(log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o640), "wb") as aus:
