@@ -27,6 +27,8 @@ Seltener:
   prolo tool edit <name> --compose <datei> | --env NAME=wert
   prolo compose <args>            docker compose fuer den Unterbau
   prolo tool compose <name> <args>
+  prolo git-zugang [setzen <anbieter> --benutzer <name> | entfernen <anbieter> | testen <url>]
+                                  Zugang fuer private Git-Repositories
 
 Was etwas veraendert, braucht sudo. Hilfe zu einem Befehl:  prolo <befehl> -h
 """
@@ -119,6 +121,17 @@ def parser():
     c.add_argument("name")
     c.add_argument("args", nargs=argparse.REMAINDER)
 
+    g = sub.add_parser("git-zugang", help="Zugänge für private Git-Repositories")
+    gs = g.add_subparsers(dest="was", metavar="list|setzen|entfernen|testen")
+    gs.add_parser("list", aliases=["liste"])
+    z = gs.add_parser("setzen", help="Token für einen Anbieter speichern (fragt danach)")
+    z.add_argument("host", metavar="anbieter", help="z. B. github.com")
+    z.add_argument("--benutzer", required=True, help="dein Name beim Anbieter")
+    z.add_argument("--token-datei", help=argparse.SUPPRESS)
+    gs.add_parser("entfernen", aliases=["rm"]).add_argument("host", metavar="anbieter")
+    gs.add_parser("testen", help="kann prolo dieses Repository lesen?").add_argument("url")
+    gs.add_parser("helfer", help=argparse.SUPPRESS).add_argument("aktion", nargs="?")
+
     c = sub.add_parser("compose", help="docker compose für den Unterbau")
     c.add_argument("args", nargs=argparse.REMAINDER)
     sub.add_parser("agent", help="Aufträge der Admin-Seite ausführen (läuft als Dienst)")
@@ -204,6 +217,20 @@ def ausfuehren(a):
             os.chdir(os.path.join(docker.tool_ordner(a.name), "app"))
             befehl = docker.tool_befehl(a.name, *a.args)
             os.execvp(befehl[0], befehl)
+        return 0
+    if b == "git-zugang":
+        from . import zugang
+        w = a.was
+        if w == "helfer":
+            return zugang.helfer(a.aktion)
+        if w == "setzen":
+            zugang.setzen(a.host.lower(), a.benutzer, token_datei=a.token_datei)
+        elif w in ("entfernen", "rm"):
+            zugang.entfernen(a.host.lower())
+        elif w == "testen":
+            zugang.testen(a.url)
+        else:
+            zugang.liste()
         return 0
     if b == "compose":
         orte.root_noetig("compose")

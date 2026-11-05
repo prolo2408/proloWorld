@@ -226,6 +226,59 @@ class AdminTest(unittest.TestCase):
         self.assertEqual(st, 400)
         self.assertEqual(self.eingang(), [])
 
+    # --- Git-Zugaenge (N-134)
+    def test_zugaenge_werden_gezeigt(self):
+        heute = server.datetime.date.today()
+        bald = (heute + server.datetime.timedelta(days=5)).isoformat()
+        self.status(git_zugaenge=[
+            {"host": "github.com", "benutzer": "prolo2408", "gesetzt": "2026-11-05", "ablauf": bald},
+            {"host": "git.example.de", "benutzer": "a<b>", "gesetzt": "2026-11-05", "ablauf": ""}])
+        st, _, text = self.frage("/einstellungen", ADMIN)
+        self.assertEqual(st, 200)
+        self.assertIn("Git-Zugänge", text)
+        self.assertIn('<span class="marker m-warm">in 5 Tagen</span>', text)
+        self.assertIn("Ablauf unbekannt", text)
+        self.assertIn("a&lt;b&gt;", text)
+        self.assertIn('name="host" value="git.example.de"', text)   # Entfernen je Zeile
+        self.assertIn('type="password"', text)
+
+    def test_zugang_wird_abgelegt(self):
+        self.status(git_zugaenge=[])
+        st, ziel, _ = self.frage("/einstellungen/zugang", GLEICH, {
+            "art": "zugang_setzen", "host": "github.com", "benutzer": "prolo2408",
+            "token": "github_pat_GEHEIM12345", "fremd": "x"})
+        self.assertEqual(st, 303)
+        e = self.eingang()
+        self.assertEqual(len(e), 1)
+        self.assertEqual(ziel, "/auftrag/" + e[0][:-5])
+        with open(os.path.join(EIN, e[0])) as f:
+            self.assertEqual(json.load(f)["felder"], {"host": "github.com", "benutzer": "prolo2408",
+                                                      "token": "github_pat_GEHEIM12345"})
+
+    def test_zugang_fehler_ohne_token_zurueck(self):
+        self.status(git_zugaenge=[])
+        st, _, text = self.frage("/einstellungen/zugang", GLEICH, {
+            "art": "zugang_setzen", "host": "https://github.com", "benutzer": "prolo2408",
+            "token": "github_pat_GEHEIM12345"})
+        self.assertEqual(st, 400)
+        self.assertEqual(self.eingang(), [])
+        self.assertIn("ohne https://", text)
+        self.assertIn('value="https://github.com"', text)
+        self.assertIn('value="prolo2408"', text)
+        self.assertNotIn("GEHEIM", text)
+
+    def test_zugang_testen_und_nur_diese_arten(self):
+        st, _, _ = self.frage("/einstellungen/zugang", GLEICH, {
+            "art": "zugang_test", "git": "https://github.com/prolo2408/galaxy-golf-bot"})
+        self.assertEqual(st, 303)
+        self.assertEqual(len(self.eingang()), 1)
+        st, _, _ = self.frage("/einstellungen/zugang", GLEICH, {"art": "tool_rm", "name": "uptime"})
+        self.assertEqual(st, 400)
+        self.assertEqual(len(self.eingang()), 1)
+        st, _, _ = self.frage("/einstellungen/zugang", ADMIN, {"art": "zugang_test",
+                                                               "git": "https://github.com/a/b"})
+        self.assertEqual(st, 403)                               # fremde Seite
+
     def test_darstellung_wird_gespeichert(self):
         st, ziel, _ = self.frage("/einstellungen/thema", GLEICH, {"thema": "hell"})
         self.assertEqual(st, 303)

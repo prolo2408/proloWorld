@@ -9,6 +9,7 @@ import datetime
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -22,7 +23,7 @@ TMP = tempfile.mkdtemp(prefix="prolo-test-")
 for k in ("ETC", "VAR", "TOOLS", "BACKUP"):
     os.environ["PROLO_" + k] = os.path.join(TMP, k.lower())
 
-from kern import agent, auftrag, orte, sicherung, tools  # noqa: E402
+from kern import agent, auftrag, orte, sicherung, tools, zugang  # noqa: E402
 from kern.orte import Abbruch  # noqa: E402
 
 
@@ -418,6 +419,162 @@ class AgentTest(unittest.TestCase):
             f.write("{}")
         self.assertIsNone(agent.naechster())
         self.assertFalse(os.path.exists(p))
+
+
+TOKEN = "github_pat_11ABCDEFG0123456789_abcdefXYZ"
+
+
+class ZugangTest(unittest.TestCase):
+    """Git-Zugaenge (N-134): der Token kommt in git an - und nirgends sonst hin."""
+
+    def setUp(self):
+        self.root = orte.ist_root
+        orte.ist_root = lambda: True
+        self.fragen = zugang.ablauf_fragen
+        if os.path.exists(zugang.DATEI):
+            os.remove(zugang.DATEI)
+
+    def tearDown(self):
+        orte.ist_root = self.root
+        zugang.ablauf_fragen = self.fragen
+
+    def ok(self, art, **felder):
+        return auftrag.pruefen({"art": art, "felder": felder})
+
+    def nein(self, art, **felder):
+        with self.assertRaises(auftrag.Ungueltig):
+            auftrag.pruefen({"art": art, "felder": felder})
+
+    def test_auftrag_prueft_anbieter_benutzer_token(self):
+        self.ok("zugang_setzen", host="github.com", benutzer="prolo2408", token=TOKEN)
+        self.ok("zugang_setzen", host="git.example.de", benutzer="a.b-c", token="glpat-12345678")
+        for host in ("https://github.com", "github.com/prolo2408", "GitHub.com", "localhost",
+                     "github.com\nhost=x", ""):
+            self.nein("zugang_setzen", host=host, benutzer="prolo2408", token=TOKEN)
+        for benutzer in ("prolo@2408", "a b", "-x", "a\nb", "a=b"):
+            self.nein("zugang_setzen", host="github.com", benutzer=benutzer, token=TOKEN)
+        for token in ("kurz", "mit leer zeichen1", "a:b1234567", "abc\npassword=x", "x" * 501):
+            self.nein("zugang_setzen", host="github.com", benutzer="prolo2408", token=token)
+        self.ok("zugang_test", git="https://github.com/prolo2408/galaxy-golf-bot")
+        self.nein("zugang_test", git="file:///etc/prolo")
+
+    def test_token_nie_als_argument(self):
+        _, f = self.ok("zugang_setzen", host="github.com", benutzer="prolo2408", token=TOKEN)
+        a = auftrag.argumente("zugang_setzen", f, {"token": "/tmp/x/token"})
+        self.assertEqual(a, ["git-zugang", "setzen", "github.com", "--benutzer", "prolo2408",
+                             "--token-datei", "/tmp/x/token"])
+
+    def test_agent_zeigt_token_nirgends(self):
+        orte.ist_root = self.root           # der Agent im Test: kein chown
+        for p in (orte.EINGANG, orte.AUSGANG):
+            os.makedirs(p, exist_ok=True)
+        gerufen = []
+        alt = agent.subprocess.Popen
+
+        def popen(argv, **k):
+            with open(argv[argv.index("--token-datei") + 1]) as f:
+                gerufen.append(f.read())
+            return alt(["true"], **{x: k[x] for x in ("stdout", "stderr")})
+        agent.subprocess.Popen = popen
+        try:
+            k = "20261105-120000-abcdef09"
+            with open(os.path.join(orte.EINGANG, k + ".json"), "w") as f:
+                json.dump({"art": "zugang_setzen", "felder": {
+                    "host": "github.com", "benutzer": "prolo2408", "token": TOKEN}}, f)
+            agent.ausfuehren(*agent.naechster())
+        finally:
+            agent.subprocess.Popen = alt
+        self.assertEqual(gerufen, [TOKEN])                  # prolo bekam ihn als Datei
+        for endung in (".json", ".log"):
+            with open(os.path.join(orte.AUSGANG, k + endung)) as f:
+                self.assertNotIn(TOKEN, f.read())
+        self.assertFalse(os.path.exists(os.path.join(orte.AGENT, "tmp-" + k)))
+        with open(os.path.join(orte.AUSGANG, k + ".json")) as f:
+            self.assertEqual(json.load(f)["felder"], {"host": "github.com", "benutzer": "prolo2408"})
+
+    def test_git_bekommt_den_token_und_loescht_ihn_nicht(self):
+        zugang.ablauf_fragen = lambda h, t: (True, "2027-11-05")
+        zugang.setzen("github.com", "prolo2408", token=TOKEN)
+        self.assertEqual(os.stat(zugang.DATEI).st_mode & 0o777, 0o600)
+        env = dict(zugang.git_env(), PROLO_ETC=orte.ETC)
+        frage = "protocol=https\nhost=github.com\n\n"
+        r = subprocess.run(["git", "credential", "fill"], input=frage, capture_output=True,
+                           text=True, env=env, timeout=30)
+        self.assertEqual(r.stdout, "protocol=https\nhost=github.com\nusername=prolo2408\n"
+                                   "password=%s\n" % TOKEN)
+        r = subprocess.run(["git", "credential", "fill"], input="protocol=https\nhost=gitlab.com\n\n",
+                           capture_output=True, text=True, env=env, timeout=30)
+        self.assertNotEqual(r.returncode, 0)                 # anderer Anbieter: nichts
+        # Eine Absage (401) laesst git "erase" rufen - der Zugang muss bleiben.
+        subprocess.run(["git", "credential", "reject"], input=frage + "username=prolo2408\n"
+                       "password=%s\n\n" % TOKEN, text=True, env=env, timeout=30)
+        self.assertIn("github.com", zugang.lesen())
+
+    def test_abgelehnter_token_wird_nicht_gespeichert(self):
+        zugang.ablauf_fragen = lambda h, t: (True, "")
+        zugang.setzen("github.com", "prolo2408", token=TOKEN)
+        zugang.ablauf_fragen = lambda h, t: (False, "")
+        with self.assertRaises(Abbruch):
+            zugang.setzen("github.com", "anderer", token="github_pat_neu12345")
+        self.assertEqual(zugang.lesen()["github.com"]["token"], TOKEN)   # der alte bleibt
+
+    def test_uebersicht_ohne_token(self):
+        zugang.ablauf_fragen = lambda h, t: (True, "2027-11-05")
+        zugang.setzen("github.com", "prolo2408", token=TOKEN)
+        u = zugang.uebersicht()
+        self.assertEqual(u, [{"host": "github.com", "benutzer": "prolo2408",
+                              "gesetzt": datetime.date.today().isoformat(), "ablauf": "2027-11-05"}])
+        self.assertNotIn(TOKEN, json.dumps(u))
+
+    def test_entfernen(self):
+        zugang.ablauf_fragen = lambda h, t: (None, "")
+        zugang.setzen("github.com", "prolo2408", token=TOKEN)
+        with self.assertRaises(Abbruch):
+            zugang.entfernen("gitlab.com")
+        zugang.entfernen("github.com")
+        self.assertEqual(zugang.lesen(), {})
+
+    def test_ablaufdatum_aus_der_kopfzeile(self):
+        class Antwort:
+            headers = {"github-authentication-token-expiration": "2027-11-05 12:00:00 +0100"}
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        alt = zugang.urllib.request.urlopen
+        zugang.urllib.request.urlopen = lambda *a, **k: Antwort()
+        try:
+            self.assertEqual(zugang.ablauf_fragen("github.com", TOKEN), (True, "2027-11-05"))
+            Antwort.headers = {}
+            self.assertEqual(zugang.ablauf_fragen("github.com", TOKEN), (True, ""))
+            self.assertEqual(zugang.ablauf_fragen("gitlab.com", TOKEN), (None, ""))
+        finally:
+            zugang.urllib.request.urlopen = alt
+
+    def test_hinweise_vor_dem_ablauf(self):
+        ab = datetime.date(2027, 11, 1)
+        alle = [{"host": "a.de", "benutzer": "x", "ablauf": "2027-11-16"},   # 15 Tage: still
+                {"host": "b.de", "benutzer": "x", "ablauf": "2027-11-15"},   # 14 Tage: warn
+                {"host": "c.de", "benutzer": "x", "ablauf": "2027-11-01"},   # heute
+                {"host": "d.de", "benutzer": "x", "ablauf": "2027-10-31"},   # gestern: Fehler
+                {"host": "e.de", "benutzer": "x", "ablauf": ""}]
+        h = zugang.hinweise(alle, ab)
+        self.assertEqual([(x[0], x[1]) for x in h], [
+            ("warn", "Der Git-Zugang für b.de läuft am 15.11.2027 ab (in 14 Tagen)."),
+            ("warn", "Der Git-Zugang für c.de läuft am 01.11.2027 ab (heute)."),
+            ("fehler", "Der Git-Zugang für d.de ist am 31.10.2027 abgelaufen - private "
+                       "Repositories dort lassen sich nicht mehr aktualisieren.")])
+        self.assertIn("sudo prolo git-zugang setzen d.de --benutzer x", h[2][2])
+
+    def test_meldungen_von_git_sagen_was_zu_tun_ist(self):
+        url = "https://github.com/prolo2408/galaxy-golf-bot"
+        privat = "fatal: could not read Username for 'https://github.com': terminal prompts disabled"
+        t = zugang.fehler_text(url, "github.com", privat, False)
+        self.assertIn("privat", t)
+        self.assertIn("sudo prolo git-zugang setzen github.com --benutzer <name>", t)
+        self.assertIn("abgelaufen oder widerrufen", zugang.fehler_text(url, "github.com", privat, True))
+        weg = ("remote: Repository not found.\nfatal: repository "
+               "'https://github.com/prolo2408/galaxy-golf-bot/' not found")
+        self.assertIn("Repository access", zugang.fehler_text(url, "github.com", weg, True))
+        self.assertEqual(zugang.host_von("https://Git.Example.de:8443/a/b"), "git.example.de")
 
 
 class UnterbauDateienTest(unittest.TestCase):

@@ -45,6 +45,7 @@ SCHRIFTEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schriften"
 THEMEN = ("system", "hell", "dunkel")
 STATUS_ALT_S = 180
 MAX_FORMULAR = 3 * auftrag.MAX_COMPOSE + 16 * 1024
+ZUGANG_WARNEN_TAGE = auftrag.ZUGANG_WARNEN_TAGE
 
 
 class Antwort(Exception):
@@ -413,6 +414,14 @@ td.knapp{white-space:nowrap;width:1%}
 .m-rot{background:var(--danger);color:var(--on-accent)}
 
 .leer{color:var(--ink-3);font-size:13px;padding:12px 0 0}
+.zugang{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:12px 0;
+  border-top:1px solid var(--line-soft)}
+.zugang:first-of-type{border-top:0}
+.zugang .wer{flex:1 1 220px;min-width:0}
+.zugang .host{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--ink);
+  overflow-wrap:anywhere}
+.zugang .sub{font-size:12px;color:var(--ink-3);margin-top:4px;display:flex;flex-wrap:wrap;
+  align-items:center;gap:4px 8px}
 .hinweis{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;
   border-top:1px solid var(--line-soft);padding:12px 0}
 .hinweis:first-of-type{border-top:0}
@@ -1037,7 +1046,86 @@ def nachladen(kennung):
 </script>""" % e(kennung)
 
 
-def ansicht_einstellungen(nutzer, meldung, s):
+def datum_de(iso):
+    try:
+        return datetime.date.fromisoformat(iso).strftime("%d.%m.%Y")
+    except (TypeError, ValueError):
+        return "-"
+
+
+def zugang_ablauf(z):
+    """Ablauf als Marker mit Wort (§2) - aus dem Datum, nicht aus dem
+    Stand, der bis zu 30 s alt ist."""
+    if not z.get("ablauf"):
+        return ('<span class="marker m-weg">%s</span>'
+                % ("ohne Ablauf" if z.get("host") == "github.com" else "Ablauf unbekannt"))
+    try:
+        tage = (datetime.date.fromisoformat(z["ablauf"]) - datetime.date.today()).days
+    except ValueError:
+        return '<span class="marker m-warm">?</span>'
+    klasse = "m-rot" if tage < 0 else "m-warm" if tage <= ZUGANG_WARNEN_TAGE else "m-gut"
+    wort = ("abgelaufen" if tage < 0 else "heute" if tage == 0 else "in %d Tagen" % tage)
+    return '<span class="marker %s">%s</span> <span class="mono">%s</span>' % (
+        klasse, e(wort), e(datum_de(z["ablauf"])))
+
+
+def karte_zugaenge(s, fehler="", werte=None):
+    """Git-Zugänge (N-134): einer je Anbieter. Der Token kommt nie zurück
+    auf die Seite - auch nicht nach einem Fehler im Formular."""
+    w = werte or {}
+    alle = (s or {}).get("git_zugaenge")
+    if alle is None:
+        liste = '<p class="leer">Noch kein Stand vom Server - der Agent hat nichts geschrieben.</p>'
+    elif not alle:
+        liste = '<p class="leer">Noch kein Zugang. Öffentliche Repositories gehen auch ohne.</p>'
+    else:
+        liste = '<div style="margin-top:6px">%s</div>' % "".join(
+            '<div class="zugang"><div class="wer"><div class="host">%s</div>'
+            '<div class="sub"><span>Benutzer <span class="mono">%s</span></span>'
+            '<span>%s</span></div></div>%s</div>'
+            % (e(z.get("host")), e(z.get("benutzer")), zugang_ablauf(z),
+               auftrag_knopf("zugang_rm", "Entfernen", {"host": z.get("host", "")},
+                             frage="Zugang für %s entfernen? Private Repositories dort lassen "
+                                   "sich danach nicht mehr aktualisieren." % z.get("host", "")))
+            for z in alle)
+    return """<div class="karte" id="git-zugaenge"><h2>Git-Zugänge</h2>
+  <div class="ktx">Für private Repositories - einer je Anbieter. Der Token bleibt auf dem Server.</div>
+  %(fehler)s%(liste)s
+  <form class="formular" method="post" action="/einstellungen/zugang" style="margin-top:14px">
+    <input type="hidden" name="art" value="zugang_setzen">
+    <div class="zeile2">
+      <div class="feld"><label for="host">Anbieter</label>
+        <input id="host" name="host" required maxlength="200" value="%(host)s" spellcheck="false"
+          autocomplete="off" autocapitalize="none"></div>
+      <div class="feld"><label for="benutzer">Benutzer</label>
+        <input id="benutzer" name="benutzer" required maxlength="100" value="%(benutzer)s"
+          spellcheck="false" autocomplete="off" autocapitalize="none"></div>
+    </div>
+    <div class="feld"><label for="token">Token</label>
+      <input id="token" name="token" type="password" required maxlength="500" autocomplete="off"
+        spellcheck="false">
+      <div class="erkl">Auf GitHub: Settings → Developer settings → Fine-grained tokens. Bei
+        „Repository access“ nur die Repositories wählen, die prolo holen soll, als Recht nur
+        „Contents: Read-only“. Vorher prüft prolo den Token und liest das Ablaufdatum; %(tage)d
+        Tage vorher steht es unter „Was zu tun ist“. Ein Zugang für denselben Anbieter ersetzt den
+        alten.</div></div>
+    <div class="aktionen"><button class="knopf-rahmen" type="submit">Zugang speichern</button></div>
+  </form>
+  <form class="formular" method="post" action="/einstellungen/zugang" style="margin-top:14px">
+    <input type="hidden" name="art" value="zugang_test">
+    <div class="feld"><label for="git">Zugang testen mit Repository</label>
+      <input id="git" name="git" required maxlength="330" value="%(git)s" spellcheck="false"
+        autocomplete="off" autocapitalize="none" placeholder="https://github.com/name/repo">
+      <div class="erkl">prolo liest die Zweige des Repositorys - so, wie es beim Installieren und
+        Aktualisieren holt.</div></div>
+    <div class="aktionen"><button class="knopf-rahmen" type="submit">Zugang testen</button></div>
+  </form></div>""" % {
+        "fehler": ('<div class="banner"><b>%s</b></div>' % e(fehler)) if fehler else "",
+        "liste": liste, "host": e(w.get("host") or "github.com"), "benutzer": e(w.get("benutzer")),
+        "git": e(w.get("git")), "tage": ZUGANG_WARNEN_TAGE}
+
+
+def ansicht_einstellungen(nutzer, meldung, s, zugang_fehler="", zugang_werte=None):
     seg = "".join('<button type="submit" name="thema" value="%s" aria-pressed="%s">%s</button>'
                   % (w, "true" if nutzer.get("thema") == w else "false", t)
                   for w, t in (("system", "System"), ("hell", "Hell"), ("dunkel", "Dunkel")))
@@ -1047,6 +1135,7 @@ def ansicht_einstellungen(nutzer, meldung, s):
     <div class="segment" role="group" aria-label="Darstellung">%(seg)s</div>
     <div class="erkl" style="margin-top:6px">System folgt der Einstellung des Geräts.</div>
   </form></div>
+%(zugaenge)s
 <div class="karte"><h2>Wie diese Seite arbeitet</h2><div class="ktx">Und warum sie es nicht selbst tut</div>
   <p style="font-size:13px;margin-top:12px">Sie hat keinen Zugriff auf Docker und keinen auf die
     Dateien des Servers. Sie liest den Stand, den der Agent auf dem Server alle 30 Sekunden
@@ -1069,7 +1158,8 @@ def ansicht_einstellungen(nutzer, meldung, s):
   <div class="erkl" style="margin-top:6px">Abmelden ist eine Weiterleitung zur Anmeldung - die
     Seite lädt danach neu.</div></div>""" % {
         "meldung": ('<div class="banner gut">%s</div>' % e(meldung)) if meldung else "",
-        "seg": seg, "version": e((s or {}).get("version") or VERSION), "dom": e(DOMAIN),
+        "seg": seg, "zugaenge": karte_zugaenge(s, zugang_fehler, zugang_werte),
+        "version": e((s or {}).get("version") or VERSION), "dom": e(DOMAIN),
         "gruppe": e(GRUPPE), "id": e(nutzer.get("nutzer_id")),
         "name": e(nutzer.get("anzeigename") or "-"), "mail": e(nutzer.get("email") or "-")}
 
@@ -1191,7 +1281,7 @@ class Handler(BaseHTTPRequestHandler):
                           nachher=nachladen(kennung) if offen else "")
         if pfad == "/einstellungen":
             s, _ = status_lesen()
-            return zeigen("Einstellungen", "Darstellung und Konto", ansicht_einstellungen(
+            return zeigen("Einstellungen", "Darstellung, Git-Zugänge und Konto", ansicht_einstellungen(
                 nutzer, (fr.get("ok") or [""])[0][:80], s), pfad)
         raise Antwort(404, "Diese Seite gibt es nicht.")
 
@@ -1209,6 +1299,24 @@ class Handler(BaseHTTPRequestHandler):
         if pfad == "/einstellungen/thema":
             thema_setzen(nutzer["nutzer_id"], self.formular().get("thema", ""))
             return self.weiter("/einstellungen?ok=" + quote("Darstellung gespeichert."))
+        if pfad == "/einstellungen/zugang":
+            f = self.formular()
+            art = f.get("art", "")
+            if art not in ("zugang_setzen", "zugang_test"):
+                raise Antwort(400, "Unbekannte Art.")
+            felder = {k: f.get(k, "") for k in sum(auftrag.ARTEN[art][:2], ())}
+            try:
+                kennung = auftrag_ablegen(art, felder, nutzer["nutzer_id"])
+            except Antwort as a:
+                if a.kode != 400:
+                    raise
+                s, _ = status_lesen()
+                # Eingaben bleiben stehen (§6) - der Token nicht, er geht nie zurück.
+                werte = {k: v for k, v in f.items() if k in ("host", "benutzer", "git")}
+                return self.html(seite("Einstellungen", "Darstellung, Git-Zugänge und Konto",
+                                       ansicht_einstellungen(nutzer, "", s, a.text, werte),
+                                       "/einstellungen", nutzer), 400)
+            return self.weiter("/auftrag/%s" % kennung)
         if pfad == "/auftrag":
             f = self.formular()
             art = f.pop("art", "")
