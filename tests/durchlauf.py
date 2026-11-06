@@ -328,6 +328,20 @@ def ablauf():
     stimmt("kommt es nicht hoch, gilt der Stand davor: Datei, Variable, Container",
            r.returncode != 0 and jetzt() == (text, im), r.stdout[-500:])
 
+    schritt("Nachpruefen vor jedem Start (N-138)")
+    with open(datei) as f:
+        vorher = f.read()
+    with open(datei, "w") as f:
+        f.write(vorher + "    privileged: true\n")
+    r = subprocess.run([PROLO, "tool", "restart", "drei"], capture_output=True, text=True,
+                       env=dict(ENV, PROLO_AGENT="1"), timeout=300, cwd=REPO)
+    stimmt("von Hand gefaehrlich gemacht: Neustart von der Seite abgelehnt",
+           r.returncode != 0 and "privileged" in r.stdout and
+           sh("docker", "inspect", "drei-web-1", "--format",
+              "{{.HostConfig.Privileged}}").stdout.strip() == "false", r.stdout[-400:])
+    with open(datei, "w") as f:
+        f.write(vorher)
+
     schritt("Stand")
     s = json.loads(prolo("status", "--json").stdout)
     stimmt("Unterbau gesund", all(u["zustand"] in ("gesund", "laeuft") for u in s["unterbau"]),

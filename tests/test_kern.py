@@ -410,6 +410,62 @@ class KaefigModellTest(unittest.TestCase):
         self.assertNotIn("PROLO_TEST_GEHEIM", __import__("kern").docker.tool_env())
 
 
+@unittest.skipUnless(shutil.which("docker"), "docker compose fehlt")
+class NachpruefenTest(unittest.TestCase):
+    """N-138: jeder Weg zum Start prueft die Dateien, wie sie jetzt liegen."""
+
+    def setUp(self):
+        self.ordner = os.path.join(orte.TOOLS, "nach")
+        os.makedirs(os.path.join(self.ordner, "app"), exist_ok=True)
+        self.datei("services:\n  app: { image: a:1, expose: [\"80\"] }\n")
+        orte.env_schreiben(os.path.join(self.ordner, "prolo.conf"), {
+            "QUELLE": "compose", "DIENST": "app", "PORT": "80", "HOST": "nach.prolo.test",
+            "ANMELDUNG": "authentik"})
+        self.gestartet = []
+        echt = (tools.docker.tool, tools.override_neu, orte.root_noetig, sicherung.sichern,
+                tools.warten)
+        tools.docker.tool = lambda *a, **k: self.gestartet.append(a) or (0, "")
+        tools.override_neu = lambda *a, **k: None
+        tools.warten = lambda *a, **k: "laeuft"
+        orte.root_noetig = lambda *a: None
+        os.environ["PROLO_AGENT"] = "1"
+
+        def zurueck():
+            (tools.docker.tool, tools.override_neu, orte.root_noetig, sicherung.sichern,
+             tools.warten) = echt
+            os.environ.pop("PROLO_AGENT", None)
+            shutil.rmtree(self.ordner, ignore_errors=True)
+        self.addCleanup(zurueck)
+
+    def datei(self, text):
+        with open(os.path.join(self.ordner, "app", "docker-compose.yml"), "w") as f:
+            f.write(text)
+
+    def test_von_der_seite_startet_nichts_gefaehrliches(self):
+        self.datei("services:\n  app: { image: a:1, privileged: true }\n")
+        for wie in (lambda: tools.starten("nach"), lambda: tools.neustarten("nach"),
+                    lambda: tools.aendern("nach", port="81"),
+                    lambda: tools.aktualisieren("nach", sichern=False)):
+            with self.assertRaises(Abbruch) as a:
+                wie()
+            self.assertIn("Admin-Seite", str(a.exception))
+        self.assertEqual(self.gestartet, [])
+
+    def test_bestaetigtes_fragt_nicht_noch_einmal_neues_schon(self):
+        self.datei("services:\n  app: { image: a:1, privileged: true }\n")
+        os.environ.pop("PROLO_AGENT")
+        tools.kaefig_pruefen("nach", "starten", ja=True)          # Mensch, Kommandozeile
+        os.environ["PROLO_AGENT"] = "1"
+        tools.kaefig_pruefen("nach", "starten")                   # jetzt auch von der Seite
+        self.datei("services:\n  app: { image: a:1, privileged: true, pid: host }\n")
+        with self.assertRaises(Abbruch):
+            tools.kaefig_pruefen("nach", "starten")
+
+    def test_harmloses_startet(self):
+        tools.starten("nach")
+        self.assertTrue(self.gestartet)
+
+
 class OverrideTest(unittest.TestCase):
     """prolo.override.yml - hier entscheidet sich, ob ein Tool hinter der
     Anmeldung steht und seine Datenbank noch erreicht."""

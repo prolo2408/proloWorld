@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-138**.
+Neue Befunde bekommen die nächste freie Nummer: **N-139**.
 
 ---
 
@@ -406,4 +406,41 @@ Geprüft echt mit `prolo tool add`/`tool edit --von-web` als root:
 alle abgelehnt; ein harmloses Tool angelegt und bearbeitet – läuft. Neu im
 Durchlauf: Volume mit dem Namen der Authentik-Datenbank, `include` eines
 anderen Tools. Einheitstests 69 → 73, Gegenprobe 53 → 56.
+
+---
+
+## N-138 — Geprüft wurde nur beim Anlegen und Bearbeiten
+
+*Aktualisieren* eines Git-Tools holte mit `git pull` eine neue
+Compose-Datei und startete sie ungeprüft: ein Repository, beim Anlegen
+harmlos, bekam einen Commit mit `privileged: true` – ein Klick auf
+*Aktualisieren*, und der Container lief mit allen Rechten. Ebenso Starten,
+Neustarten, *Einstellungen ändern* und Zurückholen aus einer Sicherung: was
+seit dem Anlegen an den Dateien geändert wurde (von Hand, durch eine
+Wiederherstellung), startete, wie es lag.
+
+**Jetzt:** `tools.kaefig_pruefen()` vor jedem Start – das Modell der
+Dateien, wie sie jetzt liegen, durch den Käfig (N-135 bis N-137).
+
+- *Aktualisieren* prüft nach `git pull`; ist die neue Fassung gefährlich,
+  setzt es das Repository auf den Stand davor zurück (`git reset --hard`) –
+  nichts Halbes, der laufende Container bleibt, wie er war.
+- Was ein Mensch auf der Kommandozeile bestätigt hat (`--ja` oder die
+  Rückfrage), steht in `prolo.bestaetigt` im Ordner des Tools; das fragt
+  nicht noch einmal, auch nicht von der Seite. Jede **neue** Gefahr lehnt
+  die Seite ab, die Kommandozeile fragt.
+- „Von der Seite“ heißt jetzt: jeder Auftrag des Agenten (`PROLO_AGENT=1`),
+  nicht nur `--von-web` bei Anlegen und Bearbeiten.
+- Die Ordner, die ein Tool einhängt, kennt die Prüfung auch bei einem
+  angehaltenen Tool (aus der Datei): sie werden nicht mitkopiert – sonst
+  kopierte sie die Fotos eines Fotoarchivs.
+
+Geprüft echt als root: Git-Tool angelegt, gefährlicher Commit,
+`tool update` über den Agenten → abgelehnt, Repository zurück auf dem alten
+Commit, Container ohne Rechte; Datei von Hand mit `driver_opts` versehen →
+`start`/`restart` von der Seite und `start` ohne Terminal abgelehnt.
+(Unterwegs: `w:/w` liest Compose als Windows-Laufwerk – kein Volume `w`;
+die Prüfung hatte recht, mein Test nicht.) Neu im Durchlauf: Neustart einer
+von Hand gefährlich gemachten Datei. Einheitstests 73 → 76, Gegenprobe
+56 → 60.
 
