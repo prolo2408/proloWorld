@@ -80,6 +80,8 @@ FEHLER = [
      "einrichten haelt admin. ueber den Domain-Provider fuer richtig (N-140)"),
     ("kern/unterbau.py", '% ("\\"admin-netz\\", " if admin_netze else ""),', '% "",',
      "ADMIN_NETZE steht in der Datei, haengt aber nicht am Router der Admin-Seite (N-141)"),
+    ("kern/agent.py", "        if os.path.isdir(pfad) and not os.path.islink(pfad):\n            shutil.rmtree(pfad)\n        else:\n            os.remove(pfad)",
+     "        os.remove(pfad)", "ein Ordner im Eingang legt den Agenten lahm (N-142)"),
     ("kern/tools.py", "                fehlt.append(var)", "                neu[var] = \"\"",
      "fehlender Wert wird still leer gesetzt"),
     ("kern/tools.py", 'if not d.get("restart"):', "if True:",

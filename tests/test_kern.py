@@ -647,6 +647,17 @@ class AgentTest(unittest.TestCase):
         finally:
             agent.subprocess.Popen = alt
 
+    def test_ein_ordner_im_eingang_legt_den_agenten_nicht_lahm(self):
+        """N-142: die Admin-Seite (uebernommen) legt einen Ordner ab."""
+        os.makedirs(orte.EINGANG, exist_ok=True)
+        for n in ("20261106-120000-abcdef12.json", "unsinn.json"):
+            os.makedirs(os.path.join(orte.EINGANG, n, "innen"))
+        kennung, daten = agent.naechster()
+        self.assertEqual(kennung, "20261106-120000-abcdef12")
+        self.assertIn("_fehler", daten)
+        self.assertIsNone(agent.naechster())
+        self.assertEqual(os.listdir(orte.EINGANG), [])
+
     def test_fremde_dateinamen_werden_weggeraeumt(self):
         p = os.path.join(orte.EINGANG, "../../x.json".replace("/", "_"))
         with open(p, "w") as f:

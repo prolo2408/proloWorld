@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-142**.
+Neue Befunde bekommen die nächste freie Nummer: **N-143**.
 
 ---
 
@@ -534,4 +534,17 @@ Geprüft mit echtem Traefik: ohne Eintrag 200; nur `203.0.113.7/32` → 403, das
 Tool daneben weiter 200; eigenes Netz erlaubt → 200; mit `X-Forwarded-For`,
 `X-Real-Ip` oder `Forwarded` auf die erlaubte Adresse → weiter 403; `kein-netz`
 → Meldung. Einheitstests 77 → 78, Gegenprobe 64 → 65.
+
+---
+
+## N-142 — Ein Ordner im Eingang legte den Agenten lahm
+
+Der Eingang des Auftragsbuchs gehört der Admin-Seite. Legt sie dort – etwa
+übernommen – einen **Ordner** `<kennung>.json` ab, scheitert `os.remove`
+mit `IsADirectoryError`; der Agent stirbt, systemd startet ihn neu, er stirbt
+wieder – und nimmt keinen Auftrag mehr an. Gemessen.
+
+**Jetzt:** `agent.weg()` räumt auch Ordner weg und überlebt jeden anderen
+Fehler beim Wegräumen mit einer Zeile im Protokoll. Einheitstests 78 → 79,
+Gegenprobe 65 → 66.
 
