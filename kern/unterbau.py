@@ -341,60 +341,113 @@ def hochfahren():
 
 PRUEF_ANMELDUNG = """
 from authentik.outposts.models import Outpost
+from authentik.policies.models import PolicyBinding
 from authentik.providers.proxy.models import ProxyProvider
 o = Outpost.objects.filter(managed="goauthentik.io/outposts/embedded").first()
-p = ProxyProvider.objects.filter(name="ProloWelt", mode="forward_domain", cookie_domain="%s").first()
+p = ProxyProvider.objects.filter(name="ProloWelt", mode="forward_domain", cookie_domain="%(d)s").first()
+a = ProxyProvider.objects.filter(name="ProloWelt Admin", mode="forward_single",
+                                 external_host="https://admin.%(d)s").first()
 print("PROLO-ANMELDUNG", "OK" if o and p and o.providers.filter(pk=p.pk).exists() else "FEHLT")
+print("PROLO-ADMIN", "OK" if o and a and o.providers.filter(pk=a.pk).exists() else "FEHLT")
+try:
+    g = PolicyBinding.objects.filter(target__application__slug="prolowelt-admin",
+                                     group__name="%(g)s").exists()
+except Exception:
+    g = False
+print("PROLO-ADMIN-GRUPPE", "OK" if g else "FEHLT")
 """
 
 
+# Wer antwortet fuer welchen Namen? Leitet der Outpost admin.<domain> zu
+# admin.<domain>/outpost.goauthentik.io/start weiter, hat die Admin-Seite ihr
+# eigenes Cookie (N-140); ein Tool geht zu auth.<domain>.
 OUTPOST_FRAGEN = """
 import urllib.error, urllib.request
 class K(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *a, **k): return None
-r = urllib.request.Request("http://127.0.0.1:9000/outpost.goauthentik.io/auth/traefik", headers={
-    "X-Forwarded-Host": "admin.%s", "X-Forwarded-Proto": "https", "X-Forwarded-Uri": "/",
-    "X-Forwarded-Method": "GET"})
-try:
-    print("OUTPOST", urllib.request.build_opener(K).open(r, timeout=10).status)
-except urllib.error.HTTPError as e:
-    print("OUTPOST", e.code)
+for host in ("admin.%(d)s", "prolo-pruefung.%(d)s"):
+    r = urllib.request.Request("http://127.0.0.1:9000/outpost.goauthentik.io/auth/traefik", headers={
+        "X-Forwarded-Host": host, "X-Forwarded-Proto": "https", "X-Forwarded-Uri": "/",
+        "X-Forwarded-Method": "GET", "Accept": "text/html"})
+    try:
+        a = urllib.request.build_opener(K).open(r, timeout=10)
+        print("OUTPOST", host, a.status, a.headers.get("Location") or "-")
+    except urllib.error.HTTPError as e:
+        print("OUTPOST", host, e.code, e.headers.get("Location") or "-")
 """
+
+BLUEPRINTS = ("prolo/prolowelt.yaml", "prolo/prolowelt-admin-gruppe.yaml")
+
+
+def outpost_lage(antwort, domain):
+    """Aus der Ausgabe von OUTPOST_FRAGEN: (alle Namen weitergeleitet,
+    admin mit eigenem Cookie)."""
+    ziel = {}
+    for z in antwort.splitlines():
+        teile = z.split()
+        if len(teile) == 4 and teile[0] == "OUTPOST":
+            ziel[teile[1]] = (teile[2], teile[3])
+    admin = ziel.get("admin." + domain, ("", ""))
+    tool = ziel.get("prolo-pruefung." + domain, ("", ""))
+    weiter = admin[0] == "302" and tool[0] == "302"
+    eigen = (admin[1].startswith("https://admin.%s/outpost.goauthentik.io/" % domain) and
+             tool[1].startswith("https://auth.%s/" % domain))
+    return weiter, eigen
 
 
 def anmeldung_einrichten(zeit_s=300):
-    """Den Blueprint ausdruecklich anwenden und warten, bis er WIRKT.
+    """Die Blueprints ausdruecklich anwenden und warten, bis sie WIRKEN.
 
     Authentik richtet sich nach "gesund" noch asynchron ein: seine
     Standard-Ablaeufe entstehen erst nach und nach (vorher scheitert der
     Blueprint still, N-115), und der eingebaute Outpost laedt einen neuen
     Provider erst Sekunden spaeter - bis dahin beantwortet er jede
-    Anmeldepruefung mit 404 (gemessen im Durchlauf). Geprueft wird darum
-    beides: haengt der Provider im Domain-Modus am Outpost, und leitet der
-    Outpost eine Anfrage fuer admin.<domain> zur Anmeldung weiter?"""
-    domain = orte.konf()["PROLO_DOMAIN"]
+    Anmeldepruefung mit 404 (gemessen im Durchlauf). Geprueft wird darum die
+    Wirkung: haengen beide Provider am Outpost, und leitet der Outpost
+    admin.<domain> zu sich selbst (eigenes Cookie, N-140) und ein Tool zu
+    auth.<domain> weiter?"""
+    k = orte.konf()
+    domain = k["PROLO_DOMAIN"]
+    werte = {"d": domain, "g": k["ADMIN_GRUPPE"].replace("\\", "").replace('"', "")}
     worker = docker.unterbau_befehl("exec", "-T", "authentik-worker", "ak")
     server = docker.unterbau_befehl("exec", "-T", "authentik-server", "python3", "-c",
-                                    OUTPOST_FRAGEN % domain)
+                                    OUTPOST_FRAGEN % werte)
     ende = time.time() + zeit_s
     gewartet = False
     while True:
-        rc, aus = docker.lauf(worker + ["apply_blueprint", "prolo/prolowelt.yaml"],
-                              env=docker.unterbau_env(), zeit_s=300, pruefen=False)
-        _, pruef = docker.lauf(worker + ["shell", "-c", PRUEF_ANMELDUNG % domain],
+        aus = ""
+        for b in BLUEPRINTS:
+            aus += docker.lauf(worker + ["apply_blueprint", b], env=docker.unterbau_env(),
+                               zeit_s=300, pruefen=False)[1]
+        _, pruef = docker.lauf(worker + ["shell", "-c", PRUEF_ANMELDUNG % werte],
                                env=docker.unterbau_env(), zeit_s=300, pruefen=False)
         _, antwort = docker.lauf(server, env=docker.unterbau_env(), zeit_s=60, pruefen=False)
-        weiter = "OUTPOST 302" in antwort or "OUTPOST 401" in antwort
-        if "PROLO-ANMELDUNG OK" in pruef and weiter:
-            orte.ok("Anmeldung für *.%s steht (Authentik-Blueprint, Outpost antwortet)" % domain)
+        weiter, eigen = outpost_lage(antwort, domain)
+        steht = "PROLO-ANMELDUNG OK" in pruef and "PROLO-ADMIN OK" in pruef
+        if steht and weiter and eigen:
+            orte.ok("Anmeldung für *.%s steht, admin.%s mit eigenem Cookie (Outpost antwortet)"
+                    % (domain, domain))
+            if "PROLO-ADMIN-GRUPPE OK" in pruef:
+                orte.ok("admin.%s nur für die Gruppe „%s“" % (domain, k["ADMIN_GRUPPE"]))
+            else:
+                orte.warnung("Die Gruppe „%s“ gibt es in Authentik nicht - admin.%s prüft sie "
+                             "selbst, Authentik weist darum niemanden vorher ab. Gruppe anlegen "
+                             "(auth.%s -> Verzeichnis -> Gruppen) oder ADMIN_GRUPPE in %s "
+                             "anpassen, dann:  sudo prolo einrichten"
+                             % (k["ADMIN_GRUPPE"], domain, domain, orte.KONF))
             return
         if time.time() > ende:
+            if not steht:
+                grund = "Provider fehlt"
+            elif not weiter:
+                grund = "Outpost antwortet: %s" % (antwort.strip().splitlines() or ["nichts"])[-1]
+            else:
+                grund = ("admin.%s geht nicht über den eigenen Provider - das Cookie der ganzen "
+                         "Domain gälte dort" % domain)
             raise Abbruch("Der Authentik-Blueprint hat nicht gewirkt (%s):\n%s\n  Nachsehen in "
                           "Authentik: auth.%s -> Anpassung -> Blueprints -> 'ProloWelt'.\n"
                           "  Noch einmal versuchen ist gefahrlos:  sudo prolo einrichten"
-                          % ("Provider fehlt" if "PROLO-ANMELDUNG OK" not in pruef else
-                             "Outpost antwortet: %s" % (antwort.strip().splitlines() or ["nichts"])[-1],
-                             docker.kern_der_meldung(aus + pruef, 4), domain))
+                          % (grund, docker.kern_der_meldung(aus + pruef + antwort, 4), domain))
         if not gewartet:
             print("  Authentik richtet sich noch ein - warte auf die Anmeldung ...", flush=True)
             gewartet = True

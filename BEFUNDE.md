@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-140**.
+Neue Befunde bekommen die nächste freie Nummer: **N-141**.
 
 ---
 
@@ -484,4 +484,36 @@ neuer Gefahr bleibt stehen, mit Meldung; mit Terminal fragt es und merkt
 sich die Antwort. Neu im Durchlauf: Abbild mit Fallen-Labels. Einheitstests
 76 → 75 (drei Prüfungen der Labels durch zwei der Router-Datei ersetzt),
 Gegenprobe 60 → 62, alle gefunden.
+
+---
+
+## N-140 — Das Anmelde-Cookie für alle Tools galt auch für die Admin-Seite
+
+Der Provider im Domain-Modus setzt sein Cookie für `.<domain>`. Der Browser
+schickt es an **jedes** Tool mit – auch an eines ohne Anmeldung
+(Vaultwarden, n8n, eine öffentliche Seite). Ein Tool, das übernommen wird
+(eine Lücke in n8n reicht), sieht es in jeder Anfrage und kommt damit auf
+`admin.<domain>`: Tools entfernen, „ohne Anmeldung“ schalten, alte Stände
+zurückholen.
+
+**Jetzt:** ein eigener Provider `ProloWelt Admin` im Modus
+`forward_single` für `admin.<domain>`, **ohne** `cookie_domain` – sein Cookie
+gilt nur dort. Der eingebaute Outpost nimmt für einen Namen zuerst den
+Provider, der genau ihn hat. Beide Provider stehen im Haupt-Blueprint, nur
+dort wird die Liste des Outposts gesetzt (zwei Blueprints, die dieselbe
+Liste setzen, nähmen sich den Provider bei jedem Anwenden wieder weg). Die
+Bindung an die Admin-Gruppe steht für sich (`prolowelt-admin-gruppe.yaml`):
+fehlt die Gruppe, scheitert nur sie, die Anmeldung bleibt, und `einrichten`
+sagt es.
+
+`prolo einrichten` prüft die **Wirkung**: der Outpost muss `admin.<domain>`
+nach `https://admin.<domain>/outpost.goauthentik.io/start` weiterleiten
+(eigener Provider) und ein Tool nach `auth.<domain>` – sonst Abbruch mit dem
+Grund. Läuft nichts davon, gilt der Stand von vorher: der Domain-Provider
+beantwortet auch `admin.`.
+
+Geprüft: Einheitstests für Blueprint und Auswertung der Weiterleitung,
+Einheitstests 75 → 77, Gegenprobe 62 → 64. **Nicht hier gelaufen:** echtes
+Authentik (Docker Hub ist von hier nicht erreichbar) – der Durchlauf prüft
+es auf dem Server (Weiterleitung für `admin.` jetzt nach `admin.`).
 

@@ -535,7 +535,11 @@ Kopie des Tools, damit eine Datei nur lesen kann, was im Tool liegt.
   der Agent auf dem Server prüft und über `prolo` ausführt – nur bekannte
   Aufträge, jedes Feld gegen ein Muster, nie über eine Shell.
 - Hinein darf nur, wer in Authentik in der Gruppe `authentik Admins` ist
-  (`ADMIN_GRUPPE` in `prolo.conf`).
+  (`ADMIN_GRUPPE` in `prolo.conf`) – Authentik weist alle anderen schon vorher
+  ab, und die Seite prüft es noch einmal.
+- Die Admin-Seite hat ihre **eigene** Anmeldung mit einem Cookie nur für
+  `admin.<domain>`. Das Cookie der Tools gilt für die ganze Domain und geht an
+  jedes Tool – mit ihm kommt niemand auf die Admin-Seite.
 - Jeder Container des Unterbaus: Speichergrenze, `no-new-privileges`, alle
   Linux-Fähigkeiten weg (bis auf die wenigen, die Traefik und Postgres
   brauchen).

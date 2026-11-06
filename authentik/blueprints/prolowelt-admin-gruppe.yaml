@@ -1,0 +1,18 @@
+# ProloWelt - nur die Admin-Gruppe bekommt ein Cookie fuer admin.<domain>
+#
+# Zusaetzlich zur Pruefung in der Admin-Seite selbst: wer nicht in der Gruppe
+# PROLO_ADMIN_GRUPPE ist (ADMIN_GRUPPE in prolo.conf), wird schon von
+# Authentik abgewiesen. Eigene Datei: gibt es die Gruppe nicht, scheitert nur
+# dieser Blueprint - die Anmeldung fuer alle Tools (prolowelt.yaml) bleibt
+# stehen, und "prolo einrichten" meldet es.
+version: 1
+metadata:
+  name: ProloWelt - Admin-Gruppe
+  labels:
+    blueprints.goauthentik.io/description: admin.<domain> nur fuer die Admin-Gruppe
+entries:
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !Find [authentik_core.application, [slug, prolowelt-admin]]
+      group: !Find [authentik_core.group, [name, !Env PROLO_ADMIN_GRUPPE]]
+      order: 0

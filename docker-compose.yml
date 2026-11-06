@@ -139,8 +139,9 @@ services:
       AUTHENTIK_LISTEN__METRICS: "0.0.0.0:9300"
       AUTHENTIK_DISABLE_UPDATE_CHECK: "true"
       AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
-      # Fuer den Blueprint in authentik/blueprints/.
+      # Fuer die Blueprints in authentik/blueprints/.
       PROLO_DOMAIN: ${PROLO_DOMAIN:?}
+      PROLO_ADMIN_GRUPPE: ${ADMIN_GRUPPE:-authentik Admins}
     volumes:
       - authentik-data:/data
       - ./authentik/blueprints:/blueprints/prolo:ro
