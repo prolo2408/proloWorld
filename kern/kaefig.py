@@ -15,8 +15,16 @@ der Text der Datei: Anker, Erweiterungen und Variablen sind dort aufgeloest.
 
 Gefahren legt die Admin-Seite nie an; auf der Kommandozeile fragt prolo nach.
 """
+import json
 import os
+import pwd
 import re
+import shutil
+import subprocess
+import tempfile
+
+from . import docker
+from .orte import Abbruch
 
 SOCKET = re.compile(r"(^|/)docker\.sock$")
 
@@ -389,6 +397,117 @@ class Pruefung:
                     self.aussen.append(quelle)
             elif art != "tmpfs":
                 self.g(name, "Einhängung der Art %s" % art)
+
+
+# ------------------------------------------------- das Modell, ohne Rechte
+# Wer prueft: ein Nutzer ohne Rechte. "include:" und "extends: file:" lesen
+# weitere Dateien - mit include auch die .env DES ANDEREN Ordners (gemessen:
+# die Geheimnisse eines anderen Tools landeten im Modell). Im Ergebnis von
+# "docker compose config" ist davon nichts mehr zu sehen; eine Liste kann es
+# also nicht finden. Ohne Rechte und auf einer Kopie des Tools kann Compose
+# nur lesen, was im Tool liegt oder ohnehin jeder lesen darf (N-137).
+PRUEFER = "prolo-pruefer"
+GRENZE_DATEI = 1 << 20          # Compose-Dateien sind klein; Daten gehoeren nicht dazu
+GRENZE_ANZAHL = 20000
+GRENZE_SUMME = 200 << 20
+
+
+def _kopieren(app, ziel, auslassen):
+    """app -> ziel, ohne .git, ohne eingehaengte Ordner, ohne grosse Dateien.
+    Verweise bleiben Verweise."""
+    auslassen = {os.path.normpath(a) for a in auslassen}
+    anzahl = summe = 0
+    for wurzel, ordner, dateien in os.walk(app):
+        rel = os.path.relpath(wurzel, app)
+        hier = os.path.normpath(os.path.join(ziel, rel))
+        os.makedirs(hier, mode=0o700, exist_ok=True)
+        if os.path.normpath(wurzel) in auslassen:
+            ordner[:] = []
+            continue
+        if rel == ".":
+            ordner[:] = [o for o in ordner if o != ".git"]
+        for n in ordner + dateien:
+            q = os.path.join(wurzel, n)
+            anzahl += 1
+            if anzahl > GRENZE_ANZAHL:
+                raise Abbruch("Das Tool hat mehr als %d Dateien - zu viel für die Prüfung. "
+                              "Daten gehören in Volumes, nicht ins Repository." % GRENZE_ANZAHL)
+            if os.path.islink(q):
+                os.symlink(os.readlink(q), os.path.join(hier, n))
+                if n in ordner:
+                    ordner.remove(n)
+            elif n in dateien and os.path.isfile(q) and os.path.getsize(q) <= GRENZE_DATEI:
+                summe += os.path.getsize(q)
+                if summe > GRENZE_SUMME:
+                    raise Abbruch("Das Tool ist größer als %d MB - zu viel für die Prüfung. "
+                                  "Daten gehören in Volumes, nicht ins Repository."
+                                  % (GRENZE_SUMME >> 20))
+                shutil.copyfile(q, os.path.join(hier, n), follow_symlinks=False)
+
+
+def _umschreiben(o, von, nach):
+    if isinstance(o, dict):
+        return {k: _umschreiben(v, von, nach) for k, v in o.items()}
+    if isinstance(o, list):
+        return [_umschreiben(v, von, nach) for v in o]
+    if isinstance(o, str) and (o == von or o.startswith(von + os.sep)):
+        return nach + o[len(von):]
+    return o
+
+
+def modell(app, projekt, basis, compose_text=None, env_text=None, auslassen=()):
+    """docker compose config fuer app/<basis> - als PRUEFER auf einer Kopie.
+    compose_text/env_text ersetzen in der Kopie die Datei bzw. die .env (zum
+    Pruefen einer Aenderung, bevor sie gilt). Pfade im Ergebnis zeigen nach
+    app/, als waere es dort gelaufen."""
+    tmp = tempfile.mkdtemp(prefix="prolo-pruefung-")
+    try:
+        os.chmod(tmp, 0o700)
+        kopie = os.path.join(tmp, "app")
+        _kopieren(app, kopie, auslassen)
+        for name, text in ((basis, compose_text), (".env", env_text)):
+            if text is not None:
+                p = os.path.join(kopie, name)
+                if os.path.lexists(p):
+                    os.unlink(p)
+                with open(os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600),
+                          "w", encoding="utf-8") as f:
+                    f.write(text)
+        env = dict(docker.tool_env(), DOCKER_CONFIG=os.path.join(tmp, ".docker"))
+        wer = {}
+        if os.geteuid() == 0:
+            try:
+                pw = pwd.getpwnam(PRUEFER)
+            except KeyError:
+                raise Abbruch("Den Nutzer %s für die Prüfung gibt es nicht. Anlegen:  "
+                              "sudo prolo einrichten" % PRUEFER)
+            for wurzel, ordner, dateien in os.walk(tmp):
+                for n in [wurzel] + [os.path.join(wurzel, x) for x in ordner + dateien]:
+                    os.lchown(n, pw.pw_uid, pw.pw_gid)
+            wer = {"user": pw.pw_uid, "group": pw.pw_gid, "extra_groups": []}
+        befehl = ["docker", "compose", "-p", projekt, "--project-directory", kopie,
+                  "-f", os.path.join(kopie, basis), "config", "--format", "json",
+                  "--no-env-resolution"]
+        try:
+            r = subprocess.run(befehl, capture_output=True, text=True, timeout=120, env=env,
+                               cwd=kopie, **wer)
+        except subprocess.TimeoutExpired:
+            raise Abbruch("docker compose config lief länger als 120 s.")
+        aus = (r.stdout or "") + (r.stderr or "")
+        if r.returncode != 0:
+            text = docker.kern_der_meldung(aus.replace(kopie, "app").replace(tmp, ""))
+            if "permission denied" in aus:
+                text += ("\n  Die Datei liest etwas außerhalb des Tools (include, extends, "
+                         "ein Verweis) - das lässt die Prüfung nicht zu.")
+            raise Abbruch("docker compose versteht die Datei nicht:\n%s" % text)
+        try:
+            cfg = json.loads(r.stdout[r.stdout.index("{"):])
+        except ValueError:
+            raise Abbruch("docker compose config lieferte kein JSON:\n"
+                          + docker.kern_der_meldung(aus))
+        return _umschreiben(cfg, kopie, os.path.normpath(app))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def gefahren(cfg, app, projekt):

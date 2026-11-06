@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-137**.
+Neue Befunde bekommen die nächste freie Nummer: **N-138**.
 
 ---
 
@@ -377,4 +377,33 @@ Zieldatei unberührt, kein Ordner liegen geblieben. Einheitstests 67 → 69,
 Gegenprobe 47 → 53 eingebaute Fehler, alle gefunden (einer zuerst nicht:
 das Löschen allein schützt schon, der eingebaute Fehler nimmt jetzt beide
 Schichten weg).
+
+---
+
+## N-137 — `include:` holte die Geheimnisse eines anderen Tools
+
+`include: [ /opt/tools/vault/app/docker-compose.yml ]` nimmt die Dienste
+der anderen Datei auf – und setzt ihre Variablen aus der `.env` **ihres**
+Ordners ein. Gemessen: das Modell des neuen Tools enthielt den Wert aus der
+`.env` des anderen. `extends: {file: …}` holt ebenso einen fremden Dienst
+samt `env_file`. Im Ergebnis von `docker compose config` ist von beidem
+nichts mehr zu sehen; keine Liste kann es finden. Dazu: `env_file` wird in
+`config` aufgelöst – ein Pfad vom Server tauchte nie auf; und `${HOME}`,
+`${SUDO_USER}`, `${SSH_AUTH_SOCK}` kamen aus der Umgebung von root.
+
+**Jetzt:** `kaefig.modell()` – die Prüfung läuft als Nutzer `prolo-pruefer`
+(ohne Login, ohne Rechte; `prolo einrichten` legt ihn an) auf einer Kopie des
+Tools (ohne `.git`, ohne eingehängte Ordner, ohne Dateien über 1 MB). Compose
+kann dort nur lesen, was im Tool liegt oder ohnehin jeder lesen darf; jedes
+andere `include`, `extends` oder ein Verweis scheitert mit „permission
+denied“, und die Meldung sagt, warum. `--no-env-resolution` lässt die Pfade
+von `env_file` stehen. Jeder `docker compose` eines Tools läuft mit einer
+festen Umgebung (`docker.tool_env()`) – Prüfung und Start sehen dieselben
+Werte. Die Probe-Dateien neben `app/` beim Bearbeiten sind entfallen.
+
+Geprüft echt mit `prolo tool add`/`tool edit --von-web` als root:
+`include` und `extends` auf ein anderes Tool, `env_file: /etc/shadow` –
+alle abgelehnt; ein harmloses Tool angelegt und bearbeitet – läuft. Neu im
+Durchlauf: Volume mit dem Namen der Authentik-Datenbank, `include` eines
+anderen Tools. Einheitstests 69 → 73, Gegenprobe 53 → 56.
 

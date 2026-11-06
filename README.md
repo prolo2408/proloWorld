@@ -513,6 +513,8 @@ es zu überschreiben.
 
 Zwei Dienste laufen auf dem Server neben Docker: `prolo-agent` (führt die
 Aufträge der Admin-Seite aus) und `prolo-nacht.timer` (Sicherung und Update).
+Compose-Dateien prüft prolo als Nutzer `prolo-pruefer` ohne Rechte – auf einer
+Kopie des Tools, damit eine Datei nur lesen kann, was im Tool liegt.
 
 ---
 

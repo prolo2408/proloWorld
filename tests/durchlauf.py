@@ -31,7 +31,7 @@ TMP = tempfile.mkdtemp(prefix="prolo-durchlauf-")
 ENV = dict(os.environ, PROLO_ETC=TMP + "/etc", PROLO_VAR=TMP + "/var", PROLO_TOOLS=TMP + "/tools",
            PROLO_BACKUP=TMP + "/backup", PROLO_OHNE_SYSTEMD="1", NO_COLOR="1",
            PYTHONDONTWRITEBYTECODE="1")
-PROJEKTE = ("prolo", "notizen", "zwei", "boese", "drei")
+PROJEKTE = ("prolo", "notizen", "zwei", "boese", "drei", "klau", "fremd")
 ERGEBNIS = []
 
 TESTBILD = """FROM python:3.13-slim
@@ -60,6 +60,20 @@ volumes:
 DREI = """services:
   web:
     image: traefik/whoami:v1.10
+"""
+# N-135: ueber den Namen an die Datenbank von Authentik.
+KLAU = """services:
+  app:
+    image: prolotest/web:1
+    volumes: ["klau:/klau"]
+volumes:
+  klau: { name: prolo_authentik-db }
+"""
+# N-137: include liest die Datei und die .env eines anderen Tools.
+FREMD = """include: [ %s/zwei/app/docker-compose.yml ]
+services:
+  app:
+    image: prolotest/web:1
 """
 BOESE = """services:
   app:
@@ -172,6 +186,16 @@ def ablauf():
            and "privileged" in r.stdout)
     stimmt("... und hinterlaesst nichts", not os.path.exists(ENV["PROLO_TOOLS"] + "/boese") and
            sh("docker", "network", "inspect", "tool-boese", pruefen=False).returncode != 0)
+    with open(TMP + "/klau.yml", "w") as f:
+        f.write(KLAU)
+    r = prolo("tool", "add", "klau", "--compose", TMP + "/klau.yml", "--von-web", pruefen=False)
+    stimmt("Volume mit dem Namen der Authentik-Datenbank abgelehnt (N-135)",
+           r.returncode != 0 and "prolo_authentik-db" in r.stdout, r.stdout[-400:])
+    with open(TMP + "/fremd.yml", "w") as f:
+        f.write(FREMD % ENV["PROLO_TOOLS"])
+    r = prolo("tool", "add", "fremd", "--compose", TMP + "/fremd.yml", "--von-web", pruefen=False)
+    stimmt("include einer Datei eines anderen Tools abgelehnt - als Nutzer ohne Rechte (N-137)",
+           r.returncode != 0 and "permission denied" in r.stdout, r.stdout[-400:])
 
     schritt("Sichern")
     sh("docker", "exec", "notizen-notizen-1", "sh", "-c", "echo wichtig > /daten/notiz.txt")

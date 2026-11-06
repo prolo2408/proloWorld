@@ -1,6 +1,7 @@
 """Einheitstests fuer den Kern: was geprueft, erzeugt und entschieden wird.
 
-Kein Docker noetig. Erwartungswerte von Hand (CLAUDE.md §13) - nie die
+Kein Docker-Dienst noetig - nur fuer KaefigModellTest das Programm docker
+compose (config laeuft ohne Dienst). Erwartungswerte von Hand (CLAUDE.md §13) - nie die
 Ausgabe des Codes abgeschrieben.
 
     python3 -m unittest discover -s tests -v
@@ -9,6 +10,7 @@ import datetime
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,7 +25,7 @@ TMP = tempfile.mkdtemp(prefix="prolo-test-")
 for k in ("ETC", "VAR", "TOOLS", "BACKUP"):
     os.environ["PROLO_" + k] = os.path.join(TMP, k.lower())
 
-from kern import agent, auftrag, orte, sicherung, tools, zugang  # noqa: E402
+from kern import agent, auftrag, kaefig, orte, sicherung, tools, zugang  # noqa: E402
 from kern.orte import Abbruch  # noqa: E402
 
 
@@ -343,6 +345,69 @@ class ComposeTest(unittest.TestCase):
         with self.assertRaises(Abbruch):
             tools.dienst_waehlen({"services": {"a": {"image": "a:1", "expose": ["1", "2"]}}},
                                  "x", None, None)
+
+
+@unittest.skipUnless(shutil.which("docker"), "docker compose fehlt")
+class KaefigModellTest(unittest.TestCase):
+    """N-137: das Modell entsteht ohne Rechte auf einer Kopie."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.app = os.path.join(self.tmp, "x", "app")
+        os.makedirs(self.app)
+
+    def schreiben(self, name, text, ordner=None):
+        p = os.path.join(ordner or self.app, name)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w") as f:
+            f.write(text)
+        return p
+
+    def test_include_einer_fremden_datei(self):
+        fremd = self.schreiben("compose.yml", "services:\n  vault:\n    image: a:1\n"
+                                              "    environment: { T: ${T} }\n",
+                               os.path.join(self.tmp, "vault"))
+        self.schreiben(".env", "T=geheim\n", os.path.join(self.tmp, "vault"))
+        os.chmod(os.path.dirname(fremd), 0)
+        self.addCleanup(os.chmod, os.path.dirname(fremd), 0o700)
+        self.schreiben("docker-compose.yml", "include: [ %s ]\nservices:\n  app: { image: a:1 }\n"
+                       % fremd)
+        with self.assertRaises(Abbruch) as a:
+            kaefig.modell(self.app, "x", "docker-compose.yml")
+        self.assertIn("außerhalb des Tools", str(a.exception))
+        self.assertNotIn(self.tmp, str(a.exception).replace(fremd, ""))
+
+    def test_include_im_tool_geht_und_pfade_zeigen_nach_app(self):
+        self.schreiben("db/compose.yml", "services:\n  db: { image: postgres:16 }\n")
+        self.schreiben("docker-compose.yml", "include: [ ./db/compose.yml ]\nservices:\n  app:\n"
+                       "    image: a:1\n    env_file: [ /etc/hostname ]\n"
+                       "    volumes: [ ./daten:/d ]\n")
+        cfg = kaefig.modell(self.app, "x", "docker-compose.yml")
+        self.assertEqual(sorted(cfg["services"]), ["app", "db"])
+        self.assertEqual(cfg["services"]["app"]["volumes"][0]["source"],
+                         os.path.join(self.app, "daten"))
+        gef = "\n".join(tools.gefahren(cfg, self.app, "x")[0])
+        self.assertIn("/etc/hostname (env_file)", gef)
+        self.assertNotIn("daten", gef)
+
+    def test_aenderung_wird_auf_der_kopie_geprueft(self):
+        self.schreiben("docker-compose.yml", "services:\n  app: { image: a:1 }\n")
+        self.schreiben(".env", "A=alt\n")
+        cfg = kaefig.modell(self.app, "x", "docker-compose.yml",
+                            compose_text="services:\n  app:\n    image: a:${A}\n",
+                            env_text="A=neu\n")
+        self.assertEqual(cfg["services"]["app"]["image"], "a:neu")
+        with open(os.path.join(self.app, ".env")) as f:
+            self.assertEqual(f.read(), "A=alt\n")          # das Original bleibt
+
+    def test_umgebung_von_root_kommt_nicht_hinein(self):
+        self.schreiben("docker-compose.yml", "services:\n  app:\n    image: a:1\n"
+                       "    environment: { W: \"${PROLO_TEST_GEHEIM:-leer}\" }\n")
+        os.environ["PROLO_TEST_GEHEIM"] = "von-root"
+        self.addCleanup(os.environ.pop, "PROLO_TEST_GEHEIM")
+        cfg = kaefig.modell(self.app, "x", "docker-compose.yml")
+        self.assertEqual(cfg["services"]["app"]["environment"]["W"], "leer")
+        self.assertNotIn("PROLO_TEST_GEHEIM", __import__("kern").docker.tool_env())
 
 
 class OverrideTest(unittest.TestCase):

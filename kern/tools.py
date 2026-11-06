@@ -147,7 +147,7 @@ def config(app, dateien, name, env_datei=None):
         befehl += ["-f", d]
     for _ in range(10):
         rc, aus = docker.lauf(befehl + ["config", "--format", "json"], cwd=app,
-                              zeit_s=120, pruefen=False)
+                              env=docker.tool_env(), zeit_s=120, pruefen=False)
         if rc == 0:
             return json.loads(aus[aus.index("{"):])
         m = re.search(r"env file (\S+) not found", aus)
@@ -482,7 +482,7 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
             basis = docker.basis_in(app)
             if basis is None:
                 raise Abbruch("Im Repository liegt keine docker-compose.yml (oder compose.yaml).")
-            cfg = config(app, [basis], name)
+            cfg = kaefig.modell(app, name, os.path.basename(basis))
             gef, hin, _ = gefahren(cfg, app, name)
             for h in hin:
                 orte.warnung(h)
@@ -502,14 +502,14 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
             if not abbild:          # ein einzelnes Abbild ist oben schon geholt
                 print("  Hole die Abbilder ...", flush=True)
                 rc, aus = docker.lauf(befehl + ["pull", "--ignore-buildable"], cwd=app,
-                                      zeit_s=1800, pruefen=False)
+                                      env=docker.tool_env(), zeit_s=1800, pruefen=False)
             if rc != 0:
                 # Was schon da ist, reicht zum Starten - was fehlt, meldet "up".
                 orte.warnung("nicht alle Abbilder ließen sich holen:\n"
                              + docker.kern_der_meldung(aus, 3))
             if any((d or {}).get("build") for d in (cfg.get("services") or {}).values()):
                 print("  Baue ...", flush=True)
-                docker.lauf(befehl + ["build"], cwd=app, zeit_s=3600)
+                docker.lauf(befehl + ["build"], cwd=app, env=docker.tool_env(), zeit_s=3600)
             dienst, port = dienst_waehlen(cfg, name, dienst, port)
             orte.ok("Oberfläche: Dienst %s, Port %s" % (dienst, port))
 
@@ -613,6 +613,18 @@ def compose_text(name, c):
     return text[len(KOPF):] if text.startswith(KOPF) else text
 
 
+def eingehaengte_ordner(name):
+    """Ordner in app/, die die Container des Tools gerade einhaengen - dort
+    liegen Daten, keine Dateien fuer prolo."""
+    app = os.path.realpath(os.path.join(docker.tool_ordner(name), "app"))
+    try:
+        ms = docker.mounts(name)
+    except Abbruch:
+        return set()
+    return {m["quelle"] for m in ms if m["art"] == "bind" and
+            os.path.realpath(m["quelle"]).startswith(app + os.sep)}
+
+
 def variablen_namen(name):
     """Welche Variablen in app/.env stehen - nur die Namen, nie die Werte."""
     return sorted(orte.env_lesen(os.path.join(docker.tool_ordner(name), "app", ".env")))
@@ -651,11 +663,10 @@ def bearbeiten(name, compose=None, env=None, ja=False, von_web=False, sichern=Tr
         raise Abbruch("In %s liegt keine Compose-Datei." % app)
     env_pfad = os.path.join(app, ".env")
     # Erst pruefen, dann sichern: eine kaputte oder gefaehrliche Datei soll das
-    # Tool nicht erst fuer eine Sicherung anhalten. Die Probe liegt neben app/,
-    # Pfade in ihr gelten trotzdem relativ zu app/.
+    # Tool nicht erst fuer eine Sicherung anhalten. Geprueft wird auf einer
+    # Kopie, ohne Rechte (kaefig.modell) - mit der neuen Datei und den neuen
+    # Variablen, als lägen sie schon in app/.
     orte.abschnitt("%s: die Änderung prüfen" % name)
-    probe = os.path.join(ordner, ".probe-compose.yml")
-    probe_env = os.path.join(ordner, ".probe.env")
     with open(basis, encoding="utf-8") as f:
         text_alt = f.read()
     try:
@@ -663,17 +674,10 @@ def bearbeiten(name, compose=None, env=None, ja=False, von_web=False, sichern=Tr
             env_alt = f.read()
     except FileNotFoundError:
         env_alt = ""
-    try:
-        orte.datei_schreiben(probe, text_alt if text is None else text, 0o600)
-        orte.datei_schreiben(probe_env, env_setzen(env_alt, env), 0o600)
-        try:
-            cfg = config(app, [probe], name, probe_env)
-        except Abbruch as a:
-            raise Abbruch(str(a).replace(probe, "die neue Datei"))
-    finally:
-        for p in (probe, probe_env):
-            if os.path.exists(p):
-                os.remove(p)
+    eingehaengt = eingehaengte_ordner(name)
+    cfg = kaefig.modell(app, name, os.path.basename(basis),
+                        compose_text=text_alt if text is None else text,
+                        env_text=env_setzen(env_alt, env), auslassen=eingehaengt)
     if c["DIENST"] not in (cfg.get("services") or {}):
         raise Abbruch("Den Dienst %s mit der Oberfläche gibt es in der neuen Datei nicht - "
                       "nichts geändert. Seinen Namen in der Datei lassen, wie er ist."
@@ -716,7 +720,7 @@ def bearbeiten(name, compose=None, env=None, ja=False, von_web=False, sichern=Tr
                 orte.getan("in app/.env eingetragen: %s" % ", ".join(erzeugt))
             # Mit den gefuellten Werten noch einmal: was jetzt neu gefaehrlich
             # ist, hat niemand bestaetigt.
-            cfg = config(app, [basis], name)
+            cfg = kaefig.modell(app, name, os.path.basename(basis), auslassen=eingehaengt)
             neu = set(gefahren(cfg, app, name)[0]) - set(gef)
             if neu:
                 raise Abbruch("Mit den eingesetzten Werten neu gefährlich: %s" % "; ".join(sorted(neu)))
@@ -786,7 +790,7 @@ def protokoll(name, zeilen="100", folgen=False):
     orte.root_noetig("tool logs")
     conf(name)
     args = ["logs", "--tail", str(zeilen), "--no-color"] + (["-f"] if folgen else [])
-    return docker.mit_ausgabe(docker.tool_befehl(name, *args),
+    return docker.mit_ausgabe(docker.tool_befehl(name, *args), env=docker.tool_env(),
                               cwd=os.path.join(docker.tool_ordner(name), "app"))
 
 

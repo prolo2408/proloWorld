@@ -148,6 +148,24 @@ def ordner_anlegen():
         (orte.getan if neu else orte.ok)("%s" % pfad)
 
 
+def pruefer_anlegen():
+    """Der Nutzer ohne Rechte, als der prolo Compose-Dateien prueft
+    (kern/kaefig.py, N-137): kein Login, kein Zuhause, keine Gruppe ausser
+    der eigenen."""
+    from . import kaefig
+    import pwd
+    try:
+        pwd.getpwnam(kaefig.PRUEFER)
+        orte.ok("Nutzer %s (prüft Compose-Dateien ohne Rechte)" % kaefig.PRUEFER)
+        return
+    except KeyError:
+        pass
+    docker.lauf(["useradd", "--system", "--user-group", "--no-create-home",
+                 "--home-dir", "/nonexistent", "--shell", "/usr/sbin/nologin",
+                 kaefig.PRUEFER], zeit_s=60)
+    orte.getan("Nutzer %s angelegt (prüft Compose-Dateien ohne Rechte)" % kaefig.PRUEFER)
+
+
 def traefik_dateien():
     """Die dynamische Konfiguration aus dem Repository nach VAR kopieren.
     Dateien lokal-*.yml dort gehoeren dem Betreiber und bleiben stehen."""
@@ -330,6 +348,7 @@ def einrichten(domain=None, email=None, schluessel=None, nach_update=None):
         orte.ok(orte.SCHLUESSEL_PUB)
         schluessel_hinweis = False
     ordner_anlegen()
+    pruefer_anlegen()
     traefik_dateien()
     netze()
     systemd()
