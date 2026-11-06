@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-144**.
+Neue Befunde bekommen die nächste freie Nummer: **N-145**.
 
 ---
 
@@ -563,4 +563,19 @@ Gemessen: Anfrage mit Absender im Netz eines Tools → 200, mit
 Bereichen oder einem Netz überschneidet, das es auf dem Server schon gibt –
 und sagt, was stattdessen hingehört. Einheitstests 79 → 80, Gegenprobe
 66 → 67.
+
+---
+
+## N-144 — `tool set --host admin.<domain>` gab die Admin-Seite einem Tool
+
+Beim Anlegen prüfte prolo, dass ein Tool nicht `admin.` oder `auth.` heißt
+und kein anderes Tool denselben Namen hat – beim Ändern mit `tool set --host`
+nicht. Gemessen: `prolo tool set seite --host admin.prolo.test` → „ok“, und
+`admin.prolo.test` zeigte die Seite des Tools, ohne Anmeldung, samt Cookie
+der Admin-Seite an das Tool. Nur auf der Kommandozeile (root) – aber ein
+Tippfehler genügt.
+
+**Jetzt:** `tools.host_pruefen` – dieselbe Prüfung beim Anlegen und
+Ändern, auch wenn sich nur die Anmeldung ändert. Gemessen: abgelehnt mit
+„gehört dem Unterbau“. Einheitstests 80 → 81, Gegenprobe 67 → 68.
 

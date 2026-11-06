@@ -423,6 +423,26 @@ def klonen(url, ziel):
         raise Abbruch(zugang.fehler_text(url, zugang.host_von(url), aus, _hat_zugang(url)))
 
 
+def host_pruefen(name, host, anmeldung):
+    """Der Name, unter dem ein Tool erreichbar ist - beim Anlegen und beim
+    Aendern dieselbe Pruefung (N-144: "tool set --host admin.<domain>" gab
+    die Admin-Seite samt ihrem Cookie an das Tool)."""
+    k = orte.konf()
+    host = (host or "").lower()
+    if not orte.DOMAIN.fullmatch(host):
+        raise Abbruch("--host %s ist kein gültiger Name." % host)
+    if anmeldung == "authentik" and not (host == k["PROLO_DOMAIN"] or
+                                         host.endswith("." + k["PROLO_DOMAIN"])):
+        raise Abbruch("Die Anmeldung über Authentik gilt für %s und seine Subdomains - "
+                      "%s liegt nicht darunter." % (k["PROLO_DOMAIN"], host))
+    if host in ("admin." + k["PROLO_DOMAIN"], "auth." + k["PROLO_DOMAIN"]):
+        raise Abbruch("%s gehört dem Unterbau." % host)
+    for n in namen():
+        if n != name and conf(n).get("HOST") == host:
+            raise Abbruch("%s ist schon vergeben - an das Tool %s." % (host, n))
+    return host
+
+
 def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
             anmeldung="authentik", host=None, env=None, ja=False, von_web=False):
     orte.root_noetig("tool add")
@@ -438,20 +458,9 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
     if dienst and not DIENST.fullmatch(dienst):
         raise Abbruch("--dienst: so heißt kein Dienst.")
     k = orte.konf()
-    host = (host or "%s.%s" % (name, k["PROLO_DOMAIN"])).lower()
-    if not orte.DOMAIN.fullmatch(host):
-        raise Abbruch("--host %s ist kein gültiger Name." % host)
-    if anmeldung == "authentik" and not (host == k["PROLO_DOMAIN"] or
-                                         host.endswith("." + k["PROLO_DOMAIN"])):
-        raise Abbruch("Die Anmeldung über Authentik gilt für %s und seine Subdomains - "
-                      "%s liegt nicht darunter." % (k["PROLO_DOMAIN"], host))
-    if host in ("admin." + k["PROLO_DOMAIN"], "auth." + k["PROLO_DOMAIN"]):
-        raise Abbruch("%s gehört dem Unterbau." % host)
-    for n in namen():
-        if n == name:
-            raise Abbruch("Ein Tool '%s' gibt es schon:  prolo tool update %s" % (name, name))
-        if conf(n).get("HOST") == host:
-            raise Abbruch("%s ist schon vergeben - an das Tool %s." % (host, n))
+    host = host_pruefen(name, host or "%s.%s" % (name, k["PROLO_DOMAIN"]), anmeldung)
+    if name in namen():
+        raise Abbruch("Ein Tool '%s' gibt es schon:  prolo tool update %s" % (name, name))
 
     ziel = docker.tool_ordner(name)
     tmp = os.path.join(orte.TOOLS, ".neu-" + name)
@@ -600,10 +609,8 @@ def aendern(name, port=None, anmeldung=None, dienst=None, host=None):
         c["ANMELDUNG"] = anmeldung
     if dienst:
         c["DIENST"] = dienst
-    if host:
-        if not orte.DOMAIN.fullmatch(host):
-            raise Abbruch("--host %s ist kein gültiger Name." % host)
-        c["HOST"] = host
+    if host or anmeldung:
+        c["HOST"] = host_pruefen(name, host or c["HOST"], c["ANMELDUNG"])
     with orte.sperre("tool set " + name):
         kaefig_pruefen(name, "ändern")
         override_neu(name, c)

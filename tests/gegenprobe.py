@@ -84,6 +84,8 @@ FEHLER = [
      "        os.remove(pfad)", "ein Ordner im Eingang legt den Agenten lahm (N-142)"),
     ("kern/orte.py", "            if s.version == netz.version and s.overlaps(netz):", "            if False:",
      "ADMIN_NETZE schliesst die Netze der Container ein - jedes Tool kommt durch (N-143)"),
+    ("kern/tools.py", '        c["HOST"] = host_pruefen(name, host or c["HOST"], c["ANMELDUNG"])',
+     '        c["HOST"] = host or c["HOST"]', "tool set --host admin.<domain> gibt die Admin-Seite einem Tool (N-144)"),
     ("kern/tools.py", "                fehlt.append(var)", "                neu[var] = \"\"",
      "fehlender Wert wird still leer gesetzt"),
     ("kern/tools.py", 'if not d.get("restart"):', "if True:",

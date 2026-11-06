@@ -440,6 +440,17 @@ class NachpruefenTest(unittest.TestCase):
         with open(os.path.join(self.ordner, "app", "docker-compose.yml"), "w") as f:
             f.write(text)
 
+    def test_kein_tool_unter_dem_namen_des_unterbaus(self):
+        """N-144: tool set --host admin.<domain> gab die Admin-Seite dem Tool."""
+        orte.env_schreiben(orte.KONF, {"PROLO_DOMAIN": "prolo.test", "PROLO_EMAIL": "a@prolo.test"})
+        self.addCleanup(os.remove, orte.KONF)
+        os.environ.pop("PROLO_AGENT")
+        for host in ("admin.prolo.test", "auth.prolo.test", "ADMIN.prolo.test"):
+            with self.assertRaises(Abbruch) as a:
+                tools.aendern("nach", host=host)
+            self.assertIn("Unterbau", str(a.exception))
+        self.assertEqual(self.gestartet, [])
+
     def test_von_der_seite_startet_nichts_gefaehrliches(self):
         self.datei("services:\n  app: { image: a:1, privileged: true }\n")
         for wie in (lambda: tools.starten("nach"), lambda: tools.neustarten("nach"),
