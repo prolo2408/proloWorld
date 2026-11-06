@@ -235,7 +235,7 @@ def ablauf():
            "from kern import kaefig\n"
            "print(subprocess.run(kaefig.ohne_rechte_ohne_netz(['sh', '-c', 'id -un; cat /proc/net/dev']),"
            " capture_output=True, text=True, cwd='/').stdout)" % REPO)
-    karten = [z.split(":")[0].strip() for z in r.stdout.splitlines()[3:]]
+    karten = [z.split(":")[0].strip() for z in r.stdout.splitlines()[3:] if z.strip()]
     stimmt("die Pruefung laeuft als prolo-pruefer und ohne Netz (N-145)",
            r.stdout.startswith("prolo-pruefer") and karten == ["lo"], r.stdout[:300])
 
