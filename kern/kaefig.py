@@ -298,13 +298,10 @@ class Pruefung:
         self.hin.append("%s: fester Containername %s" % (name, w))
 
     def d_labels(self, name, w, d):
+        # traefik.*-Labels sind wirkungslos: Traefik liest keine Labels (N-139).
         for k in w or {}:
             if str(k).startswith(("com.docker.compose.", "prolo.")):
                 self.g(name, "setzt das Label %s, das Compose bzw. prolo gehört" % k)
-            elif str(k).startswith("traefik."):
-                self.hin.append("%s: bringt eigene Traefik-Einstellungen mit - prolo ersetzt "
-                                "sie" % name)
-                break
 
     def d_deploy(self, name, w, d):
         res = (w or {}).get("resources") or {}

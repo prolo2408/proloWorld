@@ -2,8 +2,8 @@
 #
 # Ein Compose-Projekt mit allem, was die Plattform selbst braucht:
 #
-#   socket-proxy   reicht Traefik den Docker-Socket NUR LESEND weiter
-#   traefik        der Eingang: 80/443, Zertifikate, Ratenbremse
+#   traefik        der Eingang: 80/443, Zertifikate, Ratenbremse - OHNE Zugriff
+#                  auf Docker: seine Router schreibt prolo als Dateien (N-139)
 #   authentik-*    die Anmeldung fuer alle Tools (Datenbank, Server, Worker)
 #   admin          die Verwaltungsseite admin.<domain>
 #
@@ -26,42 +26,12 @@ x-protokoll: &protokoll
       max-file: "3"
 
 services:
-  socket-proxy:
-    <<: *protokoll
-    # Docker Hub statt ghcr.io: dasselbe Abbild, eine Quelle weniger.
-    image: tecnativa/docker-socket-proxy:0.3.0
-    restart: unless-stopped
-    environment:
-      # Was Traefik braucht, um seine Router zu finden - und sonst nichts.
-      CONTAINERS: 1
-      NETWORKS: 1
-      EVENTS: 1
-      # POST: 0 ist der Riegel: ohne schreibende Aufrufe startet niemand
-      # ueber diesen Weg einen Container.
-      POST: 0
-      EXEC: 0
-      BUILD: 0
-      IMAGES: 0
-      VOLUMES: 0
-      INFO: 0
-      # Ohne das startet der Vermittler auf Kernen ohne IPv6 nie.
-      DISABLE_IPV6: 1
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      socket: {}
-    mem_limit: 64m
-    pids_limit: 64
-    security_opt: [ "no-new-privileges:true" ]
-    cap_drop: [ ALL ]
-
   traefik:
     <<: *protokoll
     # Auf die Nebenfassung festgelegt: Fehlerbehebungen kommen mit dem
     # naechtlichen "prolo update" von selbst, ein Sprung auf v3.7 nur ueber Git.
     image: traefik:v3.6
     restart: unless-stopped
-    depends_on: [ socket-proxy ]
     # Die statische Konfiguration steht hier und nicht in einer traefik.yml,
     # weil sie Domain und E-Mail aus /etc/prolo braucht.
     command:
@@ -70,8 +40,10 @@ services:
       - --log.level=INFO
       - --api.dashboard=false
       - --ping=true
-      - --providers.docker.endpoint=tcp://socket-proxy:2375
-      - --providers.docker.exposedbydefault=false
+      # Nur Dateien: Router fuer den Unterbau (unterbau.yml) und je Tool
+      # (tool-<name>.yml) schreibt prolo. Labels an Containern liest Traefik
+      # NICHT - sonst haette jedes Docker-Abbild mit "LABEL traefik.http..."
+      # admin.<domain> uebernehmen koennen (gemessen, N-139).
       - --providers.file.directory=/etc/traefik/dynamic
       - --providers.file.watch=true
       - --entrypoints.web.address=:80
@@ -103,7 +75,6 @@ services:
       - ${PROLO_VAR:?}/traefik/acme:/letsencrypt
       - ${PROLO_VAR:?}/traefik/dynamic:/etc/traefik/dynamic:ro
     networks:
-      socket: {}
       auth: {}
       admin: {}
     healthcheck:
@@ -178,21 +149,10 @@ services:
         condition: service_healthy
     networks:
       authentik: {}
-      auth: {}
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=prolo-auth
-      - traefik.http.services.prolo-auth.loadbalancer.server.port=9000
-      # Die Anmeldeseite selbst. Sie kann nicht hinter sich selbst haengen.
-      - traefik.http.routers.prolo-auth.rule=Host(`auth.${PROLO_DOMAIN:?}`)
-      - traefik.http.routers.prolo-auth.entrypoints=websecure
-      - traefik.http.routers.prolo-auth.service=prolo-auth
-      # Der Rueckweg nach der Anmeldung, auf jedem Namen DIESER Domain -
-      # und nur dort, nicht auf jedem beliebigen Namen.
-      - "traefik.http.routers.prolo-outpost.rule=HostRegexp(`^([a-z0-9-]+\\.)?${PROLO_DOMAIN_RE:?}$$`) && PathPrefix(`/outpost.goauthentik.io/`)"
-      - traefik.http.routers.prolo-outpost.entrypoints=websecure
-      - traefik.http.routers.prolo-outpost.priority=1000
-      - traefik.http.routers.prolo-outpost.service=prolo-auth
+      # Unter diesem Namen fragt Traefik nach der Anmeldung. Namen mit
+      # prolo... darf kein Tool tragen (kern/kaefig.py) - so kann sich keines
+      # als Authentik ausgeben, auch nicht, wenn Traefik in seinem Netz haengt.
+      auth: { aliases: [ prolo-authentik ] }
     mem_limit: 1g
     pids_limit: 512
     security_opt: [ "no-new-privileges:true" ]
@@ -236,14 +196,7 @@ services:
       - ${PROLO_VAR:?}/agent/ein:/agent/ein
       - ${PROLO_VAR:?}/agent/aus:/agent/aus:ro
     networks:
-      admin: {}
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=prolo-admin
-      - traefik.http.services.prolo-admin.loadbalancer.server.port=8080
-      - traefik.http.routers.prolo-admin.rule=Host(`admin.${PROLO_DOMAIN:?}`)
-      - traefik.http.routers.prolo-admin.entrypoints=websecure
-      - traefik.http.routers.prolo-admin.middlewares=authentik@file
+      admin: { aliases: [ prolo-admin ] }
     read_only: true
     tmpfs: [ "/tmp:size=8m" ]
     mem_limit: 128m
@@ -257,10 +210,6 @@ volumes:
   admin-daten: {}
 
 networks:
-  # Nur Traefik und der Vermittler, ohne Weg nach draussen.
-  socket:
-    name: prolo-socket
-    internal: true
   # Traefik <-> Authentik (Anmeldeseite und Forward-Auth).
   auth:
     name: prolo-auth

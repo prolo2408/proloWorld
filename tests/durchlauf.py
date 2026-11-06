@@ -31,7 +31,7 @@ TMP = tempfile.mkdtemp(prefix="prolo-durchlauf-")
 ENV = dict(os.environ, PROLO_ETC=TMP + "/etc", PROLO_VAR=TMP + "/var", PROLO_TOOLS=TMP + "/tools",
            PROLO_BACKUP=TMP + "/backup", PROLO_OHNE_SYSTEMD="1", NO_COLOR="1",
            PYTHONDONTWRITEBYTECODE="1")
-PROJEKTE = ("prolo", "notizen", "zwei", "boese", "drei", "klau", "fremd")
+PROJEKTE = ("prolo", "notizen", "zwei", "boese", "drei", "klau", "fremd", "falle")
 ERGEBNIS = []
 
 TESTBILD = """FROM python:3.13-slim
@@ -60,6 +60,13 @@ volumes:
 DREI = """services:
   web:
     image: traefik/whoami:v1.10
+"""
+# N-139: ein Abbild, das mit Labels admin.<domain> und auth.<domain> an sich zieht.
+FALLE = """FROM prolotest/web:1
+CMD ["sh", "-c", "mkdir -p /f && echo FALLE > /f/index.html && exec python3 -m http.server 8000 --directory /f"]
+LABEL traefik.enable=true traefik.http.routers.f1.rule="Host(`admin.%(d)s`) || Host(`auth.%(d)s`)" \\
+      traefik.http.routers.f1.priority=100000 traefik.http.routers.f1.entrypoints=websecure \\
+      traefik.http.services.f1.loadbalancer.server.port=8000
 """
 # N-135: ueber den Namen an die Datenbank von Authentik.
 KLAU = """services:
@@ -116,6 +123,19 @@ def https(host, pfad="/", kopf=None):
     r.read()
     v.close()
     return r.status, r.getheader("Location") or ""
+
+
+def https_text(host, pfad="/"):
+    """Wie https(), aber der Inhalt der Antwort."""
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    v = http.client.HTTPConnection("127.0.0.1", 443, timeout=20)
+    v.sock = ctx.wrap_socket(socket.create_connection(("127.0.0.1", 443), 20), server_hostname=host)
+    v.request("GET", pfad, headers={"Host": host})
+    t = v.getresponse().read().decode("utf-8", "replace")
+    v.close()
+    return t
 
 
 def im_container(container, code):
@@ -186,6 +206,17 @@ def ablauf():
            and "privileged" in r.stdout)
     stimmt("... und hinterlaesst nichts", not os.path.exists(ENV["PROLO_TOOLS"] + "/boese") and
            sh("docker", "network", "inspect", "tool-boese", pruefen=False).returncode != 0)
+    sh("docker", "build", "-q", "-t", "prolotest/falle:1", "-", eingabe=FALLE % {"d": DOMAIN})
+    prolo("tool", "add", "falle", "--image", "prolotest/falle:1", "--anmeldung", "keine")
+    time.sleep(3)
+    st, ziel = https("admin." + DOMAIN)
+    stimmt("Labels eines Abbilds uebernehmen admin. nicht (N-139)", st == 302 and
+           ziel.startswith("https://auth.%s/" % DOMAIN), "%s %s" % (st, ziel))
+    st, _ = https("auth." + DOMAIN, "/if/flow/default-authentication-flow/")
+    stimmt("... und auth. nicht", st == 200 and "FALLE" not in https_text(
+        "auth." + DOMAIN, "/if/flow/default-authentication-flow/"))
+    stimmt("das Tool selbst ist unter seinem Namen da", "FALLE" in https_text("falle." + DOMAIN))
+    prolo("tool", "rm", "falle", "--ja", "--ohne-sicherung")
     with open(TMP + "/klau.yml", "w") as f:
         f.write(KLAU)
     r = prolo("tool", "add", "klau", "--compose", TMP + "/klau.yml", "--von-web", pruefen=False)

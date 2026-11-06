@@ -253,8 +253,7 @@ def abbild_compose(name, abbild, port):
 def override_text(name, cfg, c):
     """prolo.override.yml aus der zusammengesetzten Konfiguration der
     Herstellerdatei (cfg) und prolo.conf (c)."""
-    dienst, port, anm = c["DIENST"], c["PORT"], c["ANMELDUNG"]
-    router = "tool-%s" % name
+    dienst = c["DIENST"]
     zeilen = [KOPF, "services:\n"]
     neue_volumes = []
     for dname, d in sorted((cfg.get("services") or {}).items()):
@@ -285,21 +284,9 @@ def override_text(name, cfg, c):
             teil.append("    networks:\n")
             for netz in sorted(d.get("networks") or {"default": None}):
                 teil.append("      %s: {}\n" % q(netz))
-            teil.append("      prolo: {}\n")
-            labels = {k: v for k, v in (d.get("labels") or {}).items()
-                      if not str(k).startswith("traefik.")}
-            fremd = len(labels) != len(d.get("labels") or {})
-            labels.update({
-                "traefik.enable": "true",
-                "traefik.docker.network": netzname(name),
-                "traefik.http.routers.%s.rule" % router: "Host(`%s`)" % c["HOST"],
-                "traefik.http.routers.%s.entrypoints" % router: "websecure",
-                "traefik.http.services.%s.loadbalancer.server.port" % router: port,
-            })
-            if anm == "authentik":
-                labels["traefik.http.routers.%s.middlewares" % router] = "authentik@file"
-            teil.append("    labels:%s\n" % (" !override" if fremd else ""))
-            teil += ["      %s: %s\n" % (q(k), q(v)) for k, v in labels.items()]
+            # Unter diesem Namen erreicht Traefik das Tool (tool-<name>.yml).
+            # Namen mit prolo... darf kein Tool selbst tragen (kaefig.py).
+            teil.append("      prolo: { aliases: [ %s ] }\n" % q(ziel_name(name)))
         if teil:
             zeilen.append("  %s:\n" % q(dname))
             zeilen += teil
@@ -309,6 +296,45 @@ def override_text(name, cfg, c):
         zeilen.append("volumes:\n")
         zeilen += ["  %s: {}\n" % q(v) for v in neue_volumes]
     return "".join(zeilen)
+
+
+ROUTE_VORSILBE = "tool-"
+
+
+def ziel_name(name):
+    return "prolo-tool-%s" % name
+
+
+def route_datei(name):
+    return os.path.join(orte.VAR, "traefik", "dynamic", "%s%s.yml" % (ROUTE_VORSILBE, name))
+
+
+def route_text(name, c):
+    """Router und Ziel eines Tools fuer Traefik - als Datei, die prolo
+    schreibt. Labels an Containern liest Traefik nicht mehr: sonst haette
+    jedes Abbild mit "LABEL traefik.http.routers..." admin.<domain>
+    uebernommen (gemessen, N-139)."""
+    router = "tool-%s" % name
+    zeilen = [KOPF, "http:\n  routers:\n", "    %s:\n" % q(router),
+              "      rule: %s\n" % q("Host(`%s`)" % c["HOST"]),
+              "      entryPoints: [\"websecure\"]\n", "      service: %s\n" % q(router)]
+    if c["ANMELDUNG"] == "authentik":
+        zeilen.append("      middlewares: [\"authentik@file\"]\n")
+    zeilen += ["  services:\n", "    %s:\n" % q(router), "      loadBalancer:\n",
+               "        servers:\n",
+               "          - url: %s\n" % q("http://%s:%s" % (ziel_name(name), c["PORT"]))]
+    return "".join(zeilen)
+
+
+def route_schreiben(name, c):
+    orte.datei_schreiben(route_datei(name), route_text(name, c), 0o644)
+
+
+def route_entfernen(name):
+    try:
+        os.remove(route_datei(name))
+    except FileNotFoundError:
+        pass
 
 
 def netze_schreiben():
@@ -528,6 +554,7 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
             angelegt = True
             netze_schreiben()
             traefik_verbinden(name)
+            route_schreiben(name, c)
             print("  Starte ...", flush=True)
             docker.tool(name, "up", "-d", "--remove-orphans", zeit_s=1800)
             z = warten(name)
@@ -541,6 +568,7 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
         except BaseException:
             # Kein halbes Tool liegen lassen (§12): was schon steht, wieder weg.
             if angelegt:
+                route_entfernen(name)
                 docker.tool(name, "down", "-v", "--remove-orphans", pruefen=False)
                 traefik_verbinden(name, an=False)
                 shutil.rmtree(ziel, ignore_errors=True)
@@ -580,6 +608,7 @@ def aendern(name, port=None, anmeldung=None, dienst=None, host=None):
         kaefig_pruefen(name, "ändern")
         override_neu(name, c)
         conf_schreiben(name, c)
+        route_schreiben(name, c)
         docker.tool(name, "up", "-d", "--remove-orphans")
     orte.ok("%s: Port %s, Anmeldung %s, %s" % (name, c["PORT"], c["ANMELDUNG"], url(c)))
 
@@ -662,7 +691,7 @@ def kaefig_pruefen(name, was, ja=False, flagge=False, ordner=None):
         raise Abbruch("Mit diesen Gefahren kann die Admin-Seite %s nicht %s. Wer das wirklich "
                       "will, tut es auf dem Server:  sudo prolo tool ..." % (name, was))
     if not ja and not frage("Trotzdem %s?" % was):
-        raise Abbruch("Nichts getan.")
+        raise Abbruch("Nicht bestätigt: %s" % "; ".join(neu))
     bestaetigen(ordner, gef)
     return cfg
 
@@ -800,6 +829,7 @@ def bearbeiten(name, compose=None, env=None, ja=False, von_web=False, sichern=Tr
                 c.update(QUELLE="compose", ABBILD="")
             override_neu(name, c)           # prueft auch: gibt es den Dienst noch?
             conf_schreiben(name, c)
+            route_schreiben(name, c)
             print("  Hole die Abbilder ...", flush=True)
             rc, aus = docker.tool(name, "pull", "--ignore-buildable", zeit_s=1800, pruefen=False)
             if rc != 0:
@@ -920,6 +950,7 @@ def entfernen(name, ja=False, sichern=True):
     if sichern:
         stand = sicherung.sichern(nur=[name], grund="vor dem Entfernen von %s" % name)
     with orte.sperre("tool rm " + name):
+        route_entfernen(name)
         docker.tool(name, "down", "-v", "--remove-orphans", zeit_s=600)
         traefik_verbinden(name, an=False)
         shutil.rmtree(docker.tool_ordner(name))

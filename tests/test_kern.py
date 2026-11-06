@@ -25,7 +25,7 @@ TMP = tempfile.mkdtemp(prefix="prolo-test-")
 for k in ("ETC", "VAR", "TOOLS", "BACKUP"):
     os.environ["PROLO_" + k] = os.path.join(TMP, k.lower())
 
-from kern import agent, auftrag, kaefig, orte, sicherung, tools, zugang  # noqa: E402
+from kern import agent, auftrag, kaefig, orte, sicherung, tools, unterbau, zugang  # noqa: E402
 from kern.orte import Abbruch  # noqa: E402
 
 
@@ -282,7 +282,6 @@ class ComposeTest(unittest.TestCase):
             "secrets": {"s": {"file": app + "/geheim.txt"}}}
         gef, hin, _ = tools.gefahren(cfg, app, "x")
         self.assertEqual(gef, [])
-        self.assertTrue(any("Traefik" in h for h in hin))
 
     def test_ordner_eines_tools_ist_fremd(self):
         """N-136: was ein Container einhaengt, kann er veraendern - und ein
@@ -482,26 +481,28 @@ class OverrideTest(unittest.TestCase):
     def zeilen(self, text):
         return [z.rstrip() for z in text.splitlines()]
 
-    def test_anmeldung_und_netze(self):
+    def test_netze_und_kein_router_am_container(self):
         t = tools.override_text("x", self.cfg, self.c)
-        z = self.zeilen(t)
-        self.assertIn('      "traefik.http.routers.tool-x.middlewares": "authentik@file"', z)
-        self.assertIn('      "traefik.http.routers.tool-x.rule": "Host(`x.prolo.me`)"', z)
-        self.assertIn('      "traefik.docker.network": "tool-x"', z)
-        self.assertIn('      "traefik.http.services.tool-x.loadbalancer.server.port": "80"', z)
-        # Der Hauptdienst bleibt in default (dort ist die Datenbank) UND kommt in prolo.
+        # Der Hauptdienst bleibt in default (dort ist die Datenbank) UND kommt in
+        # prolo - unter einem Namen, den kein Tool selbst tragen darf (N-139).
         app = t.split('  "app":')[1].split('  "db":')[0]
         self.assertIn('      "default": {}', app)
-        self.assertIn("      prolo: {}", app)
+        self.assertIn('      prolo: { aliases: [ "prolo-tool-x" ] }', app)
         # Offene Ports des Herstellers sind weg - beim Dienst, der welche hatte.
         self.assertIn("    ports: !reset []", app)
         self.assertIn('    name: "tool-x"', t)
         self.assertIn("    external: true", t)
+        self.assertNotIn("traefik", t)          # Traefik liest keine Labels mehr
 
-    def test_ohne_anmeldung(self):
-        t = tools.override_text("x", self.cfg, dict(self.c, ANMELDUNG="keine"))
-        self.assertNotIn("authentik@file", t)
-        self.assertNotIn("middlewares", t)
+    def test_router_als_datei(self):
+        t = tools.route_text("x", self.c)
+        self.assertIn('      rule: "Host(`x.prolo.me`)"', t)
+        self.assertIn('      middlewares: ["authentik@file"]', t)
+        self.assertIn('          - url: "http://prolo-tool-x:80"', t)
+        self.assertIn('      entryPoints: ["websecure"]', t)
+        ohne = tools.route_text("x", dict(self.c, ANMELDUNG="keine"))
+        self.assertNotIn("authentik", ohne)
+        self.assertNotIn("middlewares", ohne)
 
     def test_vorhandenes_bleibt(self):
         t = tools.override_text("x", self.cfg, self.c)
@@ -515,15 +516,7 @@ class OverrideTest(unittest.TestCase):
         self.assertIn('  "db-vol": {}', t)
         app = t.split('  "app":')[1].split('  "db":')[0]
         self.assertIn("    restart: unless-stopped", app)
-        self.assertIn('      "com.x": "1"', app)
-
-    def test_fremde_traefik_labels_werden_ersetzt(self):
-        self.cfg["services"]["app"]["labels"] = {"traefik.http.routers.alt.rule": "Host(`a`)",
-                                                 "com.x": "1"}
-        t = tools.override_text("x", self.cfg, self.c)
-        self.assertIn("    labels: !override", t)
-        self.assertNotIn("routers.alt", t)
-        self.assertIn('"com.x": "1"', t)
+        self.assertNotIn("labels", app)     # die des Herstellers bleiben in seiner Datei
 
     def test_env_setzen(self):
         alt = "# Kopf\nA=1\nB=2\n# B=kommentar\nB=doppelt\n"
@@ -834,13 +827,23 @@ class UnterbauDateienTest(unittest.TestCase):
         c = lesen("docker-compose.yml")
         self.assertIn("--entrypoints.websecure.http.middlewares=ratenbremse@file,gleichzeitig@file,"
                       "vertrauensgrenze@file,sicherheitskopf@file", c)
-        self.assertIn("traefik.http.routers.prolo-admin.middlewares=authentik@file", c)
-        self.assertIn("--providers.docker.exposedbydefault=false", c)
+        # Traefik sieht Docker nicht (N-139): kein Docker-Provider, kein Socket.
+        self.assertNotIn("providers.docker", c)
+        self.assertNotIn("docker.sock", c)
+        self.assertNotRegex(c, r"\n\s+- traefik\.")
+        r = unterbau.unterbau_routen("prolo.me")
+        admin = r.split("    prolo-admin:\n")[1].split("\n    ")[0]
+        self.assertIn('Host(`admin.prolo.me`)', r)
+        self.assertIn('middlewares: ["authentik@file"]', admin + r.split("    prolo-admin:\n")[1][:300])
+        self.assertIn('HostRegexp(`^([a-z0-9-]+\\\\.)?prolo\\\\.me$`)', r)
+        self.assertIn('"http://prolo-authentik:9000"', r)
+        self.assertIn('"http://prolo-admin:8080"', r)
+        self.assertIn("address: http://prolo-authentik:9000/", lesen("traefik", "dynamic", "prolo.yml"))
 
     def test_jeder_dienst_hat_grenzen(self):
         c = lesen("docker-compose.yml")
         dienste = re.split(r"\n  (?=[a-z-]+:\n)", c.split("\nservices:\n")[1].split("\nvolumes:\n")[0])
-        self.assertEqual(len(dienste), 6)
+        self.assertEqual(len(dienste), 5)
         for d in dienste:
             name = d.split(":")[0].strip()
             for pflicht in ("mem_limit:", "pids_limit:", "no-new-privileges:true", "cap_drop: [ ALL ]",

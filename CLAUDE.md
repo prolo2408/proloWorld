@@ -206,7 +206,9 @@ Firewall und Systemupdates und ruft dann `prolo einrichten`.
 - **Ein Compose-Projekt** `prolo`. Aufgerufen nur über `prolo` (setzt die
   Werte aus `/etc/prolo` ein und hängt `unterbau-netze.yml` an); von Hand:
   `prolo compose …`.
-- **Nur Traefik hat Ports.** Er sieht Docker nur lesend über `socket-proxy`.
+- **Nur Traefik hat Ports.** Er sieht Docker **nicht**: seine Router stehen in
+  Dateien, die prolo schreibt (`unterbau.yml`, `tool-<name>.yml`). Labels an
+  Containern wirken nicht – sonst übernähme ein Abbild `admin.<domain>` (N-139).
 - Am Eingang, für **jeden** Router: Ratenbremse, Löschen der
   `X-authentik-*`-Kopfzeilen, Sicherheitskopfzeilen. Die Liste der gelöschten
   Kopfzeilen muss alle `authResponseHeaders` enthalten (Test).

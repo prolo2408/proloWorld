@@ -166,16 +166,55 @@ def pruefer_anlegen():
     orte.getan("Nutzer %s angelegt (prüft Compose-Dateien ohne Rechte)" % kaefig.PRUEFER)
 
 
+UNTERBAU_ROUTEN = "unterbau.yml"
+
+
+def unterbau_routen(domain):
+    """Die Router fuer auth.<domain>, den Rueckweg der Anmeldung und
+    admin.<domain> - als Datei, nicht als Labels (N-139). Die Ziele heissen
+    prolo-...: diese Namen darf kein Tool tragen (kern/kaefig.py)."""
+    q = tools.q
+    re_domain = re.escape(domain)
+    return "".join([
+        tools.KOPF,
+        "# Der Unterbau. Erzeugt von \"prolo einrichten\" aus prolo.conf.\n",
+        "http:\n  routers:\n",
+        "    prolo-auth:\n",
+        "      rule: %s\n" % q("Host(`auth.%s`)" % domain),
+        "      entryPoints: [\"websecure\"]\n      service: prolo-auth\n",
+        "    # Der Rueckweg nach der Anmeldung, auf jedem Namen DIESER Domain.\n",
+        "    prolo-outpost:\n",
+        "      rule: %s\n" % q("HostRegexp(`^([a-z0-9-]+\\.)?%s$`) && "
+                             "PathPrefix(`/outpost.goauthentik.io/`)" % re_domain),
+        "      entryPoints: [\"websecure\"]\n      priority: 1000\n      service: prolo-auth\n",
+        "    prolo-admin:\n",
+        "      rule: %s\n" % q("Host(`admin.%s`)" % domain),
+        "      entryPoints: [\"websecure\"]\n      service: prolo-admin\n",
+        "      middlewares: [\"authentik@file\"]\n",
+        "  services:\n",
+        "    prolo-auth:\n      loadBalancer:\n        servers:\n"
+        "          - url: \"http://prolo-authentik:9000\"\n",
+        "    prolo-admin:\n      loadBalancer:\n        servers:\n"
+        "          - url: \"http://prolo-admin:8080\"\n",
+    ])
+
+
 def traefik_dateien():
-    """Die dynamische Konfiguration aus dem Repository nach VAR kopieren.
-    Dateien lokal-*.yml dort gehoeren dem Betreiber und bleiben stehen."""
+    """Die dynamische Konfiguration aus dem Repository nach VAR kopieren und
+    die Router des Unterbaus schreiben. Dateien lokal-*.yml dort gehoeren dem
+    Betreiber, tool-*.yml den Tools - beide bleiben stehen."""
     orte.abschnitt("Traefik-Konfiguration")
     quelle = os.path.join(orte.REPO, "traefik", "dynamic")
     ziel = os.path.join(orte.VAR, "traefik", "dynamic")
     soll = {n for n in os.listdir(quelle) if n.endswith((".yml", ".yaml"))}
+    texte = {}
     for n in sorted(soll):
         with open(os.path.join(quelle, n), encoding="utf-8") as f:
-            text = f.read()
+            texte[n] = f.read()
+    texte[UNTERBAU_ROUTEN] = unterbau_routen(orte.konf()["PROLO_DOMAIN"])
+    soll.add(UNTERBAU_ROUTEN)
+    for n in sorted(soll):
+        text = texte[n]
         p = os.path.join(ziel, n)
         try:
             with open(p, encoding="utf-8") as f:
@@ -188,22 +227,55 @@ def traefik_dateien():
             orte.datei_schreiben(p, text, 0o644)
             orte.getan(n)
     for n in os.listdir(ziel):
-        if n.endswith((".yml", ".yaml")) and n not in soll and not n.startswith("lokal-"):
+        if n.endswith((".yml", ".yaml")) and n not in soll and \
+                not n.startswith(("lokal-", tools.ROUTE_VORSILBE)):
             os.remove(os.path.join(ziel, n))
             orte.getan("%s entfernt (steht nicht mehr im Repository)" % n)
 
 
 def netze():
-    orte.abschnitt("Netze der Tools")
+    orte.abschnitt("Netze und Router der Tools")
     alle = tools.namen()
     for n in alle:
         if docker.netz_anlegen(tools.netzname(n)):
             orte.getan(tools.netzname(n))
         else:
             orte.ok(tools.netzname(n))
+        tools.route_schreiben(n, tools.conf(n))
     tools.netze_schreiben()
     if not alle:
         orte.ok("noch keine Tools")
+
+
+def tools_auffrischen():
+    """Was prolo dem Tool dazutut (prolo.override.yml), hat sich mit dem neuen
+    Code womoeglich geaendert - seit N-139 etwa der Name, unter dem Traefik
+    das Tool erreicht. Dann wird das Tool neu angelegt, nach der Pruefung wie
+    bei jedem Start (N-138). Findet die neue Pruefung etwas, bleibt es, wie es
+    ist, und die Meldung sagt, was zu tun ist. Gibt die Meldungen zurueck."""
+    meldungen = []
+    for n in tools.namen():
+        pfad = os.path.join(docker.tool_ordner(n), "prolo.override.yml")
+        try:
+            with open(pfad, encoding="utf-8") as f:
+                alt = f.read()
+        except FileNotFoundError:
+            alt = None
+        try:
+            tools.kaefig_pruefen(n, "neu anlegen")
+            tools.override_neu(n, tools.conf(n))
+            with open(pfad, encoding="utf-8") as f:
+                if f.read() == alt:
+                    continue
+            if docker.container(n):
+                docker.tool(n, "up", "-d", "--remove-orphans", zeit_s=1800)
+            orte.getan("%s mit dem neuen Code neu angelegt" % n)
+        except Abbruch as a:
+            m = ("%s ist nicht neu angelegt (%s). Ansehen, dann bestätigen:  sudo prolo "
+                 "einrichten" % (n, str(a).splitlines()[0]))
+            orte.warnung(m)
+            meldungen.append(m)
+    return meldungen
 
 
 def systemd():
@@ -358,8 +430,10 @@ def einrichten(domain=None, email=None, schluessel=None, nach_update=None):
         if nach_update:
             update_merken(False, nach_update, str(a))
         raise
+    orte.abschnitt("Tools")
+    meldungen = tools_auffrischen()
     if nach_update:
-        update_merken(True, nach_update, "")
+        update_merken(True, nach_update, "", "\n".join(meldungen))
         orte.abschnitt("Update fertig: %s -> %s" % (nach_update[:7], git_lage()["commit"]))
         return
     zusammenfassung(schluessel_hinweis, erstes_mal)

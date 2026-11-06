@@ -416,7 +416,10 @@ mit "prolo tool add" installiere. Regeln:
 /opt/tools/vault/
 ├── app/                   die Compose-Datei (unverändert) und ihre .env
 ├── prolo.conf             was prolo über das Tool weiß (Quelle, Port, Anmeldung)
-└── prolo.override.yml     was prolo dazutut (Netz, Router, keine Ports)
+├── prolo.override.yml     was prolo dazutut (Netz, keine Ports)
+└── prolo.bestaetigt       nur, wenn auf der Kommandozeile Gefahren bestätigt wurden
+
+/var/lib/prolo/traefik/dynamic/tool-vault.yml   der Router für vault.prolo.me
 ```
 
 Von Hand mit docker compose: `sudo prolo tool compose vault ps`.
@@ -525,7 +528,9 @@ Kopie des Tools, damit eine Datei nur lesen kann, was im Tool liegt.
   (`X-authentik-*`); gesetzt werden sie nur von Authentik.
 - Jedes Tool hängt in seinem eigenen Netz – ein übernommenes Tool erreicht die
   anderen nicht.
-- Traefik sieht Docker nur lesend über einen Vermittler (`socket-proxy`).
+- Traefik sieht Docker nicht. Seine Router schreibt prolo als Dateien nach
+  `/var/lib/prolo/traefik/dynamic/` – Labels an einem Container oder Abbild
+  wirken nicht, kein Tool kann so `admin.` oder `auth.` übernehmen.
 - Die Admin-Seite hat **keinen** Zugriff auf Docker. Sie legt Aufträge ab, die
   der Agent auf dem Server prüft und über `prolo` ausführt – nur bekannte
   Aufträge, jedes Feld gegen ein Muster, nie über eine Shell.

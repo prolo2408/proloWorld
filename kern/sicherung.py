@@ -489,6 +489,7 @@ def tool_zurueck(name, verz, m, schluessel, ja=False):
         docker.netz_anlegen(tools.netzname(name))
         tools.netze_schreiben()
         tools.traefik_verbinden(name)
+        tools.route_schreiben(name, tools.conf(name))
         docker.tool(name, "up", "-d", "--remove-orphans", zeit_s=1800)
         z = tools.warten(name)
     except BaseException:

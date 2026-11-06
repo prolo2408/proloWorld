@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-139**.
+Neue Befunde bekommen die nächste freie Nummer: **N-140**.
 
 ---
 
@@ -443,4 +443,45 @@ Commit, Container ohne Rechte; Datei von Hand mit `driver_opts` versehen →
 die Prüfung hatte recht, mein Test nicht.) Neu im Durchlauf: Neustart einer
 von Hand gefährlich gemachten Datei. Einheitstests 73 → 76, Gegenprobe
 56 → 60.
+
+---
+
+## N-139 — Ein Docker-Abbild konnte `admin.` und `auth.` übernehmen
+
+Traefik las seine Router aus den Labels **aller** Container (Docker-Provider
+über `socket-proxy`). Labels kommen nicht nur aus der Compose-Datei, sondern
+auch aus dem **Abbild** (`LABEL` im Dockerfile) – prolo ersetzte nur die des
+Hauptdienstes in der Datei. Ein Abbild mit
+`LABEL traefik.http.routers.x.rule=Host(\`admin.<domain>\`)` und hoher
+`priority` – installiert auf dem einfachsten Weg, „Ein Abbild“ – bekam die
+Admin-Seite; mit `auth.` die Anmeldeseite, also dein Passwort, mit echtem
+Zertifikat. Gemessen mit Traefik 3.6.25: vorher „ECHTE ADMIN-SEITE“, mit
+dem Container „FALSCHE ADMIN-SEITE (vom Angreifer)“.
+
+**Jetzt:** Traefik sieht Docker nicht mehr. Kein Docker-Provider, kein
+`socket-proxy`, kein Socket. Die Router schreibt prolo als Dateien:
+`unterbau.yml` (auth, Rückweg der Anmeldung, admin – von `prolo einrichten`
+aus `prolo.conf`) und `tool-<name>.yml` je Tool (beim Anlegen, Ändern,
+Bearbeiten, Zurückholen; weg beim Entfernen). Ziele haben Namen, die kein
+Tool tragen darf: `prolo-authentik`, `prolo-admin`, `prolo-tool-<name>`
+(Netz-Alias; `kaefig.py` sperrt `prolo…` für Dienste, Container, Aliasse).
+Dass Docker die Namen in der Reihenfolge der Netznamen auflöst (`prolo-*` vor
+`tool-*`, gemessen), ist damit keine Voraussetzung mehr.
+
+Bestehende Server: `prolo einrichten` (auch nach `prolo update`) schreibt
+die Zusatzdatei jedes Tools neu und legt es neu an – **nach der Prüfung**
+(N-138). Findet die neue Prüfung bei einem alten Tool etwas, bleibt es, wie
+es ist, und „Was zu tun ist“ sagt: `sudo prolo einrichten` und bestätigen.
+
+Geprüft mit echtem Traefik aus dem neuen `docker-compose.yml` (Abbild aus
+dem Release 3.6.25), Authentik und Admin-Seite als Attrappen:
+`admin.` über die Datei erreichbar; das Tool mit den Fallen-Labels bleibt
+unter seinem eigenen Namen, `admin.` bleibt echt; lehnt die Anmeldung ab,
+sind Admin-Seite und geschütztes Tool zu, das Tool ohne Anmeldung offen;
+`tool rm` nimmt den Router weg (404). Alter Server nachgestellt
+(Zusatzdatei ohne Alias): Tool 502, nach `tools_auffrischen` 200; Tool mit
+neuer Gefahr bleibt stehen, mit Meldung; mit Terminal fragt es und merkt
+sich die Antwort. Neu im Durchlauf: Abbild mit Fallen-Labels. Einheitstests
+76 → 75 (drei Prüfungen der Labels durch zwei der Router-Datei ersetzt),
+Gegenprobe 60 → 62, alle gefunden.
 

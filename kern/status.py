@@ -11,8 +11,7 @@ import shutil
 from . import docker, orte, sicherung, tools, unterbau, zugang
 from .orte import Abbruch
 
-DIENSTE = ("traefik", "authentik-server", "authentik-worker", "authentik-db", "admin",
-           "socket-proxy")
+DIENSTE = ("traefik", "authentik-server", "authentik-worker", "authentik-db", "admin")
 SICHERUNG_ALT_H = 48
 
 
