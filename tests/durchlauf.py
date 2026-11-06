@@ -230,6 +230,14 @@ def ablauf():
     stimmt("include einer Datei eines anderen Tools abgelehnt - als Nutzer ohne Rechte (N-137)",
            r.returncode != 0 and "permission denied" in r.stdout, r.stdout[-400:])
 
+    r = sh(sys.executable, "-c", "import subprocess, sys; sys.path.insert(0, %r)\n"
+           "from kern import kaefig\n"
+           "print(subprocess.run(kaefig.ohne_rechte_ohne_netz(['sh', '-c', 'id -un; cat /proc/net/dev']),"
+           " capture_output=True, text=True, cwd='/').stdout)" % REPO)
+    karten = [z.split(":")[0].strip() for z in r.stdout.splitlines()[3:]]
+    stimmt("die Pruefung laeuft als prolo-pruefer und ohne Netz (N-145)",
+           r.stdout.startswith("prolo-pruefer") and karten == ["lo"], r.stdout[:300])
+
     schritt("Sichern")
     sh("docker", "exec", "notizen-notizen-1", "sh", "-c", "echo wichtig > /daten/notiz.txt")
     sh("docker", "exec", "zwei-db-1", "psql", "-U", "postgres", "-c",

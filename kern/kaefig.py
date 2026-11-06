@@ -452,6 +452,40 @@ def _umschreiben(o, von, nach):
     return o
 
 
+def pruefer():
+    try:
+        return pwd.getpwnam(PRUEFER)
+    except KeyError:
+        raise Abbruch("Den Nutzer %s für die Prüfung gibt es nicht. Anlegen:  "
+                      "sudo prolo einrichten" % PRUEFER)
+
+
+def ohne_rechte_ohne_netz(befehl):
+    """Der Befehl als PRUEFER und ohne Netz. Ohne Netz, weil Compose include:
+    auch aus Git und OCI-Registries laedt (gemessen, N-145): die Pruefung
+    bekaeme sonst eine harmlose Fassung und der echte Start danach eine
+    andere. Offline scheitert jede entfernte Quelle - und was die Pruefung
+    nicht besteht, startet nie.
+
+    Als root: unshare --net + setpriv auf PRUEFER. Sonst (Tests): ein eigener
+    Nutzer-Namensraum ohne Netz, wenn der Kern ihn erlaubt. Den Ordner, in
+    dem der Pruefer arbeitet, uebergibt modell() - nur den eigenen, frischen."""
+    if os.geteuid() == 0:
+        pw = pruefer()
+        for p in ("unshare", "setpriv"):
+            if not shutil.which(p):
+                raise Abbruch("%s fehlt (Paket util-linux):  sudo apt install util-linux" % p)
+        return ["unshare", "--net", "--", "setpriv", "--reuid=%d" % pw.pw_uid,
+                "--regid=%d" % pw.pw_gid, "--clear-groups", "--no-new-privs", "--"] + befehl
+    # Auf sich selbst abgebildet, nicht auf root: sonst duerfte der Prozess
+    # im Namensraum eigene Dateien trotz chmod 0 lesen.
+    ns = ["unshare", "--user", "--net", "--map-current-user", "--"]
+    if shutil.which("unshare") and subprocess.run(ns + ["true"],
+                                                  capture_output=True).returncode == 0:
+        return ns + befehl
+    return befehl
+
+
 def modell(app, projekt, basis, compose_text=None, env_text=None, auslassen=()):
     """docker compose config fuer app/<basis> - als PRUEFER auf einer Kopie.
     compose_text/env_text ersetzen in der Kopie die Datei bzw. die .env (zum
@@ -471,23 +505,18 @@ def modell(app, projekt, basis, compose_text=None, env_text=None, auslassen=()):
                           "w", encoding="utf-8") as f:
                     f.write(text)
         env = dict(docker.tool_env(), DOCKER_CONFIG=os.path.join(tmp, ".docker"))
-        wer = {}
-        if os.geteuid() == 0:
-            try:
-                pw = pwd.getpwnam(PRUEFER)
-            except KeyError:
-                raise Abbruch("Den Nutzer %s für die Prüfung gibt es nicht. Anlegen:  "
-                              "sudo prolo einrichten" % PRUEFER)
-            for wurzel, ordner, dateien in os.walk(tmp):
-                for n in [wurzel] + [os.path.join(wurzel, x) for x in ordner + dateien]:
-                    os.lchown(n, pw.pw_uid, pw.pw_gid)
-            wer = {"user": pw.pw_uid, "group": pw.pw_gid, "extra_groups": []}
         befehl = ["docker", "compose", "-p", projekt, "--project-directory", kopie,
                   "-f", os.path.join(kopie, basis), "config", "--format", "json",
                   "--no-env-resolution"]
+        if os.geteuid() == 0:           # der frische Ordner gehoert dem Pruefer
+            pw = pruefer()
+            for wurzel, ordner, dateien in os.walk(tmp):
+                for n in [wurzel] + [os.path.join(wurzel, x) for x in ordner + dateien]:
+                    os.lchown(n, pw.pw_uid, pw.pw_gid)
+        befehl = ohne_rechte_ohne_netz(befehl)
         try:
             r = subprocess.run(befehl, capture_output=True, text=True, timeout=120, env=env,
-                               cwd=kopie, **wer)
+                               cwd=kopie)
         except subprocess.TimeoutExpired:
             raise Abbruch("docker compose config lief länger als 120 s.")
         aus = (r.stdout or "") + (r.stderr or "")
@@ -496,6 +525,11 @@ def modell(app, projekt, basis, compose_text=None, env_text=None, auslassen=()):
             if "permission denied" in aus:
                 text += ("\n  Die Datei liest etwas außerhalb des Tools (include, extends, "
                          "ein Verweis) - das lässt die Prüfung nicht zu.")
+            elif re.search(r"failed to (pull|access|fetch)|repository|no such host|network is "
+                           r"unreachable|dial tcp", aus, re.I):
+                text += ("\n  Die Datei lädt etwas aus dem Netz nach (include aus Git oder einer "
+                         "Registry) - das lässt die Prüfung nicht zu: was sie prüft, muss im "
+                         "Tool liegen.")
             raise Abbruch("docker compose versteht die Datei nicht:\n%s" % text)
         try:
             cfg = json.loads(r.stdout[r.stdout.index("{"):])

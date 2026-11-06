@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-145**.
+Neue Befunde bekommen die nächste freie Nummer: **N-146**.
 
 ---
 
@@ -578,4 +578,37 @@ Tippfehler genügt.
 **Jetzt:** `tools.host_pruefen` – dieselbe Prüfung beim Anlegen und
 Ändern, auch wenn sich nur die Anmeldung ändert. Gemessen: abgelehnt mit
 „gehört dem Unterbau“. Einheitstests 80 → 81, Gegenprobe 67 → 68.
+
+---
+
+## N-145 — `include:` lädt aus Git und OCI-Registries nach
+
+Am eigenen Fix (N-137) gefunden: Compose lädt `include:` nicht nur aus
+Dateien, sondern von sich aus auch aus Git (`https://….git`, `git@…`) und
+aus Registries (`oci://…`) – gemessen: Compose versucht beides ohne jede
+Einstellung. Die Prüfung holte sich damit eine Fassung, der echte Start
+Sekunden später noch einmal – der Angreifer liefert der ersten eine harmlose
+und der zweiten eine andere. Als root holte Compose dabei über SSH mit den
+Schlüsseln von root.
+
+**Jetzt:** die Prüfung läuft zusätzlich **ohne Netz**: als root
+`unshare --net` + `setpriv` auf `prolo-pruefer` (`--clear-groups`,
+`--no-new-privs`), in Tests ein eigener Nutzer-Namensraum ohne Netz – auf
+den eigenen Nutzer abgebildet, nicht auf root (`unshare -r` ließ den
+Prozess eigene Dateien trotz `chmod 0` lesen; der Test fand es). Jede
+entfernte Quelle scheitert, die Meldung sagt warum; was die Prüfung nicht
+besteht, startet nie. (Aus Dateien im Tool lädt `include` weiter.)
+
+Unterwegs, vor dem Commit gefunden: die Hilfsfunktion übergab dem Prüfer den
+Ordner, den man ihr nannte – mit `/tmp` als Argument im neuen Schritt des
+Durchlaufs hätte sie `/tmp` des Servers dem Prüfer gegeben (hier im
+Arbeitsbereich so geschehen und zurückgestellt). Jetzt übergibt nur
+`modell()` seinen eigenen, frischen Ordner; nach einer Prüfung gehört in
+`/tmp` nichts dem Prüfer (gemessen: 0).
+
+Geprüft als root mit `tool add --von-web`: `include` aus OCI und Git →
+abgelehnt mit „lädt etwas aus dem Netz nach“; `include`/`extends` eines
+anderen Tools weiter abgelehnt; harmloses Tool läuft. Wirkung im Test: der
+Prüfbefehl sieht nur `lo`. Neu im Durchlauf: Prüfer ohne Netz, als
+`prolo-pruefer`. Einheitstests 81 → 83, Gegenprobe 68 → 70.
 

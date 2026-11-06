@@ -399,6 +399,29 @@ class KaefigModellTest(unittest.TestCase):
         with open(os.path.join(self.app, ".env")) as f:
             self.assertEqual(f.read(), "A=alt\n")          # das Original bleibt
 
+    @unittest.skipUnless(subprocess.run(["sh", "-c", "unshare --user --net --map-current-user true"],
+                                        capture_output=True).returncode == 0,
+                         "der Kern erlaubt keinen eigenen Namensraum")
+    def test_pruefung_ohne_netz(self):
+        """N-145: include laedt aus Git/OCI - die Pruefung hat darum kein Netz."""
+        r = subprocess.run(kaefig.ohne_rechte_ohne_netz(["cat", "/proc/net/dev"]),
+                           capture_output=True, text=True)
+        karten = [z.split(":")[0].strip() for z in r.stdout.splitlines()[2:]]
+        self.assertEqual(karten, ["lo"])
+
+    def test_als_root_ohne_netz_und_ohne_rechte(self):
+        echt = (os.geteuid, kaefig.pwd.getpwnam)
+        os.geteuid = lambda: 0
+        kaefig.pwd.getpwnam = lambda n: type("P", (), {"pw_uid": 996, "pw_gid": 995})()
+        try:
+            b = kaefig.ohne_rechte_ohne_netz(["docker", "compose"])
+        finally:
+            os.geteuid, kaefig.pwd.getpwnam = echt
+        self.assertEqual(b[:3], ["unshare", "--net", "--"])
+        self.assertIn("--reuid=996", b)
+        self.assertIn("--clear-groups", b)
+        self.assertEqual(b[-2:], ["docker", "compose"])
+
     def test_umgebung_von_root_kommt_nicht_hinein(self):
         self.schreiben("docker-compose.yml", "services:\n  app:\n    image: a:1\n"
                        "    environment: { W: \"${PROLO_TEST_GEHEIM:-leer}\" }\n")
