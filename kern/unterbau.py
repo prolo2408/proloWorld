@@ -209,6 +209,19 @@ def unterbau_routen(domain, admin_netze=()):
     ])
 
 
+def docker_netze():
+    """Die Adressbereiche aller Docker-Netze auf diesem Server - auch solche
+    ausserhalb der ueblichen Bereiche (eigene default-address-pools)."""
+    rc, aus = docker.lauf(["docker", "network", "ls", "-q"], pruefen=False, zeit_s=60)
+    ids = aus.split() if rc == 0 else []
+    if not ids:
+        return []
+    rc, aus = docker.lauf(["docker", "network", "inspect", "--format",
+                           "{{range .IPAM.Config}}{{.Subnet}} {{end}}", *ids],
+                          pruefen=False, zeit_s=60)
+    return [n for n in aus.split() if "/" in n] if rc == 0 else []
+
+
 def traefik_dateien():
     """Die dynamische Konfiguration aus dem Repository nach VAR kopieren und
     die Router des Unterbaus schreiben. Dateien lokal-*.yml dort gehoeren dem
@@ -222,7 +235,7 @@ def traefik_dateien():
         with open(os.path.join(quelle, n), encoding="utf-8") as f:
             texte[n] = f.read()
     k = orte.konf()
-    netze = [n for n in k["ADMIN_NETZE"].split(",") if n]
+    netze = orte.admin_netze(k["ADMIN_NETZE"], docker_netze())
     texte[UNTERBAU_ROUTEN] = unterbau_routen(k["PROLO_DOMAIN"], netze)
     soll.add(UNTERBAU_ROUTEN)
     for n in sorted(soll):

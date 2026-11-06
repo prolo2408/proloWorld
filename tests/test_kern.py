@@ -901,6 +901,17 @@ class UnterbauDateienTest(unittest.TestCase):
             with self.assertRaises(Abbruch):
                 orte.admin_netze(falsch)
 
+    def test_admin_netze_ohne_die_netze_der_container(self):
+        """N-143: aus dem Netz eines Tools kaeme sonst jedes Tool durch."""
+        for falsch in ("172.16.0.0/12", "172.20.0.5/32", "0.0.0.0/0", "192.168.1.0/24"):
+            with self.assertRaises(Abbruch) as a:
+                orte.admin_netze(falsch)
+            self.assertIn("Container", str(a.exception))
+        with self.assertRaises(Abbruch):
+            orte.admin_netze("10.99.0.0/16", ["10.99.3.0/24"])     # eigener Docker-Bereich
+        self.assertEqual(orte.admin_netze("100.64.0.0/10,2001:db8::/32"),
+                         ["100.64.0.0/10", "2001:db8::/32"])
+
     def test_wirkung_des_outposts(self):
         d = "prolo.me"
         gut = ("OUTPOST admin.prolo.me 302 https://admin.prolo.me/outpost.goauthentik.io/start?rd=x\n"

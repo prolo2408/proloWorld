@@ -174,19 +174,34 @@ def konf():
     return werte
 
 
-def admin_netze(text):
+# Hier vergibt Docker von sich aus die Netze der Container (default-address-
+# pools). Ein Tool spricht Traefik von dort aus an - ein ADMIN_NETZE, das sie
+# einschliesst, liesse jedes Tool durch (gemessen, N-143).
+DOCKER_NETZE = ("172.16.0.0/12", "192.168.0.0/16")
+
+
+def admin_netze(text, docker_netze=()):
     """ADMIN_NETZE: Netze, aus denen admin.<domain> erreichbar ist (N-141),
-    z. B. 203.0.113.7/32,10.8.0.0/24. Leer: von ueberall."""
+    z. B. 203.0.113.7/32,10.8.0.0/24. Leer: von ueberall. docker_netze: die
+    Netze, die es auf dem Server gerade gibt, zusaetzlich zu DOCKER_NETZE."""
     import ipaddress
+    sperre = [ipaddress.ip_network(n) for n in DOCKER_NETZE + tuple(docker_netze)]
     netze = []
     for teil in (text or "").replace(" ", "").split(","):
         if not teil:
             continue
         try:
-            netze.append(str(ipaddress.ip_network(teil, strict=False)))
+            netz = ipaddress.ip_network(teil, strict=False)
         except ValueError:
             raise Abbruch("ADMIN_NETZE in %s: %s ist kein Netz (z. B. 203.0.113.7/32 oder "
                           "10.8.0.0/24)." % (KONF, teil))
+        for s in sperre:
+            if s.version == netz.version and s.overlaps(netz):
+                raise Abbruch("ADMIN_NETZE in %s: %s überschneidet sich mit %s - dort liegen "
+                              "die Netze der Container, und jedes Tool käme durch. Nimm die "
+                              "Adresse, mit der du von außen kommst, oder das Netz deines VPN "
+                              "(z. B. 100.64.0.0/10 bei Tailscale)." % (KONF, netz, s))
+        netze.append(str(netz))
     return netze
 
 

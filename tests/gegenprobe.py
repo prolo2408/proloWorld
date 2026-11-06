@@ -82,6 +82,8 @@ FEHLER = [
      "ADMIN_NETZE steht in der Datei, haengt aber nicht am Router der Admin-Seite (N-141)"),
     ("kern/agent.py", "        if os.path.isdir(pfad) and not os.path.islink(pfad):\n            shutil.rmtree(pfad)\n        else:\n            os.remove(pfad)",
      "        os.remove(pfad)", "ein Ordner im Eingang legt den Agenten lahm (N-142)"),
+    ("kern/orte.py", "            if s.version == netz.version and s.overlaps(netz):", "            if False:",
+     "ADMIN_NETZE schliesst die Netze der Container ein - jedes Tool kommt durch (N-143)"),
     ("kern/tools.py", "                fehlt.append(var)", "                neu[var] = \"\"",
      "fehlender Wert wird still leer gesetzt"),
     ("kern/tools.py", 'if not d.get("restart"):', "if True:",

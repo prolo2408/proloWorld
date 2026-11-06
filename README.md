@@ -559,7 +559,10 @@ sudo prolo einrichten
 ```
 
 Mehrere Netze mit Komma; eine einzelne Adresse ist `/32`. Leer heißt: von
-überall, hinter der Anmeldung. Gezählt wird die echte Gegenstelle – eine
+überall, hinter der Anmeldung. Nicht erlaubt sind die Bereiche, in denen
+Docker die Netze der Container anlegt (`172.16.0.0/12`, `192.168.0.0/16` und
+jedes Netz, das es auf dem Server schon gibt) – von dort spricht jedes Tool
+Traefik an. Gezählt wird die echte Gegenstelle – eine
 mitgeschickte `X-Forwarded-For` hilft nicht. Die Tools und `auth.<domain>`
 bleiben, wie sie sind. Wer sich ausgesperrt hat: über SSH `ADMIN_NETZE=`
 leeren und `sudo prolo einrichten`; die Kommandozeile geht immer.

@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-143**.
+Neue Befunde bekommen die nächste freie Nummer: **N-144**.
 
 ---
 
@@ -547,4 +547,20 @@ wieder – und nimmt keinen Auftrag mehr an. Gemessen.
 **Jetzt:** `agent.weg()` räumt auch Ordner weg und überlebt jeden anderen
 Fehler beim Wegräumen mit einer Zeile im Protokoll. Einheitstests 78 → 79,
 Gegenprobe 65 → 66.
+
+---
+
+## N-143 — Ein zu weites `ADMIN_NETZE` ließ jedes Tool durch
+
+Beim Angriff auf den eigenen Fix (N-141) gefunden: ein Tool spricht Traefik
+aus seinem Netz an – seine Adresse liegt in einem Bereich, den Docker vergibt
+(172.16.0.0/12, 192.168.0.0/16). Wer dort `ADMIN_NETZE=172.16.0.0/12`
+einträgt (oder `0.0.0.0/0`), lässt jedes Tool an die Netzsperre vorbei.
+Gemessen: Anfrage mit Absender im Netz eines Tools → 200, mit
+`203.0.113.7/32` → 403.
+
+**Jetzt:** `orte.admin_netze` lehnt jedes Netz ab, das sich mit diesen
+Bereichen oder einem Netz überschneidet, das es auf dem Server schon gibt –
+und sagt, was stattdessen hingehört. Einheitstests 79 → 80, Gegenprobe
+66 → 67.
 
