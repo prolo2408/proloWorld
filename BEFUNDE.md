@@ -640,3 +640,10 @@ Der Test für `env_file` erwartet jetzt die Wirkung (abgelehnt), nicht die
 Darstellung. Einheitstests 83 → 84, Gegenprobe 70 (ein eingebauter Fehler
 zielt jetzt auf die Prüfung statt auf den Schalter).
 
+Danach, ebenfalls vom CI: auf `ubuntu-24.04` sind eigene Nutzer-Namensräume
+gesperrt (AppArmor) – der Test „Prüfung ohne Netz“ im Testmodus wird dort
+übersprungen, und sein eingebauter Fehler blieb unentdeckt. Der Testmodus
+ist nur für die Tests da; der Weg als root hat seinen eigenen eingebauten
+Fehler und einen Schritt im Durchlauf. Der Eintrag für den Testmodus ist
+heraus: Gegenprobe 70 → 69.
+
