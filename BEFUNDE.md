@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-141**.
+Neue Befunde bekommen die nächste freie Nummer: **N-142**.
 
 ---
 
@@ -516,4 +516,22 @@ Geprüft: Einheitstests für Blueprint und Auswertung der Weiterleitung,
 Einheitstests 75 → 77, Gegenprobe 62 → 64. **Nicht hier gelaufen:** echtes
 Authentik (Docker Hub ist von hier nicht erreichbar) – der Durchlauf prüft
 es auf dem Server (Weiterleitung für `admin.` jetzt nach `admin.`).
+
+---
+
+## N-141 — Die Admin-Seite war aus dem ganzen Internet erreichbar
+
+Wer `admin.<domain>` aufrief, kam bis zur Anmeldung – von überall. Die
+Anmeldung schützt; aber die Seite, die den ganzen Server steuert, muss nicht
+jedem Rechner der Welt ihre Anmeldeseite zeigen (Passwort-Raten, eine Lücke in
+Authentik, ein gestohlenes Cookie – alles braucht erst den Weg dorthin).
+
+**Jetzt:** `ADMIN_NETZE` in `prolo.conf` (leer = wie bisher). Steht dort etwas,
+hängt vor der Anmeldung eine `ipAllowList` von Traefik; geprüft wird die echte
+Gegenstelle, keine Kopfzeile. Falsche Einträge meldet `prolo` mit Beispiel.
+
+Geprüft mit echtem Traefik: ohne Eintrag 200; nur `203.0.113.7/32` → 403, das
+Tool daneben weiter 200; eigenes Netz erlaubt → 200; mit `X-Forwarded-For`,
+`X-Real-Ip` oder `Forwarded` auf die erlaubte Adresse → weiter 403; `kein-netz`
+→ Meldung. Einheitstests 77 → 78, Gegenprobe 64 → 65.
 

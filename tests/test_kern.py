@@ -875,6 +875,21 @@ class UnterbauDateienTest(unittest.TestCase):
         self.assertIn("!Env PROLO_ADMIN_GRUPPE", g)
         self.assertIn("PROLO_ADMIN_GRUPPE: ${ADMIN_GRUPPE:-authentik Admins}", lesen("docker-compose.yml"))
 
+    def test_admin_nur_aus_bestimmten_netzen(self):
+        """N-141: ADMIN_NETZE - erst das Netz, dann die Anmeldung."""
+        offen = unterbau.unterbau_routen("prolo.me")
+        self.assertNotIn("ipAllowList", offen)
+        zu = unterbau.unterbau_routen("prolo.me", ["203.0.113.7/32", "10.8.0.0/24"])
+        self.assertIn('middlewares: ["admin-netz", "authentik@file"]', zu)
+        self.assertIn('sourceRange: ["203.0.113.7/32", "10.8.0.0/24"]', zu)
+        self.assertNotIn("ipStrategy", zu)          # die echte Gegenstelle, keine Kopfzeile
+        self.assertEqual(orte.admin_netze(" 203.0.113.7, 10.8.0.1/24 "),
+                         ["203.0.113.7/32", "10.8.0.0/24"])
+        self.assertEqual(orte.admin_netze(""), [])
+        for falsch in ("kein-netz", "300.1.1.1", "10.0.0.0/33"):
+            with self.assertRaises(Abbruch):
+                orte.admin_netze(falsch)
+
     def test_wirkung_des_outposts(self):
         d = "prolo.me"
         gut = ("OUTPOST admin.prolo.me 302 https://admin.prolo.me/outpost.goauthentik.io/start?rd=x\n"

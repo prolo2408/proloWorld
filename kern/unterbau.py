@@ -28,7 +28,9 @@ KONF_KOPF = """# ProloWelt - Einstellungen dieses Servers
 # PROLO_EMAIL   fuer Let's Encrypt und als E-Mail des ersten Nutzers (akadmin)
 # BACKUP_TAGE   so lange bleiben Sicherungen liegen (die drei neuesten immer)
 # AUTO_UPDATE   ja: nach der naechtlichen Sicherung "prolo update"
-# ADMIN_GRUPPE  wer in Authentik in dieser Gruppe ist, darf auf admin.<domain>"""
+# ADMIN_GRUPPE  wer in Authentik in dieser Gruppe ist, darf auf admin.<domain>
+# ADMIN_NETZE   leer: admin.<domain> von ueberall (hinter der Anmeldung). Sonst
+#               nur aus diesen Netzen, z. B. 203.0.113.7/32,10.8.0.0/24 (VPN)"""
 
 UNITS = {
     "prolo-agent.service": """[Unit]
@@ -169,7 +171,7 @@ def pruefer_anlegen():
 UNTERBAU_ROUTEN = "unterbau.yml"
 
 
-def unterbau_routen(domain):
+def unterbau_routen(domain, admin_netze=()):
     """Die Router fuer auth.<domain>, den Rueckweg der Anmeldung und
     admin.<domain> - als Datei, nicht als Labels (N-139). Die Ziele heissen
     prolo-...: diese Namen darf kein Tool tragen (kern/kaefig.py)."""
@@ -190,7 +192,15 @@ def unterbau_routen(domain):
         "    prolo-admin:\n",
         "      rule: %s\n" % q("Host(`admin.%s`)" % domain),
         "      entryPoints: [\"websecure\"]\n      service: prolo-admin\n",
-        "      middlewares: [\"authentik@file\"]\n",
+        # Erst das Netz, dann die Anmeldung: von draussen sieht man dann nicht
+        # einmal die Anmeldeseite (N-141).
+        "      middlewares: [%s\"authentik@file\"]\n" % ("\"admin-netz\", " if admin_netze else ""),
+    ] + ([
+        "  middlewares:\n",
+        "    # ADMIN_NETZE aus prolo.conf. Die echte Gegenstelle zaehlt, keine Kopfzeile.\n",
+        "    admin-netz:\n      ipAllowList:\n        sourceRange: [%s]\n"
+        % ", ".join(q(n) for n in admin_netze),
+    ] if admin_netze else []) + [
         "  services:\n",
         "    prolo-auth:\n      loadBalancer:\n        servers:\n"
         "          - url: \"http://prolo-authentik:9000\"\n",
@@ -211,7 +221,9 @@ def traefik_dateien():
     for n in sorted(soll):
         with open(os.path.join(quelle, n), encoding="utf-8") as f:
             texte[n] = f.read()
-    texte[UNTERBAU_ROUTEN] = unterbau_routen(orte.konf()["PROLO_DOMAIN"])
+    k = orte.konf()
+    netze = [n for n in k["ADMIN_NETZE"].split(",") if n]
+    texte[UNTERBAU_ROUTEN] = unterbau_routen(k["PROLO_DOMAIN"], netze)
     soll.add(UNTERBAU_ROUTEN)
     for n in sorted(soll):
         text = texte[n]

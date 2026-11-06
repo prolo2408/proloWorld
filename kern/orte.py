@@ -52,7 +52,10 @@ KONF_FELDER = {
     "BACKUP_TAGE": "14",
     "AUTO_UPDATE": "ja",
     "ADMIN_GRUPPE": "authentik Admins",
+    "ADMIN_NETZE": "",
 }
+# Darf leer bleiben: leer heisst "von ueberall" (hinter der Anmeldung).
+KONF_LEER_ERLAUBT = ("ADMIN_NETZE",)
 GEHEIM_FELDER = ("AUTHENTIK_SECRET_KEY", "PG_PASS", "AUTHENTIK_BOOTSTRAP_PASSWORD")
 
 DOMAIN = re.compile(r"(?=.{4,200}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
@@ -156,7 +159,7 @@ def konf():
     werte = {}
     for k, vorgabe in KONF_FELDER.items():
         v = roh.get(k, vorgabe)
-        if v is None or v == "":
+        if v is None or (v == "" and k not in KONF_LEER_ERLAUBT):
             raise Abbruch("%s fehlt in %s. Einrichten mit:  sudo prolo einrichten"
                           % (k, KONF))
         werte[k] = v
@@ -167,7 +170,24 @@ def konf():
         raise Abbruch("BACKUP_TAGE in %s muss eine Zahl ab 1 sein." % KONF)
     if werte["AUTO_UPDATE"] not in ("ja", "nein"):
         raise Abbruch("AUTO_UPDATE in %s ist ja oder nein." % KONF)
+    werte["ADMIN_NETZE"] = ",".join(admin_netze(werte["ADMIN_NETZE"]))
     return werte
+
+
+def admin_netze(text):
+    """ADMIN_NETZE: Netze, aus denen admin.<domain> erreichbar ist (N-141),
+    z. B. 203.0.113.7/32,10.8.0.0/24. Leer: von ueberall."""
+    import ipaddress
+    netze = []
+    for teil in (text or "").replace(" ", "").split(","):
+        if not teil:
+            continue
+        try:
+            netze.append(str(ipaddress.ip_network(teil, strict=False)))
+        except ValueError:
+            raise Abbruch("ADMIN_NETZE in %s: %s ist kein Netz (z. B. 203.0.113.7/32 oder "
+                          "10.8.0.0/24)." % (KONF, teil))
+    return netze
 
 
 def geheimnisse():

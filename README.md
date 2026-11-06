@@ -546,6 +546,26 @@ Kopie des Tools, damit eine Datei nur lesen kann, was im Tool liegt.
 
 ---
 
+## Die Admin-Seite nur aus deinem Netz
+
+Die Admin-Seite steuert den ganzen Server. Kommst du immer aus denselben
+Netzen (zu Hause, ein VPN wie WireGuard oder Tailscale), schließ sie für alle
+anderen – dann sieht von draußen niemand auch nur die Anmeldeseite:
+
+```bash
+sudo nano /etc/prolo/prolo.conf
+#   ADMIN_NETZE=203.0.113.7/32,100.64.0.0/10
+sudo prolo einrichten
+```
+
+Mehrere Netze mit Komma; eine einzelne Adresse ist `/32`. Leer heißt: von
+überall, hinter der Anmeldung. Gezählt wird die echte Gegenstelle – eine
+mitgeschickte `X-Forwarded-For` hilft nicht. Die Tools und `auth.<domain>`
+bleiben, wie sie sind. Wer sich ausgesperrt hat: über SSH `ADMIN_NETZE=`
+leeren und `sudo prolo einrichten`; die Kommandozeile geht immer.
+
+---
+
 ## Fehlersuche
 
 | | |
