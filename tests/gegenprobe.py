@@ -88,6 +88,8 @@ FEHLER = [
      '        c["HOST"] = host or c["HOST"]', "tool set --host admin.<domain> gibt die Admin-Seite einem Tool (N-144)"),
     ("kern/kaefig.py", '        return ["unshare", "--net", "--", "setpriv",', '        return ["setpriv",',
      "die Pruefung als root hat Netz - include aus Git/OCI liefert ihr eine andere Fassung (N-145)"),
+    ("docker-compose.yml", "      authentik-server:\n        condition: service_started\n", "",
+     "Server und Worker fuellen das leere Volume gleichzeitig (N-148)"),
     ("kern/tools.py", "                fehlt.append(var)", "                neu[var] = \"\"",
      "fehlender Wert wird still leer gesetzt"),
     ("kern/tools.py", 'if not d.get("restart"):', "if True:",

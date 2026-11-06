@@ -171,6 +171,11 @@ services:
     depends_on:
       authentik-db:
         condition: service_healthy
+      # Erst der Server: beim ersten Start fuellt Docker das leere Volume
+      # authentik-data aus dem Abbild - starten beide zugleich, scheitert
+      # einer mit "failed to create symlink ... media: file exists" (N-148).
+      authentik-server:
+        condition: service_started
     networks:
       authentik: {}
     mem_limit: 1g

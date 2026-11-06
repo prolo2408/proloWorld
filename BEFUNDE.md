@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-148**.
+Neue Befunde bekommen die nächste freie Nummer: **N-149**.
 
 ---
 
@@ -671,4 +671,26 @@ wird, worauf es ankommt: Rückweg der Admin-Seite nach `admin.`, eines Tools
 nach `auth.`. Der Durchlauf benutzt dieselbe Auswertung. Der Einheitstest
 nimmt die gemessenen Antworten von oben als Fall, dazu den Gegenfall (Rückweg
 der Admin-Seite nach `auth.`).
+
+---
+
+## N-148 — Eine Neuinstallation scheiterte zufällig beim ersten Start von Authentik
+
+Älter als die Funde davor: schon der CI-Lauf von `main` (8742a76) war rot,
+und zwei der drei Durchläufe für diesen Pull Request auch –
+`prolo einrichten` meldete „Der Unterbau kam nicht vollständig hoch“ mit
+`failed to create symlink: …/prolo_authentik-data/_data/media: file exists`.
+Server und Worker hängen dasselbe Volume `authentik-data` ein; beim ersten
+Start füllt Docker das leere Volume aus dem Abbild (dort liegt der Verweis
+`/data/media`) – starten beide zugleich, kopieren beide, und einer scheitert.
+Ein laufender Server ist nicht betroffen (sein Volume ist längst gefüllt),
+wohl aber jede Neuinstallation und jeder Umzug.
+
+Nachgestellt mit einem kleinen Abbild mit demselben Verweis: 100 Starts
+gleichzeitig → 1 mal „file exists“ (das Abbild von Authentik ist größer, das
+Fenster weiter: im CI 2 von 3); mit dem Worker nach dem Server → 0 von 100.
+
+**Jetzt:** der Worker startet nach dem Server (`depends_on … service_started`)
+– zwei gleichzeitige Kopien gibt es dann nicht mehr. Einheitstests 84 → 85,
+Gegenprobe 69 → 70.
 

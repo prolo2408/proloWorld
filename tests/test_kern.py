@@ -916,6 +916,12 @@ class UnterbauDateienTest(unittest.TestCase):
         self.assertIn("cookie_domain: !Env PROLO_DOMAIN", b)
         self.assertIn("managed: goauthentik.io/outposts/embedded", b)
 
+    def test_worker_startet_nach_dem_server(self):
+        """N-148: beide fuellen sonst gleichzeitig das leere Volume."""
+        c = lesen("docker-compose.yml")
+        worker = c.split("  authentik-worker:\n")[1].split("\n  admin:")[0]
+        self.assertRegex(worker, r"depends_on:(.|\n)*authentik-server:\n\s+condition: service_started")
+
     def test_admin_hat_ein_eigenes_cookie(self):
         """N-140: admin.<domain> ueber einen eigenen Provider ohne cookie_domain;
         der Outpost kennt beide - und nur dieser Blueprint setzt seine Liste."""
