@@ -383,9 +383,9 @@ print("PROLO-ADMIN-GRUPPE", "OK" if g else "FEHLT")
 """
 
 
-# Wer antwortet fuer welchen Namen? Leitet der Outpost admin.<domain> zu
-# admin.<domain>/outpost.goauthentik.io/start weiter, hat die Admin-Seite ihr
-# eigenes Cookie (N-140); ein Tool geht zu auth.<domain>.
+# Wer antwortet fuer welchen Namen? Fuehrt der Rueckweg nach der Anmeldung
+# fuer admin.<domain> nach admin.<domain>, hat die Admin-Seite ihr eigenes
+# Cookie (N-140, N-147); der eines Tools fuehrt nach auth.<domain>.
 OUTPOST_FRAGEN = """
 import urllib.error, urllib.request
 class K(urllib.request.HTTPRedirectHandler):
@@ -404,9 +404,27 @@ for host in ("admin.%(d)s", "prolo-pruefung.%(d)s"):
 BLUEPRINTS = ("prolo/prolowelt.yaml", "prolo/prolowelt-admin-gruppe.yaml")
 
 
+def rueckweg(ort):
+    """Wohin der Browser nach der Anmeldung zurueckkommt - dort setzt der
+    Outpost sein Cookie. Authentik 2026.8 leitet gleich zu auth.<domain>/
+    application/o/authorize/ weiter, der Rueckweg steht in redirect_uri;
+    aeltere Fassungen ueber <name>/outpost.goauthentik.io/start (gemessen im
+    Durchlauf, N-147)."""
+    from urllib.parse import parse_qs, urlsplit
+    teile = urlsplit(ort or "")
+    ziel = (parse_qs(teile.query).get("redirect_uri") or [""])[0]
+    if ziel:
+        return urlsplit(ziel).hostname or ""
+    if teile.path.startswith("/outpost.goauthentik.io/"):
+        return teile.hostname or ""
+    return ""
+
+
 def outpost_lage(antwort, domain):
     """Aus der Ausgabe von OUTPOST_FRAGEN: (alle Namen weitergeleitet,
-    admin mit eigenem Cookie)."""
+    admin mit eigenem Cookie). Eigenes Cookie heisst: der Rueckweg fuer
+    admin.<domain> fuehrt nach admin.<domain> (Provider nur fuer diesen
+    Namen), der eines Tools nach auth.<domain> (Domain-Provider)."""
     ziel = {}
     for z in antwort.splitlines():
         teile = z.split()
@@ -415,8 +433,7 @@ def outpost_lage(antwort, domain):
     admin = ziel.get("admin." + domain, ("", ""))
     tool = ziel.get("prolo-pruefung." + domain, ("", ""))
     weiter = admin[0] == "302" and tool[0] == "302"
-    eigen = (admin[1].startswith("https://admin.%s/outpost.goauthentik.io/" % domain) and
-             tool[1].startswith("https://auth.%s/" % domain))
+    eigen = rueckweg(admin[1]) == "admin." + domain and rueckweg(tool[1]) == "auth." + domain
     return weiter, eigen
 
 
@@ -428,9 +445,9 @@ def anmeldung_einrichten(zeit_s=300):
     Blueprint still, N-115), und der eingebaute Outpost laedt einen neuen
     Provider erst Sekunden spaeter - bis dahin beantwortet er jede
     Anmeldepruefung mit 404 (gemessen im Durchlauf). Geprueft wird darum die
-    Wirkung: haengen beide Provider am Outpost, und leitet der Outpost
-    admin.<domain> zu sich selbst (eigenes Cookie, N-140) und ein Tool zu
-    auth.<domain> weiter?"""
+    Wirkung: haengen beide Provider am Outpost, und fuehrt der Rueckweg der
+    Anmeldung fuer admin.<domain> nach admin.<domain> (eigenes Cookie,
+    N-140) und fuer ein Tool nach auth.<domain>?"""
     k = orte.konf()
     domain = k["PROLO_DOMAIN"]
     werte = {"d": domain, "g": k["ADMIN_GRUPPE"].replace("\\", "").replace('"', "")}

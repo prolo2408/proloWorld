@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-147**.
+Neue Befunde bekommen die nächste freie Nummer: **N-148**.
 
 ---
 
@@ -646,4 +646,29 @@ gesperrt (AppArmor) – der Test „Prüfung ohne Netz“ im Testmodus wird dort
 ist nur für die Tests da; der Weg als root hat seinen eigenen eingebauten
 Fehler und einen Schritt im Durchlauf. Der Eintrag für den Testmodus ist
 heraus: Gegenprobe 70 → 69.
+
+---
+
+## N-147 — Die Wirkungsprüfung des Admin-Providers erwartete die falsche Weiterleitung
+
+Gefunden im ersten echten Durchlauf mit Authentik 2026.8 (CI): `einrichten`
+brach ab – „admin. geht nicht über den eigenen Provider“. Die Antworten des
+Outposts zeigten das Gegenteil:
+
+```
+admin.prolo.test           302 https://auth.prolo.test/application/o/authorize/?client_id=wmvG…&redirect_uri=https://admin.prolo.test/outpost.goauthentik.io/callback…
+prolo-pruefung.prolo.test  302 https://auth.prolo.test/application/o/authorize/?client_id=UH7N…&redirect_uri=https://auth.prolo.test/outpost.goauthentik.io/callback…
+```
+
+Zwei Provider (zwei `client_id`), und der Rückweg der Admin-Seite führt nach
+`admin.` – dort setzt der Outpost sein Cookie, nur für diesen Namen. N-140
+wirkt. Falsch war die Annahme, *wie* Authentik weiterleitet: nicht erst über
+`<name>/outpost.goauthentik.io/start`, sondern gleich zu `authorize`.
+
+**Jetzt:** `unterbau.rueckweg()` liest den Rückweg (`redirect_uri`; für
+ältere Fassungen der Weg über `/outpost.goauthentik.io/start`), und geprüft
+wird, worauf es ankommt: Rückweg der Admin-Seite nach `admin.`, eines Tools
+nach `auth.`. Der Durchlauf benutzt dieselbe Auswertung. Der Einheitstest
+nimmt die gemessenen Antworten von oben als Fall, dazu den Gegenfall (Rückweg
+der Admin-Seite nach `auth.`).
 

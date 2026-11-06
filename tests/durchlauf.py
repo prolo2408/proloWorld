@@ -25,6 +25,8 @@ import urllib.parse
 
 HIER = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HIER)
+sys.path.insert(0, REPO)
+from kern import unterbau  # noqa: E402  (rueckweg: dieselbe Auswertung wie einrichten)
 PROLO = os.path.join(REPO, "prolo")
 DOMAIN = "prolo.test"
 TMP = tempfile.mkdtemp(prefix="prolo-durchlauf-")
@@ -171,13 +173,12 @@ def ablauf():
 
     schritt("Der Eingang")
     st, ziel = https("admin." + DOMAIN)
-    stimmt("Admin-Seite ohne Anmeldung -> eigene Anmeldung, eigenes Cookie (N-140)", st == 302 and
-           ziel.startswith("https://admin.%s/outpost.goauthentik.io/start" % DOMAIN),
-           "%s %s" % (st, ziel))
+    stimmt("Admin-Seite ohne Anmeldung -> eigene Anmeldung, Rueckweg nach admin. (N-140)",
+           st == 302 and ziel.startswith("https://auth.%s/" % DOMAIN) and
+           unterbau.rueckweg(ziel) == "admin." + DOMAIN, "%s %s" % (st, ziel))
     st, ziel = https("admin." + DOMAIN, kopf={"X-authentik-username": "akadmin",
                                               "X-authentik-groups": "authentik Admins"})
-    stimmt("gefaelschte Anmelde-Kopfzeilen helfen nicht", st == 302 and
-           "/outpost.goauthentik.io/start" in ziel)
+    stimmt("gefaelschte Anmelde-Kopfzeilen helfen nicht", st == 302 and "auth." in ziel)
     try:
         https("fremd.example")
         fremd = False
@@ -213,7 +214,7 @@ def ablauf():
     time.sleep(3)
     st, ziel = https("admin." + DOMAIN)
     stimmt("Labels eines Abbilds uebernehmen admin. nicht (N-139)", st == 302 and
-           "/outpost.goauthentik.io/start" in ziel, "%s %s" % (st, ziel))
+           unterbau.rueckweg(ziel) == "admin." + DOMAIN, "%s %s" % (st, ziel))
     st, _ = https("auth." + DOMAIN, "/if/flow/default-authentication-flow/")
     stimmt("... und auth. nicht", st == 200 and "FALLE" not in https_text(
         "auth." + DOMAIN, "/if/flow/default-authentication-flow/"))

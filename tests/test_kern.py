@@ -959,15 +959,24 @@ class UnterbauDateienTest(unittest.TestCase):
                          ["100.64.0.0/10", "2001:db8::/32"])
 
     def test_wirkung_des_outposts(self):
-        d = "prolo.me"
-        gut = ("OUTPOST admin.prolo.me 302 https://admin.prolo.me/outpost.goauthentik.io/start?rd=x\n"
-               "OUTPOST prolo-pruefung.prolo.me 302 https://auth.prolo.me/outpost.goauthentik.io/start\n")
+        """N-147: so antwortete Authentik 2026.8 im Durchlauf (gekuerzt)."""
+        d = "prolo.test"
+        cb = "%2Foutpost.goauthentik.io%2Fcallback%3FX-authentik-auth-callback%3Dtrue"
+        gut = ("OUTPOST admin.prolo.test 302 https://auth.prolo.test/application/o/authorize/"
+               "?client_id=wmvG&redirect_uri=https%3A%2F%2Fadmin.prolo.test" + cb + "&state=x\n"
+               "OUTPOST prolo-pruefung.prolo.test 302 https://auth.prolo.test/application/o/"
+               "authorize/?client_id=UH7N&redirect_uri=https%3A%2F%2Fauth.prolo.test" + cb + "\n")
         self.assertEqual(unterbau.outpost_lage(gut, d), (True, True))
-        # admin ueber den Domain-Provider: das Cookie der ganzen Domain gaelte dort
-        alt = gut.replace("https://admin.prolo.me/outpost", "https://auth.prolo.me/outpost")
+        # admin ueber den Domain-Provider: Rueckweg nach auth. - das Cookie der
+        # ganzen Domain gaelte dort
+        alt = gut.replace("https%3A%2F%2Fadmin.prolo.test", "https%3A%2F%2Fauth.prolo.test")
         self.assertEqual(unterbau.outpost_lage(alt, d), (True, False))
         self.assertEqual(unterbau.outpost_lage(gut.replace(" 302 ", " 404 "), d)[0], False)
         self.assertEqual(unterbau.outpost_lage("", d), (False, False))
+        # aeltere Fassungen: ueber /outpost.goauthentik.io/start des Namens
+        self.assertEqual(unterbau.rueckweg("https://admin.prolo.test/outpost.goauthentik.io/"
+                                           "start?rd=x"), "admin.prolo.test")
+        self.assertEqual(unterbau.rueckweg("https://evil.example/"), "")
 
     def test_admin_uid_stimmt_ueberein(self):
         self.assertIn("useradd -r -u %d " % orte.ADMIN_UID, lesen("admin", "Dockerfile"))
