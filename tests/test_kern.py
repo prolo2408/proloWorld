@@ -256,6 +256,7 @@ class ComposeTest(unittest.TestCase):
             ({"build": {"context": app, "additional_contexts": {"x": "/root"}}}, {},
              "additional_contexts"),
             ({"build": {"context": app, "cache_from": ["type=local,src=/root"]}}, {}, "cache_from"),
+            ({"env_file": [{"path": "/etc/prolo/geheim.env"}]}, {}, "(env_file)"),
         ]
         for dienst, oben, erwartet in faelle:
             with self.subTest(erwartet=erwartet):
@@ -379,15 +380,26 @@ class KaefigModellTest(unittest.TestCase):
     def test_include_im_tool_geht_und_pfade_zeigen_nach_app(self):
         self.schreiben("db/compose.yml", "services:\n  db: { image: postgres:16 }\n")
         self.schreiben("docker-compose.yml", "include: [ ./db/compose.yml ]\nservices:\n  app:\n"
-                       "    image: a:1\n    env_file: [ /etc/hostname ]\n"
-                       "    volumes: [ ./daten:/d ]\n")
+                       "    image: a:1\n    volumes: [ ./daten:/d ]\n")
         cfg = kaefig.modell(self.app, "x", "docker-compose.yml")
         self.assertEqual(sorted(cfg["services"]), ["app", "db"])
         self.assertEqual(cfg["services"]["app"]["volumes"][0]["source"],
                          os.path.join(self.app, "daten"))
-        gef = "\n".join(tools.gefahren(cfg, self.app, "x")[0])
-        self.assertIn("/etc/hostname (env_file)", gef)
-        self.assertNotIn("daten", gef)
+        self.assertEqual(tools.gefahren(cfg, self.app, "x")[0], [])
+
+    def test_env_file_den_nur_root_lesen_darf(self):
+        """N-146: mit jeder Compose-Fassung - ob sie env_file im Modell zeigt
+        oder nicht, an die Datei kommt der Pruefer nicht."""
+        geheim = self.schreiben("geheim.env", "K=v\n", os.path.join(self.tmp, "etc"))
+        os.chmod(geheim, 0)
+        self.schreiben("docker-compose.yml", "services:\n  app:\n    image: a:1\n"
+                       "    env_file: [ %s ]\n" % geheim)
+        try:
+            cfg = kaefig.modell(self.app, "x", "docker-compose.yml")
+        except Abbruch as a:
+            self.assertIn("außerhalb des Tools", str(a))
+        else:   # Compose zeigt den Pfad (ab 5.x) - dann findet ihn die Liste
+            self.assertIn("(env_file)", "\n".join(tools.gefahren(cfg, self.app, "x")[0]))
 
     def test_aenderung_wird_auf_der_kopie_geprueft(self):
         self.schreiben("docker-compose.yml", "services:\n  app: { image: a:1 }\n")

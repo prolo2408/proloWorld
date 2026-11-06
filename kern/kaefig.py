@@ -452,6 +452,24 @@ def _umschreiben(o, von, nach):
     return o
 
 
+_SCHALTER = []
+
+
+def env_pfade_sichtbar():
+    """--no-env-resolution laesst die Pfade von env_file im Modell stehen -
+    aber erst ab Compose 2.34, und in manchen Fassungen danach fehlen sie
+    trotzdem (gemessen: 2.29 und 2.33 kennen den Schalter nicht, 2.36 und
+    2.39 zeigen env_file nicht, 5.7 zeigt es; N-146). Den Schalter nur
+    geben, wenn Compose ihn kennt - sonst scheiterte jede Pruefung. Der
+    Schutz haengt nicht daran: env_file liest der Pruefer ohne Rechte, an
+    eine Datei, die nur root lesen darf, kommt er nicht."""
+    if not _SCHALTER:
+        r = subprocess.run(["docker", "compose", "config", "--help"], capture_output=True,
+                           text=True, env=docker.tool_env())
+        _SCHALTER.append(["--no-env-resolution"] if "--no-env-resolution" in r.stdout else [])
+    return _SCHALTER[0]
+
+
 def pruefer():
     try:
         return pwd.getpwnam(PRUEFER)
@@ -506,8 +524,8 @@ def modell(app, projekt, basis, compose_text=None, env_text=None, auslassen=()):
                     f.write(text)
         env = dict(docker.tool_env(), DOCKER_CONFIG=os.path.join(tmp, ".docker"))
         befehl = ["docker", "compose", "-p", projekt, "--project-directory", kopie,
-                  "-f", os.path.join(kopie, basis), "config", "--format", "json",
-                  "--no-env-resolution"]
+                  "-f", os.path.join(kopie, basis), "config", "--format", "json"]
+        befehl += env_pfade_sichtbar()
         if os.geteuid() == 0:           # der frische Ordner gehoert dem Pruefer
             pw = pruefer()
             for wurzel, ordner, dateien in os.walk(tmp):

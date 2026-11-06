@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-146**.
+Neue Befunde bekommen die nächste freie Nummer: **N-147**.
 
 ---
 
@@ -611,4 +611,32 @@ abgelehnt mit „lädt etwas aus dem Netz nach“; `include`/`extends` eines
 anderen Tools weiter abgelehnt; harmloses Tool läuft. Wirkung im Test: der
 Prüfbefehl sieht nur `lo`. Neu im Durchlauf: Prüfer ohne Netz, als
 `prolo-pruefer`. Einheitstests 81 → 83, Gegenprobe 68 → 70.
+
+---
+
+## N-146 — Die Prüfung hing an einer Fassung von Compose
+
+Gefunden vom CI (GitHub, `ubuntu-24.04`): `kaefig.modell` rief
+`docker compose config --no-env-resolution`. Gemessen mit den Fassungen von
+GitHub: **2.29 und 2.33 kennen den Schalter nicht** – dort wäre jede Prüfung
+gescheitert und kein Tool mehr anzulegen gewesen; **2.36 und 2.39** kennen
+ihn, zeigen `env_file` aber trotzdem nicht im Modell; 5.7 zeigt es. Der
+Einheitstest, der den Pfad im Modell erwartete, war auf dem Runner rot.
+
+**Jetzt:** `kaefig.env_pfade_sichtbar()` gibt den Schalter nur, wenn
+`docker compose config --help` ihn nennt. Der Schutz hängt nicht daran:
+`env_file` liest der Prüfer ohne Rechte – an eine Datei, die nur root lesen
+darf, kommt er nicht. Gemessen mit 2.33, 2.36 und 5.7 je echt mit
+`tool add --von-web`: `env_file` auf eine Datei mit 0600 in einem Ordner mit
+0700 → abgelehnt; harmloses Tool → läuft; `secrets`, Volume-Name, `include`,
+`include` aus dem Netz → abgelehnt.
+
+**Bleibt:** mit Compose vor 5.x geht ein `env_file` auf eine Datei durch, die
+**jeder** auf dem Server lesen darf (gemessen mit einer Datei 0644). Solche
+Dateien sind keine Geheimnisse; `install.sh` installiert Compose aus dem
+Paketlager von Docker, also eine neue Fassung, die den Pfad zeigt.
+
+Der Test für `env_file` erwartet jetzt die Wirkung (abgelehnt), nicht die
+Darstellung. Einheitstests 83 → 84, Gegenprobe 70 (ein eingebauter Fehler
+zielt jetzt auf die Prüfung statt auf den Schalter).
 
