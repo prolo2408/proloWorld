@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-134**.
+Neue Befunde bekommen die nächste freie Nummer: **N-136**.
 
 ---
 
@@ -299,3 +299,39 @@ Seite sah das nicht; eine neue Messung auf Scrollen **in** Elementen fand es:
 
 Nicht gelaufen: `tests/durchlauf.py` (hier kein Docker-Dienst) – der
 Durchlauf installiert ohnehin kein Git-Tool; er läuft beim Push in der CI.
+
+---
+
+## N-135 — Die Prüfung der Compose-Dateien war eine Sperrliste
+
+`gefahren()` suchte nach `privileged`, `cap_add`, `devices`, dem
+Docker-Socket, Bind-Mounts von außen und `external`-Volumes. Alles andere
+ging durch – auch über die Admin-Seite, die verspricht, mit Gefahren nichts
+anzulegen. Gefunden bei einem Angriff von allen Seiten, jedes Stück mit
+`docker compose config` und der echten Prüfung nachgestellt:
+
+| Weg | Wirkung |
+|---|---|
+| Volume mit `driver_opts: {type: none, o: bind, device: /}` | ganzes Dateisystem des Servers schreibbar – root |
+| Volume mit `name: prolo_authentik-db` | Datenbank von Authentik gelesen und schreibbar (gemessen: Inhalt gelesen) |
+| Netz mit `name: prolo-authentik` | im internen Netz von Authentik (gemessen) |
+| `secrets`/`configs` mit `file: /etc/prolo/…` | Sicherungsschlüssel, Geheimnisse des Unterbaus |
+| `volumes_from: [container:…]`, `pid`/`ipc: container:…` | Volumes, Prozesse (samt Umgebung) eines fremden Containers |
+| `post_start` mit `privileged: true`, `provider:`, `use_api_socket`, `gpus` | neu in Compose, der Liste unbekannt |
+| `security_opt: seccomp=unconfined`, `oom_score_adj: -900`, `logging: syslog` | Schutz aus, Server verdrängt, Protokoll nach außen |
+| `build` mit `context: /etc`, `ssh`, `network: host`, `additional_contexts`, `cache_from: type=local` | Dateien und Schlüssel des Servers ins Abbild |
+
+**Jetzt:** `kern/kaefig.py`, eine **Erlaubnisliste**. Jeder Schlüssel, den
+prolo nicht ausdrücklich kennt, ist eine Gefahr – lernt Compose etwas Neues,
+ist es gesperrt, bis jemand es geprüft hat. Volumes und Netze heißen
+`<tool>_…` oder gar nicht; `name:`, `driver_opts`, `ipam` und fremde Treiber
+sind Gefahren. Namen mit `prolo…` (Dienst, Container, Alias) vergibt nur
+der Unterbau.
+
+Geprüft: alle 18 Wege oben als Einheitstest, je einer; die Herstellerdateien
+von Nextcloud, Paperless-ngx, n8n, Gitea, Immich und `beispiele/vaultwarden.yml`
+mit `docker compose config` – keine neue Gefahr (Gitea und Immich hängen
+`/etc/localtime` ein, das war schon vorher eine). Einheitstests 65 → 67,
+Gegenprobe 39 → 47 eingebaute Fehler, alle gefunden (einer zuerst nicht: der
+eingebaute Fehler war zu schwach, die Prüfung fing ihn trotzdem – ersetzt).
+

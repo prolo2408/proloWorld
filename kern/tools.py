@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 
-from . import docker, orte, zugang
+from . import docker, kaefig, orte, zugang
 from .auftrag import (ANMELDUNG, DIENST, MAX_COMPOSE, PORT, Ungueltig, env_zeilen,
                       name_pruefen)
 from .orte import Abbruch
@@ -34,15 +34,6 @@ GEHEIM = re.compile(r"PASS|SECRET|KEY|TOKEN|SALT|CREDENTIAL", re.I)
 HILFSDIENST = re.compile(r"(^|/)(postgres|postgis|mysql|mariadb|redis|valkey|mongo|memcached|"
                          r"rabbitmq|elasticsearch|opensearch|clickhouse|minio|typesense|"
                          r"meilisearch)(:|$)", re.I)
-SOCKET = re.compile(r"(^|/)docker\.sock$")
-KAEFIG = {
-    "privileged": "läuft mit allen Rechten des Servers (privileged)",
-    "pid": "sieht alle Prozesse des Servers (pid: host)",
-    "ipc": "teilt den Speicher mit dem Server (ipc: host)",
-    "uts": "teilt den Rechnernamen mit dem Server (uts: host)",
-    "userns_mode": "verlässt den Nutzer-Namensraum (userns_mode: host)",
-    "cgroup": "teilt die cgroups mit dem Server (cgroup: host)",
-}
 KOPF = "# Von prolo geschrieben - wird bei jeder Änderung neu erzeugt. Nicht von Hand ändern.\n"
 
 
@@ -169,60 +160,9 @@ def config(app, dateien, name, env_datei=None):
     raise Abbruch("Zu viele fehlende env_file-Dateien.")
 
 
-def gefahren(cfg, app):
-    """Alles, womit ein Container aus seinem Kaefig auf den Server greift.
-    Gibt (gefahren, hinweise, binds_aussen) zurueck."""
-    gef, hin, aussen = [], [], []
-    app_echt = os.path.realpath(app)
-    for dname, d in sorted((cfg.get("services") or {}).items()):
-        d = d or {}
-
-        def g(text):
-            gef.append("%s: %s" % (dname, text))
-
-        for k, warum in KAEFIG.items():
-            w = d.get(k)
-            if (k == "privileged" and w is True) or (k != "privileged" and str(w or "") == "host"):
-                g(warum)
-        nm = str(d.get("network_mode") or "")
-        if nm == "host":
-            g("hängt direkt im Netz des Servers (network_mode: host) - an Traefik und "
-              "Anmeldung vorbei")
-        elif nm:
-            g("teilt das Netz eines anderen Containers (network_mode: %s)" % nm)
-        if d.get("cap_add"):
-            g("holt Linux-Fähigkeiten zurück: %s" % ", ".join(sorted(map(str, d["cap_add"]))))
-        if d.get("devices"):
-            g("greift auf Geräte des Servers zu (devices)")
-        for s in d.get("security_opt") or []:
-            if re.search(r"unconfined|label[:=]disable", str(s)):
-                g("schaltet einen Schutz ab (security_opt: %s)" % s)
-        for v in d.get("volumes") or []:
-            if not isinstance(v, dict) or v.get("type") != "bind":
-                continue
-            quelle = os.path.realpath(str(v.get("source") or ""))
-            if SOCKET.search(quelle):
-                g("hängt den Docker-Socket ein - das ist root auf dem Server")
-            elif quelle == app_echt:
-                g("hängt seinen ganzen Ordner ein (samt .env)")
-            elif not quelle.startswith(app_echt + os.sep):
-                g("hängt %s vom Server ein - das liegt außerhalb des Tools und wird "
-                  "NICHT gesichert" % quelle)
-                aussen.append(quelle)
-        bild = str(d.get("image") or "")
-        if bild and not d.get("build") and (bild.endswith(":latest") or
-                                            ":" not in bild.rsplit("/", 1)[-1]):
-            hin.append("%s: Abbild %s ohne feste Fassung - ein Update kann einen großen "
-                       "Sprung machen" % (dname, bild))
-        if d.get("container_name"):
-            hin.append("%s: fester Containername %s" % (dname, d["container_name"]))
-        labels = d.get("labels") or {}
-        if any(str(k).startswith("traefik.") for k in labels):
-            hin.append("%s: bringt eigene Traefik-Einstellungen mit - prolo ersetzt sie" % dname)
-    for k, v in (cfg.get("volumes") or {}).items():
-        if (v or {}).get("external"):
-            gef.append("erwartet ein fremdes Volume %s (external)" % ((v or {}).get("name") or k))
-    return gef, hin, aussen
+def gefahren(cfg, app, projekt):
+    """Siehe kern/kaefig.py - die Erlaubnisliste."""
+    return kaefig.gefahren(cfg, app, projekt)
 
 
 def ports_von(d):
@@ -532,7 +472,7 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
             if basis is None:
                 raise Abbruch("Im Repository liegt keine docker-compose.yml (oder compose.yaml).")
             cfg = config(app, [basis], name)
-            gef, hin, _ = gefahren(cfg, app)
+            gef, hin, _ = gefahren(cfg, app, name)
             for h in hin:
                 orte.warnung(h)
             if gef:
@@ -726,7 +666,7 @@ def bearbeiten(name, compose=None, env=None, ja=False, von_web=False, sichern=Tr
         raise Abbruch("Den Dienst %s mit der Oberfläche gibt es in der neuen Datei nicht - "
                       "nichts geändert. Seinen Namen in der Datei lassen, wie er ist."
                       % c["DIENST"])
-    gef, hin, _ = gefahren(cfg, app)
+    gef, hin, _ = gefahren(cfg, app, name)
     for h in hin:
         orte.warnung(h)
     if gef:
@@ -765,7 +705,7 @@ def bearbeiten(name, compose=None, env=None, ja=False, von_web=False, sichern=Tr
             # Mit den gefuellten Werten noch einmal: was jetzt neu gefaehrlich
             # ist, hat niemand bestaetigt.
             cfg = config(app, [basis], name)
-            neu = set(gefahren(cfg, app)[0]) - set(gef)
+            neu = set(gefahren(cfg, app, name)[0]) - set(gef)
             if neu:
                 raise Abbruch("Mit den eingesetzten Werten neu gefährlich: %s" % "; ".join(sorted(neu)))
             if text is not None and c.get("QUELLE") == "image":

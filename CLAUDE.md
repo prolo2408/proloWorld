@@ -239,9 +239,10 @@ Firewall und Systemupdates und ruft dann `prolo einrichten`.
   findet er seine Datenbank nicht).
 - **Keine Ports** (`ports: !reset []`), **Anmeldung als Vorgabe**,
   benannte Volumes für jedes `VOLUME` des Abbilds.
-- Gefahren (`privileged`, Socket, Host-Pfade, `network_mode`, `cap_add`,
-  Geräte …) legt die Admin-Seite **nie** an; auf der Kommandozeile fragt
-  prolo nach.
+- Gefahren legt die Admin-Seite **nie** an; auf der Kommandozeile fragt
+  prolo nach. Die Prüfung ist eine **Erlaubnisliste** (`kern/kaefig.py`):
+  was prolo nicht kennt, ist eine Gefahr. Wer einen Schlüssel freigibt,
+  begründet im Befund, warum er nur im eigenen Container wirkt.
 
 ## 14. Sicherung und Wiederherstellung
 

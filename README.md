@@ -377,9 +377,15 @@ volumes:
   `URL` die Adresse des Tools, Namen auf `HOST`/`DOMAIN` den Hostnamen, `TZ`
   die Zeitzone. Was es nicht kennt, fragt es ab: Feld *Variablen* bzw.
   `--env NAME=wert`. Mit Vorgabe (`${NAME:-wert}`) wird nichts gefragt.
-- **Nicht erlaubt** auf der Admin-Seite: `privileged`, `network_mode`,
-  `cap_add`, `devices`, der Docker-Socket. Braucht ein Tool das wirklich,
-  geht es nur auf der Kommandozeile – und prolo fragt nach.
+- **Erlaubt ist, was prolo kennt** (`kern/kaefig.py`): alles, was nur im
+  eigenen Container wirkt. Eine Gefahr ist alles, womit ein Container auf den
+  Server oder ein anderes Tool greift – `privileged`, `network_mode`,
+  `cap_add`, `devices`, der Docker-Socket, Pfade vom Server (auch über
+  `secrets`, `configs`, `env_file`, `build`), `volumes_from`/`pid`/`ipc` eines
+  fremden Containers, Volumes und Netze mit eigenem `name:` oder
+  `driver_opts` – **und jeder Schlüssel, den prolo nicht kennt**. Die
+  Admin-Seite legt so etwas nie an; braucht ein Tool das wirklich, geht es
+  nur auf der Kommandozeile – und prolo fragt nach.
 - **Anmeldung:** Authentik davor ist die Vorgabe. „Ohne“ nur, wenn das Tool
   eine eigene Anmeldung hat, die Apps oder Webhooks brauchen (Vaultwarden,
   n8n, Nextcloud mit App) – oder wenn es eine öffentliche Seite ist.

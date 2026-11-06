@@ -195,7 +195,7 @@ class ComposeTest(unittest.TestCase):
                                   {"type": "bind", "source": "/etc", "target": "/e"},
                                   {"type": "bind", "source": app, "target": "/a"}]}},
                "volumes": {"fremd": {"external": True}}}
-        gef, hin, aussen = tools.gefahren(cfg, app)
+        gef, hin, aussen = tools.gefahren(cfg, app, "x")
         text = "\n".join(gef)
         for erwartet in ("privileged", "network_mode: host", "SYS_ADMIN", "pid: host",
                          "Docker-Socket", "/etc vom Server", "ganzen Ordner", "fremdes Volume"):
@@ -203,6 +203,84 @@ class ComposeTest(unittest.TestCase):
         self.assertFalse([g for g in gef if g.startswith("harmlos")])
         self.assertEqual(aussen, ["/etc"])
         self.assertEqual(len(gef), 8)
+
+    def test_erlaubnisliste(self):
+        """N-135: je ein Weg, an dem die Sperrliste vorbeiliess - jeder einzeln."""
+        app = "/opt/tools/x/app"
+
+        def gef(dienst=None, **oben):
+            cfg = {"services": {"app": dict({"image": "a:1"}, **(dienst or {}))}}
+            cfg.update(oben)
+            return "\n".join(tools.gefahren(cfg, app, "x")[0])
+
+        self.assertEqual(gef(), "")
+        faelle = [
+            ({}, {"volumes": {"w": {"name": "x_w", "driver": "local", "driver_opts": {
+                "type": "none", "o": "bind", "device": "/"}}}}, "driver_opts"),
+            ({}, {"volumes": {"w": {"name": "prolo_authentik-db"}}}, "prolo_authentik-db"),
+            ({}, {"volumes": {"w": {"name": "vault_daten"}}}, "vault_daten"),
+            ({}, {"networks": {"n": {"name": "prolo-authentik"}}}, "prolo-authentik"),
+            ({}, {"networks": {"n": {"name": "x_n", "ipam": {"config": [{}]}}}}, "ipam"),
+            ({}, {"secrets": {"s": {"file": "/etc/prolo/backup.key"}}}, "backup.key"),
+            ({}, {"secrets": {"s": {"environment": "HOME"}}}, "environment"),
+            ({}, {"configs": {"c": {"file": "/etc/prolo/geheim.env"}}}, "geheim.env"),
+            ({}, {"include": []}, "'include'"),
+            ({"volumes_from": ["container:prolo-authentik-db-1"]}, {}, "fremden Containers"),
+            ({"pid": "container:prolo-authentik-server-1"}, {}, "pid:"),
+            ({"ipc": "container:x"}, {}, "ipc:"),
+            ({"post_start": [{"command": ["id"], "privileged": True}]}, {}, "'post_start'"),
+            ({"provider": {"type": "x"}}, {}, "'provider'"),
+            ({"use_api_socket": True}, {}, "'use_api_socket'"),
+            ({"gpus": "all"}, {}, "'gpus'"),
+            ({"security_opt": ["seccomp=unconfined"]}, {}, "seccomp=unconfined"),
+            ({"security_opt": ["apparmor=unconfined"]}, {}, "apparmor=unconfined"),
+            ({"logging": {"driver": "syslog"}}, {}, "syslog"),
+            ({"oom_score_adj": -900}, {}, "oom_score_adj"),
+            ({"deploy": {"resources": {"reservations": {"devices": [{}]}}}}, {}, "Geräte"),
+            ({"labels": {"com.docker.compose.project": "vault"}}, {}, "com.docker.compose.project"),
+            ({"container_name": "prolo-authentik-server-1"}, {}, "Containernamen"),
+            ({"networks": {"default": {"aliases": ["prolo-tool-vault"]}}},
+             {"networks": {"default": {"name": "x_default"}}}, "Netz-Aliasse"),
+            ({"networks": {"default": {"ipv4_address": "172.18.0.2"}}},
+             {"networks": {"default": {"name": "x_default"}}}, "ipv4_address"),
+            ({"volumes": [{"type": "bind", "source": app + "/d", "target": "/d",
+                           "bind": {"propagation": "rshared"}}]}, {}, "rshared"),
+            ({"volumes": [{"type": "volume", "source": "nirgends", "target": "/d"}]}, {},
+             "nicht anlegt"),
+            ({"build": {"context": "/etc"}}, {}, "build.context"),
+            ({"build": {"context": app, "dockerfile": "../../../../etc/shadow"}}, {}, "Dockerfile"),
+            ({"build": {"context": app, "ssh": ["default"]}}, {}, "ssh"),
+            ({"build": {"context": app, "network": "host"}}, {}, "build.network"),
+            ({"build": {"context": app, "additional_contexts": {"x": "/root"}}}, {},
+             "additional_contexts"),
+            ({"build": {"context": app, "cache_from": ["type=local,src=/root"]}}, {}, "cache_from"),
+        ]
+        for dienst, oben, erwartet in faelle:
+            with self.subTest(erwartet=erwartet):
+                self.assertIn(erwartet, gef(dienst, **oben))
+
+    def test_erlaubnisliste_laesst_uebliches_durch(self):
+        """Was Hersteller-Dateien gewoehnlich haben, ist keine Gefahr."""
+        app = "/opt/tools/x/app"
+        cfg = {"name": "x", "services": {
+            "app": {"image": "a:1", "command": None, "entrypoint": None, "restart": "always",
+                    "environment": {"A": "1"}, "depends_on": {"db": {"condition": "service_started"}},
+                    "volumes": [{"type": "volume", "source": "daten", "target": "/d", "volume": {}},
+                                {"type": "bind", "source": app + "/export", "target": "/e"},
+                                {"type": "tmpfs", "target": "/t"}],
+                    "networks": {"default": None}, "healthcheck": {"test": ["CMD", "true"]},
+                    "security_opt": ["no-new-privileges:true"], "cap_drop": ["ALL"],
+                    "logging": {"driver": "json-file"}, "read_only": True, "shm_size": "128mb",
+                    "deploy": {"resources": {"limits": {"memory": "1"}}}, "ports": [{"target": 80}],
+                    "labels": {"traefik.enable": "true"}, "x-eigen": 1,
+                    "build": {"context": app, "dockerfile": "Dockerfile", "args": {"A": "1"}}},
+            "db": {"image": "postgres:16", "volumes_from": ["app:ro"]}},
+            "volumes": {"daten": {"name": "x_daten"}},
+            "networks": {"default": {"name": "x_default"}},
+            "secrets": {"s": {"file": app + "/geheim.txt"}}}
+        gef, hin, _ = tools.gefahren(cfg, app, "x")
+        self.assertEqual(gef, [])
+        self.assertTrue(any("Traefik" in h for h in hin))
 
     def test_dienst_waehlen(self):
         einer = {"services": {"web": {"image": "a:1", "expose": ["3001"]}}}
