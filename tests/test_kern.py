@@ -282,6 +282,48 @@ class ComposeTest(unittest.TestCase):
         self.assertEqual(gef, [])
         self.assertTrue(any("Traefik" in h for h in hin))
 
+    def test_ordner_eines_tools_ist_fremd(self):
+        """N-136: was ein Container einhaengt, kann er veraendern - und ein
+        Git-Repository bringt Verweise mit."""
+        tmp = tempfile.mkdtemp()
+        app = os.path.join(tmp, "app")
+        for d in ("daten/innen", "export", ".git/hooks", "conf"):
+            os.makedirs(os.path.join(app, d))
+        os.symlink("/etc/prolo/geheim.env", os.path.join(app, ".env"))
+        os.symlink("conf", os.path.join(app, "nach-innen"))
+        os.symlink(tmp, os.path.join(app, "export", "weg"))       # im Einhaengeordner: egal
+
+        def bind(q):
+            return {"type": "bind", "source": os.path.join(app, q), "target": "/x"}
+
+        cfg = {"services": {"app": {"image": "a:1", "volumes": [
+            bind("daten"), bind("daten/innen"), bind(".git"), bind("export"), bind("nach-innen")],
+            "env_file": [{"path": os.path.join(app, "daten", "app.env")}]}}}
+        gef = "\n".join(tools.gefahren(cfg, app, "x")[0])
+        self.assertIn(".env zeigt nach /etc/prolo/geheim.env", gef)
+        self.assertIn("Git-Hooks", gef)
+        self.assertIn("darin wird daten/innen eingehängt", gef)
+        self.assertIn("darin liegt daten/app.env", gef)
+        self.assertIn("über einen Verweis ein (nach-innen)", gef)
+        self.assertNotIn("weg zeigt", gef)          # gehoert dem Container
+        self.assertNotIn("nach-innen zeigt", gef)   # zeigt nach innen
+
+    def test_schreiben_folgt_keinem_verweis(self):
+        """N-136: ein mitgebrachter Verweis .env.neu -> Datei ausserhalb."""
+        tmp = tempfile.mkdtemp()
+        opfer = os.path.join(tmp, "authorized_keys")
+        with open(opfer, "w") as f:
+            f.write("unberuehrt\n")
+        app = os.path.join(tmp, "app")
+        os.makedirs(app)
+        os.symlink(opfer, os.path.join(app, ".env.neu"))
+        orte.datei_schreiben(os.path.join(app, ".env"), "A=1\n", 0o600)
+        with open(opfer) as f:
+            self.assertEqual(f.read(), "unberuehrt\n")
+        with open(os.path.join(app, ".env")) as f:
+            self.assertEqual(f.read(), "A=1\n")
+        self.assertFalse(os.path.islink(os.path.join(app, ".env")))
+
     def test_dienst_waehlen(self):
         einer = {"services": {"web": {"image": "a:1", "expose": ["3001"]}}}
         self.assertEqual(tools.dienst_waehlen(einer, "x", None, None), ("web", "3001"))

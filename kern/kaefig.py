@@ -62,6 +62,33 @@ EINHAENGEN_FREI = frozenset(("type", "source", "target", "read_only", "bind", "v
 RESERVIERT = re.compile(r"^prolo", re.I)
 
 
+def verweise(app, auslassen=()):
+    """Verweise (Symlinks) in app, die nach draussen zeigen - als Liste von
+    Texten. Ein Git-Repository kann sie mitbringen: .env -> /etc/prolo/
+    geheim.env gaebe Compose die Geheimnisse des Unterbaus (gemessen, N-136).
+    Uebergangen werden .git und die Ordner, die Container einhaengen - dort
+    liest prolo nichts (siehe Pruefung.ordner)."""
+    app_echt = os.path.realpath(app)
+    auslassen = {os.path.normpath(a) for a in auslassen}
+    aus = []
+    for wurzel, ordner, dateien in os.walk(app):
+        rel = os.path.relpath(wurzel, app)
+        if rel == ".git" or rel.startswith(".git" + os.sep) or \
+                os.path.normpath(wurzel) in auslassen:
+            ordner[:] = []
+            continue
+        for n in sorted(ordner + dateien):
+            p = os.path.join(wurzel, n)
+            if os.path.islink(p):
+                ziel = os.path.realpath(p)
+                if not (ziel == app_echt or ziel.startswith(app_echt + os.sep)):
+                    aus.append("%s zeigt nach %s - außerhalb des Tools"
+                               % (os.path.relpath(p, app), os.readlink(p)))
+        if rel == ".":
+            ordner[:] = [o for o in ordner if o != ".git"]
+    return aus
+
+
 def _innen(pfad, app):
     """Liegt pfad in app (nach Aufloesen aller Verweise)?"""
     echt = os.path.realpath(pfad)
@@ -94,7 +121,63 @@ class Pruefung:
                 self.geheimnis(art, k, v or {})
         for name, d in sorted(self.dienste.items()):
             self.dienst(name, d or {})
+        self.ordner()
         return self.gef, self.hin, self.aussen
+
+    # ------------------------------------------- der Ordner app/
+    def ordner(self):
+        """Was ein Container einhaengt, kann er veraendern. Darum duerfen dort
+        keine Dateien liegen, die prolo oder Compose als root lesen (.git, die
+        Compose-Datei, .env, env_file, Dockerfile ...), keine zweite
+        Einhaengung darin - sonst ersetzt der Container sie durch einen Verweis
+        auf den Server, und der naechste Start haengt den Server ein -, und der
+        Weg dorthin fuehrt ueber keinen Verweis (N-136)."""
+        app = os.path.normpath(self.app)
+        binds = set()
+        for name, d in sorted(self.dienste.items()):
+            for v in (d or {}).get("volumes") or []:
+                if isinstance(v, dict) and v.get("type") == "bind":
+                    q = os.path.normpath(str(v.get("source") or ""))
+                    if q.startswith(app + os.sep):
+                        binds.add((q, name))
+        gelesen = {os.path.join(app, n) for n in (".env", ".git", "compose.yaml", "compose.yml",
+                                                   "docker-compose.yaml", "docker-compose.yml")}
+        for name, d in self.dienste.items():
+            d = d or {}
+            for e in d.get("env_file") or []:
+                gelesen.add(os.path.normpath(str(e.get("path") if isinstance(e, dict) else e)))
+            b = d.get("build") or {}
+            if b.get("context") and not str(b["context"]).startswith("https://"):
+                ctx = os.path.normpath(str(b["context"]))
+                gelesen.add(os.path.normpath(os.path.join(ctx, str(b.get("dockerfile") or
+                                                                    "Dockerfile"))))
+        for art in ("secrets", "configs"):
+            for v in (self.cfg.get(art) or {}).values():
+                if (v or {}).get("file"):
+                    gelesen.add(os.path.normpath(str(v["file"])))
+        for q, name in sorted(binds):
+            rel = os.path.relpath(q, app)
+            if rel.split(os.sep)[0] == ".git":
+                self.g(name, "hängt %s ein - darüber schreibt der Container Git-Hooks, die "
+                       "root beim nächsten Update ausführt" % rel)
+            weg = app
+            for teil in rel.split(os.sep):
+                weg = os.path.join(weg, teil)
+                if os.path.islink(weg):
+                    self.g(name, "hängt %s über einen Verweis ein (%s)"
+                           % (rel, os.path.relpath(weg, app)))
+                    break
+            for p in sorted(gelesen):
+                if p == q or p.startswith(q + os.sep):
+                    self.g(name, "hängt %s ein - darin liegt %s, das prolo als root liest"
+                           % (rel, os.path.relpath(p, app)))
+            for q2, _ in sorted(binds):
+                if q2 != q and q2.startswith(q + os.sep):
+                    self.g(name, "hängt %s ein, und darin wird %s eingehängt - der Container "
+                           "könnte es durch einen Verweis auf den Server ersetzen"
+                           % (rel, os.path.relpath(q2, app)))
+        for v in verweise(app, {q for q, _ in binds}):
+            self.g("", v)
 
     def eigener_name(self, art, k, name):
         """Volumes und Netze heissen <projekt>_<name> - mit einem anderen

@@ -464,6 +464,17 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
                 os.rmdir(app)
                 klonen(git, app)
             orte.ok("Quelle liegt in %s/app" % ziel)
+            # Vor allem anderen: ein Verweis nach draussen (.env -> /etc/prolo/
+            # geheim.env) wuerde schon beim Lesen der Datei folgen (N-136).
+            frueh = kaefig.verweise(app)
+            if frueh:
+                for v in frueh:
+                    orte.fehler(v)
+                if von_web:
+                    raise Abbruch("Mit diesen Verweisen legt die Admin-Seite nichts an. Wer das "
+                                  "wirklich will, tut es auf dem Server:  sudo prolo tool add ...")
+                if not ja and not frage("Trotzdem weiter?"):
+                    raise Abbruch("Nichts angelegt.")
 
             erzeugt = env_fuellen(app, host, env or {})
             if erzeugt:
@@ -475,6 +486,7 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
             gef, hin, _ = gefahren(cfg, app, name)
             for h in hin:
                 orte.warnung(h)
+            gef = [g for g in gef if g not in frueh]       # schon bestaetigt
             if gef:
                 for g in gef:
                     orte.fehler(g)

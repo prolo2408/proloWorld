@@ -42,6 +42,22 @@ FEHLER = [
      "security_opt schaltet seccomp/apparmor ab (N-135)"),
     ("kern/kaefig.py", "        fremd = sorted(set(w) - BUILD_FREI)\n", "        fremd = []\n",
      "build reicht ssh-Schluessel des Servers weiter (N-135)"),
+    ("kern/orte.py", "        os.unlink(neu)\n    except FileNotFoundError:\n        pass\n    except IsADirectoryError:\n"
+     "        raise Abbruch(\"%s ist ein Ordner - dort schreibt prolo nicht hin.\" % neu)\n"
+     "    with open(os.open(neu, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, modus)",
+     "        pass\n    except FileNotFoundError:\n        pass\n"
+     "    with open(os.open(neu, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, modus)",
+     "root schreibt durch einen Verweis .env.neu nach draussen (N-136)"),
+    ("kern/kaefig.py", "                if not (ziel == app_echt or ziel.startswith(app_echt + os.sep)):",
+     "                if False:", ".env als Verweis auf geheim.env geht durch (N-136)"),
+    ("kern/kaefig.py", 'if rel.split(os.sep)[0] == ".git":', "if False:",
+     "Container haengt .git ein und legt Hooks ab (N-136)"),
+    ("kern/kaefig.py", "                if p == q or p.startswith(q + os.sep):", "                if False:",
+     "env_file liegt im Einhaengeordner eines Containers (N-136)"),
+    ("kern/kaefig.py", "                if q2 != q and q2.startswith(q + os.sep):", "                if False:",
+     "Einhaengung in einer Einhaengung - Container tauscht sie gegen einen Verweis (N-136)"),
+    ("kern/kaefig.py", "                if os.path.islink(weg):", "                if False:",
+     "Einhaengung ueber einen Verweis (N-136)"),
     ("kern/tools.py", "                fehlt.append(var)", "                neu[var] = \"\"",
      "fehlender Wert wird still leer gesetzt"),
     ("kern/tools.py", 'if not d.get("restart"):', "if True:",

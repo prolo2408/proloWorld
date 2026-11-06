@@ -131,9 +131,19 @@ def env_schreiben(pfad, werte, kopf="", modus=0o600):
 
 
 def datei_schreiben(pfad, text, modus=0o644):
+    """Erst daneben schreiben, dann umbenennen. Die Datei daneben wird NEU
+    angelegt und folgt keinem Verweis: liegt dort schon etwas (in einem
+    Git-Repository etwa ein Verweis .env.neu -> /root/.ssh/authorized_keys),
+    schriebe root sonst dorthin (N-136)."""
     os.makedirs(os.path.dirname(pfad), exist_ok=True)
     neu = pfad + ".neu"
-    with open(os.open(neu, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, modus), "w",
+    try:
+        os.unlink(neu)
+    except FileNotFoundError:
+        pass
+    except IsADirectoryError:
+        raise Abbruch("%s ist ein Ordner - dort schreibt prolo nicht hin." % neu)
+    with open(os.open(neu, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, modus), "w",
               encoding="utf-8") as f:
         f.write(text)
     os.chmod(neu, modus)

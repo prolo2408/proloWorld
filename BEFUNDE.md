@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-136**.
+Neue Befunde bekommen die nächste freie Nummer: **N-137**.
 
 ---
 
@@ -334,4 +334,47 @@ mit `docker compose config` – keine neue Gefahr (Gitea und Immich hängen
 `/etc/localtime` ein, das war schon vorher eine). Einheitstests 65 → 67,
 Gegenprobe 39 → 47 eingebaute Fehler, alle gefunden (einer zuerst nicht: der
 eingebaute Fehler war zu schwach, die Prüfung fing ihn trotzdem – ersetzt).
+
+---
+
+## N-136 — Was im Ordner eines Tools liegt, behandelte prolo als eigen
+
+`app/` ist die Datei des Herstellers oder ein `git clone` – also fremd. prolo
+las und schrieb dort als root, als wäre es sein Ordner:
+
+- **Schreiben durch einen Verweis:** `datei_schreiben` legte `<datei>.neu` mit
+  `O_TRUNC` an und folgte dabei einem Verweis. Ein Repository mit
+  `.env.neu -> /root/.ssh/authorized_keys` und einer `.env`, die mit einem
+  SSH-Schlüssel beginnt: `env_fuellen` schreibt die alte `.env` samt
+  gewürfeltem Passwort **dorthin** – sshd überliest die Zeile mit dem
+  Passwort, der Schlüssel gilt. Root über ein Git-Repository. Gemessen:
+  die Zieldatei enthielt danach den Inhalt der `.env`.
+- **Lesen durch einen Verweis:** `.env -> /etc/prolo/geheim.env` – Compose
+  setzt `${AUTHENTIK_SECRET_KEY}` aus den Geheimnissen des Unterbaus ein
+  (gemessen mit `docker compose config`).
+- **Was ein Container einhängt, kann er ändern:** eine Einhängung von
+  `./.git` (Hooks, die root beim nächsten `git pull` ausführt), ein
+  `env_file` in einem eingehängten Ordner, eine Einhängung in einer
+  Einhängung (der Container ersetzt den inneren Ordner durch einen Verweis
+  auf `/`, der nächste Start hängt den Server ein) – alles ging durch.
+
+**Jetzt:**
+
+- `datei_schreiben` löscht, was neben der Datei liegt, und legt sie mit
+  `O_EXCL | O_NOFOLLOW` neu an.
+- `kaefig.verweise(app)` findet jeden Verweis nach draußen – **gleich nach
+  dem Klonen**, bevor irgendetwas die Dateien liest. Ordner, die Container
+  einhängen, sind ausgenommen: dort liest prolo nichts.
+- `Pruefung.ordner`: keine Einhängung von `.git`, keiner Datei, die prolo
+  oder Compose als root lesen (`.env`, Compose-Datei, `env_file`,
+  `secrets`/`configs`, Dockerfile), keine Einhängung in einer anderen, kein
+  Weg über einen Verweis.
+
+Geprüft: der Angriff von oben echt mit `prolo tool add --git` (Repository mit
+`.env.neu`-Verweis), über die Admin-Seite (`--von-web`) und auf der
+Kommandozeile: beide Male abgelehnt, bevor etwas geschrieben wurde, die
+Zieldatei unberührt, kein Ordner liegen geblieben. Einheitstests 67 → 69,
+Gegenprobe 47 → 53 eingebaute Fehler, alle gefunden (einer zuerst nicht:
+das Löschen allein schützt schon, der eingebaute Fehler nimmt jetzt beide
+Schichten weg).
 
