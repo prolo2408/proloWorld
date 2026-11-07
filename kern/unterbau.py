@@ -456,6 +456,7 @@ def admin_dns():
     if ufw:
         docker.lauf(["ufw", "allow", "proto", "udp", "to", ip, "port", "53", "comment",
                      "prolo-dns"], zeit_s=30)
+    tailscale_absender()
     if not adresse_da(ip):
         orte.warnung("%s gibt es auf dem Server (noch) nicht - der Dienst antwortet, sobald "
                      "sie da ist. Läuft das VPN?  sudo tailscale up  /  tailscale ip -4" % ip)
@@ -466,6 +467,62 @@ def admin_dns():
         raise Abbruch("Der DNS-Dienst antwortet nicht richtig (%s statt %s). Nachsehen:  "
                       "journalctl -u %s -n 30" % (erhalten or "keine Antwort", ip, DNS_EINHEIT))
     orte.ok("%s antwortet: %s -> %s" % (DNS_EINHEIT, name, ip))
+
+
+def tailscale_lage(ausgabe):
+    """Aus `tailscale debug prefs`: "ok" (Traefik sieht die Adresse im VPN),
+    "routen" (SNAT an, der Server reicht aber Routen weiter - nicht anfassen),
+    "abschalten" (SNAT an, nichts haengt daran) oder None (nicht lesbar).
+    Die Ausgabe darf Warnungen von tailscale vor und nach dem JSON haben."""
+    try:
+        prefs = json.loads(ausgabe[ausgabe.index("{"):ausgabe.rindex("}") + 1])
+    except ValueError:
+        return None
+    if not isinstance(prefs, dict):
+        return None
+    if prefs.get("NoSNAT") is True:
+        return "ok"
+    if prefs.get("AdvertiseRoutes"):
+        return "routen"
+    return "abschalten"
+
+
+def tailscale_absender():
+    """N-150: Tailscale ersetzt bei Verbindungen aus dem VPN, die an einen
+    Container weitergehen, den Absender durch die Adresse des Docker-Netzes
+    (SNAT, Vorgabe auf Linux). Traefik sieht dann 172.x statt 100.x, und
+    ADMIN_NETZE=100.64.0.0/10 sperrt das VPN mit aus. Abschalten, wenn der
+    Server keine Routen weiterreicht - sonst nur sagen, was zu tun ist."""
+    if not shutil.which("tailscale"):
+        return
+    befehl = ["tailscale", "debug", "prefs"]
+    rc, aus = docker.lauf(befehl, pruefen=False, zeit_s=30)
+    lage = tailscale_lage(aus) if rc == 0 else None
+    if lage is None:
+        orte.warnung("Die Einstellungen von Tailscale ließen sich nicht lesen - ob Traefik die "
+                     "Adresse im VPN sieht, ist offen:\n%s\n  Nachsehen:  sudo tailscale debug "
+                     "prefs" % docker.kern_der_meldung(aus, 3))
+        return
+    if lage == "ok":
+        orte.ok("Tailscale reicht die Adresse im VPN an Traefik durch (kein SNAT)")
+        return
+    if lage == "routen":
+        orte.warnung("Tailscale ersetzt die Adresse im VPN durch die des Docker-Netzes (SNAT), "
+                     "weil dieser Server Routen weiterreicht (Subnet-Router oder Exit-Node) - "
+                     "darum sperrt ADMIN_NETZE=100.64.0.0/10 auch das VPN aus. prolo schaltet "
+                     "das nicht ab, sonst finden die Geräte hinter den Routen nicht zurück. "
+                     "Entweder dort eine Route nach 100.64.0.0/10 über diesen Server und dann:  "
+                     "sudo tailscale set --snat-subnet-routes=false  - oder ADMIN_NETZE in %s "
+                     "leeren und:  sudo prolo einrichten" % orte.KONF)
+        return
+    docker.lauf(["tailscale", "set", "--snat-subnet-routes=false"], zeit_s=30)
+    rc, aus = docker.lauf(befehl, pruefen=False, zeit_s=30)
+    if rc != 0 or tailscale_lage(aus) != "ok":
+        raise Abbruch("Tailscale ersetzt die Adresse im VPN weiter durch die des Docker-Netzes "
+                      "- Traefik sperrt das VPN darum aus (ADMIN_NETZE). Von Hand:  sudo "
+                      "tailscale set --snat-subnet-routes=false  und nachsehen:  sudo tailscale "
+                      "debug prefs | grep NoSNAT")
+    orte.getan("Tailscale reicht die Adresse im VPN an Traefik durch (SNAT aus)")
 
 
 def hochfahren():

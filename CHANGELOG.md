@@ -5,6 +5,10 @@
   VPN-Adresse des Servers (Dienst `prolo-dns`, ohne Rechte). Zusammen mit
   `ADMIN_NETZE=100.64.0.0/10` ist die Admin-Seite von außen zu, aus dem VPN
   offen; das Zertifikat erneuert sich weiter. Anleitung in der README (N-149).
+- **Aus Tailscale kam trotzdem „Forbidden“:** Tailscale maskierte den Absender
+  (SNAT), Traefik sah die Adresse des Docker-Netzes statt 100.x. `einrichten`
+  schaltet das ab (`--snat-subnet-routes=false`) und prüft die Wirkung – außer
+  der Server reicht Routen weiter; dann sagt es, was zu tun ist (N-150).
 - Gefunden im ersten echten Durchlauf mit Authentik nach 2.3.0: die
   Wirkungsprüfung des Admin-Cookies (N-147), Compose-Fassungen ohne
   `--no-env-resolution` (N-146), Neuinstallation scheiterte zufällig beim
