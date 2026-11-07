@@ -135,6 +135,9 @@ def parser():
     c = sub.add_parser("compose", help="docker compose für den Unterbau")
     c.add_argument("args", nargs=argparse.REMAINDER)
     sub.add_parser("agent", help="Aufträge der Admin-Seite ausführen (läuft als Dienst)")
+    d = sub.add_parser("dns", help=argparse.SUPPRESS)     # laeuft als Dienst prolo-dns
+    d.add_argument("--name", required=True)
+    d.add_argument("--ip", required=True)
     sub.add_parser("nacht", help="sichern und aktualisieren (laeuft jede Nacht)")
     sub.add_parser("version")
     return p
@@ -238,6 +241,11 @@ def ausfuehren(a):
         os.execvpe(befehl[0], befehl, docker.unterbau_env())
     if b == "agent":
         return agent.laufen()
+    if b == "dns":
+        from . import dns
+        if not orte.DOMAIN.fullmatch(a.name):
+            raise Abbruch("--name %s ist kein gültiger Name." % a.name)
+        return dns.laufen(a.name, a.ip)
     if b == "nacht":
         return unterbau.nacht()
     return 2

@@ -53,9 +53,11 @@ KONF_FELDER = {
     "AUTO_UPDATE": "ja",
     "ADMIN_GRUPPE": "authentik Admins",
     "ADMIN_NETZE": "",
+    "ADMIN_DNS": "",
 }
-# Darf leer bleiben: leer heisst "von ueberall" (hinter der Anmeldung).
-KONF_LEER_ERLAUBT = ("ADMIN_NETZE",)
+# Duerfen leer bleiben: ADMIN_NETZE leer heisst "von ueberall" (hinter der
+# Anmeldung), ADMIN_DNS leer heisst "kein DNS-Dienst im VPN".
+KONF_LEER_ERLAUBT = ("ADMIN_NETZE", "ADMIN_DNS")
 GEHEIM_FELDER = ("AUTHENTIK_SECRET_KEY", "PG_PASS", "AUTHENTIK_BOOTSTRAP_PASSWORD")
 
 DOMAIN = re.compile(r"(?=.{4,200}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
@@ -171,6 +173,13 @@ def konf():
     if werte["AUTO_UPDATE"] not in ("ja", "nein"):
         raise Abbruch("AUTO_UPDATE in %s ist ja oder nein." % KONF)
     werte["ADMIN_NETZE"] = ",".join(admin_netze(werte["ADMIN_NETZE"]))
+    if werte["ADMIN_DNS"]:
+        import ipaddress
+        try:
+            ipaddress.IPv4Address(werte["ADMIN_DNS"])
+        except ValueError:
+            raise Abbruch("ADMIN_DNS in %s ist die VPN-Adresse des Servers (IPv4, z. B. "
+                          "100.101.102.103 - bei Tailscale:  tailscale ip -4)." % KONF)
     return werte
 
 

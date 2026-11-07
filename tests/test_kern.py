@@ -11,6 +11,9 @@ import json
 import os
 import re
 import shutil
+import threading
+import struct
+import socket
 import subprocess
 import sys
 import tempfile
@@ -25,7 +28,7 @@ TMP = tempfile.mkdtemp(prefix="prolo-test-")
 for k in ("ETC", "VAR", "TOOLS", "BACKUP"):
     os.environ["PROLO_" + k] = os.path.join(TMP, k.lower())
 
-from kern import agent, auftrag, kaefig, orte, sicherung, tools, unterbau, zugang  # noqa: E402
+from kern import agent, auftrag, dns, kaefig, orte, sicherung, tools, unterbau, zugang  # noqa: E402
 from kern.orte import Abbruch  # noqa: E402
 
 
@@ -509,6 +512,92 @@ class NachpruefenTest(unittest.TestCase):
     def test_harmloses_startet(self):
         tools.starten("nach")
         self.assertTrue(self.gestartet)
+
+
+def dns_frage(name, typ=1, kennung=0x1234, flags=0x0100, klasse=1):
+    return (struct.pack("!HHHHHH", kennung, flags, 1, 0, 0, 0) +
+            b"".join(bytes([len(t)]) + t.encode() for t in name.split(".")) + b"\0" +
+            struct.pack("!HH", typ, klasse))
+
+
+class DnsTest(unittest.TestCase):
+    """N-149: der DNS-Dienst fuer admin.<domain> im VPN. Erwartete Bytes von
+    Hand nach RFC 1035."""
+    NAME, IP = "admin.prolo.me", "100.101.102.103"
+
+    def test_antwort_fuer_admin(self):
+        a = dns.antwort(dns_frage(self.NAME), self.NAME, self.IP)
+        kennung, flags, qd, an, ns, ar = struct.unpack("!HHHHHH", a[:12])
+        self.assertEqual((kennung, qd, an, ns, ar), (0x1234, 1, 1, 0, 0))
+        self.assertEqual(flags, 0x8000 | 0x0400 | 0x0100)          # QR, AA, RD; NOERROR
+        self.assertEqual(a[-16:], bytes.fromhex("c00c 0001 0001 0000003c 0004".replace(" ", ""))
+                         + bytes([100, 101, 102, 103]))
+        self.assertEqual(dns.antwort(dns_frage("ADMIN.Prolo.ME"), self.NAME, self.IP)[-4:],
+                         bytes([100, 101, 102, 103]))
+
+    def test_alles_andere_nicht(self):
+        for name in ("vault.prolo.me", "prolo.me", "admin.prolo.me.evil.example", "example.com"):
+            a = dns.antwort(dns_frage(name), self.NAME, self.IP)
+            self.assertEqual(struct.unpack("!H", a[2:4])[0] & 0xF, 5, name)     # REFUSED
+            self.assertEqual(struct.unpack("!H", a[6:8])[0], 0)
+        a = dns.antwort(dns_frage(self.NAME, typ=28), self.NAME, self.IP)          # AAAA
+        self.assertEqual((struct.unpack("!H", a[2:4])[0] & 0xF, a[6:8]), (0, b"\0\0"))
+        a = dns.antwort(dns_frage(self.NAME, klasse=3), self.NAME, self.IP)        # CHAOS
+        self.assertEqual(struct.unpack("!H", a[2:4])[0] & 0xF, 5)
+        a = dns.antwort(dns_frage(self.NAME, flags=0x2900), self.NAME, self.IP)    # UPDATE
+        self.assertEqual(struct.unpack("!H", a[2:4])[0] & 0xF, 4)
+
+    def test_unsinn_wird_verworfen(self):
+        gut = dns_frage(self.NAME)
+        for unsinn in (b"", gut[:11], gut[:-1], gut[:-4], gut[:12] + b"\xc0\x0c\0\1\0\1",
+                       gut[:12] + b"\x40" + b"a" * 64 + b"\0\0\1\0\1",
+                       gut[:12] + b"\x05ab", gut + b"x" * 600,
+                       struct.pack("!HHHHHH", 1, 0x8100, 1, 0, 0, 0) + gut[12:],      # Antwort
+                       struct.pack("!HHHHHH", 1, 0x0100, 2, 0, 0, 0) + gut[12:],      # 2 Fragen
+                       gut[:12] + b"\x02\xff\xfe\0\0\1\0\1"):
+            self.assertIsNone(dns.antwort(unsinn, self.NAME, self.IP), unsinn[:40])
+        import random
+        r = random.Random(149)
+        for _ in range(20000):        # kein Paket darf den Dienst umwerfen
+            p = bytes(r.getrandbits(8) for _ in range(r.randrange(0, 80)))
+            if r.random() < 0.5:
+                p = gut[:r.randrange(0, len(gut))] + p
+            dns.antwort(p, self.NAME, self.IP)
+
+    def test_echt_ueber_das_netz(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+        threading.Thread(target=dns.laufen, args=(self.NAME, "127.0.0.1", port),
+                         daemon=True).start()
+        for _ in range(50):
+            if unterbau.dns_frage(self.NAME, "127.0.0.1", port, zeit_s=0.2) == "127.0.0.1":
+                break
+        self.assertEqual(unterbau.dns_frage(self.NAME, "127.0.0.1", port), "127.0.0.1")
+        self.assertIsNone(unterbau.dns_frage("vault.prolo.me", "127.0.0.1", port, zeit_s=1))
+
+    def test_adresse_da(self):
+        self.assertTrue(unterbau.adresse_da("127.0.0.1"))
+        self.assertFalse(unterbau.adresse_da("192.0.2.201"))     # TEST-NET, gibt es nie
+
+    def test_dienst_ohne_rechte(self):
+        t = unterbau.DNS_VORLAGE.format(repo="/opt/prolo", name=self.NAME, ip=self.IP)
+        self.assertIn("ExecStart=/usr/bin/python3 /opt/prolo/prolo dns --name admin.prolo.me "
+                      "--ip 100.101.102.103\n", t)
+        for zeile in ("DynamicUser=yes", "CapabilityBoundingSet=CAP_NET_BIND_SERVICE",
+                      "NoNewPrivileges=yes", "ProtectSystem=strict", "RestrictAddressFamilies=AF_INET"):
+            self.assertIn(zeile + "\n", t)
+
+    def test_einstellung(self):
+        orte.env_schreiben(orte.KONF, {"PROLO_DOMAIN": "prolo.me", "PROLO_EMAIL": "a@prolo.me",
+                                       "ADMIN_DNS": "kein-ip"})
+        self.addCleanup(os.remove, orte.KONF)
+        with self.assertRaises(Abbruch) as a:
+            orte.konf()
+        self.assertIn("tailscale ip -4", str(a.exception))
+        orte.env_schreiben(orte.KONF, {"PROLO_DOMAIN": "prolo.me", "PROLO_EMAIL": "a@prolo.me"})
+        self.assertEqual(orte.konf()["ADMIN_DNS"], "")
 
 
 class OverrideTest(unittest.TestCase):
