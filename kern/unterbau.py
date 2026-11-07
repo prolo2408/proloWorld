@@ -30,7 +30,9 @@ KONF_KOPF = """# ProloWelt - Einstellungen dieses Servers
 # AUTO_UPDATE   ja: nach der naechtlichen Sicherung "prolo update"
 # ADMIN_GRUPPE  wer in Authentik in dieser Gruppe ist, darf auf admin.<domain>
 # ADMIN_NETZE   leer: admin.<domain> von ueberall (hinter der Anmeldung). Sonst
-#               nur aus diesen Netzen, z. B. 203.0.113.7/32,10.8.0.0/24 (VPN)"""
+#               nur aus diesen Netzen, z. B. 203.0.113.7/32,10.8.0.0/24 (VPN)
+# ADMIN_DNS     leer: nichts. Sonst die VPN-Adresse des Servers (tailscale ip -4):
+#               dort beantwortet prolo admin.<domain> mit genau dieser Adresse"""
 
 UNITS = {
     "prolo-agent.service": """[Unit]
@@ -68,6 +70,40 @@ Persistent=true
 WantedBy=timers.target
 """,
 }
+
+
+DNS_EINHEIT = "prolo-dns.service"
+DNS_VORLAGE = """[Unit]
+Description=ProloWelt: admin.<domain> im VPN beantworten (ADMIN_DNS)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 {repo}/prolo dns --name {name} --ip {ip}
+Restart=always
+RestartSec=5
+# Ohne Rechte: ein Nutzer, den es nur fuer diesen Dienst gibt, darf Port 53
+# und sonst nichts.
+DynamicUser=yes
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target
+"""
 
 
 def git(*args, pruefen=True, zeit_s=120):
@@ -339,6 +375,99 @@ def systemd():
     orte.datei_schreiben(NEUSTART_FLAGGE, time.strftime("%Y-%m-%dT%H:%M:%S\n"), 0o644)
 
 
+def dns_frage(name, ip, port=53, zeit_s=3):
+    """Fragt den DNS-Dienst wie ein Geraet im VPN: welche Adresse hat name?
+    Die Antwort, die wirklich kommt - keine Meldung (N-149)."""
+    import socket
+    import struct
+    from . import dns
+    frage = struct.pack("!HHHHHH", 0x5052, 0x0100, 1, 0, 0, 0) + b"".join(
+        bytes([len(t)]) + t.encode("ascii") for t in name.split(".")) + b"\0" + \
+        struct.pack("!HH", dns.A, dns.KLASSE_IN)
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.settimeout(zeit_s)
+    try:
+        s.sendto(frage, (ip, port))
+        paket = s.recv(512)
+    except OSError:
+        return None
+    finally:
+        s.close()
+    if len(paket) < 12 or paket[:2] != b"PR" or struct.unpack("!H", paket[6:8])[0] != 1:
+        return None
+    return socket.inet_ntoa(paket[-4:])
+
+
+def adresse_da(ip):
+    """Hat der Server diese Adresse? Ein Bind ohne IP_FREEBIND gelingt nur dann."""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.bind((ip, 0))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def admin_dns():
+    """ADMIN_DNS: der DNS-Dienst prolo-dns fuer admin.<domain> im VPN (N-149).
+    Leer: Dienst aus und weg, die Regel in der Firewall auch."""
+    k = orte.konf()
+    ip = k["ADMIN_DNS"]
+    name = "admin." + k["PROLO_DOMAIN"]
+    orte.abschnitt("admin.%s im VPN" % k["PROLO_DOMAIN"])
+    if os.environ.get("PROLO_OHNE_SYSTEMD") or not shutil.which("systemctl"):
+        if ip:
+            orte.warnung("ohne systemd kein DNS-Dienst. Von Hand:  prolo dns --name %s --ip %s"
+                         % (name, ip))
+        return
+    p = os.path.join(SYSTEMD, DNS_EINHEIT)
+    try:
+        with open(p, encoding="utf-8") as f:
+            alt = f.read()
+    except FileNotFoundError:
+        alt = None
+    alt_ip = (re.search(r"--ip (\S+)", alt or "") or [None, None])[1]
+    ufw = shutil.which("ufw") and "Status: active" in docker.lauf(
+        ["ufw", "status"], pruefen=False, zeit_s=30)[1]
+    if alt_ip and alt_ip != ip and ufw:
+        docker.lauf(["ufw", "delete", "allow", "proto", "udp", "to", alt_ip, "port", "53"],
+                    pruefen=False, zeit_s=30)
+    if not ip:
+        if alt is not None:
+            docker.lauf(["systemctl", "disable", "--now", DNS_EINHEIT], pruefen=False, zeit_s=60)
+            os.remove(p)
+            docker.lauf(["systemctl", "daemon-reload"], zeit_s=60)
+            orte.getan("DNS-Dienst aus (ADMIN_DNS ist leer)")
+        else:
+            orte.ok("kein DNS-Dienst (ADMIN_DNS ist leer)")
+        return
+    text = DNS_VORLAGE.format(repo=orte.REPO, name=name, ip=ip)
+    if text != alt:
+        orte.datei_schreiben(p, text, 0o644)
+        docker.lauf(["systemctl", "daemon-reload"], zeit_s=60)
+        docker.lauf(["systemctl", "enable", DNS_EINHEIT], zeit_s=60)
+        docker.lauf(["systemctl", "restart", DNS_EINHEIT], zeit_s=60)
+        orte.getan("%s beantwortet %s mit %s" % (DNS_EINHEIT, name, ip))
+    else:
+        docker.lauf(["systemctl", "enable", "--now", DNS_EINHEIT], zeit_s=60)
+    if ufw:
+        docker.lauf(["ufw", "allow", "proto", "udp", "to", ip, "port", "53", "comment",
+                     "prolo-dns"], zeit_s=30)
+    if not adresse_da(ip):
+        orte.warnung("%s gibt es auf dem Server (noch) nicht - der Dienst antwortet, sobald "
+                     "sie da ist. Läuft das VPN?  sudo tailscale up  /  tailscale ip -4" % ip)
+        return
+    time.sleep(1)
+    erhalten = dns_frage(name, ip)
+    if erhalten != ip:
+        raise Abbruch("Der DNS-Dienst antwortet nicht richtig (%s statt %s). Nachsehen:  "
+                      "journalctl -u %s -n 30" % (erhalten or "keine Antwort", ip, DNS_EINHEIT))
+    orte.ok("%s antwortet: %s -> %s" % (DNS_EINHEIT, name, ip))
+
+
 def hochfahren():
     """Abbilder holen, Admin-Seite bauen, alles starten und warten, bis es
     gesund ist."""
@@ -519,6 +648,7 @@ def einrichten(domain=None, email=None, schluessel=None, nach_update=None):
     traefik_dateien()
     netze()
     systemd()
+    admin_dns()
     try:
         hochfahren()
     except Abbruch as a:

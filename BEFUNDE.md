@@ -10,7 +10,7 @@ Die Befunde `B-01` bis `B-49`, `N-01` bis `N-113`, `U-01` bis `U-04`,
 
     git show 4d16fd7:NEUE-BEFUNDE.md
 
-Neue Befunde bekommen die nächste freie Nummer: **N-149**.
+Neue Befunde bekommen die nächste freie Nummer: **N-150**.
 
 ---
 
@@ -693,4 +693,39 @@ Fenster weiter: im CI 2 von 3); mit dem Worker nach dem Server → 0 von 100.
 **Jetzt:** der Worker startet nach dem Server (`depends_on … service_started`)
 – zwei gleichzeitige Kopien gibt es dann nicht mehr. Einheitstests 84 → 85,
 Gegenprobe 69 → 70.
+
+---
+
+## N-149 — Mit `ADMIN_NETZE` aus dem VPN sperrte man sich aus
+
+`ADMIN_NETZE=100.64.0.0/10` (Tailscale) lässt nur Anfragen aus dem VPN an die
+Admin-Seite (N-141). Aber `admin.<domain>` zeigt im öffentlichen DNS auf die
+öffentliche Adresse des Servers – ein Gerät im VPN geht trotzdem übers
+Internet, mit seiner öffentlichen Adresse, und ist ausgesperrt. Die Sperre war
+mit einem VPN so nicht benutzbar. Ein Eintrag im öffentlichen DNS auf die
+VPN-Adresse ginge, aber dann erreicht Let's Encrypt `admin.` nicht mehr, und
+das Zertifikat läuft ab.
+
+**Jetzt:** `ADMIN_DNS` in `prolo.conf` – die VPN-Adresse des Servers. Dort
+beantwortet der Dienst `prolo-dns` (`kern/dns.py`, Standardbibliothek)
+genau einen Namen, `admin.<domain>`, mit dieser Adresse; alles andere
+`REFUSED`, Unsinn wird verworfen. Tailscale fragt ihn per „Split DNS“ nur für
+diesen Namen. Der Dienst läuft als `DynamicUser` mit nur
+`CAP_NET_BIND_SERVICE`, lauscht nur auf der VPN-Adresse (mit
+`IP_FREEBIND`: er startet auch, wenn Tailscale noch nicht oben ist), `ufw`
+öffnet Port 53/udp nur zu dieser Adresse. `einrichten` prüft die Wirkung:
+es fragt den Dienst wie ein Gerät im VPN und erwartet die Adresse. Ein
+eigenes Paket wie `dnsmasq` ist es bewusst nicht – das greift auf vielen
+Servern in die Namensauflösung des Systems ein.
+
+Geprüft: Einheitstests mit Bytes von Hand nach RFC 1035 (A, Groß- und
+Kleinschreibung, AAAA → leer, fremde Namen und Klassen → REFUSED, UPDATE →
+NOTIMP, 11 Arten Unsinn → verworfen, 20000 Zufallspakete ohne Fehler, echter
+Lauf über einen Socket). Echt als `nobody` mit nur `net_bind_service`
+gestartet (wie systemd ihn startet), auf einer Adresse, die es noch nicht gab
+– läuft; Adresse dazu → `dig`: A 100.101.102.103 mit TTL 60, AAAA leer,
+`vault.` REFUSED. Unterwegs: die Prüfung „gibt es die Adresse?“ hing an
+`ip` (fehlte hier) – jetzt ein Bind ohne `IP_FREEBIND`. Einheitstests
+85 → 92, Gegenprobe 70 → 73. Nicht hier gelaufen: systemd und Tailscale
+selbst.
 

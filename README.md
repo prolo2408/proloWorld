@@ -558,6 +558,34 @@ sudo nano /etc/prolo/prolo.conf
 sudo prolo einrichten
 ```
 
+### Mit Tailscale
+
+So kommst du nur noch über dein Tailscale-Netz auf die Admin-Seite, und alle
+Tools sowie `auth.` bleiben, wie sie sind:
+
+1. Tailscale auf den Server und auf deine Geräte, mit demselben Konto:
+   ```bash
+   curl -fsSL https://tailscale.com/install.sh | sh
+   sudo tailscale up
+   tailscale ip -4          # z. B. 100.101.102.103 - die Adresse des Servers im VPN
+   ```
+2. In `/etc/prolo/prolo.conf` `ADMIN_DNS=100.101.102.103` eintragen, dann
+   `sudo prolo einrichten`. prolo beantwortet ab jetzt im VPN die Frage
+   „welche Adresse hat `admin.<domain>`?“ mit genau dieser Adresse (Dienst
+   `prolo-dns`, ohne Rechte, nur auf der VPN-Adresse, nur dieser eine Name).
+3. In der Tailscale-Verwaltung → **DNS** → **Nameservers** → *Add nameserver*
+   → *Custom*: die Adresse von oben, **Restrict to domain** eingeschaltet,
+   Domain `admin.<domain>`.
+4. Auf einem Gerät mit Tailscale die Admin-Seite öffnen – sie muss gehen.
+   Erst dann sperren: `ADMIN_NETZE=100.64.0.0/10`, `sudo prolo einrichten`.
+   Ohne Tailscale (Handy im Mobilfunk mit ausgeschaltetem VPN) bekommt man
+   jetzt „Forbidden“.
+
+Das öffentliche DNS bleibt, wie es ist – darum erneuert Let's Encrypt das
+Zertifikat weiter.
+
+### Was erlaubt ist
+
 Mehrere Netze mit Komma; eine einzelne Adresse ist `/32`. Leer heißt: von
 überall, hinter der Anmeldung. Nicht erlaubt sind die Bereiche, in denen
 Docker die Netze der Container anlegt (`172.16.0.0/12`, `192.168.0.0/16` und

@@ -1,3 +1,15 @@
+# 2.4.0
+
+- **Admin-Seite nur über Tailscale (oder ein anderes VPN):** `ADMIN_DNS` in
+  `prolo.conf` – prolo beantwortet im VPN `admin.<domain>` mit der
+  VPN-Adresse des Servers (Dienst `prolo-dns`, ohne Rechte). Zusammen mit
+  `ADMIN_NETZE=100.64.0.0/10` ist die Admin-Seite von außen zu, aus dem VPN
+  offen; das Zertifikat erneuert sich weiter. Anleitung in der README (N-149).
+- Gefunden im ersten echten Durchlauf mit Authentik nach 2.3.0: die
+  Wirkungsprüfung des Admin-Cookies (N-147), Compose-Fassungen ohne
+  `--no-env-resolution` (N-146), Neuinstallation scheiterte zufällig beim
+  ersten Start von Authentik (N-148) – schon in 2.3.0 enthalten.
+
 # 2.3.0
 
 Sicherheit – aus einem Angriff von allen Seiten (N-135 bis N-145, Einzelheiten
