@@ -589,6 +589,49 @@ class DnsTest(unittest.TestCase):
                       "NoNewPrivileges=yes", "ProtectSystem=strict", "RestrictAddressFamilies=AF_INET"):
             self.assertIn(zeile + "\n", t)
 
+    def test_tailscale_lage(self):
+        # Ausschnitte, wie `tailscale debug prefs` sie schreibt (von Hand)
+        self.assertEqual(unterbau.tailscale_lage('{"NoSNAT": true, "AdvertiseRoutes": null}'), "ok")
+        self.assertEqual(unterbau.tailscale_lage(
+            '{"NoSNAT": true, "AdvertiseRoutes": ["192.168.1.0/24"]}'), "ok")
+        self.assertEqual(unterbau.tailscale_lage(
+            '{"NoSNAT": false, "AdvertiseRoutes": null}'), "abschalten")
+        self.assertEqual(unterbau.tailscale_lage('{"ShieldsUp": false}'), "abschalten")
+        self.assertEqual(unterbau.tailscale_lage(
+            '{"NoSNAT": false, "AdvertiseRoutes": ["0.0.0.0/0", "::/0"]}'), "routen")
+        self.assertEqual(unterbau.tailscale_lage(
+            'Warning: client version "1.88.1" != tailscaled server version "1.90.0"\n'
+            '{\n  "NoSNAT": true\n}\n'), "ok")
+        self.assertEqual(unterbau.tailscale_lage('{"NoSNAT": "true"}'), "abschalten")
+        for kaputt in ("", "failed to connect to local tailscaled", "{kein json}", "[1, 2]"):
+            self.assertIsNone(unterbau.tailscale_lage(kaputt), kaputt)
+
+    def _absender(self, antworten):
+        """tailscale_absender mit einem Schein-tailscale: antworten ist die Folge
+        der Ausgaben von `debug prefs`. Gibt die Befehle zurueck, die liefen."""
+        from unittest import mock
+        befehle, folge = [], list(antworten)
+
+        def lauf(befehl, pruefen=True, zeit_s=600, **_):
+            befehle.append(befehl)
+            return (0, folge.pop(0)) if befehl[1] == "debug" else (0, "")
+        with mock.patch.object(unterbau.shutil, "which", return_value="/usr/bin/tailscale"), \
+                mock.patch.object(unterbau.docker, "lauf", side_effect=lauf):
+            unterbau.tailscale_absender()
+        return befehle
+
+    def test_tailscale_snat_wird_abgeschaltet(self):
+        SET = ["tailscale", "set", "--snat-subnet-routes=false"]
+        b = self._absender(['{"NoSNAT": false}', '{"NoSNAT": true}'])
+        self.assertEqual(b.count(SET), 1)
+        self.assertEqual(b[-1], ["tailscale", "debug", "prefs"])   # Wirkung nachgelesen
+        self.assertNotIn(SET, self._absender(['{"NoSNAT": true}']))
+        self.assertNotIn(SET, self._absender(['{"AdvertiseRoutes": ["10.0.0.0/8"]}']))
+        self.assertNotIn(SET, self._absender(["failed to connect to local tailscaled"]))
+        with self.assertRaises(Abbruch) as a:                     # set ohne Wirkung
+            self._absender(['{"NoSNAT": false}', '{"NoSNAT": false}'])
+        self.assertIn("sudo tailscale set --snat-subnet-routes=false", str(a.exception))
+
     def test_einstellung(self):
         orte.env_schreiben(orte.KONF, {"PROLO_DOMAIN": "prolo.me", "PROLO_EMAIL": "a@prolo.me",
                                        "ADMIN_DNS": "kein-ip"})

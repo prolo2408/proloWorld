@@ -729,3 +729,40 @@ gestartet (wie systemd ihn startet), auf einer Adresse, die es noch nicht gab
 85 → 92, Gegenprobe 70 → 73. Nicht hier gelaufen: systemd und Tailscale
 selbst.
 
+
+---
+
+## N-150 — Aus Tailscale kam trotzdem „Forbidden“: SNAT
+
+Mit N-149 eingerichtet, `prolo-dns` antwortet aus dem VPN richtig
+(`Resolve-DnsName admin.prolo.me` → 100.123.123.118) – und die Admin-Seite
+sagt trotzdem „Forbidden“, auch mit `curl --resolve` direkt auf die
+100.x-Adresse. Tailscale setzt auf Linux in `ts-forward` eine Marke an alles,
+was von `tailscale0` weitergeleitet wird, und `ts-postrouting` maskiert es
+(`-m mark --mark 0x40000/0xff0000 -j MASQUERADE`, Vorgabe
+`--snat-subnet-routes=true`). Eine Verbindung an Traefik geht per DNAT in
+einen Container, wird also weitergeleitet – Traefik sieht als Absender das
+Gateway des Docker-Netzes (172.x), nicht 100.x. `ADMIN_NETZE=100.64.0.0/10`
+sperrt so das VPN mit aus, und 172.16.0.0/12 freizugeben ist zu Recht
+verboten (N-143). Die Wirkungsprüfung von N-149 sah nichts: sie fragt vom
+Server selbst, über die eigene Adresse – an `tailscale0` und an der
+Weiterleitung vorbei.
+
+**Jetzt:** `einrichten` liest bei gesetztem `ADMIN_DNS` die Einstellungen
+von Tailscale (`tailscale debug prefs`). `NoSNAT` nicht an und keine
+`AdvertiseRoutes` → `tailscale set --snat-subnet-routes=false`, danach wird
+nachgelesen, ob es wirkt; sonst Abbruch mit dem Befehl. Reicht der Server
+Routen weiter (Subnet-Router, Exit-Node), schaltet prolo nicht ab – die
+Geräte hinter den Routen fänden den Weg zurück zu 100.x nicht – und sagt,
+was zu tun ist. Warnungen von `tailscale` vor dem JSON (Fassungen von Client
+und Dienst verschieden) stören das Lesen nicht.
+
+Geprüft: am echten Server von Hand – `iptables -t nat -S ts-postrouting`
+zeigte die MASQUERADE-Regel, `curl --resolve admin.prolo.me:443:100.123.123.118`
+→ „Forbidden“; nach `tailscale set --snat-subnet-routes=false` dieselbe
+Anfrage → kein „Forbidden“ mehr. Einheitstests mit Ausgaben von Hand (an,
+aus, Routen, Exit-Node, Warnzeile davor, kaputt) und mit einem Schein-
+`tailscale` (abschalten genau einmal, Wirkung nachgelesen, ohne Wirkung →
+Abbruch). Einheitstests 92 → 94, Gegenprobe 73 → 76. Nicht hier gelaufen:
+`tests/durchlauf.py` (kein Docker-Dienst in dieser Umgebung) und `einrichten`
+gegen ein echtes Tailscale.

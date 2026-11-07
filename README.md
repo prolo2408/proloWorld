@@ -573,6 +573,11 @@ Tools sowie `auth.` bleiben, wie sie sind:
    `sudo prolo einrichten`. prolo beantwortet ab jetzt im VPN die Frage
    „welche Adresse hat `admin.<domain>`?“ mit genau dieser Adresse (Dienst
    `prolo-dns`, ohne Rechte, nur auf der VPN-Adresse, nur dieser eine Name).
+   Außerdem schaltet `einrichten` das SNAT von Tailscale ab
+   (`tailscale set --snat-subnet-routes=false`) – sonst sieht Traefik statt
+   deiner 100.x-Adresse die des Docker-Netzes und sperrt dich gleich mit aus.
+   Reicht der Server Routen weiter (Subnet-Router, Exit-Node), lässt prolo es
+   an und sagt, was zu tun ist.
 3. In der Tailscale-Verwaltung → **DNS** → **Nameservers** → *Add nameserver*
    → *Custom*: die Adresse von oben, **Restrict to domain** eingeschaltet,
    Domain `admin.<domain>`.
@@ -605,6 +610,7 @@ leeren und `sudo prolo einrichten`; die Kommandozeile geht immer.
 | Admin-Seite sagt „Der Stand ist … alt“ | der Agent läuft nicht: `sudo systemctl status prolo-agent` |
 | Tool startet nicht | `sudo prolo tool logs <name>` |
 | Anmeldung kommt nicht | `sudo prolo compose logs --tail 50 authentik-server` |
+| Admin-Seite sagt „Forbidden“, obwohl Tailscale an ist | `Resolve-DnsName admin.<domain>` (Windows) muss die 100.x-Adresse liefern; wenn ja: `sudo tailscale debug prefs \| grep NoSNAT` muss `true` sein – sonst `sudo prolo einrichten` |
 | irgendetwas fehlt | `sudo prolo einrichten` – sieht nach und ergänzt, gefahrlos |
 
 ---
