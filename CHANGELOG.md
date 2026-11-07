@@ -1,3 +1,40 @@
+# 2.3.0
+
+Sicherheit – aus einem Angriff von allen Seiten (N-135 bis N-145, Einzelheiten
+in `BEFUNDE.md`). **Vor dem Mergen auf einem Testserver
+`sudo python3 tests/durchlauf.py` fahren** – das nächtliche Update spielt es
+sonst ungeprüft ein.
+
+- **Compose-Dateien: Erlaubnisliste statt Sperrliste** (`kern/kaefig.py`).
+  Was prolo nicht kennt, ist eine Gefahr. Geschlossen u. a.: Volumes mit
+  `driver_opts` (Dateisystem des Servers), fremde Volume- und Netznamen
+  (Datenbank von Authentik), `secrets`/`configs`/`env_file`/`build` mit Pfaden
+  vom Server, `volumes_from`/`pid`/`ipc` fremder Container, `post_start`
+  privilegiert, `provider`, `use_api_socket` (N-135).
+- **Der Ordner eines Tools ist fremd:** kein Schreiben durch Verweise
+  (`.env.neu` → `authorized_keys`), keine Verweise nach draußen, keine
+  Einhängung von `.git`, von Dateien, die root liest, oder ineinander (N-136).
+- **Prüfung als Nutzer `prolo-pruefer`, ohne Rechte und ohne Netz**, auf einer
+  Kopie: `include`/`extends` können keine fremden Dateien und nichts aus Git
+  oder einer Registry mehr einschleusen (N-137, N-145).
+- **Geprüft wird vor jedem Start** – auch Aktualisieren (eine gefährliche
+  neue Fassung aus Git wird zurückgesetzt), Starten, Neustarten, Zurückholen.
+  Auf der Kommandozeile Bestätigtes merkt sich prolo (N-138).
+- **Traefik sieht Docker nicht mehr:** kein Docker-Provider, kein
+  `socket-proxy`. Router als Dateien (`unterbau.yml`, `tool-<name>.yml`) –
+  Labels eines Abbilds können `admin.`/`auth.` nicht mehr übernehmen (N-139).
+- **Eigenes Anmelde-Cookie für die Admin-Seite**, nur für die Admin-Gruppe –
+  das Cookie der Tools gilt dort nicht (N-140).
+- **`ADMIN_NETZE`** in `prolo.conf`: Admin-Seite auf Wunsch nur aus deinen
+  Netzen (N-141, N-143).
+- `tool set --host` prüft wie `tool add` (N-144); der Agent übersteht einen
+  Ordner im Eingang (N-142).
+
+Beim Update legt `prolo einrichten` jedes Tool einmal neu an (neuer Name für
+Traefik), nach der Prüfung. Findet die neue Prüfung bei einem Tool etwas, das
+früher auf der Kommandozeile durchging, bleibt es stehen und „Was zu tun ist“
+sagt: `sudo prolo einrichten` und bestätigen.
+
 # 2.2.0
 
 - **Private Git-Repositories:** Git-Zugänge, einer je Anbieter, unter

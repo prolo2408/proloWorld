@@ -17,6 +17,7 @@ Argumenten, nie ueber eine Shell. Einer nach dem anderen.
 import datetime
 import json
 import os
+import shutil
 import signal
 import stat
 import subprocess
@@ -134,6 +135,22 @@ def ausfuehren(kennung, daten):
     lage_schreiben(lage)
 
 
+def weg(pfad):
+    """Etwas aus dem Eingang raeumen - auch einen Ordner. Der Eingang gehoert
+    der Admin-Seite; legt sie (uebernommen) dort einen Ordner ab, darf der
+    Agent daran nicht sterben (N-142: os.remove -> IsADirectoryError, der
+    Agent startete in Schleife neu und nahm keinen Auftrag mehr an)."""
+    try:
+        if os.path.isdir(pfad) and not os.path.islink(pfad):
+            shutil.rmtree(pfad)
+        else:
+            os.remove(pfad)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        print("Eingang: %s ließ sich nicht wegräumen: %s" % (os.path.basename(pfad), e), flush=True)
+
+
 def naechster():
     try:
         namen = sorted(n for n in os.listdir(orte.EINGANG) if n.endswith(".json"))
@@ -143,7 +160,7 @@ def naechster():
         pfad = os.path.join(orte.EINGANG, n)
         kennung = n[:-5]
         if not auftrag.KENNUNG.fullmatch(kennung):
-            os.remove(pfad)
+            weg(pfad)
             continue
         try:
             daten = lesen(pfad)
@@ -151,10 +168,7 @@ def naechster():
             daten = {"art": "?", "_fehler": str(e)}
         finally:
             # Sofort aus dem Eingang - sonst liefe er nach einem Neustart doppelt.
-            try:
-                os.remove(pfad)
-            except FileNotFoundError:
-                pass
+            weg(pfad)
         return kennung, daten
     return None
 

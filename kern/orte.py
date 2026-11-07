@@ -52,7 +52,10 @@ KONF_FELDER = {
     "BACKUP_TAGE": "14",
     "AUTO_UPDATE": "ja",
     "ADMIN_GRUPPE": "authentik Admins",
+    "ADMIN_NETZE": "",
 }
+# Darf leer bleiben: leer heisst "von ueberall" (hinter der Anmeldung).
+KONF_LEER_ERLAUBT = ("ADMIN_NETZE",)
 GEHEIM_FELDER = ("AUTHENTIK_SECRET_KEY", "PG_PASS", "AUTHENTIK_BOOTSTRAP_PASSWORD")
 
 DOMAIN = re.compile(r"(?=.{4,200}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
@@ -131,9 +134,19 @@ def env_schreiben(pfad, werte, kopf="", modus=0o600):
 
 
 def datei_schreiben(pfad, text, modus=0o644):
+    """Erst daneben schreiben, dann umbenennen. Die Datei daneben wird NEU
+    angelegt und folgt keinem Verweis: liegt dort schon etwas (in einem
+    Git-Repository etwa ein Verweis .env.neu -> /root/.ssh/authorized_keys),
+    schriebe root sonst dorthin (N-136)."""
     os.makedirs(os.path.dirname(pfad), exist_ok=True)
     neu = pfad + ".neu"
-    with open(os.open(neu, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, modus), "w",
+    try:
+        os.unlink(neu)
+    except FileNotFoundError:
+        pass
+    except IsADirectoryError:
+        raise Abbruch("%s ist ein Ordner - dort schreibt prolo nicht hin." % neu)
+    with open(os.open(neu, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, modus), "w",
               encoding="utf-8") as f:
         f.write(text)
     os.chmod(neu, modus)
@@ -146,7 +159,7 @@ def konf():
     werte = {}
     for k, vorgabe in KONF_FELDER.items():
         v = roh.get(k, vorgabe)
-        if v is None or v == "":
+        if v is None or (v == "" and k not in KONF_LEER_ERLAUBT):
             raise Abbruch("%s fehlt in %s. Einrichten mit:  sudo prolo einrichten"
                           % (k, KONF))
         werte[k] = v
@@ -157,7 +170,39 @@ def konf():
         raise Abbruch("BACKUP_TAGE in %s muss eine Zahl ab 1 sein." % KONF)
     if werte["AUTO_UPDATE"] not in ("ja", "nein"):
         raise Abbruch("AUTO_UPDATE in %s ist ja oder nein." % KONF)
+    werte["ADMIN_NETZE"] = ",".join(admin_netze(werte["ADMIN_NETZE"]))
     return werte
+
+
+# Hier vergibt Docker von sich aus die Netze der Container (default-address-
+# pools). Ein Tool spricht Traefik von dort aus an - ein ADMIN_NETZE, das sie
+# einschliesst, liesse jedes Tool durch (gemessen, N-143).
+DOCKER_NETZE = ("172.16.0.0/12", "192.168.0.0/16")
+
+
+def admin_netze(text, docker_netze=()):
+    """ADMIN_NETZE: Netze, aus denen admin.<domain> erreichbar ist (N-141),
+    z. B. 203.0.113.7/32,10.8.0.0/24. Leer: von ueberall. docker_netze: die
+    Netze, die es auf dem Server gerade gibt, zusaetzlich zu DOCKER_NETZE."""
+    import ipaddress
+    sperre = [ipaddress.ip_network(n) for n in DOCKER_NETZE + tuple(docker_netze)]
+    netze = []
+    for teil in (text or "").replace(" ", "").split(","):
+        if not teil:
+            continue
+        try:
+            netz = ipaddress.ip_network(teil, strict=False)
+        except ValueError:
+            raise Abbruch("ADMIN_NETZE in %s: %s ist kein Netz (z. B. 203.0.113.7/32 oder "
+                          "10.8.0.0/24)." % (KONF, teil))
+        for s in sperre:
+            if s.version == netz.version and s.overlaps(netz):
+                raise Abbruch("ADMIN_NETZE in %s: %s überschneidet sich mit %s - dort liegen "
+                              "die Netze der Container, und jedes Tool käme durch. Nimm die "
+                              "Adresse, mit der du von außen kommst, oder das Netz deines VPN "
+                              "(z. B. 100.64.0.0/10 bei Tailscale)." % (KONF, netz, s))
+        netze.append(str(netz))
+    return netze
 
 
 def geheimnisse():

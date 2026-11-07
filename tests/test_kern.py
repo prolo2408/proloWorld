@@ -1,6 +1,7 @@
 """Einheitstests fuer den Kern: was geprueft, erzeugt und entschieden wird.
 
-Kein Docker noetig. Erwartungswerte von Hand (CLAUDE.md §13) - nie die
+Kein Docker-Dienst noetig - nur fuer KaefigModellTest das Programm docker
+compose (config laeuft ohne Dienst). Erwartungswerte von Hand (CLAUDE.md §13) - nie die
 Ausgabe des Codes abgeschrieben.
 
     python3 -m unittest discover -s tests -v
@@ -9,6 +10,7 @@ import datetime
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,7 +25,7 @@ TMP = tempfile.mkdtemp(prefix="prolo-test-")
 for k in ("ETC", "VAR", "TOOLS", "BACKUP"):
     os.environ["PROLO_" + k] = os.path.join(TMP, k.lower())
 
-from kern import agent, auftrag, orte, sicherung, tools, zugang  # noqa: E402
+from kern import agent, auftrag, kaefig, orte, sicherung, tools, unterbau, zugang  # noqa: E402
 from kern.orte import Abbruch  # noqa: E402
 
 
@@ -195,7 +197,7 @@ class ComposeTest(unittest.TestCase):
                                   {"type": "bind", "source": "/etc", "target": "/e"},
                                   {"type": "bind", "source": app, "target": "/a"}]}},
                "volumes": {"fremd": {"external": True}}}
-        gef, hin, aussen = tools.gefahren(cfg, app)
+        gef, hin, aussen = tools.gefahren(cfg, app, "x")
         text = "\n".join(gef)
         for erwartet in ("privileged", "network_mode: host", "SYS_ADMIN", "pid: host",
                          "Docker-Socket", "/etc vom Server", "ganzen Ordner", "fremdes Volume"):
@@ -203,6 +205,126 @@ class ComposeTest(unittest.TestCase):
         self.assertFalse([g for g in gef if g.startswith("harmlos")])
         self.assertEqual(aussen, ["/etc"])
         self.assertEqual(len(gef), 8)
+
+    def test_erlaubnisliste(self):
+        """N-135: je ein Weg, an dem die Sperrliste vorbeiliess - jeder einzeln."""
+        app = "/opt/tools/x/app"
+
+        def gef(dienst=None, **oben):
+            cfg = {"services": {"app": dict({"image": "a:1"}, **(dienst or {}))}}
+            cfg.update(oben)
+            return "\n".join(tools.gefahren(cfg, app, "x")[0])
+
+        self.assertEqual(gef(), "")
+        faelle = [
+            ({}, {"volumes": {"w": {"name": "x_w", "driver": "local", "driver_opts": {
+                "type": "none", "o": "bind", "device": "/"}}}}, "driver_opts"),
+            ({}, {"volumes": {"w": {"name": "prolo_authentik-db"}}}, "prolo_authentik-db"),
+            ({}, {"volumes": {"w": {"name": "vault_daten"}}}, "vault_daten"),
+            ({}, {"networks": {"n": {"name": "prolo-authentik"}}}, "prolo-authentik"),
+            ({}, {"networks": {"n": {"name": "x_n", "ipam": {"config": [{}]}}}}, "ipam"),
+            ({}, {"secrets": {"s": {"file": "/etc/prolo/backup.key"}}}, "backup.key"),
+            ({}, {"secrets": {"s": {"environment": "HOME"}}}, "environment"),
+            ({}, {"configs": {"c": {"file": "/etc/prolo/geheim.env"}}}, "geheim.env"),
+            ({}, {"include": []}, "'include'"),
+            ({"volumes_from": ["container:prolo-authentik-db-1"]}, {}, "fremden Containers"),
+            ({"pid": "container:prolo-authentik-server-1"}, {}, "pid:"),
+            ({"ipc": "container:x"}, {}, "ipc:"),
+            ({"post_start": [{"command": ["id"], "privileged": True}]}, {}, "'post_start'"),
+            ({"provider": {"type": "x"}}, {}, "'provider'"),
+            ({"use_api_socket": True}, {}, "'use_api_socket'"),
+            ({"gpus": "all"}, {}, "'gpus'"),
+            ({"security_opt": ["seccomp=unconfined"]}, {}, "seccomp=unconfined"),
+            ({"security_opt": ["apparmor=unconfined"]}, {}, "apparmor=unconfined"),
+            ({"logging": {"driver": "syslog"}}, {}, "syslog"),
+            ({"oom_score_adj": -900}, {}, "oom_score_adj"),
+            ({"deploy": {"resources": {"reservations": {"devices": [{}]}}}}, {}, "Geräte"),
+            ({"labels": {"com.docker.compose.project": "vault"}}, {}, "com.docker.compose.project"),
+            ({"container_name": "prolo-authentik-server-1"}, {}, "Containernamen"),
+            ({"networks": {"default": {"aliases": ["prolo-tool-vault"]}}},
+             {"networks": {"default": {"name": "x_default"}}}, "Netz-Aliasse"),
+            ({"networks": {"default": {"ipv4_address": "172.18.0.2"}}},
+             {"networks": {"default": {"name": "x_default"}}}, "ipv4_address"),
+            ({"volumes": [{"type": "bind", "source": app + "/d", "target": "/d",
+                           "bind": {"propagation": "rshared"}}]}, {}, "rshared"),
+            ({"volumes": [{"type": "volume", "source": "nirgends", "target": "/d"}]}, {},
+             "nicht anlegt"),
+            ({"build": {"context": "/etc"}}, {}, "build.context"),
+            ({"build": {"context": app, "dockerfile": "../../../../etc/shadow"}}, {}, "Dockerfile"),
+            ({"build": {"context": app, "ssh": ["default"]}}, {}, "ssh"),
+            ({"build": {"context": app, "network": "host"}}, {}, "build.network"),
+            ({"build": {"context": app, "additional_contexts": {"x": "/root"}}}, {},
+             "additional_contexts"),
+            ({"build": {"context": app, "cache_from": ["type=local,src=/root"]}}, {}, "cache_from"),
+            ({"env_file": [{"path": "/etc/prolo/geheim.env"}]}, {}, "(env_file)"),
+        ]
+        for dienst, oben, erwartet in faelle:
+            with self.subTest(erwartet=erwartet):
+                self.assertIn(erwartet, gef(dienst, **oben))
+
+    def test_erlaubnisliste_laesst_uebliches_durch(self):
+        """Was Hersteller-Dateien gewoehnlich haben, ist keine Gefahr."""
+        app = "/opt/tools/x/app"
+        cfg = {"name": "x", "services": {
+            "app": {"image": "a:1", "command": None, "entrypoint": None, "restart": "always",
+                    "environment": {"A": "1"}, "depends_on": {"db": {"condition": "service_started"}},
+                    "volumes": [{"type": "volume", "source": "daten", "target": "/d", "volume": {}},
+                                {"type": "bind", "source": app + "/export", "target": "/e"},
+                                {"type": "tmpfs", "target": "/t"}],
+                    "networks": {"default": None}, "healthcheck": {"test": ["CMD", "true"]},
+                    "security_opt": ["no-new-privileges:true"], "cap_drop": ["ALL"],
+                    "logging": {"driver": "json-file"}, "read_only": True, "shm_size": "128mb",
+                    "deploy": {"resources": {"limits": {"memory": "1"}}}, "ports": [{"target": 80}],
+                    "labels": {"traefik.enable": "true"}, "x-eigen": 1,
+                    "build": {"context": app, "dockerfile": "Dockerfile", "args": {"A": "1"}}},
+            "db": {"image": "postgres:16", "volumes_from": ["app:ro"]}},
+            "volumes": {"daten": {"name": "x_daten"}},
+            "networks": {"default": {"name": "x_default"}},
+            "secrets": {"s": {"file": app + "/geheim.txt"}}}
+        gef, hin, _ = tools.gefahren(cfg, app, "x")
+        self.assertEqual(gef, [])
+
+    def test_ordner_eines_tools_ist_fremd(self):
+        """N-136: was ein Container einhaengt, kann er veraendern - und ein
+        Git-Repository bringt Verweise mit."""
+        tmp = tempfile.mkdtemp()
+        app = os.path.join(tmp, "app")
+        for d in ("daten/innen", "export", ".git/hooks", "conf"):
+            os.makedirs(os.path.join(app, d))
+        os.symlink("/etc/prolo/geheim.env", os.path.join(app, ".env"))
+        os.symlink("conf", os.path.join(app, "nach-innen"))
+        os.symlink(tmp, os.path.join(app, "export", "weg"))       # im Einhaengeordner: egal
+
+        def bind(q):
+            return {"type": "bind", "source": os.path.join(app, q), "target": "/x"}
+
+        cfg = {"services": {"app": {"image": "a:1", "volumes": [
+            bind("daten"), bind("daten/innen"), bind(".git"), bind("export"), bind("nach-innen")],
+            "env_file": [{"path": os.path.join(app, "daten", "app.env")}]}}}
+        gef = "\n".join(tools.gefahren(cfg, app, "x")[0])
+        self.assertIn(".env zeigt nach /etc/prolo/geheim.env", gef)
+        self.assertIn("Git-Hooks", gef)
+        self.assertIn("darin wird daten/innen eingehängt", gef)
+        self.assertIn("darin liegt daten/app.env", gef)
+        self.assertIn("über einen Verweis ein (nach-innen)", gef)
+        self.assertNotIn("weg zeigt", gef)          # gehoert dem Container
+        self.assertNotIn("nach-innen zeigt", gef)   # zeigt nach innen
+
+    def test_schreiben_folgt_keinem_verweis(self):
+        """N-136: ein mitgebrachter Verweis .env.neu -> Datei ausserhalb."""
+        tmp = tempfile.mkdtemp()
+        opfer = os.path.join(tmp, "authorized_keys")
+        with open(opfer, "w") as f:
+            f.write("unberuehrt\n")
+        app = os.path.join(tmp, "app")
+        os.makedirs(app)
+        os.symlink(opfer, os.path.join(app, ".env.neu"))
+        orte.datei_schreiben(os.path.join(app, ".env"), "A=1\n", 0o600)
+        with open(opfer) as f:
+            self.assertEqual(f.read(), "unberuehrt\n")
+        with open(os.path.join(app, ".env")) as f:
+            self.assertEqual(f.read(), "A=1\n")
+        self.assertFalse(os.path.islink(os.path.join(app, ".env")))
 
     def test_dienst_waehlen(self):
         einer = {"services": {"web": {"image": "a:1", "expose": ["3001"]}}}
@@ -225,6 +347,170 @@ class ComposeTest(unittest.TestCase):
                                  "x", None, None)
 
 
+@unittest.skipUnless(shutil.which("docker"), "docker compose fehlt")
+class KaefigModellTest(unittest.TestCase):
+    """N-137: das Modell entsteht ohne Rechte auf einer Kopie."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.app = os.path.join(self.tmp, "x", "app")
+        os.makedirs(self.app)
+
+    def schreiben(self, name, text, ordner=None):
+        p = os.path.join(ordner or self.app, name)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w") as f:
+            f.write(text)
+        return p
+
+    def test_include_einer_fremden_datei(self):
+        fremd = self.schreiben("compose.yml", "services:\n  vault:\n    image: a:1\n"
+                                              "    environment: { T: ${T} }\n",
+                               os.path.join(self.tmp, "vault"))
+        self.schreiben(".env", "T=geheim\n", os.path.join(self.tmp, "vault"))
+        os.chmod(os.path.dirname(fremd), 0)
+        self.addCleanup(os.chmod, os.path.dirname(fremd), 0o700)
+        self.schreiben("docker-compose.yml", "include: [ %s ]\nservices:\n  app: { image: a:1 }\n"
+                       % fremd)
+        with self.assertRaises(Abbruch) as a:
+            kaefig.modell(self.app, "x", "docker-compose.yml")
+        self.assertIn("außerhalb des Tools", str(a.exception))
+        self.assertNotIn(self.tmp, str(a.exception).replace(fremd, ""))
+
+    def test_include_im_tool_geht_und_pfade_zeigen_nach_app(self):
+        self.schreiben("db/compose.yml", "services:\n  db: { image: postgres:16 }\n")
+        self.schreiben("docker-compose.yml", "include: [ ./db/compose.yml ]\nservices:\n  app:\n"
+                       "    image: a:1\n    volumes: [ ./daten:/d ]\n")
+        cfg = kaefig.modell(self.app, "x", "docker-compose.yml")
+        self.assertEqual(sorted(cfg["services"]), ["app", "db"])
+        self.assertEqual(cfg["services"]["app"]["volumes"][0]["source"],
+                         os.path.join(self.app, "daten"))
+        self.assertEqual(tools.gefahren(cfg, self.app, "x")[0], [])
+
+    def test_env_file_den_nur_root_lesen_darf(self):
+        """N-146: mit jeder Compose-Fassung - ob sie env_file im Modell zeigt
+        oder nicht, an die Datei kommt der Pruefer nicht."""
+        geheim = self.schreiben("geheim.env", "K=v\n", os.path.join(self.tmp, "etc"))
+        os.chmod(geheim, 0)
+        self.schreiben("docker-compose.yml", "services:\n  app:\n    image: a:1\n"
+                       "    env_file: [ %s ]\n" % geheim)
+        try:
+            cfg = kaefig.modell(self.app, "x", "docker-compose.yml")
+        except Abbruch as a:
+            self.assertIn("außerhalb des Tools", str(a))
+        else:   # Compose zeigt den Pfad (ab 5.x) - dann findet ihn die Liste
+            self.assertIn("(env_file)", "\n".join(tools.gefahren(cfg, self.app, "x")[0]))
+
+    def test_aenderung_wird_auf_der_kopie_geprueft(self):
+        self.schreiben("docker-compose.yml", "services:\n  app: { image: a:1 }\n")
+        self.schreiben(".env", "A=alt\n")
+        cfg = kaefig.modell(self.app, "x", "docker-compose.yml",
+                            compose_text="services:\n  app:\n    image: a:${A}\n",
+                            env_text="A=neu\n")
+        self.assertEqual(cfg["services"]["app"]["image"], "a:neu")
+        with open(os.path.join(self.app, ".env")) as f:
+            self.assertEqual(f.read(), "A=alt\n")          # das Original bleibt
+
+    @unittest.skipUnless(subprocess.run(["sh", "-c", "unshare --user --net --map-current-user true"],
+                                        capture_output=True).returncode == 0,
+                         "der Kern erlaubt keinen eigenen Namensraum")
+    def test_pruefung_ohne_netz(self):
+        """N-145: include laedt aus Git/OCI - die Pruefung hat darum kein Netz."""
+        r = subprocess.run(kaefig.ohne_rechte_ohne_netz(["cat", "/proc/net/dev"]),
+                           capture_output=True, text=True)
+        karten = [z.split(":")[0].strip() for z in r.stdout.splitlines()[2:]]
+        self.assertEqual(karten, ["lo"])
+
+    def test_als_root_ohne_netz_und_ohne_rechte(self):
+        echt = (os.geteuid, kaefig.pwd.getpwnam)
+        os.geteuid = lambda: 0
+        kaefig.pwd.getpwnam = lambda n: type("P", (), {"pw_uid": 996, "pw_gid": 995})()
+        try:
+            b = kaefig.ohne_rechte_ohne_netz(["docker", "compose"])
+        finally:
+            os.geteuid, kaefig.pwd.getpwnam = echt
+        self.assertEqual(b[:3], ["unshare", "--net", "--"])
+        self.assertIn("--reuid=996", b)
+        self.assertIn("--clear-groups", b)
+        self.assertEqual(b[-2:], ["docker", "compose"])
+
+    def test_umgebung_von_root_kommt_nicht_hinein(self):
+        self.schreiben("docker-compose.yml", "services:\n  app:\n    image: a:1\n"
+                       "    environment: { W: \"${PROLO_TEST_GEHEIM:-leer}\" }\n")
+        os.environ["PROLO_TEST_GEHEIM"] = "von-root"
+        self.addCleanup(os.environ.pop, "PROLO_TEST_GEHEIM")
+        cfg = kaefig.modell(self.app, "x", "docker-compose.yml")
+        self.assertEqual(cfg["services"]["app"]["environment"]["W"], "leer")
+        self.assertNotIn("PROLO_TEST_GEHEIM", __import__("kern").docker.tool_env())
+
+
+@unittest.skipUnless(shutil.which("docker"), "docker compose fehlt")
+class NachpruefenTest(unittest.TestCase):
+    """N-138: jeder Weg zum Start prueft die Dateien, wie sie jetzt liegen."""
+
+    def setUp(self):
+        self.ordner = os.path.join(orte.TOOLS, "nach")
+        os.makedirs(os.path.join(self.ordner, "app"), exist_ok=True)
+        self.datei("services:\n  app: { image: a:1, expose: [\"80\"] }\n")
+        orte.env_schreiben(os.path.join(self.ordner, "prolo.conf"), {
+            "QUELLE": "compose", "DIENST": "app", "PORT": "80", "HOST": "nach.prolo.test",
+            "ANMELDUNG": "authentik"})
+        self.gestartet = []
+        echt = (tools.docker.tool, tools.override_neu, orte.root_noetig, sicherung.sichern,
+                tools.warten)
+        tools.docker.tool = lambda *a, **k: self.gestartet.append(a) or (0, "")
+        tools.override_neu = lambda *a, **k: None
+        tools.warten = lambda *a, **k: "laeuft"
+        orte.root_noetig = lambda *a: None
+        os.environ["PROLO_AGENT"] = "1"
+
+        def zurueck():
+            (tools.docker.tool, tools.override_neu, orte.root_noetig, sicherung.sichern,
+             tools.warten) = echt
+            os.environ.pop("PROLO_AGENT", None)
+            shutil.rmtree(self.ordner, ignore_errors=True)
+        self.addCleanup(zurueck)
+
+    def datei(self, text):
+        with open(os.path.join(self.ordner, "app", "docker-compose.yml"), "w") as f:
+            f.write(text)
+
+    def test_kein_tool_unter_dem_namen_des_unterbaus(self):
+        """N-144: tool set --host admin.<domain> gab die Admin-Seite dem Tool."""
+        orte.env_schreiben(orte.KONF, {"PROLO_DOMAIN": "prolo.test", "PROLO_EMAIL": "a@prolo.test"})
+        self.addCleanup(os.remove, orte.KONF)
+        os.environ.pop("PROLO_AGENT")
+        for host in ("admin.prolo.test", "auth.prolo.test", "ADMIN.prolo.test"):
+            with self.assertRaises(Abbruch) as a:
+                tools.aendern("nach", host=host)
+            self.assertIn("Unterbau", str(a.exception))
+        self.assertEqual(self.gestartet, [])
+
+    def test_von_der_seite_startet_nichts_gefaehrliches(self):
+        self.datei("services:\n  app: { image: a:1, privileged: true }\n")
+        for wie in (lambda: tools.starten("nach"), lambda: tools.neustarten("nach"),
+                    lambda: tools.aendern("nach", port="81"),
+                    lambda: tools.aktualisieren("nach", sichern=False)):
+            with self.assertRaises(Abbruch) as a:
+                wie()
+            self.assertIn("Admin-Seite", str(a.exception))
+        self.assertEqual(self.gestartet, [])
+
+    def test_bestaetigtes_fragt_nicht_noch_einmal_neues_schon(self):
+        self.datei("services:\n  app: { image: a:1, privileged: true }\n")
+        os.environ.pop("PROLO_AGENT")
+        tools.kaefig_pruefen("nach", "starten", ja=True)          # Mensch, Kommandozeile
+        os.environ["PROLO_AGENT"] = "1"
+        tools.kaefig_pruefen("nach", "starten")                   # jetzt auch von der Seite
+        self.datei("services:\n  app: { image: a:1, privileged: true, pid: host }\n")
+        with self.assertRaises(Abbruch):
+            tools.kaefig_pruefen("nach", "starten")
+
+    def test_harmloses_startet(self):
+        tools.starten("nach")
+        self.assertTrue(self.gestartet)
+
+
 class OverrideTest(unittest.TestCase):
     """prolo.override.yml - hier entscheidet sich, ob ein Tool hinter der
     Anmeldung steht und seine Datenbank noch erreicht."""
@@ -241,26 +527,28 @@ class OverrideTest(unittest.TestCase):
     def zeilen(self, text):
         return [z.rstrip() for z in text.splitlines()]
 
-    def test_anmeldung_und_netze(self):
+    def test_netze_und_kein_router_am_container(self):
         t = tools.override_text("x", self.cfg, self.c)
-        z = self.zeilen(t)
-        self.assertIn('      "traefik.http.routers.tool-x.middlewares": "authentik@file"', z)
-        self.assertIn('      "traefik.http.routers.tool-x.rule": "Host(`x.prolo.me`)"', z)
-        self.assertIn('      "traefik.docker.network": "tool-x"', z)
-        self.assertIn('      "traefik.http.services.tool-x.loadbalancer.server.port": "80"', z)
-        # Der Hauptdienst bleibt in default (dort ist die Datenbank) UND kommt in prolo.
+        # Der Hauptdienst bleibt in default (dort ist die Datenbank) UND kommt in
+        # prolo - unter einem Namen, den kein Tool selbst tragen darf (N-139).
         app = t.split('  "app":')[1].split('  "db":')[0]
         self.assertIn('      "default": {}', app)
-        self.assertIn("      prolo: {}", app)
+        self.assertIn('      prolo: { aliases: [ "prolo-tool-x" ] }', app)
         # Offene Ports des Herstellers sind weg - beim Dienst, der welche hatte.
         self.assertIn("    ports: !reset []", app)
         self.assertIn('    name: "tool-x"', t)
         self.assertIn("    external: true", t)
+        self.assertNotIn("traefik", t)          # Traefik liest keine Labels mehr
 
-    def test_ohne_anmeldung(self):
-        t = tools.override_text("x", self.cfg, dict(self.c, ANMELDUNG="keine"))
-        self.assertNotIn("authentik@file", t)
-        self.assertNotIn("middlewares", t)
+    def test_router_als_datei(self):
+        t = tools.route_text("x", self.c)
+        self.assertIn('      rule: "Host(`x.prolo.me`)"', t)
+        self.assertIn('      middlewares: ["authentik@file"]', t)
+        self.assertIn('          - url: "http://prolo-tool-x:80"', t)
+        self.assertIn('      entryPoints: ["websecure"]', t)
+        ohne = tools.route_text("x", dict(self.c, ANMELDUNG="keine"))
+        self.assertNotIn("authentik", ohne)
+        self.assertNotIn("middlewares", ohne)
 
     def test_vorhandenes_bleibt(self):
         t = tools.override_text("x", self.cfg, self.c)
@@ -274,15 +562,7 @@ class OverrideTest(unittest.TestCase):
         self.assertIn('  "db-vol": {}', t)
         app = t.split('  "app":')[1].split('  "db":')[0]
         self.assertIn("    restart: unless-stopped", app)
-        self.assertIn('      "com.x": "1"', app)
-
-    def test_fremde_traefik_labels_werden_ersetzt(self):
-        self.cfg["services"]["app"]["labels"] = {"traefik.http.routers.alt.rule": "Host(`a`)",
-                                                 "com.x": "1"}
-        t = tools.override_text("x", self.cfg, self.c)
-        self.assertIn("    labels: !override", t)
-        self.assertNotIn("routers.alt", t)
-        self.assertIn('"com.x": "1"', t)
+        self.assertNotIn("labels", app)     # die des Herstellers bleiben in seiner Datei
 
     def test_env_setzen(self):
         alt = "# Kopf\nA=1\nB=2\n# B=kommentar\nB=doppelt\n"
@@ -412,6 +692,17 @@ class AgentTest(unittest.TestCase):
             self.assertEqual(gerufen, [])
         finally:
             agent.subprocess.Popen = alt
+
+    def test_ein_ordner_im_eingang_legt_den_agenten_nicht_lahm(self):
+        """N-142: die Admin-Seite (uebernommen) legt einen Ordner ab."""
+        os.makedirs(orte.EINGANG, exist_ok=True)
+        for n in ("20261106-120000-abcdef12.json", "unsinn.json"):
+            os.makedirs(os.path.join(orte.EINGANG, n, "innen"))
+        kennung, daten = agent.naechster()
+        self.assertEqual(kennung, "20261106-120000-abcdef12")
+        self.assertIn("_fehler", daten)
+        self.assertIsNone(agent.naechster())
+        self.assertEqual(os.listdir(orte.EINGANG), [])
 
     def test_fremde_dateinamen_werden_weggeraeumt(self):
         p = os.path.join(orte.EINGANG, "../../x.json".replace("/", "_"))
@@ -593,13 +884,23 @@ class UnterbauDateienTest(unittest.TestCase):
         c = lesen("docker-compose.yml")
         self.assertIn("--entrypoints.websecure.http.middlewares=ratenbremse@file,gleichzeitig@file,"
                       "vertrauensgrenze@file,sicherheitskopf@file", c)
-        self.assertIn("traefik.http.routers.prolo-admin.middlewares=authentik@file", c)
-        self.assertIn("--providers.docker.exposedbydefault=false", c)
+        # Traefik sieht Docker nicht (N-139): kein Docker-Provider, kein Socket.
+        self.assertNotIn("providers.docker", c)
+        self.assertNotIn("docker.sock", c)
+        self.assertNotRegex(c, r"\n\s+- traefik\.")
+        r = unterbau.unterbau_routen("prolo.me")
+        admin = r.split("    prolo-admin:\n")[1].split("\n    ")[0]
+        self.assertIn('Host(`admin.prolo.me`)', r)
+        self.assertIn('middlewares: ["authentik@file"]', admin + r.split("    prolo-admin:\n")[1][:300])
+        self.assertIn('HostRegexp(`^([a-z0-9-]+\\\\.)?prolo\\\\.me$`)', r)
+        self.assertIn('"http://prolo-authentik:9000"', r)
+        self.assertIn('"http://prolo-admin:8080"', r)
+        self.assertIn("address: http://prolo-authentik:9000/", lesen("traefik", "dynamic", "prolo.yml"))
 
     def test_jeder_dienst_hat_grenzen(self):
         c = lesen("docker-compose.yml")
         dienste = re.split(r"\n  (?=[a-z-]+:\n)", c.split("\nservices:\n")[1].split("\nvolumes:\n")[0])
-        self.assertEqual(len(dienste), 6)
+        self.assertEqual(len(dienste), 5)
         for d in dienste:
             name = d.split(":")[0].strip()
             for pflicht in ("mem_limit:", "pids_limit:", "no-new-privileges:true", "cap_drop: [ ALL ]",
@@ -614,6 +915,74 @@ class UnterbauDateienTest(unittest.TestCase):
         self.assertIn("mode: forward_domain", b)
         self.assertIn("cookie_domain: !Env PROLO_DOMAIN", b)
         self.assertIn("managed: goauthentik.io/outposts/embedded", b)
+
+    def test_worker_startet_nach_dem_server(self):
+        """N-148: beide fuellen sonst gleichzeitig das leere Volume."""
+        c = lesen("docker-compose.yml")
+        worker = c.split("  authentik-worker:\n")[1].split("\n  admin:")[0]
+        self.assertRegex(worker, r"depends_on:(.|\n)*authentik-server:\n\s+condition: service_started")
+
+    def test_admin_hat_ein_eigenes_cookie(self):
+        """N-140: admin.<domain> ueber einen eigenen Provider ohne cookie_domain;
+        der Outpost kennt beide - und nur dieser Blueprint setzt seine Liste."""
+        b = lesen("authentik", "blueprints", "prolowelt.yaml")
+        admin = b.split("id: prolo-admin-provider")[1].split("- model:")[0]
+        self.assertIn("mode: forward_single", admin)
+        self.assertIn('external_host: !Format ["https://admin.%s", !Env PROLO_DOMAIN]', admin)
+        self.assertNotIn("cookie_domain", admin)
+        outpost = b.split("model: authentik_outposts.outpost")[1]
+        self.assertIn("- !KeyOf prolo-provider", outpost)
+        self.assertIn("- !KeyOf prolo-admin-provider", outpost)
+        g = lesen("authentik", "blueprints", "prolowelt-admin-gruppe.yaml")
+        self.assertNotIn("outpost", g)
+        self.assertIn("!Env PROLO_ADMIN_GRUPPE", g)
+        self.assertIn("PROLO_ADMIN_GRUPPE: ${ADMIN_GRUPPE:-authentik Admins}", lesen("docker-compose.yml"))
+
+    def test_admin_nur_aus_bestimmten_netzen(self):
+        """N-141: ADMIN_NETZE - erst das Netz, dann die Anmeldung."""
+        offen = unterbau.unterbau_routen("prolo.me")
+        self.assertNotIn("ipAllowList", offen)
+        zu = unterbau.unterbau_routen("prolo.me", ["203.0.113.7/32", "10.8.0.0/24"])
+        self.assertIn('middlewares: ["admin-netz", "authentik@file"]', zu)
+        self.assertIn('sourceRange: ["203.0.113.7/32", "10.8.0.0/24"]', zu)
+        self.assertNotIn("ipStrategy", zu)          # die echte Gegenstelle, keine Kopfzeile
+        self.assertEqual(orte.admin_netze(" 203.0.113.7, 10.8.0.1/24 "),
+                         ["203.0.113.7/32", "10.8.0.0/24"])
+        self.assertEqual(orte.admin_netze(""), [])
+        for falsch in ("kein-netz", "300.1.1.1", "10.0.0.0/33"):
+            with self.assertRaises(Abbruch):
+                orte.admin_netze(falsch)
+
+    def test_admin_netze_ohne_die_netze_der_container(self):
+        """N-143: aus dem Netz eines Tools kaeme sonst jedes Tool durch."""
+        for falsch in ("172.16.0.0/12", "172.20.0.5/32", "0.0.0.0/0", "192.168.1.0/24"):
+            with self.assertRaises(Abbruch) as a:
+                orte.admin_netze(falsch)
+            self.assertIn("Container", str(a.exception))
+        with self.assertRaises(Abbruch):
+            orte.admin_netze("10.99.0.0/16", ["10.99.3.0/24"])     # eigener Docker-Bereich
+        self.assertEqual(orte.admin_netze("100.64.0.0/10,2001:db8::/32"),
+                         ["100.64.0.0/10", "2001:db8::/32"])
+
+    def test_wirkung_des_outposts(self):
+        """N-147: so antwortete Authentik 2026.8 im Durchlauf (gekuerzt)."""
+        d = "prolo.test"
+        cb = "%2Foutpost.goauthentik.io%2Fcallback%3FX-authentik-auth-callback%3Dtrue"
+        gut = ("OUTPOST admin.prolo.test 302 https://auth.prolo.test/application/o/authorize/"
+               "?client_id=wmvG&redirect_uri=https%3A%2F%2Fadmin.prolo.test" + cb + "&state=x\n"
+               "OUTPOST prolo-pruefung.prolo.test 302 https://auth.prolo.test/application/o/"
+               "authorize/?client_id=UH7N&redirect_uri=https%3A%2F%2Fauth.prolo.test" + cb + "\n")
+        self.assertEqual(unterbau.outpost_lage(gut, d), (True, True))
+        # admin ueber den Domain-Provider: Rueckweg nach auth. - das Cookie der
+        # ganzen Domain gaelte dort
+        alt = gut.replace("https%3A%2F%2Fadmin.prolo.test", "https%3A%2F%2Fauth.prolo.test")
+        self.assertEqual(unterbau.outpost_lage(alt, d), (True, False))
+        self.assertEqual(unterbau.outpost_lage(gut.replace(" 302 ", " 404 "), d)[0], False)
+        self.assertEqual(unterbau.outpost_lage("", d), (False, False))
+        # aeltere Fassungen: ueber /outpost.goauthentik.io/start des Namens
+        self.assertEqual(unterbau.rueckweg("https://admin.prolo.test/outpost.goauthentik.io/"
+                                           "start?rd=x"), "admin.prolo.test")
+        self.assertEqual(unterbau.rueckweg("https://evil.example/"), "")
 
     def test_admin_uid_stimmt_ueberein(self):
         self.assertIn("useradd -r -u %d " % orte.ADMIN_UID, lesen("admin", "Dockerfile"))

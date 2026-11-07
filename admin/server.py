@@ -673,8 +673,7 @@ def tool_tabelle(tools, kurz=False):
 
 
 NAMEN_UNTERBAU = {"traefik": "Traefik", "authentik-server": "Authentik", "authentik-worker":
-                  "Authentik Worker", "authentik-db": "Authentik Datenbank", "admin": "Admin-Seite",
-                  "socket-proxy": "Docker-Vermittler"}
+                  "Authentik Worker", "authentik-db": "Authentik Datenbank", "admin": "Admin-Seite"}
 
 
 def ansicht_uebersicht(s, alter, liste):

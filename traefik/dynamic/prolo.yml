@@ -7,8 +7,9 @@
 #   ratenbremse, gleichzeitig  wer zu schnell anklopft, kommt nicht weiter
 #   vertrauensgrenze           loescht mitgeschickte X-Authentik-* Kopfzeilen
 #   sicherheitskopf            HSTS und Co.
-# Die Anmeldung (authentik) haengt ein Tool selbst an seinen Router - prolo
-# tut das von sich aus, ausser bei "--anmeldung keine".
+# Die Router stehen nicht hier: unterbau.yml (auth, admin) und tool-<name>.yml
+# schreibt prolo selbst in diesen Ordner. Die Anmeldung (authentik) haengt
+# prolo an jeden Router, ausser bei "--anmeldung keine".
 
 http:
   middlewares:
@@ -16,7 +17,7 @@ http:
     # Domain er schuetzt, legt der Blueprint in authentik/blueprints/ fest.
     authentik:
       forwardAuth:
-        address: http://authentik-server:9000/outpost.goauthentik.io/auth/traefik
+        address: http://prolo-authentik:9000/outpost.goauthentik.io/auth/traefik
         # false: Traefik setzt X-Forwarded-* selbst aus der echten
         # Verbindung. Mit true koennte ein Aufrufer das Ziel der
         # Rueckleitung nach der Anmeldung bestimmen (offene Weiterleitung).

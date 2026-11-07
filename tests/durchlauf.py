@@ -25,13 +25,15 @@ import urllib.parse
 
 HIER = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HIER)
+sys.path.insert(0, REPO)
+from kern import unterbau  # noqa: E402  (rueckweg: dieselbe Auswertung wie einrichten)
 PROLO = os.path.join(REPO, "prolo")
 DOMAIN = "prolo.test"
 TMP = tempfile.mkdtemp(prefix="prolo-durchlauf-")
 ENV = dict(os.environ, PROLO_ETC=TMP + "/etc", PROLO_VAR=TMP + "/var", PROLO_TOOLS=TMP + "/tools",
            PROLO_BACKUP=TMP + "/backup", PROLO_OHNE_SYSTEMD="1", NO_COLOR="1",
            PYTHONDONTWRITEBYTECODE="1")
-PROJEKTE = ("prolo", "notizen", "zwei", "boese", "drei")
+PROJEKTE = ("prolo", "notizen", "zwei", "boese", "drei", "klau", "fremd", "falle")
 ERGEBNIS = []
 
 TESTBILD = """FROM python:3.13-slim
@@ -60,6 +62,27 @@ volumes:
 DREI = """services:
   web:
     image: traefik/whoami:v1.10
+"""
+# N-139: ein Abbild, das mit Labels admin.<domain> und auth.<domain> an sich zieht.
+FALLE = """FROM prolotest/web:1
+CMD ["sh", "-c", "mkdir -p /f && echo FALLE > /f/index.html && exec python3 -m http.server 8000 --directory /f"]
+LABEL traefik.enable=true traefik.http.routers.f1.rule="Host(`admin.%(d)s`) || Host(`auth.%(d)s`)" \\
+      traefik.http.routers.f1.priority=100000 traefik.http.routers.f1.entrypoints=websecure \\
+      traefik.http.services.f1.loadbalancer.server.port=8000
+"""
+# N-135: ueber den Namen an die Datenbank von Authentik.
+KLAU = """services:
+  app:
+    image: prolotest/web:1
+    volumes: ["klau:/klau"]
+volumes:
+  klau: { name: prolo_authentik-db }
+"""
+# N-137: include liest die Datei und die .env eines anderen Tools.
+FREMD = """include: [ %s/zwei/app/docker-compose.yml ]
+services:
+  app:
+    image: prolotest/web:1
 """
 BOESE = """services:
   app:
@@ -104,6 +127,19 @@ def https(host, pfad="/", kopf=None):
     return r.status, r.getheader("Location") or ""
 
 
+def https_text(host, pfad="/"):
+    """Wie https(), aber der Inhalt der Antwort."""
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    v = http.client.HTTPConnection("127.0.0.1", 443, timeout=20)
+    v.sock = ctx.wrap_socket(socket.create_connection(("127.0.0.1", 443), 20), server_hostname=host)
+    v.request("GET", pfad, headers={"Host": host})
+    t = v.getresponse().read().decode("utf-8", "replace")
+    v.close()
+    return t
+
+
 def im_container(container, code):
     return sh("docker", "exec", container, "python3", "-c", code, pruefen=False).stdout.strip()
 
@@ -137,8 +173,9 @@ def ablauf():
 
     schritt("Der Eingang")
     st, ziel = https("admin." + DOMAIN)
-    stimmt("Admin-Seite ohne Anmeldung -> Authentik", st == 302 and ziel.startswith(
-        "https://auth.%s/" % DOMAIN), "%s %s" % (st, ziel))
+    stimmt("Admin-Seite ohne Anmeldung -> eigene Anmeldung, Rueckweg nach admin. (N-140)",
+           st == 302 and ziel.startswith("https://auth.%s/" % DOMAIN) and
+           unterbau.rueckweg(ziel) == "admin." + DOMAIN, "%s %s" % (st, ziel))
     st, ziel = https("admin." + DOMAIN, kopf={"X-authentik-username": "akadmin",
                                               "X-authentik-groups": "authentik Admins"})
     stimmt("gefaelschte Anmelde-Kopfzeilen helfen nicht", st == 302 and "auth." in ziel)
@@ -172,6 +209,35 @@ def ablauf():
            and "privileged" in r.stdout)
     stimmt("... und hinterlaesst nichts", not os.path.exists(ENV["PROLO_TOOLS"] + "/boese") and
            sh("docker", "network", "inspect", "tool-boese", pruefen=False).returncode != 0)
+    sh("docker", "build", "-q", "-t", "prolotest/falle:1", "-", eingabe=FALLE % {"d": DOMAIN})
+    prolo("tool", "add", "falle", "--image", "prolotest/falle:1", "--anmeldung", "keine")
+    time.sleep(3)
+    st, ziel = https("admin." + DOMAIN)
+    stimmt("Labels eines Abbilds uebernehmen admin. nicht (N-139)", st == 302 and
+           unterbau.rueckweg(ziel) == "admin." + DOMAIN, "%s %s" % (st, ziel))
+    st, _ = https("auth." + DOMAIN, "/if/flow/default-authentication-flow/")
+    stimmt("... und auth. nicht", st == 200 and "FALLE" not in https_text(
+        "auth." + DOMAIN, "/if/flow/default-authentication-flow/"))
+    stimmt("das Tool selbst ist unter seinem Namen da", "FALLE" in https_text("falle." + DOMAIN))
+    prolo("tool", "rm", "falle", "--ja", "--ohne-sicherung")
+    with open(TMP + "/klau.yml", "w") as f:
+        f.write(KLAU)
+    r = prolo("tool", "add", "klau", "--compose", TMP + "/klau.yml", "--von-web", pruefen=False)
+    stimmt("Volume mit dem Namen der Authentik-Datenbank abgelehnt (N-135)",
+           r.returncode != 0 and "prolo_authentik-db" in r.stdout, r.stdout[-400:])
+    with open(TMP + "/fremd.yml", "w") as f:
+        f.write(FREMD % ENV["PROLO_TOOLS"])
+    r = prolo("tool", "add", "fremd", "--compose", TMP + "/fremd.yml", "--von-web", pruefen=False)
+    stimmt("include einer Datei eines anderen Tools abgelehnt - als Nutzer ohne Rechte (N-137)",
+           r.returncode != 0 and "permission denied" in r.stdout, r.stdout[-400:])
+
+    r = sh(sys.executable, "-c", "import subprocess, sys; sys.path.insert(0, %r)\n"
+           "from kern import kaefig\n"
+           "print(subprocess.run(kaefig.ohne_rechte_ohne_netz(['sh', '-c', 'id -un; cat /proc/net/dev']),"
+           " capture_output=True, text=True, cwd='/').stdout)" % REPO)
+    karten = [z.split(":")[0].strip() for z in r.stdout.splitlines()[3:] if z.strip()]
+    stimmt("die Pruefung laeuft als prolo-pruefer und ohne Netz (N-145)",
+           r.stdout.startswith("prolo-pruefer") and karten == ["lo"], r.stdout[:300])
 
     schritt("Sichern")
     sh("docker", "exec", "notizen-notizen-1", "sh", "-c", "echo wichtig > /daten/notiz.txt")
@@ -303,6 +369,20 @@ def ablauf():
               "--ohne-sicherung", pruefen=False)
     stimmt("kommt es nicht hoch, gilt der Stand davor: Datei, Variable, Container",
            r.returncode != 0 and jetzt() == (text, im), r.stdout[-500:])
+
+    schritt("Nachpruefen vor jedem Start (N-138)")
+    with open(datei) as f:
+        vorher = f.read()
+    with open(datei, "w") as f:
+        f.write(vorher + "    privileged: true\n")
+    r = subprocess.run([PROLO, "tool", "restart", "drei"], capture_output=True, text=True,
+                       env=dict(ENV, PROLO_AGENT="1"), timeout=300, cwd=REPO)
+    stimmt("von Hand gefaehrlich gemacht: Neustart von der Seite abgelehnt",
+           r.returncode != 0 and "privileged" in r.stdout and
+           sh("docker", "inspect", "drei-web-1", "--format",
+              "{{.HostConfig.Privileged}}").stdout.strip() == "false", r.stdout[-400:])
+    with open(datei, "w") as f:
+        f.write(vorher)
 
     schritt("Stand")
     s = json.loads(prolo("status", "--json").stdout)

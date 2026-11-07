@@ -377,9 +377,15 @@ volumes:
   `URL` die Adresse des Tools, Namen auf `HOST`/`DOMAIN` den Hostnamen, `TZ`
   die Zeitzone. Was es nicht kennt, fragt es ab: Feld *Variablen* bzw.
   `--env NAME=wert`. Mit Vorgabe (`${NAME:-wert}`) wird nichts gefragt.
-- **Nicht erlaubt** auf der Admin-Seite: `privileged`, `network_mode`,
-  `cap_add`, `devices`, der Docker-Socket. Braucht ein Tool das wirklich,
-  geht es nur auf der Kommandozeile – und prolo fragt nach.
+- **Erlaubt ist, was prolo kennt** (`kern/kaefig.py`): alles, was nur im
+  eigenen Container wirkt. Eine Gefahr ist alles, womit ein Container auf den
+  Server oder ein anderes Tool greift – `privileged`, `network_mode`,
+  `cap_add`, `devices`, der Docker-Socket, Pfade vom Server (auch über
+  `secrets`, `configs`, `env_file`, `build`), `volumes_from`/`pid`/`ipc` eines
+  fremden Containers, Volumes und Netze mit eigenem `name:` oder
+  `driver_opts` – **und jeder Schlüssel, den prolo nicht kennt**. Die
+  Admin-Seite legt so etwas nie an; braucht ein Tool das wirklich, geht es
+  nur auf der Kommandozeile – und prolo fragt nach.
 - **Anmeldung:** Authentik davor ist die Vorgabe. „Ohne“ nur, wenn das Tool
   eine eigene Anmeldung hat, die Apps oder Webhooks brauchen (Vaultwarden,
   n8n, Nextcloud mit App) – oder wenn es eine öffentliche Seite ist.
@@ -410,7 +416,10 @@ mit "prolo tool add" installiere. Regeln:
 /opt/tools/vault/
 ├── app/                   die Compose-Datei (unverändert) und ihre .env
 ├── prolo.conf             was prolo über das Tool weiß (Quelle, Port, Anmeldung)
-└── prolo.override.yml     was prolo dazutut (Netz, Router, keine Ports)
+├── prolo.override.yml     was prolo dazutut (Netz, keine Ports)
+└── prolo.bestaetigt       nur, wenn auf der Kommandozeile Gefahren bestätigt wurden
+
+/var/lib/prolo/traefik/dynamic/tool-vault.yml   der Router für vault.prolo.me
 ```
 
 Von Hand mit docker compose: `sudo prolo tool compose vault ps`.
@@ -507,6 +516,8 @@ es zu überschreiben.
 
 Zwei Dienste laufen auf dem Server neben Docker: `prolo-agent` (führt die
 Aufträge der Admin-Seite aus) und `prolo-nacht.timer` (Sicherung und Update).
+Compose-Dateien prüft prolo als Nutzer `prolo-pruefer` ohne Rechte – auf einer
+Kopie des Tools, damit eine Datei nur lesen kann, was im Tool liegt.
 
 ---
 
@@ -517,15 +528,44 @@ Aufträge der Admin-Seite aus) und `prolo-nacht.timer` (Sicherung und Update).
   (`X-authentik-*`); gesetzt werden sie nur von Authentik.
 - Jedes Tool hängt in seinem eigenen Netz – ein übernommenes Tool erreicht die
   anderen nicht.
-- Traefik sieht Docker nur lesend über einen Vermittler (`socket-proxy`).
+- Traefik sieht Docker nicht. Seine Router schreibt prolo als Dateien nach
+  `/var/lib/prolo/traefik/dynamic/` – Labels an einem Container oder Abbild
+  wirken nicht, kein Tool kann so `admin.` oder `auth.` übernehmen.
 - Die Admin-Seite hat **keinen** Zugriff auf Docker. Sie legt Aufträge ab, die
   der Agent auf dem Server prüft und über `prolo` ausführt – nur bekannte
   Aufträge, jedes Feld gegen ein Muster, nie über eine Shell.
 - Hinein darf nur, wer in Authentik in der Gruppe `authentik Admins` ist
-  (`ADMIN_GRUPPE` in `prolo.conf`).
+  (`ADMIN_GRUPPE` in `prolo.conf`) – Authentik weist alle anderen schon vorher
+  ab, und die Seite prüft es noch einmal.
+- Die Admin-Seite hat ihre **eigene** Anmeldung mit einem Cookie nur für
+  `admin.<domain>`. Das Cookie der Tools gilt für die ganze Domain und geht an
+  jedes Tool – mit ihm kommt niemand auf die Admin-Seite.
 - Jeder Container des Unterbaus: Speichergrenze, `no-new-privileges`, alle
   Linux-Fähigkeiten weg (bis auf die wenigen, die Traefik und Postgres
   brauchen).
+
+---
+
+## Die Admin-Seite nur aus deinem Netz
+
+Die Admin-Seite steuert den ganzen Server. Kommst du immer aus denselben
+Netzen (zu Hause, ein VPN wie WireGuard oder Tailscale), schließ sie für alle
+anderen – dann sieht von draußen niemand auch nur die Anmeldeseite:
+
+```bash
+sudo nano /etc/prolo/prolo.conf
+#   ADMIN_NETZE=203.0.113.7/32,100.64.0.0/10
+sudo prolo einrichten
+```
+
+Mehrere Netze mit Komma; eine einzelne Adresse ist `/32`. Leer heißt: von
+überall, hinter der Anmeldung. Nicht erlaubt sind die Bereiche, in denen
+Docker die Netze der Container anlegt (`172.16.0.0/12`, `192.168.0.0/16` und
+jedes Netz, das es auf dem Server schon gibt) – von dort spricht jedes Tool
+Traefik an. Gezählt wird die echte Gegenstelle – eine
+mitgeschickte `X-Forwarded-For` hilft nicht. Die Tools und `auth.<domain>`
+bleiben, wie sie sind. Wer sich ausgesperrt hat: über SSH `ADMIN_NETZE=`
+leeren und `sudo prolo einrichten`; die Kommandozeile geht immer.
 
 ---
 

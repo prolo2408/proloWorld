@@ -87,6 +87,18 @@ def unterbau(*args, zeit_s=900, pruefen=True):
 
 
 # ------------------------------------------------------------- Tools
+def tool_env():
+    """Die Umgebung fuer docker compose eines Tools - fest, nicht die von root.
+    Eine Compose-Datei kann ${VAR} aus der Umgebung einsetzen; die Pruefung
+    (kern/kaefig.py) soll dieselben Werte sehen wie der echte Start, und
+    ${SUDO_USER} oder ${SSH_AUTH_SOCK} gehen ein Tool nichts an (N-137).
+    DOCKER_CONFIG bleibt: dort stehen die Zugaenge zu Registries."""
+    home = os.environ.get("HOME") or "/root"
+    return {"PATH": os.environ.get("PATH") or "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "HOME": "/nonexistent", "LANG": "C.UTF-8",
+            "DOCKER_CONFIG": os.environ.get("DOCKER_CONFIG") or os.path.join(home, ".docker")}
+
+
 def tool_ordner(name):
     return os.path.join(orte.TOOLS, name)
 
@@ -121,7 +133,7 @@ def tool_befehl(name, *args):
 
 def tool(name, *args, zeit_s=900, pruefen=True):
     return lauf(tool_befehl(name, *args), cwd=os.path.join(tool_ordner(name), "app"),
-                zeit_s=zeit_s, pruefen=pruefen)
+                env=tool_env(), zeit_s=zeit_s, pruefen=pruefen)
 
 
 def konfig_json(befehl, cwd=None, env=None):

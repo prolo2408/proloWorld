@@ -33,14 +33,42 @@ entries:
     attrs:
       name: ProloWelt
       provider: !KeyOf prolo-provider
+
+  # admin.<domain> hat einen eigenen Provider (N-140). Das Cookie des
+  # Domain-Modus oben gilt fuer die ganze Domain - der Browser schickt es an
+  # JEDES Tool, auch an eines ohne Anmeldung; ein uebernommenes Tool kaeme
+  # damit auf die Admin-Seite. Das Cookie dieses Providers gilt nur fuer
+  # admin.<domain> (kein cookie_domain), und der Outpost nimmt fuer einen
+  # Namen zuerst den Provider, der genau ihn hat.
+  - model: authentik_providers_proxy.proxyprovider
+    id: prolo-admin-provider
+    identifiers:
+      name: ProloWelt Admin
+    attrs:
+      mode: forward_single
+      external_host: !Format ["https://admin.%s", !Env PROLO_DOMAIN]
+      authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+      access_token_validity: hours=8
+
+  - model: authentik_core.application
+    id: prolo-admin-app
+    identifiers:
+      slug: prolowelt-admin
+    attrs:
+      name: ProloWelt Admin
+      provider: !KeyOf prolo-admin-provider
       meta_launch_url: !Format ["https://admin.%s", !Env PROLO_DOMAIN]
 
   # Der eingebaute Outpost beantwortet die Forward-Auth-Anfragen von Traefik.
+  # Beide Provider stehen NUR hier - zwei Blueprints, die dieselbe Liste
+  # setzen, nähmen sich gegenseitig den Provider wieder weg.
   - model: authentik_outposts.outpost
     identifiers:
       managed: goauthentik.io/outposts/embedded
     attrs:
       providers:
         - !KeyOf prolo-provider
+        - !KeyOf prolo-admin-provider
       config:
         authentik_host: !Format ["https://auth.%s/", !Env PROLO_DOMAIN]

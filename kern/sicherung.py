@@ -462,7 +462,7 @@ def volume_zurueck(teil, verz, schluessel):
     orte.ok("Volume %s" % name)
 
 
-def tool_zurueck(name, verz, m, schluessel):
+def tool_zurueck(name, verz, m, schluessel, ja=False):
     orte.abschnitt("Tool %s zurückholen" % name)
     teile = [t for t in m["teile"] if t["bereich"] == name]
     ordner = next((t for t in teile if t["art"] == "ordner"), None)
@@ -484,9 +484,12 @@ def tool_zurueck(name, verz, m, schluessel):
         for t in teile:
             if t["art"] == "volume":
                 volume_zurueck(t, verz, schluessel)
+        # Auch ein gesicherter Stand startet erst nach der Pruefung (N-138).
+        tools.kaefig_pruefen(name, "zurückholen", ja)
         docker.netz_anlegen(tools.netzname(name))
         tools.netze_schreiben()
         tools.traefik_verbinden(name)
+        tools.route_schreiben(name, tools.conf(name))
         docker.tool(name, "up", "-d", "--remove-orphans", zeit_s=1800)
         z = tools.warten(name)
     except BaseException:
@@ -579,5 +582,5 @@ def zurueckholen(stand=None, tool=None, nur_unterbau=False, schluessel=None, ja=
             unterbau_zurueck(verz, m, schluessel)
         for b in bereiche:
             if b != "unterbau":
-                tool_zurueck(b, verz, m, schluessel)
+                tool_zurueck(b, verz, m, schluessel, ja)
     orte.abschnitt("Zurückgeholt: %s" % ", ".join(bereiche))

@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 
-from . import docker, orte, zugang
+from . import docker, kaefig, orte, zugang
 from .auftrag import (ANMELDUNG, DIENST, MAX_COMPOSE, PORT, Ungueltig, env_zeilen,
                       name_pruefen)
 from .orte import Abbruch
@@ -34,15 +34,6 @@ GEHEIM = re.compile(r"PASS|SECRET|KEY|TOKEN|SALT|CREDENTIAL", re.I)
 HILFSDIENST = re.compile(r"(^|/)(postgres|postgis|mysql|mariadb|redis|valkey|mongo|memcached|"
                          r"rabbitmq|elasticsearch|opensearch|clickhouse|minio|typesense|"
                          r"meilisearch)(:|$)", re.I)
-SOCKET = re.compile(r"(^|/)docker\.sock$")
-KAEFIG = {
-    "privileged": "läuft mit allen Rechten des Servers (privileged)",
-    "pid": "sieht alle Prozesse des Servers (pid: host)",
-    "ipc": "teilt den Speicher mit dem Server (ipc: host)",
-    "uts": "teilt den Rechnernamen mit dem Server (uts: host)",
-    "userns_mode": "verlässt den Nutzer-Namensraum (userns_mode: host)",
-    "cgroup": "teilt die cgroups mit dem Server (cgroup: host)",
-}
 KOPF = "# Von prolo geschrieben - wird bei jeder Änderung neu erzeugt. Nicht von Hand ändern.\n"
 
 
@@ -156,7 +147,7 @@ def config(app, dateien, name, env_datei=None):
         befehl += ["-f", d]
     for _ in range(10):
         rc, aus = docker.lauf(befehl + ["config", "--format", "json"], cwd=app,
-                              zeit_s=120, pruefen=False)
+                              env=docker.tool_env(), zeit_s=120, pruefen=False)
         if rc == 0:
             return json.loads(aus[aus.index("{"):])
         m = re.search(r"env file (\S+) not found", aus)
@@ -169,60 +160,9 @@ def config(app, dateien, name, env_datei=None):
     raise Abbruch("Zu viele fehlende env_file-Dateien.")
 
 
-def gefahren(cfg, app):
-    """Alles, womit ein Container aus seinem Kaefig auf den Server greift.
-    Gibt (gefahren, hinweise, binds_aussen) zurueck."""
-    gef, hin, aussen = [], [], []
-    app_echt = os.path.realpath(app)
-    for dname, d in sorted((cfg.get("services") or {}).items()):
-        d = d or {}
-
-        def g(text):
-            gef.append("%s: %s" % (dname, text))
-
-        for k, warum in KAEFIG.items():
-            w = d.get(k)
-            if (k == "privileged" and w is True) or (k != "privileged" and str(w or "") == "host"):
-                g(warum)
-        nm = str(d.get("network_mode") or "")
-        if nm == "host":
-            g("hängt direkt im Netz des Servers (network_mode: host) - an Traefik und "
-              "Anmeldung vorbei")
-        elif nm:
-            g("teilt das Netz eines anderen Containers (network_mode: %s)" % nm)
-        if d.get("cap_add"):
-            g("holt Linux-Fähigkeiten zurück: %s" % ", ".join(sorted(map(str, d["cap_add"]))))
-        if d.get("devices"):
-            g("greift auf Geräte des Servers zu (devices)")
-        for s in d.get("security_opt") or []:
-            if re.search(r"unconfined|label[:=]disable", str(s)):
-                g("schaltet einen Schutz ab (security_opt: %s)" % s)
-        for v in d.get("volumes") or []:
-            if not isinstance(v, dict) or v.get("type") != "bind":
-                continue
-            quelle = os.path.realpath(str(v.get("source") or ""))
-            if SOCKET.search(quelle):
-                g("hängt den Docker-Socket ein - das ist root auf dem Server")
-            elif quelle == app_echt:
-                g("hängt seinen ganzen Ordner ein (samt .env)")
-            elif not quelle.startswith(app_echt + os.sep):
-                g("hängt %s vom Server ein - das liegt außerhalb des Tools und wird "
-                  "NICHT gesichert" % quelle)
-                aussen.append(quelle)
-        bild = str(d.get("image") or "")
-        if bild and not d.get("build") and (bild.endswith(":latest") or
-                                            ":" not in bild.rsplit("/", 1)[-1]):
-            hin.append("%s: Abbild %s ohne feste Fassung - ein Update kann einen großen "
-                       "Sprung machen" % (dname, bild))
-        if d.get("container_name"):
-            hin.append("%s: fester Containername %s" % (dname, d["container_name"]))
-        labels = d.get("labels") or {}
-        if any(str(k).startswith("traefik.") for k in labels):
-            hin.append("%s: bringt eigene Traefik-Einstellungen mit - prolo ersetzt sie" % dname)
-    for k, v in (cfg.get("volumes") or {}).items():
-        if (v or {}).get("external"):
-            gef.append("erwartet ein fremdes Volume %s (external)" % ((v or {}).get("name") or k))
-    return gef, hin, aussen
+def gefahren(cfg, app, projekt):
+    """Siehe kern/kaefig.py - die Erlaubnisliste."""
+    return kaefig.gefahren(cfg, app, projekt)
 
 
 def ports_von(d):
@@ -313,8 +253,7 @@ def abbild_compose(name, abbild, port):
 def override_text(name, cfg, c):
     """prolo.override.yml aus der zusammengesetzten Konfiguration der
     Herstellerdatei (cfg) und prolo.conf (c)."""
-    dienst, port, anm = c["DIENST"], c["PORT"], c["ANMELDUNG"]
-    router = "tool-%s" % name
+    dienst = c["DIENST"]
     zeilen = [KOPF, "services:\n"]
     neue_volumes = []
     for dname, d in sorted((cfg.get("services") or {}).items()):
@@ -345,21 +284,9 @@ def override_text(name, cfg, c):
             teil.append("    networks:\n")
             for netz in sorted(d.get("networks") or {"default": None}):
                 teil.append("      %s: {}\n" % q(netz))
-            teil.append("      prolo: {}\n")
-            labels = {k: v for k, v in (d.get("labels") or {}).items()
-                      if not str(k).startswith("traefik.")}
-            fremd = len(labels) != len(d.get("labels") or {})
-            labels.update({
-                "traefik.enable": "true",
-                "traefik.docker.network": netzname(name),
-                "traefik.http.routers.%s.rule" % router: "Host(`%s`)" % c["HOST"],
-                "traefik.http.routers.%s.entrypoints" % router: "websecure",
-                "traefik.http.services.%s.loadbalancer.server.port" % router: port,
-            })
-            if anm == "authentik":
-                labels["traefik.http.routers.%s.middlewares" % router] = "authentik@file"
-            teil.append("    labels:%s\n" % (" !override" if fremd else ""))
-            teil += ["      %s: %s\n" % (q(k), q(v)) for k, v in labels.items()]
+            # Unter diesem Namen erreicht Traefik das Tool (tool-<name>.yml).
+            # Namen mit prolo... darf kein Tool selbst tragen (kaefig.py).
+            teil.append("      prolo: { aliases: [ %s ] }\n" % q(ziel_name(name)))
         if teil:
             zeilen.append("  %s:\n" % q(dname))
             zeilen += teil
@@ -369,6 +296,45 @@ def override_text(name, cfg, c):
         zeilen.append("volumes:\n")
         zeilen += ["  %s: {}\n" % q(v) for v in neue_volumes]
     return "".join(zeilen)
+
+
+ROUTE_VORSILBE = "tool-"
+
+
+def ziel_name(name):
+    return "prolo-tool-%s" % name
+
+
+def route_datei(name):
+    return os.path.join(orte.VAR, "traefik", "dynamic", "%s%s.yml" % (ROUTE_VORSILBE, name))
+
+
+def route_text(name, c):
+    """Router und Ziel eines Tools fuer Traefik - als Datei, die prolo
+    schreibt. Labels an Containern liest Traefik nicht mehr: sonst haette
+    jedes Abbild mit "LABEL traefik.http.routers..." admin.<domain>
+    uebernommen (gemessen, N-139)."""
+    router = "tool-%s" % name
+    zeilen = [KOPF, "http:\n  routers:\n", "    %s:\n" % q(router),
+              "      rule: %s\n" % q("Host(`%s`)" % c["HOST"]),
+              "      entryPoints: [\"websecure\"]\n", "      service: %s\n" % q(router)]
+    if c["ANMELDUNG"] == "authentik":
+        zeilen.append("      middlewares: [\"authentik@file\"]\n")
+    zeilen += ["  services:\n", "    %s:\n" % q(router), "      loadBalancer:\n",
+               "        servers:\n",
+               "          - url: %s\n" % q("http://%s:%s" % (ziel_name(name), c["PORT"]))]
+    return "".join(zeilen)
+
+
+def route_schreiben(name, c):
+    orte.datei_schreiben(route_datei(name), route_text(name, c), 0o644)
+
+
+def route_entfernen(name):
+    try:
+        os.remove(route_datei(name))
+    except FileNotFoundError:
+        pass
 
 
 def netze_schreiben():
@@ -457,6 +423,26 @@ def klonen(url, ziel):
         raise Abbruch(zugang.fehler_text(url, zugang.host_von(url), aus, _hat_zugang(url)))
 
 
+def host_pruefen(name, host, anmeldung):
+    """Der Name, unter dem ein Tool erreichbar ist - beim Anlegen und beim
+    Aendern dieselbe Pruefung (N-144: "tool set --host admin.<domain>" gab
+    die Admin-Seite samt ihrem Cookie an das Tool)."""
+    k = orte.konf()
+    host = (host or "").lower()
+    if not orte.DOMAIN.fullmatch(host):
+        raise Abbruch("--host %s ist kein gültiger Name." % host)
+    if anmeldung == "authentik" and not (host == k["PROLO_DOMAIN"] or
+                                         host.endswith("." + k["PROLO_DOMAIN"])):
+        raise Abbruch("Die Anmeldung über Authentik gilt für %s und seine Subdomains - "
+                      "%s liegt nicht darunter." % (k["PROLO_DOMAIN"], host))
+    if host in ("admin." + k["PROLO_DOMAIN"], "auth." + k["PROLO_DOMAIN"]):
+        raise Abbruch("%s gehört dem Unterbau." % host)
+    for n in namen():
+        if n != name and conf(n).get("HOST") == host:
+            raise Abbruch("%s ist schon vergeben - an das Tool %s." % (host, n))
+    return host
+
+
 def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
             anmeldung="authentik", host=None, env=None, ja=False, von_web=False):
     orte.root_noetig("tool add")
@@ -472,20 +458,9 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
     if dienst and not DIENST.fullmatch(dienst):
         raise Abbruch("--dienst: so heißt kein Dienst.")
     k = orte.konf()
-    host = (host or "%s.%s" % (name, k["PROLO_DOMAIN"])).lower()
-    if not orte.DOMAIN.fullmatch(host):
-        raise Abbruch("--host %s ist kein gültiger Name." % host)
-    if anmeldung == "authentik" and not (host == k["PROLO_DOMAIN"] or
-                                         host.endswith("." + k["PROLO_DOMAIN"])):
-        raise Abbruch("Die Anmeldung über Authentik gilt für %s und seine Subdomains - "
-                      "%s liegt nicht darunter." % (k["PROLO_DOMAIN"], host))
-    if host in ("admin." + k["PROLO_DOMAIN"], "auth." + k["PROLO_DOMAIN"]):
-        raise Abbruch("%s gehört dem Unterbau." % host)
-    for n in namen():
-        if n == name:
-            raise Abbruch("Ein Tool '%s' gibt es schon:  prolo tool update %s" % (name, name))
-        if conf(n).get("HOST") == host:
-            raise Abbruch("%s ist schon vergeben - an das Tool %s." % (host, n))
+    host = host_pruefen(name, host or "%s.%s" % (name, k["PROLO_DOMAIN"]), anmeldung)
+    if name in namen():
+        raise Abbruch("Ein Tool '%s' gibt es schon:  prolo tool update %s" % (name, name))
 
     ziel = docker.tool_ordner(name)
     tmp = os.path.join(orte.TOOLS, ".neu-" + name)
@@ -524,6 +499,17 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
                 os.rmdir(app)
                 klonen(git, app)
             orte.ok("Quelle liegt in %s/app" % ziel)
+            # Vor allem anderen: ein Verweis nach draussen (.env -> /etc/prolo/
+            # geheim.env) wuerde schon beim Lesen der Datei folgen (N-136).
+            frueh = kaefig.verweise(app)
+            if frueh:
+                for v in frueh:
+                    orte.fehler(v)
+                if aus_dem_web(von_web):
+                    raise Abbruch("Mit diesen Verweisen legt die Admin-Seite nichts an. Wer das "
+                                  "wirklich will, tut es auf dem Server:  sudo prolo tool add ...")
+                if not ja and not frage("Trotzdem weiter?"):
+                    raise Abbruch("Nichts angelegt.")
 
             erzeugt = env_fuellen(app, host, env or {})
             if erzeugt:
@@ -531,18 +517,21 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
             basis = docker.basis_in(app)
             if basis is None:
                 raise Abbruch("Im Repository liegt keine docker-compose.yml (oder compose.yaml).")
-            cfg = config(app, [basis], name)
-            gef, hin, _ = gefahren(cfg, app)
+            cfg = kaefig.modell(app, name, os.path.basename(basis))
+            gef, hin, _ = gefahren(cfg, app, name)
             for h in hin:
                 orte.warnung(h)
+            gef = [g for g in gef if g not in frueh]       # schon bestaetigt
             if gef:
                 for g in gef:
                     orte.fehler(g)
-                if von_web:
+                if aus_dem_web(von_web):
                     raise Abbruch("Mit diesen Gefahren legt die Admin-Seite nichts an. Wer das "
                                   "wirklich will, tut es auf dem Server:  sudo prolo tool add ...")
                 if not ja and not frage("Trotzdem anlegen?"):
                     raise Abbruch("Nichts angelegt.")
+            if gef or frueh:
+                bestaetigen(tmp, gef + frueh)
             # Erst holen und bauen, dann den Port bestimmen: steht er nicht in der
             # Datei, sagt ihn das Abbild - und das muss dafür schon da sein (N-130).
             befehl = ["docker", "compose", "-p", name, "--project-directory", app, "-f", basis]
@@ -550,14 +539,14 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
             if not abbild:          # ein einzelnes Abbild ist oben schon geholt
                 print("  Hole die Abbilder ...", flush=True)
                 rc, aus = docker.lauf(befehl + ["pull", "--ignore-buildable"], cwd=app,
-                                      zeit_s=1800, pruefen=False)
+                                      env=docker.tool_env(), zeit_s=1800, pruefen=False)
             if rc != 0:
                 # Was schon da ist, reicht zum Starten - was fehlt, meldet "up".
                 orte.warnung("nicht alle Abbilder ließen sich holen:\n"
                              + docker.kern_der_meldung(aus, 3))
             if any((d or {}).get("build") for d in (cfg.get("services") or {}).values()):
                 print("  Baue ...", flush=True)
-                docker.lauf(befehl + ["build"], cwd=app, zeit_s=3600)
+                docker.lauf(befehl + ["build"], cwd=app, env=docker.tool_env(), zeit_s=3600)
             dienst, port = dienst_waehlen(cfg, name, dienst, port)
             orte.ok("Oberfläche: Dienst %s, Port %s" % (dienst, port))
 
@@ -574,6 +563,7 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
             angelegt = True
             netze_schreiben()
             traefik_verbinden(name)
+            route_schreiben(name, c)
             print("  Starte ...", flush=True)
             docker.tool(name, "up", "-d", "--remove-orphans", zeit_s=1800)
             z = warten(name)
@@ -587,6 +577,7 @@ def anlegen(name, abbild=None, compose=None, git=None, dienst=None, port=None,
         except BaseException:
             # Kein halbes Tool liegen lassen (§12): was schon steht, wieder weg.
             if angelegt:
+                route_entfernen(name)
                 docker.tool(name, "down", "-v", "--remove-orphans", pruefen=False)
                 traefik_verbinden(name, an=False)
                 shutil.rmtree(ziel, ignore_errors=True)
@@ -618,13 +609,13 @@ def aendern(name, port=None, anmeldung=None, dienst=None, host=None):
         c["ANMELDUNG"] = anmeldung
     if dienst:
         c["DIENST"] = dienst
-    if host:
-        if not orte.DOMAIN.fullmatch(host):
-            raise Abbruch("--host %s ist kein gültiger Name." % host)
-        c["HOST"] = host
+    if host or anmeldung:
+        c["HOST"] = host_pruefen(name, host or c["HOST"], c["ANMELDUNG"])
     with orte.sperre("tool set " + name):
+        kaefig_pruefen(name, "ändern")
         override_neu(name, c)
         conf_schreiben(name, c)
+        route_schreiben(name, c)
         docker.tool(name, "up", "-d", "--remove-orphans")
     orte.ok("%s: Port %s, Anmeldung %s, %s" % (name, c["PORT"], c["ANMELDUNG"], url(c)))
 
@@ -659,6 +650,79 @@ def compose_text(name, c):
     if len(text.encode("utf-8")) > MAX_COMPOSE:
         return None
     return text[len(KOPF):] if text.startswith(KOPF) else text
+
+
+BESTAETIGT = "prolo.bestaetigt"
+
+
+def aus_dem_web(flagge=False):
+    """Kommt der Befehl von der Admin-Seite? Der Agent setzt PROLO_AGENT=1 fuer
+    jeden Auftrag - auch fuer Starten, Aktualisieren, Zurueckholen."""
+    return bool(flagge) or os.environ.get("PROLO_AGENT") == "1"
+
+
+def bestaetigt(ordner):
+    """Gefahren, die ein Mensch auf der Kommandozeile bestaetigt hat."""
+    try:
+        with open(os.path.join(ordner, BESTAETIGT), encoding="utf-8") as f:
+            d = json.load(f)
+        return set(d) if isinstance(d, list) else set()
+    except (OSError, ValueError):
+        return set()
+
+
+def bestaetigen(ordner, gef):
+    orte.datei_schreiben(os.path.join(ordner, BESTAETIGT),
+                         json.dumps(sorted(set(gef)), ensure_ascii=False, indent=1) + "\n", 0o600)
+
+
+def kaefig_pruefen(name, was, ja=False, flagge=False, ordner=None):
+    """Vor jedem Start: das Modell der Dateien, wie sie JETZT liegen, durch den
+    Kaefig. Ein git pull, eine Wiederherstellung, ein Container, der in einem
+    eingehaengten Ordner etwas umbaut - alles kann seit dem Anlegen etwas
+    geaendert haben (N-138). Bestaetigtes fragt nicht noch einmal; Neues
+    lehnt die Admin-Seite ab, die Kommandozeile fragt."""
+    ordner = ordner or docker.tool_ordner(name)
+    app = os.path.join(ordner, "app")
+    basis = docker.basis_in(app)
+    if basis is None:
+        raise Abbruch("In %s liegt keine Compose-Datei." % app)
+    cfg = kaefig.modell(app, name, os.path.basename(basis), auslassen=eingehaengte_ordner(name))
+    gef = gefahren(cfg, app, name)[0]
+    neu = [g for g in gef if g not in bestaetigt(ordner)]
+    if not neu:
+        return cfg
+    for g in neu:
+        orte.fehler(g)
+    if aus_dem_web(flagge):
+        raise Abbruch("Mit diesen Gefahren kann die Admin-Seite %s nicht %s. Wer das wirklich "
+                      "will, tut es auf dem Server:  sudo prolo tool ..." % (name, was))
+    if not ja and not frage("Trotzdem %s?" % was):
+        raise Abbruch("Nicht bestätigt: %s" % "; ".join(neu))
+    bestaetigen(ordner, gef)
+    return cfg
+
+
+def eingehaengte_ordner(name):
+    """Ordner in app/, die die Container des Tools gerade einhaengen - dort
+    liegen Daten, keine Dateien fuer prolo."""
+    app = os.path.join(docker.tool_ordner(name), "app")
+    echt = os.path.realpath(app)
+    quellen = set()
+    try:
+        quellen |= {m["quelle"] for m in docker.mounts(name) if m["art"] == "bind"}
+    except Abbruch:
+        pass
+    # Auch die eines angehaltenen Tools: aus der Datei selbst. Auslassen ist
+    # immer gefahrlos - fehlt der Pruefung etwas, scheitert sie (N-138).
+    try:
+        basis = docker.basis_in(app)
+        for d in ((config(app, [basis], name).get("services") or {}).values() if basis else ()):
+            quellen |= {str(v.get("source")) for v in (d or {}).get("volumes") or []
+                        if isinstance(v, dict) and v.get("type") == "bind"}
+    except Abbruch:
+        pass
+    return {q for q in quellen if os.path.realpath(q).startswith(echt + os.sep)}
 
 
 def variablen_namen(name):
@@ -699,11 +763,10 @@ def bearbeiten(name, compose=None, env=None, ja=False, von_web=False, sichern=Tr
         raise Abbruch("In %s liegt keine Compose-Datei." % app)
     env_pfad = os.path.join(app, ".env")
     # Erst pruefen, dann sichern: eine kaputte oder gefaehrliche Datei soll das
-    # Tool nicht erst fuer eine Sicherung anhalten. Die Probe liegt neben app/,
-    # Pfade in ihr gelten trotzdem relativ zu app/.
+    # Tool nicht erst fuer eine Sicherung anhalten. Geprueft wird auf einer
+    # Kopie, ohne Rechte (kaefig.modell) - mit der neuen Datei und den neuen
+    # Variablen, als lägen sie schon in app/.
     orte.abschnitt("%s: die Änderung prüfen" % name)
-    probe = os.path.join(ordner, ".probe-compose.yml")
-    probe_env = os.path.join(ordner, ".probe.env")
     with open(basis, encoding="utf-8") as f:
         text_alt = f.read()
     try:
@@ -711,32 +774,29 @@ def bearbeiten(name, compose=None, env=None, ja=False, von_web=False, sichern=Tr
             env_alt = f.read()
     except FileNotFoundError:
         env_alt = ""
-    try:
-        orte.datei_schreiben(probe, text_alt if text is None else text, 0o600)
-        orte.datei_schreiben(probe_env, env_setzen(env_alt, env), 0o600)
-        try:
-            cfg = config(app, [probe], name, probe_env)
-        except Abbruch as a:
-            raise Abbruch(str(a).replace(probe, "die neue Datei"))
-    finally:
-        for p in (probe, probe_env):
-            if os.path.exists(p):
-                os.remove(p)
+    eingehaengt = eingehaengte_ordner(name)
+    cfg = kaefig.modell(app, name, os.path.basename(basis),
+                        compose_text=text_alt if text is None else text,
+                        env_text=env_setzen(env_alt, env), auslassen=eingehaengt)
     if c["DIENST"] not in (cfg.get("services") or {}):
         raise Abbruch("Den Dienst %s mit der Oberfläche gibt es in der neuen Datei nicht - "
                       "nichts geändert. Seinen Namen in der Datei lassen, wie er ist."
                       % c["DIENST"])
-    gef, hin, _ = gefahren(cfg, app)
+    gef, hin, _ = gefahren(cfg, app, name)
     for h in hin:
         orte.warnung(h)
+    gef = [g for g in gef if g not in bestaetigt(ordner)]
     if gef:
         for g in gef:
             orte.fehler(g)
-        if von_web:
+        if aus_dem_web(von_web):
             raise Abbruch("Mit diesen Gefahren ändert die Admin-Seite nichts. Wer das "
                           "wirklich will, tut es auf dem Server:  sudo prolo tool edit ...")
         if not ja and not frage("Trotzdem ändern?"):
             raise Abbruch("Nichts geändert.")
+    schon = bestaetigt(ordner) | set(gef)
+    if not gef:
+        schon = bestaetigt(ordner)
     orte.ok("die neue Datei ist in Ordnung")
     if sichern:
         sicherung.sichern(nur=[name], grund="vor dem Bearbeiten von %s" % name)
@@ -744,7 +804,7 @@ def bearbeiten(name, compose=None, env=None, ja=False, von_web=False, sichern=Tr
         orte.abschnitt("%s bearbeiten" % name)
         vorher = {}
         for pfad in (basis, env_pfad, os.path.join(ordner, "prolo.conf"),
-                     os.path.join(ordner, "prolo.override.yml")):
+                     os.path.join(ordner, "prolo.override.yml"), os.path.join(ordner, BESTAETIGT)):
             try:
                 with open(pfad, encoding="utf-8") as f:
                     vorher[pfad] = (f.read(), os.stat(pfad).st_mode & 0o777)
@@ -764,15 +824,19 @@ def bearbeiten(name, compose=None, env=None, ja=False, von_web=False, sichern=Tr
                 orte.getan("in app/.env eingetragen: %s" % ", ".join(erzeugt))
             # Mit den gefuellten Werten noch einmal: was jetzt neu gefaehrlich
             # ist, hat niemand bestaetigt.
-            cfg = config(app, [basis], name)
-            neu = set(gefahren(cfg, app)[0]) - set(gef)
+            cfg = kaefig.modell(app, name, os.path.basename(basis), auslassen=eingehaengt)
+            jetzt = gefahren(cfg, app, name)[0]
+            neu = set(jetzt) - schon
             if neu:
                 raise Abbruch("Mit den eingesetzten Werten neu gefährlich: %s" % "; ".join(sorted(neu)))
+            if jetzt:
+                bestaetigen(ordner, jetzt)
             if text is not None and c.get("QUELLE") == "image":
                 # Wer die Datei eines Abbilds bearbeitet, hat danach eine eigene.
                 c.update(QUELLE="compose", ABBILD="")
             override_neu(name, c)           # prueft auch: gibt es den Dienst noch?
             conf_schreiben(name, c)
+            route_schreiben(name, c)
             print("  Hole die Abbilder ...", flush=True)
             rc, aus = docker.tool(name, "pull", "--ignore-buildable", zeit_s=1800, pruefen=False)
             if rc != 0:
@@ -806,10 +870,11 @@ def bearbeiten(name, compose=None, env=None, ja=False, von_web=False, sichern=Tr
     orte.ok("%s ist geändert und %s: %s" % (name, z, url(c)))
 
 
-def starten(name):
+def starten(name, ja=False):
     orte.root_noetig("tool start")
     conf(name)
     with orte.sperre("tool start " + name):
+        kaefig_pruefen(name, "starten", ja)
         docker.tool(name, "up", "-d", "--remove-orphans")
     orte.ok("%s: %s" % (name, warten(name, 120)))
 
@@ -822,10 +887,11 @@ def anhalten(name):
     orte.ok("%s angehalten" % name)
 
 
-def neustarten(name):
+def neustarten(name, ja=False):
     orte.root_noetig("tool restart")
     conf(name)
     with orte.sperre("tool restart " + name):
+        kaefig_pruefen(name, "neu starten", ja)
         docker.tool(name, "restart")
     orte.ok("%s: %s" % (name, warten(name, 120)))
 
@@ -834,11 +900,11 @@ def protokoll(name, zeilen="100", folgen=False):
     orte.root_noetig("tool logs")
     conf(name)
     args = ["logs", "--tail", str(zeilen), "--no-color"] + (["-f"] if folgen else [])
-    return docker.mit_ausgabe(docker.tool_befehl(name, *args),
+    return docker.mit_ausgabe(docker.tool_befehl(name, *args), env=docker.tool_env(),
                               cwd=os.path.join(docker.tool_ordner(name), "app"))
 
 
-def aktualisieren(name, sichern=True):
+def aktualisieren(name, sichern=True, ja=False):
     from . import sicherung
     orte.root_noetig("tool update")
     c = conf(name)
@@ -848,13 +914,25 @@ def aktualisieren(name, sichern=True):
         orte.abschnitt("%s aktualisieren" % name)
         app = os.path.join(docker.tool_ordner(name), "app")
         if c.get("QUELLE") == "git":
-            rc, aus = docker.lauf(["git", "-C", app, "-c", "safe.directory=" + app, "pull",
-                                   "--ff-only"], zeit_s=600, env=zugang.git_env(), pruefen=False)
+            git = ["git", "-C", app, "-c", "safe.directory=" + app]
+            _, vorher = docker.lauf(git + ["rev-parse", "HEAD"], zeit_s=60)
+            rc, aus = docker.lauf(git + ["pull", "--ff-only"], zeit_s=600, env=zugang.git_env(),
+                                  pruefen=False)
             if rc != 0:
                 url = c.get("GIT", "")
                 raise Abbruch(zugang.fehler_text(url, zugang.host_von(url), aus,
                                                  _hat_zugang(url)))
             orte.ok("git: %s" % (aus.strip().splitlines() or ["?"])[-1])
+            # Was aus Git kommt, startet erst nach der Pruefung (N-138) - sonst
+            # zurueck auf den Stand davor, damit nichts Halbes liegen bleibt.
+            try:
+                kaefig_pruefen(name, "aktualisieren", ja)
+            except BaseException:
+                docker.lauf(git + ["reset", "--hard", "--quiet", vorher.strip()], zeit_s=120)
+                orte.warnung("zurück auf den Stand davor (%s)" % vorher.strip()[:7])
+                raise
+        else:
+            kaefig_pruefen(name, "aktualisieren", ja)
         override_neu(name, c)
         rc, aus = docker.tool(name, "pull", "--ignore-buildable", zeit_s=1800, pruefen=False)
         if rc != 0:
@@ -879,6 +957,7 @@ def entfernen(name, ja=False, sichern=True):
     if sichern:
         stand = sicherung.sichern(nur=[name], grund="vor dem Entfernen von %s" % name)
     with orte.sperre("tool rm " + name):
+        route_entfernen(name)
         docker.tool(name, "down", "-v", "--remove-orphans", zeit_s=600)
         traefik_verbinden(name, an=False)
         shutil.rmtree(docker.tool_ordner(name))
